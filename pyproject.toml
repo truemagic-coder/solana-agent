@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "0.0.3"
+version = "0.0.4"
 description = "The Best AI Agent Framework"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -24,6 +24,7 @@ motor = "^3.7.0"
 aiosqlite = "^0.21.0"
 zep-python = "^2.0.2"
 requests = "^2.32.3"
+pandas = "^2.2.3"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

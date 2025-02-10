@@ -16,6 +16,7 @@ import requests
 from zep_python.client import AsyncZep
 from zep_python.client import Zep
 from zep_python.types import Message, RoleType
+import pandas as pd
 
 
 def adapt_datetime(ts):
@@ -173,6 +174,7 @@ class AI:
         zep_base_url: str = None,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
+        gemini_api_key: str = None,
         code_interpreter: bool = True,
         model: Literal["gpt-4o-mini", "gpt-4o"] = "gpt-4o-mini",
     ):
@@ -195,6 +197,7 @@ class AI:
         )
         self.perplexity_api_key = perplexity_api_key
         self.grok_api_key = grok_api_key
+        self.gemini_api_key = gemini_api_key
 
     async def __aenter__(self):
         assistants = openai.beta.assistants.list()
@@ -249,6 +252,37 @@ class AI:
         run = self.client.beta.threads.runs.retrieve(
             thread_id=thread_id, run_id=run_id)
         return run.status
+
+    # converter tool - has to be sync
+    def csv_to_json(self, file_path: str) -> str:
+        df = pd.read_csv(file_path)
+        records = df.to_dict(orient="records")
+        return json.dumps(records)
+
+    # summarize tool - has to be sync
+    def summarize(
+        self, text: str, model: Literal["gemini-2.0-flash"] = "gemini-2.0-flash"
+    ) -> str:
+        try:
+            client = OpenAI(
+                api_key=self.gemini_api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
+
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You summarize the text.",
+                    },
+                    {"role": "user", "content": text},
+                ],
+            )
+
+            return completion.choices[0].message.content
+        except Exception as e:
+            return f"Failed to summarize text. Error: {e}"
 
     # search facts tool - has to be sync
     def search_facts(
@@ -317,6 +351,9 @@ class AI:
         self,
         user_id: str,
         query: str,
+        use_perplexity: bool = True,
+        use_grok: bool = True,
+        use_facts: bool = True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
@@ -324,11 +361,20 @@ class AI:
         grok_model: Literal["grok-beta"] = "grok-beta",
     ) -> str:
         try:
-            facts = self.search_facts(user_id, query)
-            if not facts:
+            if use_facts:
+                facts = self.search_facts(user_id, query)
+                if not facts:
+                    facts = ""
+            else:
                 facts = ""
-            search_results = self.search_internet(query, perplexity_model)
-            x_search_results = self.search_x(query, grok_model)
+            if use_perplexity:
+                search_results = self.search_internet(query, perplexity_model)
+            else:
+                search_results = ""
+            if use_grok:
+                x_search_results = self.search_x(query, grok_model)
+            else:
+                x_search_results = ""
 
             response = self.client.chat.completions.create(
                 model=openai_model,
