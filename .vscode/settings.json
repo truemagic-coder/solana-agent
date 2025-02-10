@@ -1,0 +1,10 @@
+{
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "CodeGPT.apiKey": "Anthropic",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8"
+    }
+}

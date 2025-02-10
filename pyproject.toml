@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "solana-agent"
+version = "1.0.0"
+description = "The Best AI Agent Framework"
+authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/truemagic-coder/solana-agent"
+keywords = ["ai", "openai"]
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+packages = [{ include = "solana_agent" }]
+
+[tool.pytest.ini-options]
+python_paths = [".", "tests"]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+openai = "^1.61.1"
+pydantic = "^2.10.6"
+motor = "^3.7.0"
+aiosqlite = "^0.21.0"
+zep-python = "^2.0.2"
+requests = "^2.32.3"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
