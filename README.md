@@ -34,7 +34,7 @@ pip install solana-agent
 Here's a basic example of how to use Solana Agent:
 
 ```python
-from solana-agent import AI, SQLiteDatabase
+from solana_agent import AI, SQLiteDatabase
 
 async def main():
     database = SQLiteDatabase("conversations.db")
