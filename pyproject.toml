@@ -6,7 +6,7 @@ authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/truemagic-coder/solana-agent"
-keywords = ["ai", "openai"]
+keywords = ["ai", "openai", "ai agents"]
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
