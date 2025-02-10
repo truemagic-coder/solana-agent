@@ -50,6 +50,10 @@ import asyncio
 asyncio.run(main())
 ```
 
+## Production Apps
+[Solana Agent](https://solana-agent.com) - AI Market Intelligence
+[CometHeart](https://cometheart.com) - AI Companion
+
 ## Contributing
 
 Contributions to Solana Agent are welcome! Please feel free to submit a Pull Request.
