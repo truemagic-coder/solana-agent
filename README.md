@@ -1,4 +1,4 @@
-# Solana-Agent
+# Solana Agent
 
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
 
@@ -55,6 +55,9 @@ asyncio.run(main())
 ## Production Apps
 * [Solana Agent](https://solana-agent.com) - AI Market Intelligence
 * [CometHeart](https://cometheart.com) - AI Companion
+
+## Example Apps
+* [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
 
 ## Contributing
 
