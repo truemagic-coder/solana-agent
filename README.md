@@ -51,8 +51,8 @@ asyncio.run(main())
 ```
 
 ## Production Apps
-[Solana Agent](https://solana-agent.com) - AI Market Intelligence
-[CometHeart](https://cometheart.com) - AI Companion
+* [Solana Agent](https://solana-agent.com) - AI Market Intelligence
+* [CometHeart](https://cometheart.com) - AI Companion
 
 ## Contributing
 
