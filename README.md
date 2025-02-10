@@ -19,6 +19,8 @@ Solana Agent is the best AI Agent framework.
 - Search Zep facts tool
 - Search X with Grok tool
 - Reasoning tool that combines OpenAI model reasoning, Zep facts, Internet search, and X search.
+- CSV to JSON tool
+- Summarize text tool using Gemini
 - Solana tools upcoming...
 
 ## Installation
