@@ -104,6 +104,9 @@ You can install Solana Agent using pip:
 pip install solana-agent
 ```
 
+## Documentation
+* All public methods have docstrings for real-time IDE hinting
+
 ## Production Apps
 * [Solana Agent Copilot](https://ai.solana-agent.com) - Solana Token AI Copilot using streaming text conversations
 * [CometHeart](https://cometheart.com) - AI Companion and Business Coach on mobile using voice-to-voice conversations

@@ -47,7 +47,7 @@ class EventHandler(AssistantEventHandler):
     def on_event(self, event):
         if event.event == "thread.run.requires_action":
             run_id = event.data.id
-            self._ai_instance.handle_requires_action(event.data, run_id)
+            self._ai_instance._handle_requires_action(event.data, run_id)
 
 
 class ToolConfig(BaseModel):
@@ -149,6 +149,31 @@ class AI:
         code_interpreter: bool = True,
         model: Literal["gpt-4o-mini", "gpt-4o"] = "gpt-4o-mini",
     ):
+        """Initialize a new AI assistant with memory and tool integration capabilities.
+
+        Args:
+            openai_api_key (str): OpenAI API key for core AI functionality
+            name (str): Name identifier for the assistant
+            instructions (str): Base behavioral instructions for the AI
+            database (Any): Database instance for message/thread storage
+            zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
+            zep_base_url (str, optional): Base URL for Zep API. Defaults to None
+            perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
+            grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
+            gemini_api_key (str, optional): API key for Google Gemini. Defaults to None
+            code_interpreter (bool, optional): Enable code interpretation. Defaults to True
+            model (Literal["gpt-4o-mini", "gpt-4o"], optional): AI model to use. Defaults to "gpt-4o-mini"
+
+        Example:
+            ```python
+            ai = AI(
+                openai_api_key="your-key",
+                name="Assistant",
+                instructions="Be helpful and concise",
+                database=MongoDatabase("mongodb://localhost", "ai_db"),
+            )
+            ```
+        """
         self._client = OpenAI(api_key=openai_api_key)
         self._name = name
         self._instructions = instructions
@@ -228,6 +253,23 @@ class AI:
 
     # converter tool - has to be sync
     def csv_to_json(self, file_path: str) -> str:
+        """Convert CSV file to JSON string format.
+
+        Args:
+            file_path (str): Path to the CSV file to convert
+
+        Returns:
+            str: JSON string containing the CSV data
+
+        Example:
+            ```python
+            result = ai.csv_to_json("data.csv")
+            # Returns: '[{"column1": "value1", "column2": "value2"}]'
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+        """
         df = pd.read_csv(file_path)
         records = df.to_dict(orient="records")
         return json.dumps(records)
@@ -236,6 +278,28 @@ class AI:
     def summarize(
         self, text: str, model: Literal["gemini-2.0-flash", "gemini-1.5-pro"] = "gemini-1.5-pro"
     ) -> str:
+        """Summarize text using Google's Gemini language model.
+
+        Args:
+            text (str): The text content to be summarized
+            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional): 
+                Gemini model to use. Defaults to "gemini-1.5-pro"
+                - gemini-2.0-flash: Faster, shorter summaries
+                - gemini-1.5-pro: More detailed summaries
+
+        Returns:
+            str: Summarized text or error message if summarization fails
+
+        Example:
+            ```python
+            summary = ai.summarize("Long article text here...", model="gemini-1.5-pro")
+            # Returns: "Concise summary of the article..."
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+            Requires valid Gemini API key to be configured.
+        """
         try:
             client = OpenAI(
                 api_key=self._gemini_api_key,
@@ -264,6 +328,30 @@ class AI:
         query: str,
         limit: int | None = None,
     ) -> List[str] | None:
+        """Search stored conversation facts using Zep memory integration.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            query (str): Search query to find relevant facts
+            limit (int | None, optional): Maximum number of facts to return. Defaults to None.
+
+        Returns:
+            List[str] | None: List of found facts or None if Zep is not configured
+
+        Example:
+            ```python
+            facts = ai.search_facts(
+                user_id="user123",
+                query="project requirements",
+                limit=5
+            )
+            # Returns: ["Fact 1", "Fact 2", ...]
+            ```
+
+        Note:
+            Requires Zep integration to be configured with valid API key and URL.
+            This is a synchronous tool method required for OpenAI function calling.
+        """
         if self._sync_zep:
             facts = []
             results = self._sync_zep.memory.search_sessions(
@@ -286,6 +374,33 @@ class AI:
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
     ) -> str:
+        """Search the internet using Perplexity AI API.
+
+        Args:
+            query (str): Search query string
+            model (Literal["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"], optional): 
+                Perplexity model to use. Defaults to "sonar"
+                - sonar: Fast, general-purpose search
+                - sonar-pro: Enhanced search capabilities
+                - sonar-reasoning-pro: Advanced reasoning with search
+                - sonar-reasoning: Basic reasoning with search
+
+        Returns:
+            str: Search results or error message if search fails
+
+        Example:
+            ```python
+            result = ai.search_internet(
+                query="Latest AI developments",
+                model="sonar-reasoning-pro"
+            )
+            # Returns: "Detailed search results about AI..."
+            ```
+
+        Note:
+            Requires valid Perplexity API key to be configured.
+            This is a synchronous tool method required for OpenAI function calling.
+        """
         try:
             url = "https://api.perplexity.ai/chat/completions"
 
@@ -333,6 +448,38 @@ class AI:
         openai_model: Literal["o1", "o3-mini"] = "o3-mini",
         grok_model: Literal["grok-beta"] = "grok-beta",
     ) -> str:
+        """Combine multiple data sources with AI reasoning to answer queries.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            query (str): The question or query to reason about
+            use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
+            use_grok (bool, optional): Include X/Twitter search results. Defaults to True
+            use_facts (bool, optional): Include stored conversation facts. Defaults to True
+            perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
+            openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
+            grok_model (Literal, optional): Grok model for X search. Defaults to "grok-beta"
+
+        Returns:
+            str: Reasoned response combining all enabled data sources or error message
+
+        Example:
+            ```python
+            result = ai.reason(
+                user_id="user123",
+                query="What are the latest AI trends?",
+                use_perplexity=True,
+                use_grok=True,
+                use_facts=True
+            )
+            # Returns: "Based on multiple sources: [comprehensive answer]"
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+            Requires configuration of relevant API keys for enabled data sources.
+            Will gracefully handle missing or failed data sources.
+        """
         try:
             if use_facts:
                 facts = self.search_facts(user_id, query)
@@ -369,6 +516,26 @@ class AI:
     # x search tool - has to be sync
     def search_x(self, query: str, model: Literal["grok-beta"] = "grok-beta") -> str:
         try:
+            """Search X (formerly Twitter) using Grok API integration.
+
+            Args:
+                query (str): Search query to find relevant X posts
+                model (Literal["grok-beta"], optional): Grok model to use. Defaults to "grok-beta"
+
+            Returns:
+                str: Search results from X or error message if search fails
+
+            Example:
+                ```python
+                result = ai.search_x("AI announcements")
+                # Returns: "Recent relevant X posts about AI announcements..."
+                ```
+
+            Note:
+                This is a synchronous tool method required for OpenAI function calling.
+                Requires valid Grok API key to be configured.
+                Returns error message string if API call fails.
+            """
             client = OpenAI(api_key=self._grok_api_key,
                             base_url="https://api.x.ai/v1")
 
@@ -388,10 +555,26 @@ class AI:
             return f"Failed to search X. Error: {e}"
 
     async def delete_facts(self, user_id: str):
+        """Delete stored conversation facts for a specific user from Zep memory.
+
+        Args:
+            user_id (str): Unique identifier for the user whose facts should be deleted
+
+        Example:
+            ```python
+            await ai.delete_facts("user123")
+            # Deletes all stored facts for user123
+            ```
+
+        Note:
+            This is an async method and must be awaited.
+            Requires Zep integration to be configured.
+            No-op if Zep is not configured.
+        """
         if self._zep:
             await self._zep.memory.delete(session_id=user_id)
 
-    async def listen(self, audio_content: bytes, input_format: str) -> str:
+    async def _listen(self, audio_content: bytes, input_format: str) -> str:
         transcription = self._client.audio.transcriptions.create(
             model="whisper-1",
             file=(f"file.{input_format}", audio_content),
@@ -399,6 +582,28 @@ class AI:
         return transcription.text
 
     async def text(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+        """Process text input and stream AI responses asynchronously.
+
+        Args:
+            user_id (str): Unique identifier for the user/conversation
+            user_text (str): Text input from user to process
+
+        Returns:
+            AsyncGenerator[str, None]: Stream of response text chunks
+
+        Example:
+            ```python
+            async for chunk in ai.text("user123", "What is machine learning?"):
+                print(chunk, end="")  # Prints response as it streams
+            ```
+
+        Note:
+            - Maintains conversation thread using OpenAI's thread system
+            - Stores messages in configured database (MongoDB/SQLite)
+            - Integrates with Zep memory if configured
+            - Handles concurrent runs by canceling active ones
+            - Streams responses for real-time interaction
+        """
         self._accumulated_value_queue = asyncio.Queue()
 
         thread_id = await self._database.get_thread_id(user_id)
@@ -486,6 +691,41 @@ class AI:
         response_format: Literal["mp3", "opus",
                                  "aac", "flac", "wav", "pcm"] = "aac",
     ) -> AsyncGenerator[bytes, None]:
+        """Process voice conversations and stream AI audio responses asynchronously.
+
+        Args:
+            user_id (str): Unique identifier for the user/conversation
+            audio_bytes (bytes): Raw audio input bytes to process
+            voice (Literal, optional): OpenAI TTS voice to use. Defaults to "nova"
+            input_format (Literal, optional): Input audio format. Defaults to "mp4"
+            response_format (Literal, optional): Output audio format. Defaults to "aac"
+
+        Returns:
+            AsyncGenerator[bytes, None]: Stream of audio response chunks
+
+        Example:
+            ```python
+            async with open('input.mp4', 'rb') as f:
+                audio_data = f.read()
+                async for chunk in ai.conversation(
+                    "user123",
+                    audio_data,
+                    voice="nova",
+                    input_format="mp4",
+                    response_format="aac"
+                ):
+                    # Process or save audio chunks
+                    await process_audio_chunk(chunk)
+            ```
+
+        Note:
+            - Converts audio to text using Whisper
+            - Maintains conversation thread using OpenAI
+            - Stores conversation in database
+            - Integrates with Zep memory if configured
+            - Streams audio response using OpenAI TTS
+        """
+
         # Reset the queue for each new conversation
         self._accumulated_value_queue = asyncio.Queue()
 
@@ -495,7 +735,7 @@ class AI:
             thread_id = await self._create_thread(user_id)
 
         self._current_thread_id = thread_id
-        transcript = await self.listen(audio_bytes, input_format)
+        transcript = await self._listen(audio_bytes, input_format)
         event_handler = EventHandler(self._tool_handlers, self)
         self._client.beta.threads.messages.create(
             thread_id=thread_id,
@@ -563,7 +803,7 @@ class AI:
             for chunk in response.iter_bytes(1024):
                 yield chunk
 
-    def handle_requires_action(self, data, run_id):
+    def _handle_requires_action(self, data, run_id):
         tool_outputs = []
 
         for tool in data.required_action.submit_tool_outputs.tool_calls:
@@ -584,6 +824,35 @@ class AI:
                 asyncio.create_task(self._accumulated_value_queue.put(text))
 
     def add_tool(self, func: Callable):
+        """Register a custom function as an AI tool using decorator pattern.
+
+        Args:
+            func (Callable): Function to register as a tool. Must have docstring and type hints.
+
+        Returns:
+            Callable: The decorated function
+
+        Example:
+            ```python
+            @ai.add_tool
+            def custom_search(query: str) -> str:
+                '''Search custom data source.
+
+                Args:
+                    query (str): Search query
+
+                Returns:
+                    str: Search results
+                '''
+                return "Custom search results"
+            ```
+
+        Note:
+            - Function must have proper docstring for tool description
+            - Parameters should have type hints
+            - Tool becomes available to AI for function calling
+            - Parameters are automatically converted to JSON schema
+        """
         sig = inspect.signature(func)
         parameters = {"type": "object", "properties": {}, "required": []}
         for name, param in sig.parameters.items():
