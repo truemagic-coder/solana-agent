@@ -89,6 +89,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
    - No chain building required
    - Python plain functions vs complex chaining
    - Fewer moving parts equals more stable applications
+   - Smaller repo size by 1000x: Solana Agent @ ~500 LOC vs LangChain @ ~500,000 LOC
 
 🚀 **Performance**
    - Optimized for real-time streaming responses
