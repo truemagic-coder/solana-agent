@@ -180,6 +180,9 @@ class AI:
             if self._zep:
                 try:
                     await self._zep.user.add(user_id=user_id)
+                except Exception:
+                    pass
+                try:
                     await self._zep.memory.add_session(user_id=user_id, session_id=user_id)
                 except Exception:
                     pass
