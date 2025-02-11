@@ -63,7 +63,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Conversational fact search powered by Zep
 - X (Twitter) search using Grok
 - Conversational message history using MongoDB (on-prem or hosted)
-- Knowledge Base search via Pinecone, Cohere, and OpenAI
+- Knowledge Base search via Pinecone
 - Comprehensive reasoning combining multiple data sources
 
 🛠️ **Data Processing Tools**

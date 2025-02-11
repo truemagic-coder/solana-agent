@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 import json
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
+import uuid
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import OpenAI
@@ -14,6 +15,7 @@ from zep_cloud.client import AsyncZep
 from zep_cloud.client import Zep
 from zep_cloud.types import Message, RoleType
 import pandas as pd
+from pinecone import Pinecone
 
 
 class EventHandler(AssistantEventHandler):
@@ -73,8 +75,13 @@ class AI:
         perplexity_api_key: str = None,
         grok_api_key: str = None,
         gemini_api_key: str = None,
+        pinecone_api_key: str = None,
+        pinecone_index_name: str = None,
         code_interpreter: bool = True,
-        model: Literal["gpt-4o-mini", "gpt-4o"] = "gpt-4o-mini",
+        openai_assistant_model: Literal["gpt-4o-mini",
+                                        "gpt-4o"] = "gpt-4o-mini",
+        openai_embedding_model: Literal["text-embedding-3-small",
+                                        "text-embedding-3-large"] = "text-embedding-3-small"
     ):
         """Initialize a new AI assistant with memory and tool integration capabilities.
 
@@ -87,8 +94,11 @@ class AI:
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             gemini_api_key (str, optional): API key for Google Gemini. Defaults to None
+            pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
+            pinecone_index_name (str, optional): Pinecone index name. Defaults to None
             code_interpreter (bool, optional): Enable code interpretation. Defaults to True
-            model (Literal["gpt-4o-mini", "gpt-4o"], optional): AI model to use. Defaults to "gpt-4o-mini"
+            openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
+            openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-small"
 
         Example:
             ```python
@@ -99,11 +109,18 @@ class AI:
                 database=MongoDatabase("mongodb://localhost", "ai_db"),
             )
             ```
+        Notes:
+            - Requires valid OpenAI API key for core functionality
+            - Database instance for storing messages and threads
+            - Optional integrations for Zep, Perplexity, Grok, Gemini, Pinecone, and Cohere
+            - Supports code interpretation and custom tool functions
+            - You must create the Pinecone index in the dashboard before using it
         """
         self._client = OpenAI(api_key=openai_api_key)
         self._name = name
         self._instructions = instructions
-        self._model = model
+        self._openai_assistant_model = openai_assistant_model
+        self._openai_embedding_model = openai_embedding_model
         self._tools = [{"type": "code_interpreter"}
                        ] if code_interpreter else []
         self._tool_handlers = {}
@@ -121,6 +138,11 @@ class AI:
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
         self._gemini_api_key = gemini_api_key
+        self._pinecone = Pinecone(
+            api_key=pinecone_api_key) if pinecone_api_key else None
+        self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
+        self._pinecone_index = self._pinecone.Index(
+            self._pinecone_index_name) if self._pinecone else None
 
     async def __aenter__(self):
         assistants = self._client.beta.assistants.list()
@@ -134,7 +156,7 @@ class AI:
                 name=self.name,
                 instructions=self._instructions,
                 tools=self._tools,
-                model=self._model,
+                model=self._openai_assistant_model,
             ).id
             await self._database.delete_all_threads()
 
@@ -199,6 +221,81 @@ class AI:
         df = pd.read_csv(file_path)
         records = df.to_dict(orient="records")
         return json.dumps(records)
+
+    # search kb tool - has to be sync
+    def search_kb(self, query: str, limit: int = 10) -> str:
+        """Search Pinecone knowledge base using OpenAI embeddings.
+
+        Args:
+            query (str): Search query to find relevant documents
+            limit (int, optional): Maximum number of results to return. Defaults to 10.
+
+        Returns:
+            str: JSON string of matched documents or error message
+
+        Example:
+            ```python
+            results = ai.search_kb("machine learning basics", limit=5)
+            # Returns: '[{"title": "ML Intro", "content": "..."}]'
+            ```
+
+        Note:
+            - Requires configured Pinecone index
+            - Uses OpenAI embeddings for semantic search
+            - Returns JSON-serialized Pinecone match metadata results
+            - Returns error message string if search fails
+        """
+        try:
+            response = self._client.embeddings.create(
+                input=query,
+                model=self._openai_embedding_model,
+            )
+            search_results = self._pinecone_index.query(
+                vector=response.data[0].embedding, top_k=limit, include_metadata=True, include_values=False)
+            matches = search_results.matches
+            metadata = [match.metadata for match in matches]
+            return json.dumps(metadata)
+        except Exception as e:
+            return f"Failed to search KB. Error: {e}"
+
+    # add document to kb tool - has to be sync
+    def add_document_to_kb(self, document: Dict[str, str]):
+        """Add a document to the Pinecone knowledge base with OpenAI embeddings.
+
+        Args:
+            document (Dict[str, str]): Document to add, with string fields as values
+
+        Example:
+            ```python
+            ai.add_document_to_kb({
+                "title": "AI Basics",
+                "content": "Introduction to artificial intelligence...",
+                "author": "John Doe"
+            })
+            ```
+
+        Note:
+            - Requires Pinecone index to be configured
+            - Uses OpenAI embeddings API
+            - Document values must be strings
+            - Automatically generates UUID for document
+        """
+        values: List[str] = []
+        for _, v in document.items():
+            values.append(v)
+        response = self._client.embeddings.create(
+            input=values,
+            model=self._openai_embedding_model,
+        )
+        self._pinecone_index.upsert(
+            vectors=[
+                {
+                    "id": uuid.uuid4().hex,
+                    "values": response.data[0].embedding,
+                    "metadata": document,
+                }
+            ]
+        )
 
     # summarize tool - has to be sync
     def summarize(
@@ -368,6 +465,7 @@ class AI:
         use_perplexity: bool = True,
         use_grok: bool = True,
         use_facts: bool = True,
+        use_kb=True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
@@ -382,6 +480,7 @@ class AI:
             use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
             use_grok (bool, optional): Include X/Twitter search results. Defaults to True
             use_facts (bool, optional): Include stored conversation facts. Defaults to True
+            use_kb (bool, optional): Include Pinecone knowledge base search results. Defaults to True
             perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
             openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
             grok_model (Literal, optional): Grok model for X search. Defaults to "grok-beta"
@@ -394,9 +493,6 @@ class AI:
             result = ai.reason(
                 user_id="user123",
                 query="What are the latest AI trends?",
-                use_perplexity=True,
-                use_grok=True,
-                use_facts=True
             )
             # Returns: "Based on multiple sources: [comprehensive answer]"
             ```
@@ -421,6 +517,10 @@ class AI:
                 x_search_results = self.search_x(query, grok_model)
             else:
                 x_search_results = ""
+            if use_kb:
+                kb_results = self.search_kb(query)
+            else:
+                kb_results = ""
 
             response = self._client.chat.completions.create(
                 model=openai_model,
@@ -431,7 +531,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {query}, Facts: {facts}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
+                        "content": f"Query: {query}, Facts: {facts}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
                     },
                 ],
             )
