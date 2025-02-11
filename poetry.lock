@@ -986,13 +986,13 @@ zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "zep-cloud"
-version = "2.3.1"
+version = "2.4.0"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.9.0"
 files = [
-    {file = "zep_cloud-2.3.1-py3-none-any.whl", hash = "sha256:79624173985663c1722b2923631496c9e2fd301b55137ad529fb4103a820bddb"},
-    {file = "zep_cloud-2.3.1.tar.gz", hash = "sha256:dfbf8f2de1687ca143f8dd922b052be69ef8d5c0475f8aa0d21a5a56c4fb5327"},
+    {file = "zep_cloud-2.4.0-py3-none-any.whl", hash = "sha256:814097c947fafad829b8eeba289f670a6aab7001a277e6ed295c0c4cea79b43d"},
+    {file = "zep_cloud-2.4.0.tar.gz", hash = "sha256:b1e0cf7b3dada1313259e3b0c6e2f12241efdafdeacb52bff9c27cbbf701670a"},
 ]
 
 [package.dependencies]
@@ -1003,4 +1003,4 @@ typing_extensions = ">=4.0.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "ca0e0af6cb44ff1162d650fe8c14024a6064d6b1ee9ec53af2d7510b0784d6cd"
+content-hash = "025d0ff325cd0f7b1d60d39ad06b1dcbbde3cecb6b106065d347d901e907bd63"

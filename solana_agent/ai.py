@@ -614,6 +614,7 @@ class AI:
         """
         if self._zep:
             await self._zep.memory.delete(session_id=user_id)
+            await self._zep.user.delete(user_id=user_id)
 
     async def _listen(self, audio_content: bytes, input_format: str) -> str:
         transcription = self._client.audio.transcriptions.create(
