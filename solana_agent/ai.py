@@ -367,7 +367,7 @@ class AI:
         self,
         user_id: str,
         query: str,
-        limit: int = 10,
+        limit: int = 3,
     ) -> str:
         """Search stored conversation facts using Zep memory integration.
 
@@ -383,7 +383,7 @@ class AI:
             ```python
             facts = ai.search_facts(
                 user_id="user123",
-                query="project requirements"
+                query="How many cats do I have?"
             )
             # Returns: ["Fact 1", "Fact 2", ...]
             ```
@@ -400,8 +400,9 @@ class AI:
                 text=query,
                 limit=limit,
             )
+            results.results.sort(key=lambda x: x.fact.created_at, reverse=True)
             for result in results.results:
-                fact = result.fact.fact
+                fact = result.fact
                 facts.append(fact)
             return json.dumps(facts)
         return None
