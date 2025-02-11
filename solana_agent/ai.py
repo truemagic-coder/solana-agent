@@ -46,14 +46,14 @@ class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
         self._client = AsyncIOMotorClient(db_url)
         self._db = self._client[db_name]
-        self.threads = self._db["threads"]
+        self._threads = self._db["threads"]
         self.messages = self._db["messages"]
 
     async def save_thread_id(self, user_id: str, thread_id: str):
-        await self.threads.insert_one({"thread_id": thread_id, "user_id": user_id})
+        await self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
 
     async def get_thread_id(self, user_id: str) -> Optional[str]:
-        document = await self.threads.find_one({"user_id": user_id})
+        document = await self._threads.find_one({"user_id": user_id})
         return document["thread_id"] if document else None
 
     async def save_message(self, user_id: str, metadata: Dict[str, Any]):
@@ -61,7 +61,7 @@ class MongoDatabase:
         await self.messages.insert_one(metadata)
 
     async def delete_all_threads(self):
-        await self.threads.delete_many({})
+        await self._threads.delete_many({})
 
 
 class AI:
