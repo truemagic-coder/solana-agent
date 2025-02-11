@@ -30,7 +30,7 @@ Unlike traditional AI assistants that forget conversations after each session, o
 
 🎯 **Improved Decision Making**
 - Access comprehensive data from multiple trusted sources
-- Get instant answers backed by internet-wide research
+- Get instant answers backed by Internet and social-media research
 - Make informed decisions with cross-referenced information
 
 💪 **Operational Efficiency**
