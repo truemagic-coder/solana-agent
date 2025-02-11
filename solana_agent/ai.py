@@ -141,7 +141,7 @@ class AI:
             Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
         )
         self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
-        self._pinecone_index = (
+        self.kb = (
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
@@ -261,7 +261,7 @@ class AI:
                 input=query,
                 model=self._openai_embedding_model,
             )
-            search_results = self._pinecone_index.query(
+            search_results = self.kb.query(
                 vector=response.data[0].embedding,
                 top_k=limit,
                 include_metadata=True,
@@ -302,7 +302,7 @@ class AI:
             input=values,
             model=self._openai_embedding_model,
         )
-        self._pinecone_index.upsert(
+        self.kb.upsert(
             vectors=[
                 {
                     "id": uuid.uuid4().hex,
