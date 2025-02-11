@@ -84,8 +84,9 @@ class AI:
         code_interpreter: bool = True,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
-        openai_embedding_model: Literal["text-embedding-3-small",
-                                        "text-embedding-3-large"] = "text-embedding-3-small"
+        openai_embedding_model: Literal[
+            "text-embedding-3-small", "text-embedding-3-large"
+        ] = "text-embedding-3-small",
     ):
         """Initialize a new AI assistant with memory and tool integration capabilities.
 
@@ -131,22 +132,19 @@ class AI:
         self._assistant_id = None
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
-        self._zep = (
-            AsyncZep(api_key=zep_api_key)
-            if zep_api_key
-            else None
-        )
-        self._sync_zep = (
-            Zep(api_key=zep_api_key) if zep_api_key else None
-        )
+        self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
+        self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
         self._gemini_api_key = gemini_api_key
-        self._pinecone = Pinecone(
-            api_key=pinecone_api_key) if pinecone_api_key else None
+        self._pinecone = (
+            Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
+        )
         self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
-        self._pinecone_index = self._pinecone.Index(
-            self._pinecone_index_name) if self._pinecone else None
+        self._pinecone_index = (
+            self._pinecone.Index(
+                self._pinecone_index_name) if self._pinecone else None
+        )
 
     async def __aenter__(self):
         assistants = self._client.beta.assistants.list()
@@ -183,7 +181,9 @@ class AI:
                 except Exception:
                     pass
                 try:
-                    await self._zep.memory.add_session(user_id=user_id, session_id=user_id)
+                    await self._zep.memory.add_session(
+                        user_id=user_id, session_id=user_id
+                    )
                 except Exception:
                     pass
 
@@ -206,7 +206,8 @@ class AI:
 
     async def _get_run_status(self, thread_id: str, run_id: str) -> str:
         run = self._client.beta.threads.runs.retrieve(
-            thread_id=thread_id, run_id=run_id)
+            thread_id=thread_id, run_id=run_id
+        )
         return run.status
 
     # converter tool - has to be sync
@@ -261,7 +262,11 @@ class AI:
                 model=self._openai_embedding_model,
             )
             search_results = self._pinecone_index.query(
-                vector=response.data[0].embedding, top_k=limit, include_metadata=True, include_values=False)
+                vector=response.data[0].embedding,
+                top_k=limit,
+                include_metadata=True,
+                include_values=False,
+            )
             matches = search_results.matches
             metadata = [match.metadata for match in matches]
             return json.dumps(metadata)
@@ -309,13 +314,16 @@ class AI:
 
     # summarize tool - has to be sync
     def summarize(
-        self, text: str, model: Literal["gemini-2.0-flash", "gemini-1.5-pro"] = "gemini-1.5-pro"
+        self,
+        text: str,
+        model: Literal["gemini-2.0-flash",
+                       "gemini-1.5-pro"] = "gemini-1.5-pro",
     ) -> str:
         """Summarize text using Google's Gemini language model.
 
         Args:
             text (str): The text content to be summarized
-            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional): 
+            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
                 Gemini model to use. Defaults to "gemini-1.5-pro"
                 - gemini-2.0-flash: Faster, shorter summaries
                 - gemini-1.5-pro: More detailed summaries
@@ -411,7 +419,7 @@ class AI:
 
         Args:
             query (str): Search query string
-            model (Literal["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"], optional): 
+            model (Literal["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"], optional):
                 Perplexity model to use. Defaults to "sonar"
                 - sonar: Fast, general-purpose search
                 - sonar-pro: Enhanced search capabilities
@@ -711,9 +719,7 @@ class AI:
                     content=full_response,
                 ),
             ]
-            await self._zep.memory.add(
-                user_id=user_id, session_id=user_id, messages=messages
-            )
+            await self._zep.memory.add(session_id=user_id, messages=messages)
 
     async def conversation(
         self,
@@ -825,9 +831,7 @@ class AI:
                     content=full_response,
                 ),
             ]
-            await self._zep.memory.add(
-                user_id=user_id, session_id=user_id, messages=messages
-            )
+            await self._zep.memory.add(session_id=user_id, messages=messages)
 
         # Generate and stream the audio response
         with self._client.audio.speech.with_streaming_response.create(
