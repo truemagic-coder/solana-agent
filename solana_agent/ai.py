@@ -13,7 +13,7 @@ import inspect
 import requests
 from zep_cloud.client import AsyncZep
 from zep_cloud.client import Zep
-from zep_cloud.types import Message, RoleType
+from zep_cloud.types import Message
 import pandas as pd
 from pinecone import Pinecone
 
@@ -696,12 +696,12 @@ class AI:
             messages = [
                 Message(
                     role="user",
-                    role_type=RoleType["user"],
+                    role_type="user",
                     content=user_text,
                 ),
                 Message(
                     role="assistant",
-                    role_type=RoleType["assistant"],
+                    role_type="assistant",
                     content=full_response,
                 ),
             ]
@@ -810,12 +810,12 @@ class AI:
             messages = [
                 Message(
                     role="user",
-                    role_type=RoleType["user"],
+                    role_type="user",
                     content=transcript,
                 ),
                 Message(
                     role="assistant",
-                    role_type=RoleType["assistant"],
+                    role_type="assistant",
                     content=full_response,
                 ),
             ]
