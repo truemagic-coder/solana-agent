@@ -6,28 +6,20 @@
 
 Solana Agent is the self-learning AI Agent framework.
 
-## Features
+## Unique Selling Proposition
 
-🔄 **Real-time AI Interactions**
-- Streaming text-based conversations
-- Real-time voice-to-voice conversations
+### 🧬 The First AI Agent with Enterprise-Grade Episodic Memory
 
-🧠 **Memory System and Extensibility**
-- Advanced Agentic memory combining conversational context, conversational facts, and knowledge base
-- Simple custom tool creation for extending capabilities like additional API integrations
+Unlike traditional AI assistants that forget conversations after each session, our agent maintains a rich, searchable memory system that grows smarter with every interaction.
 
-🔍 **Multi-Source Search and Reasoning**
-- Internet search via Perplexity
-- Conversational fact search powered by Zep (on-prem)
-- X (Twitter) search using Grok
-- Conversational message history using MongoDB (on-prem or hosted) or SQLite (on-prem)
-- Knowledge Base search via Qdrant (on-prem or hosted), Cohere, and OpenAI
-- Comprehensive reasoning combining multiple data sources
+**Why This Matters:**
+- 📈 **Continuous Learning**: Your AI evolves with every conversation
+- 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
+- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
+- 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
+- 🛡️ **Secure**: Private, on-premise memory storage 
 
-🛠️ **Data Processing Tools**
-- CSV to JSON conversion for data integration
-- Text summarization powered by Gemini
-- Enterprise-ready knowledge base powered by Qdrant 
+*"It's not just an AI assistant - it's your organization's evolving intelligence layer."*
 
 ## Benefits
 
@@ -56,20 +48,28 @@ Solana Agent is the self-learning AI Agent framework.
 - Process and analyze large datasets quickly
 - Transform raw data into actionable intelligence
 
-## Unique Selling Proposition
+## Features
 
-### 🧬 The First AI Agent with Enterprise-Grade Episodic Memory
+🔄 **Real-time AI Interactions**
+- Streaming text-based conversations
+- Real-time voice-to-voice conversations
 
-Unlike traditional AI assistants that forget conversations after each session, our agent maintains a rich, searchable memory system that grows smarter with every interaction.
+🧠 **Memory System and Extensibility**
+- Advanced Agentic memory combining conversational context, conversational facts, and knowledge base
+- Simple custom tool creation for extending capabilities like additional API integrations
 
-**Why This Matters:**
-- 📈 **Continuous Learning**: Your AI evolves with every conversation
-- 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
-- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
-- 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
-- 🛡️ **Secure**: Private, on-premise memory storage 
+🔍 **Multi-Source Search and Reasoning**
+- Internet search via Perplexity
+- Conversational fact search powered by Zep (on-prem)
+- X (Twitter) search using Grok
+- Conversational message history using MongoDB (on-prem or hosted) or SQLite (on-prem)
+- Knowledge Base search via Qdrant (on-prem or hosted), Cohere, and OpenAI
+- Comprehensive reasoning combining multiple data sources
 
-*"It's not just an AI assistant - it's your organization's evolving intelligence layer."*
+🛠️ **Data Processing Tools**
+- CSV to JSON conversion for data integration
+- Text summarization powered by Gemini
+- Enterprise-ready knowledge base powered by Qdrant
 
 ## Installation
 
@@ -80,8 +80,8 @@ pip install solana-agent
 ```
 
 ## Production Apps
-* [Solana Agent Copilot](https://ai.solana-agent.com) - AI Copilot using streaming text conversations
-* [CometHeart](https://cometheart.com) - AI Companion on mobile using voice-to-voice conversations
+* [Solana Agent Copilot](https://ai.solana-agent.com) - Solana Token AI Copilot using streaming text conversations
+* [CometHeart](https://cometheart.com) - AI Companion and Business Coach on mobile using voice-to-voice conversations
 
 ## Example Apps
 * [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app) - See as source of documentation
