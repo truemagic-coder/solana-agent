@@ -178,8 +178,11 @@ class AI:
             thread_id = thread.id
             await self._database.save_thread_id(user_id, thread_id)
             if self._zep:
-                await self._zep.user.add(user_id=user_id)
-                await self._zep.memory.add_session(user_id=user_id, session_id=user_id)
+                try:
+                    await self._zep.user.add(user_id=user_id)
+                    await self._zep.memory.add_session(user_id=user_id, session_id=user_id)
+                except Exception:
+                    pass
 
         return thread_id
 
