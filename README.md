@@ -6,7 +6,7 @@
 
 Solana Agent is the first self-learning AI Agent framework.
 
-## Unique Selling Proposition
+## Why Solana Agent?
 
 ### 🧬 The First Self-Learning AI Agent
 
