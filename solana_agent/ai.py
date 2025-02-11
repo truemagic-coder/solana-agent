@@ -401,8 +401,6 @@ class AI:
                     text=query,
                     limit=limit,
                 )
-                results.results.sort(
-                    key=lambda x: x.fact.created_at, reverse=True)
                 for result in results.results:
                     fact = result.fact
                     facts.append(fact)
