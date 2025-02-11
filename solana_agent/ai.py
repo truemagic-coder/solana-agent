@@ -367,7 +367,7 @@ class AI:
         self,
         user_id: str,
         query: str,
-        limit: int = 3,
+        limit: int = 10,
     ) -> str:
         """Search stored conversation facts using Zep memory integration.
 
@@ -377,7 +377,7 @@ class AI:
             limit (int, optional): Maximum number of facts to return. Defaults to 10.
 
         Returns:
-            List[str] | None: List of found facts or None if Zep is not configured
+            str: JSON string of matched facts or error message
 
         Example:
             ```python
@@ -385,7 +385,7 @@ class AI:
                 user_id="user123",
                 query="How many cats do I have?"
             )
-            # Returns: ["Fact 1", "Fact 2", ...]
+            # Returns: [{"fact": "user123 has 4 cats", ...}]
             ```
 
         Note:
@@ -393,19 +393,24 @@ class AI:
             This is a synchronous tool method required for OpenAI function calling.
         """
         if self._sync_zep:
-            facts = []
-            results = self._sync_zep.memory.search_sessions(
-                user_id=user_id,
-                session_ids=[user_id],
-                text=query,
-                limit=limit,
-            )
-            results.results.sort(key=lambda x: x.fact.created_at, reverse=True)
-            for result in results.results:
-                fact = result.fact
-                facts.append(fact)
-            return json.dumps(facts)
-        return None
+            try:
+                facts = []
+                results = self._sync_zep.memory.search_sessions(
+                    user_id=user_id,
+                    session_ids=[user_id],
+                    text=query,
+                    limit=limit,
+                )
+                results.results.sort(
+                    key=lambda x: x.fact.created_at, reverse=True)
+                for result in results.results:
+                    fact = result.fact
+                    facts.append(fact)
+                return json.dumps(facts)
+            except Exception as e:
+                return f"Failed to search facts. Error: {e}"
+        else:
+            return "Zep integration not configured."
 
     # search internet tool - has to be sync
     def search_internet(
