@@ -13,13 +13,13 @@ Solana Agent is the self-learning AI Agent framework.
 Unlike traditional AI assistants that forget conversations after each session, our agent maintains a rich, searchable memory system that grows smarter with every interaction.
 
 **Why This Matters:**
-- 📈 **Continuous Learning**: Your AI evolves with every conversation
+- 📈 **Continuous Learning**: Your AI Agent evolves with every conversation
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
 - 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
 - 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
-- 🛡️ **Secure**: Private, on-premise memory storage 
+- 🛡️ **Secure**: Private, on-premise memory and data storage 
 
-*"It's not just an AI assistant - it's your organization's evolving intelligence layer."*
+**"It's not just an AI assistant - it's your organization's evolving intelligence layer."**
 
 ## Benefits
 
