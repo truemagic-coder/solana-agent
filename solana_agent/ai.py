@@ -367,14 +367,14 @@ class AI:
         self,
         user_id: str,
         query: str,
-        limit: int | None = None,
+        limit: int = 10,
     ) -> List[str] | None:
         """Search stored conversation facts using Zep memory integration.
 
         Args:
             user_id (str): Unique identifier for the user
             query (str): Search query to find relevant facts
-            limit (int | None, optional): Maximum number of facts to return. Defaults to None.
+            limit (int, optional): Maximum number of facts to return. Defaults to 10.
 
         Returns:
             List[str] | None: List of found facts or None if Zep is not configured
@@ -383,14 +383,13 @@ class AI:
             ```python
             facts = ai.search_facts(
                 user_id="user123",
-                query="project requirements",
-                limit=5
+                query="project requirements"
             )
             # Returns: ["Fact 1", "Fact 2", ...]
             ```
 
         Note:
-            Requires Zep integration to be configured with valid API key and URL.
+            Requires Zep integration to be configured with valid API key.
             This is a synchronous tool method required for OpenAI function calling.
         """
         if self._sync_zep:
