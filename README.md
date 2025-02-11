@@ -17,7 +17,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
 - 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
 - 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
-- 🛡️ **Secure**: Private, on-premise memory and data storage 
+- 🛡️ **Secure**: Secure and private memory and data storage 
 
 **"It's not just an AI assistant - it's your organization's evolving intelligence layer."**
 
@@ -60,16 +60,16 @@ Unlike traditional AI assistants that forget conversations after each session, S
 
 🔍 **Multi-Source Search and Reasoning**
 - Internet search via Perplexity
-- Conversational fact search powered by Zep (on-prem)
+- Conversational fact search powered by Zep
 - X (Twitter) search using Grok
-- Conversational message history using MongoDB (on-prem or hosted) or SQLite (on-prem)
-- Knowledge Base search via Qdrant (on-prem or hosted), Cohere, and OpenAI
+- Conversational message history using MongoDB (on-prem or hosted)
+- Knowledge Base search via Pinecone, Cohere, and OpenAI
 - Comprehensive reasoning combining multiple data sources
 
 🛠️ **Data Processing Tools**
 - CSV to JSON conversion for data integration
 - Text summarization powered by Gemini
-- Enterprise-ready knowledge base powered by Qdrant
+- Enterprise-ready knowledge base powered by Pinecone
 
 ## Why Choose Solana Agent Over LangChain?
 

@@ -5,31 +5,15 @@ from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import OpenAI
-import aiosqlite
 from openai import AssistantEventHandler
 from openai.types.beta.threads import TextDelta, Text
 from typing_extensions import override
-import sqlite3
 import inspect
 import requests
 from zep_python.client import AsyncZep
 from zep_python.client import Zep
 from zep_python.types import Message, RoleType
 import pandas as pd
-
-
-def adapt_datetime(ts):
-    return ts.isoformat()
-
-
-# Custom converter for datetime
-def convert_datetime(ts):
-    return datetime.fromisoformat(ts)
-
-
-# Register the adapter and converter
-sqlite3.register_adapter(datetime, adapt_datetime)
-sqlite3.register_converter("timestamp", convert_datetime)
 
 
 class EventHandler(AssistantEventHandler):
@@ -76,62 +60,6 @@ class MongoDatabase:
 
     async def delete_all_threads(self):
         await self._threads.delete_many({})
-
-
-class SQLiteDatabase:
-    def __init__(self, db_path: str):
-        self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS threads (user_id TEXT, thread_id TEXT)"
-        )
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS messages (user_id TEXT, message TEXT, response TEXT, timestamp TEXT)"
-        )
-        self._conn.commit()
-        self._conn.close()
-
-    async def save_thread_id(self, user_id: str, thread_id: str):
-        async with aiosqlite.connect(
-            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
-        ) as db:
-            await db.execute(
-                "INSERT INTO threads (user_id, thread_id) VALUES (?, ?)",
-                (user_id, thread_id),
-            )
-            await db.commit()
-
-    async def get_thread_id(self, user_id: str) -> Optional[str]:
-        async with aiosqlite.connect(
-            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
-        ) as db:
-            async with db.execute(
-                "SELECT thread_id FROM threads WHERE user_id = ?", (user_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else None
-
-    async def save_message(self, user_id: str, metadata: Dict[str, Any]):
-        async with aiosqlite.connect(
-            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
-        ) as db:
-            await db.execute(
-                "INSERT INTO messages (user_id, message, response, timestamp) VALUES (?, ?, ?, ?)",
-                (
-                    user_id,
-                    metadata["message"],
-                    metadata["response"],
-                    metadata["timestamp"],
-                ),
-            )
-            await db.commit()
-
-    async def delete_all_threads(self):
-        async with aiosqlite.connect(
-            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
-        ) as db:
-            await db.execute("DELETE FROM threads")
-            await db.commit()
 
 
 class AI:
