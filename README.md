@@ -87,7 +87,7 @@ Unlike traditional AI assistants that forget conversations after each session, o
 
 🛠️ **Simplified Development**
    - No chain building required
-   - Python plain functions vs complex chain configurations
+   - Python plain functions vs complex chaining
    - Fewer moving parts equals more stable applications
 
 🚀 **Performance**
