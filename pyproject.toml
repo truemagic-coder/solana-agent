@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "solana-agent"
 version = "0.0.7"
-description = "The Best AI Agent Framework"
+description = "Build self-learning AI Agents"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
 readme = "README.md"
