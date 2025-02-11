@@ -368,7 +368,7 @@ class AI:
         user_id: str,
         query: str,
         limit: int = 10,
-    ) -> List[str] | None:
+    ) -> str:
         """Search stored conversation facts using Zep memory integration.
 
         Args:
@@ -396,14 +396,14 @@ class AI:
             facts = []
             results = self._sync_zep.memory.search_sessions(
                 user_id=user_id,
+                session_ids=[user_id],
                 text=query,
                 limit=limit,
             )
             for result in results.results:
                 fact = result.fact.fact
-                if fact:
-                    facts.append(fact)
-            return facts
+                facts.append(fact)
+            return json.dumps(facts)
         return None
 
     # search internet tool - has to be sync
@@ -522,8 +522,6 @@ class AI:
         try:
             if use_facts:
                 facts = self.search_facts(user_id, query)
-                if not facts:
-                    facts = ""
             else:
                 facts = ""
             if use_perplexity:
