@@ -45,9 +45,9 @@ class ToolConfig(BaseModel):
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
         self._client = AsyncIOMotorClient(db_url)
-        self._db = self.client[db_name]
-        self._threads = self.db["threads"]
-        self._messages = self.db["messages"]
+        self._db = self._client[db_name]
+        self._threads = self._db["threads"]
+        self._messages = self._db["messages"]
 
     async def save_thread_id(self, user_id: str, thread_id: str):
         await self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
