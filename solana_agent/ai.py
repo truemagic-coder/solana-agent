@@ -5,7 +5,6 @@ from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import OpenAI
-import openai
 import aiosqlite
 from openai import AssistantEventHandler
 from openai.types.beta.threads import TextDelta, Text
@@ -59,50 +58,42 @@ class ToolConfig(BaseModel):
 
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
-        self.client = AsyncIOMotorClient(db_url)
-        self.db = self.client[db_name]
-        self.threads = self.db["threads"]
-        self.messages = self.db["messages"]
+        self._client = AsyncIOMotorClient(db_url)
+        self._db = self.client[db_name]
+        self._threads = self.db["threads"]
+        self._messages = self.db["messages"]
 
     async def save_thread_id(self, user_id: str, thread_id: str):
-        await self.threads.insert_one({"thread_id": thread_id, "user_id": user_id})
+        await self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
 
     async def get_thread_id(self, user_id: str) -> Optional[str]:
-        document = await self.threads.find_one({"user_id": user_id})
+        document = await self._threads.find_one({"user_id": user_id})
         return document["thread_id"] if document else None
 
     async def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
-        await self.messages.insert_one(metadata)
-
-    async def delete_thread_id(self, user_id: str):
-        document = await self.threads.find_one({"user_id": user_id})
-        thread_id = document["thread_id"]
-        openai.beta.threads.delete(thread_id)
-        await self.messages.delete_many({"user_id": user_id})
-        await self.threads.delete_one({"user_id": user_id})
+        await self._messages.insert_one(metadata)
 
     async def delete_all_threads(self):
-        await self.threads.delete_many({})
-        await self.messages.delete_many({})
+        await self._threads.delete_many({})
 
 
 class SQLiteDatabase:
     def __init__(self, db_path: str):
-        self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
-        self.conn.execute(
+        self._db_path = db_path
+        self._conn = sqlite3.connect(db_path)
+        self._conn.execute(
             "CREATE TABLE IF NOT EXISTS threads (user_id TEXT, thread_id TEXT)"
         )
-        self.conn.execute(
+        self._conn.execute(
             "CREATE TABLE IF NOT EXISTS messages (user_id TEXT, message TEXT, response TEXT, timestamp TEXT)"
         )
-        self.conn.commit()
-        self.conn.close()
+        self._conn.commit()
+        self._conn.close()
 
     async def save_thread_id(self, user_id: str, thread_id: str):
         async with aiosqlite.connect(
-            self.db_path, detect_types=sqlite3.PARSE_DECLTYPES
+            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
         ) as db:
             await db.execute(
                 "INSERT INTO threads (user_id, thread_id) VALUES (?, ?)",
@@ -112,7 +103,7 @@ class SQLiteDatabase:
 
     async def get_thread_id(self, user_id: str) -> Optional[str]:
         async with aiosqlite.connect(
-            self.db_path, detect_types=sqlite3.PARSE_DECLTYPES
+            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
         ) as db:
             async with db.execute(
                 "SELECT thread_id FROM threads WHERE user_id = ?", (user_id,)
@@ -122,7 +113,7 @@ class SQLiteDatabase:
 
     async def save_message(self, user_id: str, metadata: Dict[str, Any]):
         async with aiosqlite.connect(
-            self.db_path, detect_types=sqlite3.PARSE_DECLTYPES
+            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
         ) as db:
             await db.execute(
                 "INSERT INTO messages (user_id, message, response, timestamp) VALUES (?, ?, ?, ?)",
@@ -135,30 +126,10 @@ class SQLiteDatabase:
             )
             await db.commit()
 
-    async def delete_thread_id(self, user_id: str):
-        async with aiosqlite.connect(
-            self.db_path, detect_types=sqlite3.PARSE_DECLTYPES
-        ) as db:
-            async with db.execute(
-                "SELECT thread_id FROM threads WHERE user_id = ?", (user_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    thread_id = row[0]
-                    openai.beta.threads.delete(thread_id)
-                    await db.execute(
-                        "DELETE FROM messages WHERE user_id = ?", (user_id,)
-                    )
-                    await db.execute(
-                        "DELETE FROM threads WHERE user_id = ?", (user_id,)
-                    )
-                    await db.commit()
-
     async def delete_all_threads(self):
         async with aiosqlite.connect(
-            self.db_path, detect_types=sqlite3.PARSE_DECLTYPES
+            self._db_path, detect_types=sqlite3.PARSE_DECLTYPES
         ) as db:
-            await db.execute("DELETE FROM messages")
             await db.execute("DELETE FROM threads")
             await db.commit()
 
@@ -214,7 +185,7 @@ class AI:
                 tools=self._tools,
                 model=self._model,
             ).id
-            await self.database.delete_all_threads()
+            await self._database.delete_all_threads()
 
         return self
 
