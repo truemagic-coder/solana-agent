@@ -4,7 +4,7 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-Solana Agent is the self-learning AI Agent framework.
+Solana Agent is the first self-learning AI Agent framework.
 
 ## Unique Selling Proposition
 
