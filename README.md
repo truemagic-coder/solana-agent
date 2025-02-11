@@ -8,7 +8,7 @@ Solana Agent is the self-learning AI Agent framework.
 
 ## Unique Selling Proposition
 
-### 🧬 The First AI Agent with Enterprise-Grade Episodic Memory
+### 🧬 The First Self-Learning AI Agent
 
 Unlike traditional AI assistants that forget conversations after each session, our agent maintains a rich, searchable memory system that grows smarter with every interaction.
 
