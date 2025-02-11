@@ -63,6 +63,10 @@ class MongoDatabase:
     async def delete_all_threads(self):
         await self._threads.delete_many({})
 
+    async def clear_user_history(self, user_id: str):
+        await self.messages.delete_many({"user_id": user_id})
+        await self._threads.delete_one({"user_id": user_id})
+
 
 class AI:
     def __init__(
