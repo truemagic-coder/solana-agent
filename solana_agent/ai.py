@@ -155,7 +155,7 @@ class AI:
             self._assistant_id = existing_assistant.id
         else:
             self._assistant_id = self._client.beta.assistants.create(
-                name=self.name,
+                name=self._name,
                 instructions=self._instructions,
                 tools=self._tools,
                 model=self._openai_assistant_model,
