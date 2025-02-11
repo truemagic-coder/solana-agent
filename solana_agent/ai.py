@@ -27,7 +27,7 @@ class EventHandler(AssistantEventHandler):
     @override
     def on_text_delta(self, delta: TextDelta, snapshot: Text):
         asyncio.create_task(
-            self._ai_instance.accumulated_value_queue.put(delta.value))
+            self._ai_instance._accumulated_value_queue.put(delta.value))
 
     @override
     def on_event(self, event):
