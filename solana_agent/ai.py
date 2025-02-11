@@ -36,19 +36,19 @@ sqlite3.register_converter("timestamp", convert_datetime)
 class EventHandler(AssistantEventHandler):
     def __init__(self, tool_handlers, ai_instance):
         super().__init__()
-        self.tool_handlers = tool_handlers
-        self.ai_instance = ai_instance
+        self._tool_handlers = tool_handlers
+        self._ai_instance = ai_instance
 
     @override
     def on_text_delta(self, delta: TextDelta, snapshot: Text):
         asyncio.create_task(
-            self.ai_instance.accumulated_value_queue.put(delta.value))
+            self._ai_instance.accumulated_value_queue.put(delta.value))
 
     @override
     def on_event(self, event):
         if event.event == "thread.run.requires_action":
             run_id = event.data.id
-            self.ai_instance.handle_requires_action(event.data, run_id)
+            self._ai_instance.handle_requires_action(event.data, run_id)
 
 
 class ToolConfig(BaseModel):
@@ -178,40 +178,41 @@ class AI:
         code_interpreter: bool = True,
         model: Literal["gpt-4o-mini", "gpt-4o"] = "gpt-4o-mini",
     ):
-        self.client = OpenAI(api_key=openai_api_key)
-        self.name = name
-        self.instructions = instructions
-        self.model = model
-        self.tools = [{"type": "code_interpreter"}] if code_interpreter else []
-        self.tool_handlers = {}
-        self.assistant_id = None
-        self.database = database
-        self.accumulated_value_queue = asyncio.Queue()
-        self.zep = (
+        self._client = OpenAI(api_key=openai_api_key)
+        self._name = name
+        self._instructions = instructions
+        self._model = model
+        self._tools = [{"type": "code_interpreter"}
+                       ] if code_interpreter else []
+        self._tool_handlers = {}
+        self._assistant_id = None
+        self._database = database
+        self._accumulated_value_queue = asyncio.Queue()
+        self._zep = (
             AsyncZep(api_key=zep_api_key, base_url=zep_base_url)
             if zep_api_key
             else None
         )
-        self.sync_zep = (
+        self._sync_zep = (
             Zep(api_key=zep_api_key, base_url=zep_base_url) if zep_api_key else None
         )
-        self.perplexity_api_key = perplexity_api_key
-        self.grok_api_key = grok_api_key
-        self.gemini_api_key = gemini_api_key
+        self._perplexity_api_key = perplexity_api_key
+        self._grok_api_key = grok_api_key
+        self._gemini_api_key = gemini_api_key
 
     async def __aenter__(self):
-        assistants = openai.beta.assistants.list()
+        assistants = self._client.beta.assistants.list()
         existing_assistant = next(
-            (a for a in assistants if a.name == self.name), None)
+            (a for a in assistants if a.name == self._name), None)
 
         if existing_assistant:
-            self.assistant_id = existing_assistant.id
+            self._assistant_id = existing_assistant.id
         else:
-            self.assistant_id = openai.beta.assistants.create(
+            self._assistant_id = self._client.beta.assistants.create(
                 name=self.name,
-                instructions=self.instructions,
-                tools=self.tools,
-                model=self.model,
+                instructions=self._instructions,
+                tools=self._tools,
+                model=self._model,
             ).id
             await self.database.delete_all_threads()
 
@@ -221,35 +222,36 @@ class AI:
         # Perform any cleanup actions here
         pass
 
-    async def create_thread(self, user_id: str) -> str:
-        thread_id = await self.database.get_thread_id(user_id)
+    async def _create_thread(self, user_id: str) -> str:
+        thread_id = await self._database.get_thread_id(user_id)
 
         if thread_id is None:
-            thread = openai.beta.threads.create()
+            thread = self._client.beta.threads.create()
             thread_id = thread.id
-            await self.database.save_thread_id(user_id, thread_id)
-            if self.zep:
-                await self.zep.user.add(user_id=user_id)
-                await self.zep.memory.add_session(user_id=user_id, session_id=user_id)
+            await self._database.save_thread_id(user_id, thread_id)
+            if self._zep:
+                await self._zep.user.add(user_id=user_id)
+                await self._zep.memory.add_session(user_id=user_id, session_id=user_id)
 
         return thread_id
 
-    async def cancel_run(self, thread_id: str, run_id: str):
+    async def _cancel_run(self, thread_id: str, run_id: str):
         try:
-            self.client.beta.threads.runs.cancel(
+            self._client.beta.threads.runs.cancel(
                 thread_id=thread_id, run_id=run_id)
         except Exception as e:
             print(f"Error cancelling run: {e}")
 
-    async def get_active_run(self, thread_id: str) -> Optional[str]:
-        runs = self.client.beta.threads.runs.list(thread_id=thread_id, limit=1)
+    async def _get_active_run(self, thread_id: str) -> Optional[str]:
+        runs = self._client.beta.threads.runs.list(
+            thread_id=thread_id, limit=1)
         for run in runs:
             if run.status in ["in_progress"]:
                 return run.id
         return None
 
-    async def get_run_status(self, thread_id: str, run_id: str) -> str:
-        run = self.client.beta.threads.runs.retrieve(
+    async def _get_run_status(self, thread_id: str, run_id: str) -> str:
+        run = self._client.beta.threads.runs.retrieve(
             thread_id=thread_id, run_id=run_id)
         return run.status
 
@@ -265,7 +267,7 @@ class AI:
     ) -> str:
         try:
             client = OpenAI(
-                api_key=self.gemini_api_key,
+                api_key=self._gemini_api_key,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             )
 
@@ -291,9 +293,9 @@ class AI:
         query: str,
         limit: int | None = None,
     ) -> List[str] | None:
-        if self.sync_zep:
+        if self._sync_zep:
             facts = []
-            results = self.sync_zep.memory.search_sessions(
+            results = self._sync_zep.memory.search_sessions(
                 user_id=user_id,
                 text=query,
                 limit=limit,
@@ -330,7 +332,7 @@ class AI:
                 ],
             }
             headers = {
-                "Authorization": f"Bearer {self.perplexity_api_key}",
+                "Authorization": f"Bearer {self._perplexity_api_key}",
                 "Content-Type": "application/json",
             }
 
@@ -376,7 +378,7 @@ class AI:
             else:
                 x_search_results = ""
 
-            response = self.client.chat.completions.create(
+            response = self._client.chat.completions.create(
                 model=openai_model,
                 messages=[
                     {
@@ -396,7 +398,7 @@ class AI:
     # x search tool - has to be sync
     def search_x(self, query: str, model: Literal["grok-beta"] = "grok-beta") -> str:
         try:
-            client = OpenAI(api_key=self.grok_api_key,
+            client = OpenAI(api_key=self._grok_api_key,
                             base_url="https://api.x.ai/v1")
 
             completion = client.chat.completions.create(
@@ -415,45 +417,45 @@ class AI:
             return f"Failed to search X. Error: {e}"
 
     async def delete_facts(self, user_id: str):
-        if self.zep:
-            await self.zep.memory.delete(session_id=user_id)
+        if self._zep:
+            await self._zep.memory.delete(session_id=user_id)
 
     async def listen(self, audio_content: bytes, input_format: str) -> str:
-        transcription = self.client.audio.transcriptions.create(
+        transcription = self._client.audio.transcriptions.create(
             model="whisper-1",
             file=(f"file.{input_format}", audio_content),
         )
         return transcription.text
 
     async def text(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
-        self.accumulated_value_queue = asyncio.Queue()
+        self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = await self.database.get_thread_id(user_id)
+        thread_id = await self._database.get_thread_id(user_id)
 
         if thread_id is None:
-            thread_id = await self.create_thread(user_id)
+            thread_id = await self._create_thread(user_id)
 
-        self.current_thread_id = thread_id
+        self._current_thread_id = thread_id
 
         # Check for active runs and cancel if necessary
-        active_run_id = await self.get_active_run(thread_id)
+        active_run_id = await self._get_active_run(thread_id)
         if active_run_id:
-            await self.cancel_run(thread_id, active_run_id)
-            while await self.get_run_status(thread_id, active_run_id) != "cancelled":
+            await self._cancel_run(thread_id, active_run_id)
+            while await self._get_run_status(thread_id, active_run_id) != "cancelled":
                 await asyncio.sleep(0.1)
 
         # Create a message in the thread
-        self.client.beta.threads.messages.create(
+        self._client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=user_text,
         )
-        event_handler = EventHandler(self.tool_handlers, self)
+        event_handler = EventHandler(self._tool_handlers, self)
 
         async def stream_processor():
-            with self.client.beta.threads.runs.stream(
+            with self._client.beta.threads.runs.stream(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id,
+                assistant_id=self._assistant_id,
                 event_handler=event_handler,
             ) as stream:
                 stream.until_done()
@@ -466,13 +468,13 @@ class AI:
         while True:
             try:
                 value = await asyncio.wait_for(
-                    self.accumulated_value_queue.get(), timeout=0.1
+                    self._accumulated_value_queue.get(), timeout=0.1
                 )
                 if value is not None:
                     full_response += value
                     yield value
             except asyncio.TimeoutError:
-                if self.accumulated_value_queue.empty():
+                if self._accumulated_value_queue.empty():
                     break
 
         # Save the message to the database
@@ -483,8 +485,8 @@ class AI:
             "timestamp": datetime.now(),
         }
 
-        await self.database.save_message(user_id, metadata)
-        if self.zep:
+        await self._database.save_message(user_id, metadata)
+        if self._zep:
             messages = [
                 Message(
                     role="user",
@@ -497,7 +499,7 @@ class AI:
                     content=full_response,
                 ),
             ]
-            await self.zep.memory.add(
+            await self._zep.memory.add(
                 user_id=user_id, session_id=user_id, messages=messages
             )
 
@@ -514,26 +516,26 @@ class AI:
                                  "aac", "flac", "wav", "pcm"] = "aac",
     ) -> AsyncGenerator[bytes, None]:
         # Reset the queue for each new conversation
-        self.accumulated_value_queue = asyncio.Queue()
+        self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = await self.database.get_thread_id(user_id)
+        thread_id = await self._database.get_thread_id(user_id)
 
         if thread_id is None:
-            thread_id = await self.create_thread(user_id)
+            thread_id = await self._create_thread(user_id)
 
-        self.current_thread_id = thread_id
+        self._current_thread_id = thread_id
         transcript = await self.listen(audio_bytes, input_format)
-        event_handler = EventHandler(self.tool_handlers, self)
-        openai.beta.threads.messages.create(
+        event_handler = EventHandler(self._tool_handlers, self)
+        self._client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=transcript,
         )
 
         async def stream_processor():
-            with openai.beta.threads.runs.stream(
+            with self._client.beta.threads.runs.stream(
                 thread_id=thread_id,
-                assistant_id=self.assistant_id,
+                assistant_id=self._assistant_id,
                 event_handler=event_handler,
             ) as stream:
                 stream.until_done()
@@ -546,12 +548,12 @@ class AI:
         while True:
             try:
                 value = await asyncio.wait_for(
-                    self.accumulated_value_queue.get(), timeout=0.1
+                    self._accumulated_value_queue.get(), timeout=0.1
                 )
                 if value is not None:
                     full_response += value
             except asyncio.TimeoutError:
-                if self.accumulated_value_queue.empty():
+                if self._accumulated_value_queue.empty():
                     break
 
         metadata = {
@@ -561,9 +563,9 @@ class AI:
             "timestamp": datetime.now(),
         }
 
-        await self.database.save_message(user_id, metadata)
+        await self._database.save_message(user_id, metadata)
 
-        if self.zep:
+        if self._zep:
             messages = [
                 Message(
                     role="user",
@@ -576,12 +578,12 @@ class AI:
                     content=full_response,
                 ),
             ]
-            await self.zep.memory.add(
+            await self._zep.memory.add(
                 user_id=user_id, session_id=user_id, messages=messages
             )
 
         # Generate and stream the audio response
-        with self.client.audio.speech.with_streaming_response.create(
+        with self._client.audio.speech.with_streaming_response.create(
             model="tts-1",
             voice=voice,
             input=full_response,
@@ -594,21 +596,21 @@ class AI:
         tool_outputs = []
 
         for tool in data.required_action.submit_tool_outputs.tool_calls:
-            if tool.function.name in self.tool_handlers:
-                handler = self.tool_handlers[tool.function.name]
+            if tool.function.name in self._tool_handlers:
+                handler = self._tool_handlers[tool.function.name]
                 inputs = json.loads(tool.function.arguments)
                 output = handler(**inputs)
                 tool_outputs.append(
                     {"tool_call_id": tool.id, "output": output})
 
-        self.submit_tool_outputs(tool_outputs, run_id)
+        self._submit_tool_outputs(tool_outputs, run_id)
 
-    def submit_tool_outputs(self, tool_outputs, run_id):
-        with self.client.beta.threads.runs.submit_tool_outputs_stream(
-            thread_id=self.current_thread_id, run_id=run_id, tool_outputs=tool_outputs
+    def _submit_tool_outputs(self, tool_outputs, run_id):
+        with self._client.beta.threads.runs.submit_tool_outputs_stream(
+            thread_id=self._current_thread_id, run_id=run_id, tool_outputs=tool_outputs
         ) as stream:
             for text in stream.text_deltas:
-                asyncio.create_task(self.accumulated_value_queue.put(text))
+                asyncio.create_task(self._accumulated_value_queue.put(text))
 
     def add_tool(self, func: Callable):
         sig = inspect.signature(func)
@@ -626,8 +628,8 @@ class AI:
                 "parameters": parameters,
             },
         }
-        self.tools.append(tool_config)
-        self.tool_handlers[func.__name__] = func
+        self._tools.append(tool_config)
+        self._tool_handlers[func.__name__] = func
         return func
 
 
