@@ -10,9 +10,9 @@ from openai.types.beta.threads import TextDelta, Text
 from typing_extensions import override
 import inspect
 import requests
-from zep_python.client import AsyncZep
-from zep_python.client import Zep
-from zep_python.types import Message, RoleType
+from zep_cloud.client import AsyncZep
+from zep_cloud.client import Zep
+from zep_cloud.types import Message, RoleType
 import pandas as pd
 
 
@@ -70,7 +70,6 @@ class AI:
         instructions: str,
         database: Any,
         zep_api_key: str = None,
-        zep_base_url: str = None,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
         gemini_api_key: str = None,
@@ -85,7 +84,6 @@ class AI:
             instructions (str): Base behavioral instructions for the AI
             database (Any): Database instance for message/thread storage
             zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
-            zep_base_url (str, optional): Base URL for Zep API. Defaults to None
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             gemini_api_key (str, optional): API key for Google Gemini. Defaults to None
@@ -113,12 +111,12 @@ class AI:
         self._database = database
         self._accumulated_value_queue = asyncio.Queue()
         self._zep = (
-            AsyncZep(api_key=zep_api_key, base_url=zep_base_url)
+            AsyncZep(api_key=zep_api_key)
             if zep_api_key
             else None
         )
         self._sync_zep = (
-            Zep(api_key=zep_api_key, base_url=zep_base_url) if zep_api_key else None
+            Zep(api_key=zep_api_key) if zep_api_key else None
         )
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key

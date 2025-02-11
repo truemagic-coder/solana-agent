@@ -1238,14 +1238,14 @@ socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
 zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
-name = "zep-python"
-version = "2.0.2"
+name = "zep-cloud"
+version = "2.3.1"
 description = ""
 optional = false
-python-versions = "<4.0,>=3.8"
+python-versions = "<4.0,>=3.9.0"
 files = [
-    {file = "zep_python-2.0.2-py3-none-any.whl", hash = "sha256:d7b2cadf1eb15007825362cae5ddff9c9d0ada5b4f75cf91e5b87986459f7817"},
-    {file = "zep_python-2.0.2.tar.gz", hash = "sha256:919fd635ad5801f30d9ef6da0bb99e854ed4c3cd1357dc8ada4a39b8171a41bc"},
+    {file = "zep_cloud-2.3.1-py3-none-any.whl", hash = "sha256:79624173985663c1722b2923631496c9e2fd301b55137ad529fb4103a820bddb"},
+    {file = "zep_cloud-2.3.1.tar.gz", hash = "sha256:dfbf8f2de1687ca143f8dd922b052be69ef8d5c0475f8aa0d21a5a56c4fb5327"},
 ]
 
 [package.dependencies]
@@ -1256,4 +1256,4 @@ typing_extensions = ">=4.0.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "3c8d1d83854683b49531f6e119771815336b4f8596a1d9ca05b9431c639c944c"
+content-hash = "c3a72881c66e78c0555a6e3a4fd0567119a155799b00a475516951206843de20"
