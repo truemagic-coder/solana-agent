@@ -4,24 +4,71 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-Solana Agent is the best AI Agent framework.
+Solana Agent is the self-learning AI Agent framework.
 
 ## Features
 
-- Streaming text-based conversations with AI
-- Audio transcription and streaming text-to-speech conversion
-- Thread management for maintaining conversation context
-- Message persistence using SQLite or MongoDB
-- Custom tool integration for extending AI capabilities
-- The best memory context currently available for AI Agents
-- Zep integration for tracking facts
-- Search Internet with Perplexity tool
-- Search Zep facts tool
-- Search X with Grok tool
-- Reasoning tool that combines OpenAI model reasoning, Zep facts, Internet search, and X search.
-- CSV to JSON tool
-- Summarize text tool using Gemini
-- Solana tools upcoming...
+🔄 **Real-time AI Interactions**
+- Streaming text-based conversations
+- Real-time voice-to-voice conversations
+
+🧠 **Memory System and Extensibility**
+- Advanced Agentic memory combining conversational context, conversational facts, and knowledge base
+- Simple custom tool creation for extending capabilities like additional API integrations
+
+🔍 **Multi-Source Search and Reasoning**
+- Internet search via Perplexity
+- Conversational fact search powered by Zep (on-prem)
+- X (Twitter) search using Grok
+- Knowledge Base search via Qdrant (on-prem), Cohere, and OpenAI
+- Comprehensive reasoning combining multiple data sources
+
+🛠️ **Data Processing Tools**
+- CSV to JSON conversion for data integration
+- Text summarization powered by Gemini
+- Enterprise-ready knowledge base powered by Qdrant 
+
+## Benefits
+
+💬 **Enhanced Communication**
+- Engage in natural conversations without typing delays
+- Communicate hands-free with voice interactions
+- Reduce response time with real-time processing
+
+🎯 **Improved Decision Making**
+- Access comprehensive data from multiple trusted sources
+- Get instant answers backed by internet-wide research
+- Make informed decisions with cross-referenced information
+
+💪 **Operational Efficiency**
+- Automate repetitive data processing tasks
+- Convert data formats seamlessly
+- Scale knowledge management effortlessly
+
+🔐 **Enterprise Ready**
+- Secure data handling with advanced memory systems
+- Customize functionality through extensible architecture
+- Integrate with existing business tools and APIs
+
+🚀 **Competitive Advantage**
+- Stay current with real-time social media and Internet insights
+- Process and analyze large datasets quickly
+- Transform raw data into actionable intelligence
+
+## Unique Selling Proposition
+
+### 🧬 The First AI Agent with Enterprise-Grade Episodic Memory
+
+Unlike traditional AI assistants that forget conversations after each session, our agent maintains a rich, searchable memory system that grows smarter with every interaction.
+
+**Why This Matters:**
+- 📈 **Continuous Learning**: Your AI evolves with every conversation
+- 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
+- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically from interactions
+- 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
+- 🛡️ **Secure**: Private, on-premise memory storage options
+
+*"It's not just an AI assistant - it's your organization's evolving intelligence layer."*
 
 ## Installation
 
@@ -31,33 +78,12 @@ You can install Solana Agent using pip:
 pip install solana-agent
 ```
 
-## Usage
-
-Here's a basic example of how to use Solana Agent:
-
-```python
-from solana_agent import AI, SQLiteDatabase
-
-async def main():
-    database = SQLiteDatabase("conversations.db")
-    async with AI("your_openai_api_key", "AI Assistant", "Your instructions here", database) as ai:
-        user_id = "user123"
-        response = await ai.text(user_id, "Hello, AI!")
-        async for chunk in response:
-            print(chunk, end="", flush=True)
-        print()
-
-# Run the async main function
-import asyncio
-asyncio.run(main())
-```
-
 ## Production Apps
-* [Solana Agent](https://solana-agent.com) - AI Market Intelligence
-* [CometHeart](https://cometheart.com) - AI Companion
+* [Solana Agent Copilot](https://ai.solana-agent.com) - AI Copilot using streaming text conversations
+* [CometHeart](https://cometheart.com) - AI Companion on mobile using voice-to-voice conversations
 
 ## Example Apps
-* [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
+* [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app) - See as source of documentation
 
 ## Contributing
 
