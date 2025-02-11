@@ -55,7 +55,7 @@ Unlike traditional AI assistants that forget conversations after each session, o
 - Real-time voice-to-voice conversations
 
 🧠 **Memory System and Extensibility**
-- Advanced Agentic memory combining conversational context, conversational facts, and knowledge base
+- Advanced AI memory combining conversational context, conversational facts, and knowledge base
 - Simple custom tool creation for extending capabilities like additional API integrations
 
 🔍 **Multi-Source Search and Reasoning**
@@ -70,6 +70,30 @@ Unlike traditional AI assistants that forget conversations after each session, o
 - CSV to JSON conversion for data integration
 - Text summarization powered by Gemini
 - Enterprise-ready knowledge base powered by Qdrant
+
+## Why Choose Solana Agent Over LangChain?
+
+### 🎯 Key Differentiators
+
+🧠 **Advanced Memory Architecture**
+   - Built-in episodic memory vs LangChain's basic memory types
+   - Persistent cross-session knowledge retention
+   - Automatic self-learning from conversations
+
+🏢 **Enterprise Focus**
+   - Production-ready out of the box in a few lines of code
+   - Enterprise-grade deployment options for all components and services
+   - Simple conventions over complex configurations
+
+🛠️ **Simplified Development**
+   - No chain building required
+   - Python plain functions vs complex chain configurations
+   - Fewer moving parts equals more stable applications
+
+🚀 **Performance**
+   - Optimized for real-time streaming responses
+   - Built-in voice processing capabilities
+   - Multi-source search with automatic reasoning synthesis
 
 ## Installation
 
