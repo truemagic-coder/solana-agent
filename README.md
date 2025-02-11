@@ -20,7 +20,8 @@ Solana Agent is the self-learning AI Agent framework.
 - Internet search via Perplexity
 - Conversational fact search powered by Zep (on-prem)
 - X (Twitter) search using Grok
-- Knowledge Base search via Qdrant (on-prem), Cohere, and OpenAI
+- Conversational message history using MongoDB (on-prem or hosted) or SQLite (on-prem)
+- Knowledge Base search via Qdrant (on-prem or hosted), Cohere, and OpenAI
 - Comprehensive reasoning combining multiple data sources
 
 🛠️ **Data Processing Tools**
@@ -64,9 +65,9 @@ Unlike traditional AI assistants that forget conversations after each session, o
 **Why This Matters:**
 - 📈 **Continuous Learning**: Your AI evolves with every conversation
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
-- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically from interactions
+- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
 - 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
-- 🛡️ **Secure**: Private, on-premise memory storage options
+- 🛡️ **Secure**: Private, on-premise memory storage 
 
 *"It's not just an AI assistant - it's your organization's evolving intelligence layer."*
 
