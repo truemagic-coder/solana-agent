@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "0.0.7"
+version = "0.0.8"
 description = "Build self-learning AI Agents"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -24,7 +24,6 @@ motor = "^3.7.0"
 zep-cloud = "^2.3.1"
 requests = "^2.32.3"
 pandas = "^2.2.3"
-qdrant-client = "^1.13.2"
 pinecone = "^6.0.1"
 
 [build-system]
