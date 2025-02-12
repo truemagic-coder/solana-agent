@@ -1,8 +1,7 @@
 import asyncio
-from datetime import datetime
+import datetime
 import json
-from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
-import uuid
+from typing import AsyncGenerator, Literal, Optional, Dict, Any, Callable
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import OpenAI
@@ -14,8 +13,6 @@ import requests
 from zep_cloud.client import AsyncZep
 from zep_cloud.client import Zep
 from zep_cloud.types import Message
-import pandas as pd
-from pinecone import Pinecone
 
 
 class EventHandler(AssistantEventHandler):
@@ -78,9 +75,6 @@ class AI:
         zep_api_key: str = None,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
-        gemini_api_key: str = None,
-        pinecone_api_key: str = None,
-        pinecone_index_name: str = None,
         code_interpreter: bool = True,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
@@ -98,9 +92,6 @@ class AI:
             zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
-            gemini_api_key (str, optional): API key for Google Gemini. Defaults to None
-            pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
-            pinecone_index_name (str, optional): Pinecone index name. Defaults to None
             code_interpreter (bool, optional): Enable code interpretation. Defaults to True
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
             openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-small"
@@ -117,7 +108,7 @@ class AI:
         Notes:
             - Requires valid OpenAI API key for core functionality
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity, Grok, Gemini, Pinecone, and Cohere
+            - Optional integrations for Zep, Perplexity and Grok
             - Supports code interpretation and custom tool functions
             - You must create the Pinecone index in the dashboard before using it
         """
@@ -136,15 +127,6 @@ class AI:
         self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
-        self._gemini_api_key = gemini_api_key
-        self._pinecone = (
-            Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
-        )
-        self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
-        self.kb = (
-            self._pinecone.Index(
-                self._pinecone_index_name) if self._pinecone else None
-        )
 
     async def __aenter__(self):
         assistants = self._client.beta.assistants.list()
@@ -209,158 +191,6 @@ class AI:
             thread_id=thread_id, run_id=run_id
         )
         return run.status
-
-    # converter tool - has to be sync
-    def csv_to_json(self, file_path: str) -> str:
-        """Convert CSV file to JSON string format.
-
-        Args:
-            file_path (str): Path to the CSV file to convert
-
-        Returns:
-            str: JSON string containing the CSV data
-
-        Example:
-            ```python
-            result = ai.csv_to_json("data.csv")
-            # Returns: '[{"column1": "value1", "column2": "value2"}]'
-            ```
-
-        Note:
-            This is a synchronous tool method required for OpenAI function calling.
-        """
-        df = pd.read_csv(file_path)
-        records = df.to_dict(orient="records")
-        return json.dumps(records)
-
-    # search kb tool - has to be sync
-    def search_kb(self, query: str, limit: int = 10) -> str:
-        """Search Pinecone knowledge base using OpenAI embeddings.
-
-        Args:
-            query (str): Search query to find relevant documents
-            limit (int, optional): Maximum number of results to return. Defaults to 10.
-
-        Returns:
-            str: JSON string of matched documents or error message
-
-        Example:
-            ```python
-            results = ai.search_kb("machine learning basics", limit=5)
-            # Returns: '[{"title": "ML Intro", "content": "..."}]'
-            ```
-
-        Note:
-            - Requires configured Pinecone index
-            - Uses OpenAI embeddings for semantic search
-            - Returns JSON-serialized Pinecone match metadata results
-            - Returns error message string if search fails
-        """
-        try:
-            response = self._client.embeddings.create(
-                input=query,
-                model=self._openai_embedding_model,
-            )
-            search_results = self.kb.query(
-                vector=response.data[0].embedding,
-                top_k=limit,
-                include_metadata=True,
-                include_values=False,
-            )
-            matches = search_results.matches
-            metadata = [match.metadata for match in matches]
-            return json.dumps(metadata)
-        except Exception as e:
-            return f"Failed to search KB. Error: {e}"
-
-    # add document to kb tool - has to be sync
-    def add_document_to_kb(self, document: Dict[str, str]):
-        """Add a document to the Pinecone knowledge base with OpenAI embeddings.
-
-        Args:
-            document (Dict[str, str]): Document to add, with string fields as values
-
-        Example:
-            ```python
-            ai.add_document_to_kb({
-                "title": "AI Basics",
-                "content": "Introduction to artificial intelligence...",
-                "author": "John Doe"
-            })
-            ```
-
-        Note:
-            - Requires Pinecone index to be configured
-            - Uses OpenAI embeddings API
-            - Document values must be strings
-            - Automatically generates UUID for document
-        """
-        values: List[str] = []
-        for _, v in document.items():
-            values.append(v)
-        response = self._client.embeddings.create(
-            input=values,
-            model=self._openai_embedding_model,
-        )
-        self.kb.upsert(
-            vectors=[
-                {
-                    "id": uuid.uuid4().hex,
-                    "values": response.data[0].embedding,
-                    "metadata": document,
-                }
-            ]
-        )
-
-    # summarize tool - has to be sync
-    def summarize(
-        self,
-        text: str,
-        model: Literal["gemini-2.0-flash",
-                       "gemini-1.5-pro"] = "gemini-1.5-pro",
-    ) -> str:
-        """Summarize text using Google's Gemini language model.
-
-        Args:
-            text (str): The text content to be summarized
-            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
-                Gemini model to use. Defaults to "gemini-1.5-pro"
-                - gemini-2.0-flash: Faster, shorter summaries
-                - gemini-1.5-pro: More detailed summaries
-
-        Returns:
-            str: Summarized text or error message if summarization fails
-
-        Example:
-            ```python
-            summary = ai.summarize("Long article text here...", model="gemini-1.5-pro")
-            # Returns: "Concise summary of the article..."
-            ```
-
-        Note:
-            This is a synchronous tool method required for OpenAI function calling.
-            Requires valid Gemini API key to be configured.
-        """
-        try:
-            client = OpenAI(
-                api_key=self._gemini_api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You summarize the text.",
-                    },
-                    {"role": "user", "content": text},
-                ],
-            )
-
-            return completion.choices[0].message.content
-        except Exception as e:
-            return f"Failed to summarize text. Error: {e}"
 
     # search facts tool - has to be sync
     def search_facts(
@@ -704,7 +534,7 @@ class AI:
             "user_id": user_id,
             "message": user_text,
             "response": full_response,
-            "timestamp": datetime.now(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
 
         await self._database.save_message(user_id, metadata)
@@ -815,7 +645,7 @@ class AI:
             "user_id": user_id,
             "message": transcript,
             "response": full_response,
-            "timestamp": datetime.now(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
 
         await self._database.save_message(user_id, metadata)

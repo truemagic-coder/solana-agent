@@ -21,33 +21,6 @@ Unlike traditional AI assistants that forget conversations after each session, S
 
 **"It's not just an AI assistant - it's your organization's evolving intelligence layer."**
 
-## Benefits
-
-💬 **Enhanced Communication**
-- Engage in natural conversations without typing delays
-- Communicate hands-free with voice interactions
-- Reduce response time with real-time processing
-
-🎯 **Improved Decision Making**
-- Access comprehensive data from multiple trusted sources
-- Get instant answers backed by Internet and social-media research
-- Make informed decisions with cross-referenced information
-
-💪 **Operational Efficiency**
-- Automate repetitive data processing tasks
-- Convert data formats seamlessly
-- Scale knowledge management effortlessly
-
-🔐 **Enterprise Ready**
-- Secure data handling with advanced memory systems
-- Customize functionality through extensible architecture
-- Integrate with existing business tools and APIs
-
-🚀 **Competitive Advantage**
-- Stay current with real-time social media and Internet insights
-- Process and analyze large datasets quickly
-- Transform raw data into actionable intelligence
-
 ## Features
 
 🔄 **Real-time AI Interactions**
@@ -55,21 +28,15 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Real-time voice-to-voice conversations
 
 🧠 **Memory System and Extensibility**
-- Advanced AI memory combining conversational context, conversational facts, and knowledge base
-- Simple custom tool creation for extending capabilities like additional API integrations
+- Advanced AI memory combining conversational context, conversational facts, and parallel tool calling
+- Create custom tools for extending the Agent's capabilities like further API integrations
 
 🔍 **Multi-Source Search and Reasoning**
 - Internet search via Perplexity
-- Conversational fact search powered by Zep
 - X (Twitter) search using Grok
+- Conversational fact search powered by Zep
 - Conversational message history using MongoDB (on-prem or hosted)
-- Knowledge Base search via Pinecone
 - Comprehensive reasoning combining multiple data sources
-
-🛠️ **Data Processing Tools**
-- CSV to JSON conversion for data integration
-- Text summarization powered by Gemini
-- Enterprise-ready knowledge base powered by Pinecone
 
 ## Why Choose Solana Agent Over LangChain?
 
