@@ -429,6 +429,18 @@ class AI:
         except Exception as e:
             return f"Failed to search X. Error: {e}"
 
+    async def delete_assistant_thread(self, user_id: str):
+        """Delete stored conversation thread for a user on OpenAI.
+
+        Example:
+            ```python
+            await ai.delete_assistant_thread(user_id="user123")
+            # Deletes the assistant conversation thread for a user
+            ```
+        """
+        thread_id = await self._database.get_thread_id(user_id)
+        await self._client.beta.threads.delete(thread_id=thread_id)
+
     async def delete_facts(self, user_id: str):
         """Delete stored conversation facts for a specific user from Zep memory.
 
