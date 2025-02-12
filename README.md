@@ -19,7 +19,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
 - 🛡️ **Secure**: Secure and private memory and data storage 
 
-**"It's not just an AI assistant - it's your organization's evolving intelligence layer."**
+**Experience Agentic IQ!**
 
 ## Features
 
