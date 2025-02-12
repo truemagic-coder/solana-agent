@@ -72,7 +72,7 @@ pip install solana-agent
 ```
 
 ## Documentation
-* All public methods have docstrings for real-time IDE hinting
+* Each public method has a docstring for real-time IDE hinting
 
 ## Production Apps
 * [Solana Agent Copilot](https://ai.solana-agent.com) - Solana Token AI Copilot using streaming text conversations
