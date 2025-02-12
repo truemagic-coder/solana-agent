@@ -429,12 +429,40 @@ class AI:
         except Exception as e:
             return f"Failed to search X. Error: {e}"
 
+    async def clear_user_history(self, user_id: str):
+        """Clear stored conversation history for a specific user.
+
+        Args:
+            user_id (str): Unique identifier for the user whose history should be cleared
+
+        Example:
+            ```python
+            await ai.clear_user_history("user123")
+            # Clears all stored messages, facts, and threads for user123
+            ```
+
+        Note:
+            This is an async method and must be awaited.
+        """
+        try:
+            await self.delete_assistant_thread(user_id)
+        except Exception:
+            pass
+        try:
+            await self._database.clear_user_history(user_id)
+        except Exception:
+            pass
+        try:
+            await self.delete_facts(user_id)
+        except Exception:
+            pass
+
     async def delete_assistant_thread(self, user_id: str):
         """Delete stored conversation thread for a user on OpenAI.
 
         Example:
             ```python
-            await ai.delete_assistant_thread(user_id="user123")
+            await ai.delete_assistant_thread("user123")
             # Deletes the assistant conversation thread for a user
             ```
         """
