@@ -215,7 +215,7 @@ class AI:
                 user_id="user123",
                 query="How many cats do I have?"
             )
-            # Returns: [{"fact": "user123 has 4 cats", ...}]
+            # Returns: [{"fact": "user123 has 4 cats", "timestamp": "2022-01-01T12:00:00Z"}]
             ```
 
         Note:
@@ -232,8 +232,9 @@ class AI:
                     limit=limit,
                 )
                 for result in results.results:
-                    fact = result.fact
-                    facts.append(fact)
+                    fact = result.fact.fact
+                    timestamp = result.fact.created_at
+                    facts.append({"fact": fact, "timestamp": timestamp})
                 return json.dumps(facts)
             except Exception as e:
                 return f"Failed to search facts. Error: {e}"
