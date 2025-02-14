@@ -374,15 +374,25 @@ class AI:
         """
         try:
             if use_facts:
-                facts = self.search_facts(user_id, query)
+                try:
+                    facts = self.search_facts(user_id, query)
+                except Exception:
+                    facts = ""
             else:
                 facts = ""
             if use_perplexity:
-                search_results = self.search_internet(query, perplexity_model)
+                try:
+                    search_results = self.search_internet(
+                        query, perplexity_model)
+                except Exception:
+                    search_results = ""
             else:
                 search_results = ""
             if use_grok:
-                x_search_results = self.search_x(query, grok_model)
+                try:
+                    x_search_results = self.search_x(query, grok_model)
+                except Exception:
+                    x_search_results = ""
             else:
                 x_search_results = ""
 
