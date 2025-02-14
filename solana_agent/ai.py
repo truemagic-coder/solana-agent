@@ -336,7 +336,6 @@ class AI:
         use_perplexity: bool = True,
         use_grok: bool = True,
         use_facts: bool = True,
-        use_kb=True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
@@ -386,10 +385,6 @@ class AI:
                 x_search_results = self.search_x(query, grok_model)
             else:
                 x_search_results = ""
-            if use_kb:
-                kb_results = self.search_kb(query)
-            else:
-                kb_results = ""
 
             response = self._client.chat.completions.create(
                 model=openai_model,
@@ -400,7 +395,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {query}, Facts: {facts}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
+                        "content": f"Query: {query}, Facts: {facts}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
                     },
                 ],
             )
