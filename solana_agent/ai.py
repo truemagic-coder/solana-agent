@@ -42,9 +42,9 @@ class ToolConfig(BaseModel):
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
         self._client = AsyncIOMotorClient(db_url)
-        self._db = self._client[db_name]
-        self._threads = self._db["threads"]
-        self.messages = self._db["messages"]
+        self.db = self._client[db_name]
+        self._threads = self.db["threads"]
+        self.messages = self.db["messages"]
 
     async def save_thread_id(self, user_id: str, thread_id: str):
         await self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
@@ -191,6 +191,25 @@ class AI:
             thread_id=thread_id, run_id=run_id
         )
         return run.status
+
+    # check time tool - has to be sync
+    def check_time(self) -> str:
+        """Get current UTC time formatted as a string.
+
+        Returns:
+            str: Current UTC time in format 'YYYY-MM-DD HH:MM:SS UTC'
+
+        Example:
+            ```python
+            time = ai.check_time()
+            # Returns: "2024-02-13 15:30:45 UTC"
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+            Always returns time in UTC timezone for consistency.
+        """
+        return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
 
     # search facts tool - has to be sync
     def search_facts(
