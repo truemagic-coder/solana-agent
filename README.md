@@ -16,6 +16,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - 📈 **Continuous Learning**: Evolves with every new interaction
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
 - 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
+- 🧠 **Knowledge-Base**: Add domain-specific knowledge for better reasoning
 - 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
 - 🛡️ **Secure**: Secure and private memory and data storage 
 
@@ -36,6 +37,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - X (Twitter) search using Grok
 - Conversational fact search powered by Zep
 - Conversational message history using MongoDB (on-prem or hosted)
+- Knowledge Base using Pinecone with reranking by Cohere - available globally or for each user 
 - Comprehensive reasoning combining multiple data sources
 
 ## Why Choose Solana Agent Over LangChain?
@@ -46,6 +48,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
    - Built-in episodic memory vs LangChain's basic memory types
    - Persistent cross-session knowledge retention
    - Automatic self-learning from conversations
+   - Knowledge Base to add domain specific facts
 
 🏢 **Enterprise Focus**
    - Production-ready out of the box in a few lines of code

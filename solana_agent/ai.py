@@ -68,9 +68,9 @@ class MongoDatabase:
         self.messages.delete_many({"user_id": user_id})
         self._threads.delete_one({"user_id": user_id})
 
-    def add_document_to_kb(self, id: str, user_id: str, document: str):
+    def add_document_to_kb(self, id: str, namespace: str, document: str):
         storage = {}
-        storage["user_id"] = user_id
+        storage["namespace"] = namespace
         storage["reference"] = id
         storage["document"] = document
         storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
@@ -223,12 +223,12 @@ class AI:
         )
         return run.status
 
-    def search_kb(self, user_id: str, query: str, limit: int = 3) -> str:
+    def search_kb(self, query: str, namespace: str = "global", limit: int = 3) -> str:
         """Search Pinecone knowledge base using OpenAI embeddings.
 
         Args:
-            user_id (str): Unique identifier for the user
             query (str): Search query to find relevant documents
+            namespace (str, optional): Namespace of the Pinecone to search. Defaults to "global".
             limit (int, optional): Maximum number of results to return. Defaults to 3.
 
         Returns:
@@ -257,7 +257,7 @@ class AI:
                 top_k=10,
                 include_metadata=False,
                 include_values=False,
-                namespace=user_id,
+                namespace=namespace,
             )
             matches = search_results.matches
             ids = []
@@ -288,14 +288,17 @@ class AI:
             return f"Failed to search KB. Error: {e}"
 
     def add_document_to_kb(
-        self, user_id: str, document: str, id: str = uuid.uuid4().hex
+        self,
+        document: str,
+        id: str = uuid.uuid4().hex,
+        namespace: str = "global",
     ):
         """Add a document to the Pinecone knowledge base with OpenAI embeddings.
 
         Args:
-            user_id (str): Unique identifier for the user
             document (str): Document to add to the knowledge base
             id (str, optional): Unique identifier for the document. Defaults to random UUID.
+            namespace (str): Namespace of the Pinecone index to search. Defaults to "global".
 
         Example:
             ```python
@@ -317,16 +320,16 @@ class AI:
                     "values": response.data[0].embedding,
                 }
             ],
-            namespace=user_id,
+            namespace=namespace,
         )
-        self._database.add_document_to_kb(id, user_id, document)
+        self._database.add_document_to_kb(id, namespace, document)
 
-    def delete_document_from_kb(self, user_id: str, id: str):
+    def delete_document_from_kb(self, id: str, user_id: str = "global"):
         """Delete a document from the Pinecone knowledge base.
 
         Args:
-            user_id (str): Unique identifier for the user
             id (str): Unique identifier for the document
+            user_id (str): Unique identifier for the user. Defaults to "global".
 
         Example:
             ```python
@@ -491,6 +494,7 @@ class AI:
         ] = "sonar",
         openai_model: Literal["o1", "o3-mini"] = "o3-mini",
         grok_model: Literal["grok-beta"] = "grok-beta",
+        namespace: str = "global",
     ) -> str:
         """Combine multiple data sources with AI reasoning to answer queries.
 
@@ -504,6 +508,7 @@ class AI:
             perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
             openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
             grok_model (Literal, optional): Grok model for X search. Defaults to "grok-beta"
+            namespace (str): Namespace of the Pinecone index to search. Defaults to "global"
 
         Returns:
             str: Reasoned response combining all enabled data sources or error message
@@ -525,7 +530,7 @@ class AI:
         try:
             if use_kb:
                 try:
-                    kb_results = self.search_kb(user_id, query)
+                    kb_results = self.search_kb(query, namespace)
                 except Exception:
                     kb_results = ""
             else:
