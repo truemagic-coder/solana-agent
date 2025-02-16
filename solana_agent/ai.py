@@ -2,8 +2,10 @@ import asyncio
 import datetime
 import json
 from typing import AsyncGenerator, Literal, Optional, Dict, Any, Callable
+import uuid
+import cohere
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 from openai import OpenAI
 from openai import AssistantEventHandler
 from openai.types.beta.threads import TextDelta, Text
@@ -13,6 +15,7 @@ import requests
 from zep_cloud.client import AsyncZep
 from zep_cloud.client import Zep
 from zep_cloud.types import Message
+from pinecone import Pinecone
 
 
 class EventHandler(AssistantEventHandler):
@@ -41,28 +44,37 @@ class ToolConfig(BaseModel):
 
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
-        self._client = AsyncIOMotorClient(db_url)
+        self._client = MongoClient(db_url)
         self.db = self._client[db_name]
         self._threads = self.db["threads"]
         self.messages = self.db["messages"]
+        self.kb = self.db["kb"]
 
-    async def save_thread_id(self, user_id: str, thread_id: str):
-        await self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
+    def save_thread_id(self, user_id: str, thread_id: str):
+        self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
 
-    async def get_thread_id(self, user_id: str) -> Optional[str]:
-        document = await self._threads.find_one({"user_id": user_id})
+    def get_thread_id(self, user_id: str) -> Optional[str]:
+        document = self._threads.find_one({"user_id": user_id})
         return document["thread_id"] if document else None
 
-    async def save_message(self, user_id: str, metadata: Dict[str, Any]):
+    def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
-        await self.messages.insert_one(metadata)
+        self.messages.insert_one(metadata)
 
-    async def delete_all_threads(self):
-        await self._threads.delete_many({})
+    def delete_all_threads(self):
+        self._threads.delete_many({})
 
-    async def clear_user_history(self, user_id: str):
-        await self.messages.delete_many({"user_id": user_id})
-        await self._threads.delete_one({"user_id": user_id})
+    def clear_user_history(self, user_id: str):
+        self.messages.delete_many({"user_id": user_id})
+        self._threads.delete_one({"user_id": user_id})
+
+    def add_document_to_kb(self, id: str, user_id: str, document: str):
+        storage = {}
+        storage["user_id"] = user_id
+        storage["reference"] = id
+        storage["document"] = document
+        storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
+        self.kb.insert_one(storage)
 
 
 class AI:
@@ -75,6 +87,10 @@ class AI:
         zep_api_key: str = None,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
+        pinecone_api_key: str = None,
+        pinecone_index_name: str = None,
+        cohere_api_key: str = None,
+        cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
         code_interpreter: bool = True,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
@@ -92,6 +108,10 @@ class AI:
             zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
+            pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
+            pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
+            cohere_api_key (str, optional): API key for Cohere search. Defaults to None
+            cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
             code_interpreter (bool, optional): Enable code interpretation. Defaults to True
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
             openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-small"
@@ -108,7 +128,7 @@ class AI:
         Notes:
             - Requires valid OpenAI API key for core functionality
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity and Grok
+            - Optional integrations for Zep, Perplexity, Pinecone, Cohere, and Grok
             - Supports code interpretation and custom tool functions
             - You must create the Pinecone index in the dashboard before using it
         """
@@ -127,6 +147,17 @@ class AI:
         self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
+        self._pinecone = (
+            Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
+        )
+        self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
+        self.kb = (
+            self._pinecone.Index(
+                self._pinecone_index_name) if self._pinecone else None
+        )
+        self._co = cohere.ClientV2(
+            api_key=cohere_api_key) if cohere_api_key else None
+        self._co_model = cohere_model if cohere_api_key else None
 
     async def __aenter__(self):
         assistants = self._client.beta.assistants.list()
@@ -142,7 +173,7 @@ class AI:
                 tools=self._tools,
                 model=self._openai_assistant_model,
             ).id
-            await self._database.delete_all_threads()
+            self._database.delete_all_threads()
 
         return self
 
@@ -151,12 +182,12 @@ class AI:
         pass
 
     async def _create_thread(self, user_id: str) -> str:
-        thread_id = await self._database.get_thread_id(user_id)
+        thread_id = self._database.get_thread_id(user_id)
 
         if thread_id is None:
             thread = self._client.beta.threads.create()
             thread_id = thread.id
-            await self._database.save_thread_id(user_id, thread_id)
+            self._database.save_thread_id(user_id, thread_id)
             if self._zep:
                 try:
                     await self._zep.user.add(user_id=user_id)
@@ -192,6 +223,122 @@ class AI:
         )
         return run.status
 
+    def search_kb(self, user_id: str, query: str, limit: int = 3) -> str:
+        """Search Pinecone knowledge base using OpenAI embeddings.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            query (str): Search query to find relevant documents
+            limit (int, optional): Maximum number of results to return. Defaults to 3.
+
+        Returns:
+            str: JSON string of matched documents or error message
+
+        Example:
+            ```python
+            results = ai.search_kb("user123", "machine learning basics")
+            # Returns: '["Document 1", "Document 2", ...]'
+            ```
+
+        Note:
+            - Requires configured Pinecone index
+            - Uses OpenAI embeddings for semantic search
+            - Returns JSON-serialized Pinecone match metadata results
+            - Returns error message string if search fails
+            - Optionally reranks results using Cohere API
+        """
+        try:
+            response = self._client.embeddings.create(
+                input=query,
+                model=self._openai_embedding_model,
+            )
+            search_results = self.kb.query(
+                vector=response.data[0].embedding,
+                top_k=10,
+                include_metadata=False,
+                include_values=False,
+                namespace=user_id,
+            )
+            matches = search_results.matches
+            ids = []
+            for match in matches:
+                ids.append(match.id)
+            docs = []
+            for id in ids:
+                document = self._database.kb.find_one({"reference": id})
+                docs.append(document["document"])
+            if self._co:
+                try:
+                    response = self._co.rerank(
+                        model=self._co_model,
+                        query=query,
+                        documents=docs,
+                        top_n=limit,
+                    )
+                    reranked_docs = response.results
+                    new_docs = []
+                    for doc in reranked_docs:
+                        new_docs.append(docs[doc.index])
+                    return json.dumps(new_docs)
+                except Exception:
+                    return json.dumps(docs[:limit])
+            else:
+                return json.dumps(docs[:limit])
+        except Exception as e:
+            return f"Failed to search KB. Error: {e}"
+
+    def add_document_to_kb(
+        self, user_id: str, document: str, id: str = uuid.uuid4().hex
+    ):
+        """Add a document to the Pinecone knowledge base with OpenAI embeddings.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            document (str): Document to add to the knowledge base
+            id (str, optional): Unique identifier for the document. Defaults to random UUID.
+
+        Example:
+            ```python
+            ai.add_document_to_kb("user123 has 4 cats")
+            ```
+
+        Note:
+            - Requires Pinecone index to be configured
+            - Uses OpenAI embeddings API
+        """
+        response = self._client.embeddings.create(
+            input=document,
+            model=self._openai_embedding_model,
+        )
+        self.kb.upsert(
+            vectors=[
+                {
+                    "id": id,
+                    "values": response.data[0].embedding,
+                }
+            ],
+            namespace=user_id,
+        )
+        self._database.add_document_to_kb(id, user_id, document)
+
+    def delete_document_from_kb(self, user_id: str, id: str):
+        """Delete a document from the Pinecone knowledge base.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            id (str): Unique identifier for the document
+
+        Example:
+            ```python
+            ai.delete_document_from_kb("user123", "document_id")
+            ```
+
+        Note:
+            - Requires Pinecone index to be configured
+        """
+        self.kb.delete(ids=[id], namespace=user_id)
+        self._database.kb.delete_one({"reference": id})
+
     # check time tool - has to be sync
     def check_time(self) -> str:
         """Get current UTC time formatted as a string.
@@ -209,7 +356,9 @@ class AI:
             This is a synchronous tool method required for OpenAI function calling.
             Always returns time in UTC timezone for consistency.
         """
-        return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
+        return datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S %Z"
+        )
 
     # search facts tool - has to be sync
     def search_facts(
@@ -336,6 +485,7 @@ class AI:
         use_perplexity: bool = True,
         use_grok: bool = True,
         use_facts: bool = True,
+        use_kb: bool = True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
@@ -373,6 +523,13 @@ class AI:
             Will gracefully handle missing or failed data sources.
         """
         try:
+            if use_kb:
+                try:
+                    kb_results = self.search_kb(user_id, query)
+                except Exception:
+                    kb_results = ""
+            else:
+                kb_results = ""
             if use_facts:
                 try:
                     facts = self.search_facts(user_id, query)
@@ -405,7 +562,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {query}, Facts: {facts}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
+                        "content": f"Query: {query}, Facts: {facts}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
                     },
                 ],
             )
@@ -474,7 +631,7 @@ class AI:
         except Exception:
             pass
         try:
-            await self._database.clear_user_history(user_id)
+            self._database.clear_user_history(user_id)
         except Exception:
             pass
         try:
@@ -491,7 +648,7 @@ class AI:
             # Deletes the assistant conversation thread for a user
             ```
         """
-        thread_id = await self._database.get_thread_id(user_id)
+        thread_id = self._database.get_thread_id(user_id)
         await self._client.beta.threads.delete(thread_id=thread_id)
 
     async def delete_facts(self, user_id: str):
@@ -547,7 +704,7 @@ class AI:
         """
         self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = await self._database.get_thread_id(user_id)
+        thread_id = self._database.get_thread_id(user_id)
 
         if thread_id is None:
             thread_id = await self._create_thread(user_id)
@@ -602,7 +759,7 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
 
-        await self._database.save_message(user_id, metadata)
+        self._database.save_message(user_id, metadata)
         if self._zep:
             messages = [
                 Message(
@@ -668,7 +825,7 @@ class AI:
         # Reset the queue for each new conversation
         self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = await self._database.get_thread_id(user_id)
+        thread_id = self._database.get_thread_id(user_id)
 
         if thread_id is None:
             thread_id = await self._create_thread(user_id)
@@ -713,7 +870,7 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
 
-        await self._database.save_message(user_id, metadata)
+        self._database.save_message(user_id, metadata)
 
         if self._zep:
             messages = [
