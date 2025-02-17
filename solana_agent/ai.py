@@ -215,8 +215,7 @@ class AI:
             else:
                 uid = uuid.uuid4().hex
                 self._vector_store = self._client.beta.vector_stores.create(
-                    name=uid
-                )
+                    name=uid)
                 self._database.save_vector_store_id(self._vector_store.id)
             self._client.beta.assistants.update(
                 assistant_id=self._assistant_id,
@@ -335,24 +334,14 @@ class AI:
 
     def add_file(
         self,
+        filename: str,
         file_stream: bytes,
-        file_extension: Literal[
-            "doc", "docx", "json", "md", "pdf", "pptx", "tex", "txt"
-        ] = "pdf",
     ) -> Literal["in_progress", "completed", "cancelled", "failed"]:
         """Upload and process a file in the OpenAI vector store.
 
         Args:
+            filename (str): Name of the file to upload
             file_stream (bytes): Raw bytes of the file to upload
-            file_extension (Literal, optional): File type extension. Defaults to "pdf"
-                Supported formats:
-                - doc, docx: Word documents
-                - json: JSON files
-                - md: Markdown files
-                - pdf: PDF documents
-                - pptx: PowerPoint presentations
-                - tex: LaTeX files
-                - txt: Plain text files
 
         Returns:
             Literal["in_progress", "completed", "cancelled", "failed"]: Status of file processing
@@ -360,7 +349,7 @@ class AI:
         Example:
             ```python
             with open('document.pdf', 'rb') as f:
-                status = ai.add_file(f.read(), file_extension="pdf")
+                status = ai.add_file(f.filename, f.read())
                 if status == "completed":
                     print("File processed successfully")
             ```
@@ -374,7 +363,7 @@ class AI:
         """
         vector_store_id = self._database.get_vector_store_id()
         file = self._client.files.create(
-            file=(f"file.{file_extension}", file_stream), purpose="assistants"
+            file=(filename, file_stream), purpose="assistants"
         )
         file_batch = self._client.beta.vector_stores.files.create_and_poll(
             vector_store_id=vector_store_id, file_id=file.id
