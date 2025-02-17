@@ -17,7 +17,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
 - 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
 - 🧠 **Knowledge Base**: Add domain-specific knowledge for better reasoning
-- 🏢 **Enterprise-Ready**: Scales from personal to organization-wide deployment
+- 🏢 **File Context**: Upload propriety files to be part of the conversation
 - 🛡️ **Secure**: Secure and private memory and data storage 
 
 **Experience Agentic IQ!**
@@ -29,7 +29,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Real-time voice-to-voice conversations
 
 🧠 **Memory System and Extensibility**
-- Advanced AI memory combining conversational context, conversational facts, and parallel tool calling
+- Advanced AI memory combining conversational context, conversational facts, knowledge base, file search, and parallel tool calling
 - Create custom tools for extending the Agent's capabilities like further API integrations
 
 🔍 **Multi-Source Search and Reasoning**
@@ -38,6 +38,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Conversational fact search powered by Zep
 - Conversational message history using MongoDB (on-prem or hosted)
 - Knowledge Base using Pinecone with reranking by Cohere - available globally or user-specific
+- File search using OpenAI
 - Comprehensive reasoning combining multiple data sources
 
 ## Why Choose Solana Agent Over LangChain?
@@ -49,6 +50,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
    - Persistent cross-session knowledge retention
    - Automatic self-learning from conversations
    - Knowledge Base to add domain specific knowledge
+   - File uploads to perform document context search 
 
 🏢 **Enterprise Focus**
    - Production-ready out of the box in a few lines of code

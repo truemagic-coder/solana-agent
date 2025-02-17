@@ -49,6 +49,8 @@ class MongoDatabase:
         self._threads = self.db["threads"]
         self.messages = self.db["messages"]
         self.kb = self.db["kb"]
+        self.vector_stores = self.db["vector_stores"]
+        self.files = self.db["files"]
 
     def save_thread_id(self, user_id: str, thread_id: str):
         self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
@@ -76,6 +78,22 @@ class MongoDatabase:
         storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
         self.kb.insert_one(storage)
 
+    def get_vector_store_id(self) -> str | None:
+        document = self.vector_stores.find_one()
+        return document["vector_store_id"] if document else None
+
+    def save_vector_store_id(self, vector_store_id: str):
+        self.vector_stores.insert_one({"vector_store_id": vector_store_id})
+
+    def delete_vector_store_id(self, vector_store_id: str):
+        self.vector_stores.delete_one({"vector_store_id": vector_store_id})
+
+    def add_file(self, file_id: str):
+        self.files.insert_one({"file_id": file_id})
+
+    def delete_file(self, file_id: str):
+        self.files.delete_one({"file_id": file_id})
+
 
 class AI:
     def __init__(
@@ -92,6 +110,7 @@ class AI:
         cohere_api_key: str = None,
         cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
         code_interpreter: bool = True,
+        file_search: bool = True,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
         openai_embedding_model: Literal[
@@ -113,6 +132,7 @@ class AI:
             cohere_api_key (str, optional): API key for Cohere search. Defaults to None
             cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
             code_interpreter (bool, optional): Enable code interpretation. Defaults to True
+            file_search (bool, optional): Enable file search tool. Defaults to True
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
             openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-small"
 
@@ -137,8 +157,20 @@ class AI:
         self._instructions = instructions
         self._openai_assistant_model = openai_assistant_model
         self._openai_embedding_model = openai_embedding_model
-        self._tools = [{"type": "code_interpreter"}
-                       ] if code_interpreter else []
+        self._file_search = file_search
+        if file_search:
+            self._tools = (
+                [
+                    {"type": "code_interpreter"},
+                    {"type": "file_search"},
+                ]
+                if code_interpreter
+                else [{"type": "file_search"}]
+            )
+        else:
+            self._tools = [{"type": "code_interpreter"}
+                           ] if code_interpreter else []
+
         self._tool_handlers = {}
         self._assistant_id = None
         self._database: MongoDatabase = database
@@ -174,7 +206,24 @@ class AI:
                 model=self._openai_assistant_model,
             ).id
             self._database.delete_all_threads()
-
+        if self._file_search:
+            vectore_store_id = self._database.get_vector_store_id()
+            if vectore_store_id:
+                self._vector_store = self._client.beta.vector_stores.retrieve(
+                    vector_store_id=vectore_store_id
+                )
+            else:
+                uid = uuid.uuid4().hex
+                self._vector_store = self._client.beta.vector_stores.create(
+                    name=uid
+                )
+                self._database.save_vector_store_id(self._vector_store.id)
+            self._client.beta.assistants.update(
+                assistant_id=self._assistant_id,
+                tool_resources={
+                    "file_search": {"vector_store_ids": [self._vector_store.id]}
+                },
+            )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -222,6 +271,116 @@ class AI:
             thread_id=thread_id, run_id=run_id
         )
         return run.status
+
+    def delete_vector_store_and_files(self):
+        """Delete the OpenAI vector store and files.
+
+        Example:
+            ```python
+            ai.delete_vector_store()
+            ```
+
+        Note:
+            - Requires file_search=True in AI initialization
+            - Deletes the vector store and all associated files
+        """
+        vector_store_id = self._database.get_vector_store_id()
+        if vector_store_id:
+            self._client.beta.vector_stores.delete(vector_store_id)
+            self._database.delete_vector_store_id(vector_store_id)
+            for file in self._database.files.find().to_list():
+                self._client.files.delete(file["file_id"])
+                self._database.delete_file(file["file_id"])
+
+    def max_files(self) -> bool:
+        """Check if the OpenAI vector store has reached its maximum file capacity.
+
+        Returns:
+            bool: True if file count is at maximum (10,000), False otherwise
+
+        Example:
+            ```python
+            if ai.max_files():
+                print("Vector store is full")
+            else:
+                print("Can still add more files")
+            ```
+
+        Note:
+            - Requires file_search=True in AI initialization
+            - OpenAI vector stores have a 10,000 file limit
+            - Returns False if vector store is not configured
+        """
+        self._vector_store.file_counts.completed == 10000
+
+    def file_count(self) -> int:
+        """Get the total number of files processed in the OpenAI vector store.
+
+        Returns:
+            int: Number of successfully processed files in the vector store
+
+        Example:
+            ```python
+            count = ai.file_count()
+            print(f"Processed {count} files")
+            # Returns: "Processed 5 files"
+            ```
+
+        Note:
+            - Requires file_search=True in AI initialization
+            - Only counts successfully processed files
+            - Returns 0 if vector store is not configured
+        """
+        self._vector_store.file_counts.completed
+
+    def add_file(
+        self,
+        file_stream: bytes,
+        file_extension: Literal[
+            "doc", "docx", "json", "md", "pdf", "pptx", "tex", "txt"
+        ] = "pdf",
+    ) -> Literal["in_progress", "completed", "cancelled", "failed"]:
+        """Upload and process a file in the OpenAI vector store.
+
+        Args:
+            file_stream (bytes): Raw bytes of the file to upload
+            file_extension (Literal, optional): File type extension. Defaults to "pdf"
+                Supported formats:
+                - doc, docx: Word documents
+                - json: JSON files
+                - md: Markdown files
+                - pdf: PDF documents
+                - pptx: PowerPoint presentations
+                - tex: LaTeX files
+                - txt: Plain text files
+
+        Returns:
+            Literal["in_progress", "completed", "cancelled", "failed"]: Status of file processing
+
+        Example:
+            ```python
+            with open('document.pdf', 'rb') as f:
+                status = ai.add_file(f.read(), file_extension="pdf")
+                if status == "completed":
+                    print("File processed successfully")
+            ```
+
+        Note:
+            - Requires file_search=True in AI initialization
+            - Files are vectorized for semantic search
+            - Maximum file size: 512MB
+            - Maximum 10,000 files per vector store
+            - Processing may take a few seconds to minutes
+        """
+        vector_store_id = self._database.get_vector_store_id()
+        file = self._client.files.create(
+            file=(f"file.{file_extension}", file_stream), purpose="assistants"
+        )
+        file_batch = self._client.beta.vector_stores.files.create_and_poll(
+            vector_store_id=vector_store_id, file_id=file.id
+        )
+        self._database.add_file(file.id)
+        return file_batch.status
 
     def search_kb(self, query: str, namespace: str = "global", limit: int = 3) -> str:
         """Search Pinecone knowledge base using OpenAI embeddings.
