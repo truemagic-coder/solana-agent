@@ -4,6 +4,7 @@ import json
 from typing import AsyncGenerator, Literal, Optional, Dict, Any, Callable
 import uuid
 import cohere
+import pandas as pd
 from pydantic import BaseModel
 from pymongo import MongoClient
 from openai import OpenAI
@@ -109,13 +110,14 @@ class AI:
         pinecone_index_name: str = None,
         cohere_api_key: str = None,
         cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
+        gemini_api_key: str = None,
         code_interpreter: bool = True,
         file_search: bool = True,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
         openai_embedding_model: Literal[
             "text-embedding-3-small", "text-embedding-3-large"
-        ] = "text-embedding-3-small",
+        ] = "text-embedding-3-large",
     ):
         """Initialize a new AI assistant with memory and tool integration capabilities.
 
@@ -131,10 +133,11 @@ class AI:
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
             cohere_api_key (str, optional): API key for Cohere search. Defaults to None
             cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
+            gemini_api_key (str, optional): API key for Gemini search. Defaults to None
             code_interpreter (bool, optional): Enable code interpretation. Defaults to True
             file_search (bool, optional): Enable file search tool. Defaults to True
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
-            openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-small"
+            openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-large"
 
         Example:
             ```python
@@ -148,7 +151,7 @@ class AI:
         Notes:
             - Requires valid OpenAI API key for core functionality
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity, Pinecone, Cohere, and Grok
+            - Optional integrations for Zep, Perplexity, Pinecone, Cohere, Gemini, and Grok
             - Supports code interpretation and custom tool functions
             - You must create the Pinecone index in the dashboard before using it
         """
@@ -179,6 +182,7 @@ class AI:
         self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
+        self._gemini_api_key = gemini_api_key
         self._pinecone = (
             Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
         )
@@ -270,6 +274,135 @@ class AI:
             thread_id=thread_id, run_id=run_id
         )
         return run.status
+
+    def csv_to_text(self, file, filename: str) -> str:
+        """Convert a CSV file to a Markdown table text format optimized for LLM ingestion.
+
+        Args:
+            file (BinaryIO): The CSV file to convert to text.
+            filename (str): The name of the CSV file.
+
+        Returns:
+            str: A Markdown formatted table representing the CSV data.
+
+        Example:
+            ```python
+            result = ai.csv_to_text("data.csv")
+            print(result)
+            # Returns a Markdown table such as:
+            # **Table: data**
+            #
+            # | Date       | Product  | Revenue |
+            # | ---------- | -------- | ------- |
+            # | 2024-01-01 | Widget A | $100    |
+            # | 2024-01-02 | Widget B | $200    |
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+            The output format preserves the table structure allowing the LLM to understand column relationships and row data.
+        """
+        df = pd.read_csv(file)
+        # Create header and separator rows for Markdown table
+        header = "| " + " | ".join(df.columns.astype(str)) + " |"
+        separator = "| " + " | ".join(["---"] * len(df.columns)) + " |"
+        # Process each row in the dataframe
+        rows = "\n".join("| " + " | ".join(map(str, row)) +
+                         " |" for row in df.values)
+        markdown_table = f"**Table: {filename}**\n\n{header}\n{separator}\n{rows}"
+        return markdown_table
+
+    # summarize tool - has to be sync
+    def summarize(
+        self,
+        text: str,
+        prompt: str = "Summarize the markdown table into a report, include important metrics and totals.",
+        model: Literal["gemini-2.0-flash",
+                       "gemini-1.5-pro"] = "gemini-1.5-pro",
+    ) -> str:
+        """Summarize text using Google's Gemini language model.
+
+        Args:
+            text (str): The text content to be summarized
+            prompt (str, optional): The prompt to use for summarization. Defaults to "Summarize the markdown table into a report, include important metrics and totals."
+            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
+                Gemini model to use. Defaults to "gemini-1.5-pro"
+                - gemini-2.0-flash: Faster, shorter summaries
+                - gemini-1.5-pro: More detailed summaries
+
+        Returns:
+            str: Summarized text or error message if summarization fails
+
+        Example:
+            ```python
+            summary = ai.summarize("Long article text here...")
+            # Returns: "Concise summary of the article..."
+            ```
+
+        Note:
+            This is a synchronous tool method required for OpenAI function calling.
+            Requires valid Gemini API key to be configured.
+        """
+        try:
+            client = OpenAI(
+                api_key=self._gemini_api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
+
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt,
+                    },
+                    {"role": "user", "content": text},
+                ],
+            )
+
+            return completion.choices[0].message.content
+        except Exception as e:
+            return f"Failed to summarize text. Error: {e}"
+
+    def upload_csv_file_to_kb(
+        self,
+        file,
+        filename: str,
+        prompt: str = "Summarize the markdown table into a report, include important metrics and totals.",
+        namespace: str = "global",
+        model: Literal["gemini-2.0-flash",
+                       "gemini-1.5-pro"] = "gemini-1.5-pro",
+    ):
+        """Upload and process a CSV file into the knowledge base with AI summarization.
+
+        Args:
+            file (BinaryIO): The CSV file to upload and process
+            filename (str): The name of the CSV file
+            prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the markdown table into a report, include important metrics and totals."
+            namespace (str, optional): Knowledge base namespace. Defaults to "global".
+            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional): 
+                Gemini model for summarization. Defaults to "gemini-1.5-pro"
+
+        Example:
+            ```python
+            ai.upload_csv_file(
+                file=open("data.csv", "rb"),
+                filename="data.csv",
+            )
+            ```
+
+        Note:
+            - Converts CSV to Markdown table format
+            - Uses Gemini AI to generate a summary
+            - Stores summary in Pinecone knowledge base
+            - Requires configured Pinecone index
+            - Supports custom prompts for targeted summaries
+        """
+        csv_text = self.csv_to_text(file, filename)
+        print(csv_text)
+        document = self.summarize(csv_text, prompt, model)
+        print(document)
+        self.add_document_to_kb(document=document, namespace=namespace)
 
     def delete_vector_store_and_files(self):
         """Delete the OpenAI vector store and files.

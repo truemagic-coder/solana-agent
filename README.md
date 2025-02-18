@@ -37,8 +37,9 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - X (Twitter) search using Grok
 - Conversational fact search powered by Zep
 - Conversational message history using MongoDB (on-prem or hosted)
-- Knowledge Base using Pinecone with reranking by Cohere - available globally or user-specific
-- File search using OpenAI
+- Knowledge Base (KB) using Pinecone with reranking by Cohere - available globally or user-specific
+- File uploading and searching using OpenAI like for PDFs
+- Upload a CSV to be processed into a summary report to be stored in the knowledge base (KB) using Gemini
 - Comprehensive reasoning combining multiple data sources
 
 ## Why Choose Solana Agent Over LangChain?
