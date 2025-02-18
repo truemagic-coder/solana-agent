@@ -774,7 +774,7 @@ class AI:
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
         ] = "sonar",
         openai_model: Literal["o1", "o3-mini"] = "o3-mini",
-        grok_model: Literal["grok-beta"] = "grok-beta",
+        grok_model: Literal["grok-2-latest"] = "grok-2-latest",
         namespace: str = "global",
     ) -> str:
         """Combine multiple data sources with AI reasoning to answer queries.
@@ -857,13 +857,13 @@ class AI:
             return f"Failed to reason. Error: {e}"
 
     # x search tool - has to be sync
-    def search_x(self, query: str, model: Literal["grok-beta"] = "grok-beta") -> str:
+    def search_x(self, query: str, model: Literal["grok-2-latest"] = "grok-2-latest") -> str:
         try:
             """Search X (formerly Twitter) using Grok API integration.
 
             Args:
                 query (str): Search query to find relevant X posts
-                model (Literal["grok-beta"], optional): Grok model to use. Defaults to "grok-beta"
+                model (Literal["grok-2-latest"], optional): Grok model to use. Defaults to "grok-2-latest"
 
             Returns:
                 str: Search results from X or error message if search fails
