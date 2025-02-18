@@ -39,7 +39,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Conversational message history using MongoDB (on-prem or hosted)
 - Knowledge Base (KB) using Pinecone with reranking by Cohere - available globally or user-specific
 - File uploading and searching using OpenAI like for PDFs
-- Upload a CSV to be processed into a summary report to be stored in the knowledge base (KB) using Gemini
+- Upload CSVs to be processed into summary reports and stored in the Knowledge Base (KB) using Gemini
 - Comprehensive reasoning combining multiple data sources
 
 ## Why Choose Solana Agent Over LangChain?
