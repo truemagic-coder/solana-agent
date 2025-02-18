@@ -380,7 +380,7 @@ class AI:
             filename (str): The name of the CSV file
             prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the markdown table into a report, include important metrics and totals."
             namespace (str, optional): Knowledge base namespace. Defaults to "global".
-            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional): 
+            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
                 Gemini model for summarization. Defaults to "gemini-1.5-pro"
 
         Example:
@@ -766,6 +766,7 @@ class AI:
         self,
         user_id: str,
         query: str,
+        prompt: str = "You combine the data with your reasoning to answer the query.",
         use_perplexity: bool = True,
         use_grok: bool = True,
         use_facts: bool = True,
@@ -782,6 +783,7 @@ class AI:
         Args:
             user_id (str): Unique identifier for the user
             query (str): The question or query to reason about
+            prompt (str, optional): Prompt for reasoning. Defaults to "You combine the data with your reasoning to answer the query."
             use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
             use_grok (bool, optional): Include X/Twitter search results. Defaults to True
             use_facts (bool, optional): Include stored conversation facts. Defaults to True
@@ -844,7 +846,7 @@ class AI:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You combine the data with your reasoning to answer the query.",
+                        "content": prompt,
                     },
                     {
                         "role": "user",
@@ -857,7 +859,9 @@ class AI:
             return f"Failed to reason. Error: {e}"
 
     # x search tool - has to be sync
-    def search_x(self, query: str, model: Literal["grok-2-latest"] = "grok-2-latest") -> str:
+    def search_x(
+        self, query: str, model: Literal["grok-2-latest"] = "grok-2-latest"
+    ) -> str:
         try:
             """Search X (formerly Twitter) using Grok API integration.
 
