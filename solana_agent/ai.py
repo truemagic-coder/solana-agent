@@ -111,8 +111,8 @@ class AI:
         cohere_api_key: str = None,
         cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
         gemini_api_key: str = None,
-        code_interpreter: bool = True,
-        file_search: bool = True,
+        code_interpreter: bool = False,
+        file_search: bool = False,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
         openai_embedding_model: Literal[
@@ -134,8 +134,8 @@ class AI:
             cohere_api_key (str, optional): API key for Cohere search. Defaults to None
             cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
-            code_interpreter (bool, optional): Enable code interpretation. Defaults to True
-            file_search (bool, optional): Enable file search tool. Defaults to True
+            code_interpreter (bool, optional): Enable code interpretation. Defaults to False
+            file_search (bool, optional): Enable file search tool. Defaults to False
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
             openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-large"
 
