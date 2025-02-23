@@ -1,9 +1,8 @@
 import asyncio
 import datetime
 import json
-from typing import AsyncGenerator, Literal, Optional, Dict, Any, Callable
+from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
 import uuid
-import cohere
 import pandas as pd
 from pydantic import BaseModel
 from pymongo import MongoClient
@@ -17,6 +16,11 @@ from zep_cloud.client import AsyncZep
 from zep_cloud.client import Zep
 from zep_cloud.types import Message
 from pinecone import Pinecone
+
+
+class DocumentModel(BaseModel):
+    id: str
+    text: str
 
 
 class EventHandler(AssistantEventHandler):
@@ -71,13 +75,21 @@ class MongoDatabase:
         self.messages.delete_many({"user_id": user_id})
         self._threads.delete_one({"user_id": user_id})
 
-    def add_document_to_kb(self, id: str, namespace: str, document: str):
-        storage = {}
-        storage["namespace"] = namespace
-        storage["reference"] = id
-        storage["document"] = document
-        storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
-        self.kb.insert_one(storage)
+    def add_documents_to_kb(self, namespace: str, documents: List[DocumentModel]):
+        for document in documents:
+            storage = {}
+            storage["namespace"] = namespace
+            storage["reference"] = document.id
+            storage["document"] = document.text
+            storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
+            self.kb.insert_one(storage)
+
+    def list_documents_in_kb(self, namespace: str) -> List[DocumentModel]:
+        documents = self.kb.find({"namespace": namespace})
+        return [
+            DocumentModel(id=doc["reference"], text=doc["document"])
+            for doc in documents
+        ]
 
     def get_vector_store_id(self) -> str | None:
         document = self.vector_stores.find_one()
@@ -108,16 +120,12 @@ class AI:
         grok_api_key: str = None,
         pinecone_api_key: str = None,
         pinecone_index_name: str = None,
-        cohere_api_key: str = None,
-        cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
+        pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
         code_interpreter: bool = False,
         file_search: bool = False,
         openai_assistant_model: Literal["gpt-4o-mini",
                                         "gpt-4o"] = "gpt-4o-mini",
-        openai_embedding_model: Literal[
-            "text-embedding-3-small", "text-embedding-3-large"
-        ] = "text-embedding-3-large",
     ):
         """Initialize a new AI assistant with memory and tool integration capabilities.
 
@@ -131,13 +139,11 @@ class AI:
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
-            cohere_api_key (str, optional): API key for Cohere search. Defaults to None
-            cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
+            pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
             code_interpreter (bool, optional): Enable code interpretation. Defaults to False
             file_search (bool, optional): Enable file search tool. Defaults to False
             openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
-            openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-large"
 
         Example:
             ```python
@@ -151,7 +157,7 @@ class AI:
         Notes:
             - Requires valid OpenAI API key for core functionality
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity, Pinecone, Cohere, Gemini, and Grok
+            - Optional integrations for Zep, Perplexity, Pinecone, Gemini, and Grok
             - Supports code interpretation and custom tool functions
             - You must create the Pinecone index in the dashboard before using it
         """
@@ -159,7 +165,6 @@ class AI:
         self._name = name
         self._instructions = instructions
         self._openai_assistant_model = openai_assistant_model
-        self._openai_embedding_model = openai_embedding_model
         self._file_search = file_search
         if file_search:
             self._tools = (
@@ -187,13 +192,11 @@ class AI:
             Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
         )
         self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
+        self._pinecone_embedding_model = pinecone_embed_model
         self.kb = (
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
-        self._co = cohere.ClientV2(
-            api_key=cohere_api_key) if cohere_api_key else None
-        self._co_model = cohere_model if cohere_api_key else None
 
     async def __aenter__(self):
         assistants = self._client.beta.assistants.list()
@@ -211,10 +214,10 @@ class AI:
             ).id
             self._database.delete_all_threads()
         if self._file_search:
-            vectore_store_id = self._database.get_vector_store_id()
-            if vectore_store_id:
+            vector_store_id = self._database.get_vector_store_id()
+            if vector_store_id:
                 self._vector_store = self._client.beta.vector_stores.retrieve(
-                    vector_store_id=vectore_store_id
+                    vector_store_id=vector_store_id
                 )
             else:
                 uid = uuid.uuid4().hex
@@ -368,20 +371,20 @@ class AI:
         self,
         file,
         filename: str,
-        prompt: str = "Summarize the markdown table into a report, include important metrics and totals.",
+        id: str = uuid.uuid4().hex,
+        prompt: str = "Summarize the table into a report, include important metrics and totals.",
         namespace: str = "global",
-        model: Literal["gemini-2.0-flash",
-                       "gemini-1.5-pro"] = "gemini-1.5-pro",
+        model: Literal["gemini-2.0-flash"] = "gemini-2.0-flash",
     ):
         """Upload and process a CSV file into the knowledge base with AI summarization.
 
         Args:
             file (BinaryIO): The CSV file to upload and process
             filename (str): The name of the CSV file
-            prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the markdown table into a report, include important metrics and totals."
+            id (str, optional): Unique identifier for the document. Defaults to a random UUID.
+            prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the table into a report, include important metrics and totals."
             namespace (str, optional): Knowledge base namespace. Defaults to "global".
-            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
-                Gemini model for summarization. Defaults to "gemini-1.5-pro"
+            model (Literal["gemini-2.0-flash"], optional): Gemini model for summarization. Defaults to "gemini-2.0-flash".
 
         Example:
             ```python
@@ -393,16 +396,16 @@ class AI:
 
         Note:
             - Converts CSV to Markdown table format
-            - Uses Gemini AI to generate a summary
+            - Uses Gemini AI to generate a summary - total of 1M context tokens
             - Stores summary in Pinecone knowledge base
             - Requires configured Pinecone index
             - Supports custom prompts for targeted summaries
         """
         csv_text = self.csv_to_text(file, filename)
-        print(csv_text)
         document = self.summarize(csv_text, prompt, model)
-        print(document)
-        self.add_document_to_kb(document=document, namespace=namespace)
+        self.add_documents_to_kb(
+            documents=[DocumentModel(id=id, text=document)], namespace=namespace
+        )
 
     def delete_vector_store_and_files(self):
         """Delete the OpenAI vector store and files.
@@ -504,12 +507,21 @@ class AI:
         self._database.add_file(file.id)
         return file_batch.status
 
-    def search_kb(self, query: str, namespace: str = "global", limit: int = 3) -> str:
-        """Search Pinecone knowledge base using OpenAI embeddings.
+    def search_kb(
+        self,
+        query: str,
+        namespace: str = "global",
+        rerank_model: Literal["cohere-rerank-3.5"] = "cohere-rerank-3.5",
+        inner_limit: int = 10,
+        limit: int = 3,
+    ) -> str:
+        """Search Pinecone knowledge base.
 
         Args:
             query (str): Search query to find relevant documents
             namespace (str, optional): Namespace of the Pinecone to search. Defaults to "global".
+            rerank_model (Literal["cohere-rerank-3.5"], optional): Rerank model on Pinecone. Defaults to "cohere-rerank-3.5".
+            inner_limit (int, optional): Maximum number of results to rerank. Defaults to 10.
             limit (int, optional): Maximum number of results to return. Defaults to 3.
 
         Returns:
@@ -517,25 +529,23 @@ class AI:
 
         Example:
             ```python
-            results = ai.search_kb("user123", "machine learning basics")
+            results = ai.search_kb("machine learning basics", "user123")
             # Returns: '["Document 1", "Document 2", ...]'
             ```
 
         Note:
             - Requires configured Pinecone index
-            - Uses OpenAI embeddings for semantic search
-            - Returns JSON-serialized Pinecone match metadata results
             - Returns error message string if search fails
-            - Optionally reranks results using Cohere API
         """
         try:
-            response = self._client.embeddings.create(
-                input=query,
-                model=self._openai_embedding_model,
+            embedding = self._pinecone.inference.embed(
+                model=self._pinecone_embedding_model,
+                inputs=[query],
+                parameters={"input_type": "query"},
             )
             search_results = self.kb.query(
-                vector=response.data[0].embedding,
-                top_k=10,
+                vector=embedding[0].values,
+                top_k=inner_limit,
                 include_metadata=False,
                 include_values=False,
                 namespace=namespace,
@@ -548,62 +558,88 @@ class AI:
             for id in ids:
                 document = self._database.kb.find_one({"reference": id})
                 docs.append(document["document"])
-            if self._co:
-                try:
-                    response = self._co.rerank(
-                        model=self._co_model,
-                        query=query,
-                        documents=docs,
-                        top_n=limit,
-                    )
-                    reranked_docs = response.results
-                    new_docs = []
-                    for doc in reranked_docs:
-                        new_docs.append(docs[doc.index])
-                    return json.dumps(new_docs)
-                except Exception:
-                    return json.dumps(docs[:limit])
-            else:
+            try:
+                reranked_docs = self._pinecone.inference.rerank(
+                    model=rerank_model,
+                    query=query,
+                    documents=docs,
+                    top_n=limit,
+                )
+                new_docs = []
+                for doc in reranked_docs.data:
+                    new_docs.append(docs[doc.index])
+                return json.dumps(new_docs)
+            except Exception:
                 return json.dumps(docs[:limit])
         except Exception as e:
             return f"Failed to search KB. Error: {e}"
 
-    def add_document_to_kb(
-        self,
-        document: str,
-        id: str = uuid.uuid4().hex,
-        namespace: str = "global",
-    ):
-        """Add a document to the Pinecone knowledge base with OpenAI embeddings.
+    def list_documents_in_kb(self, namespace: str = "global") -> List[DocumentModel]:
+        """List all documents stored in the Pinecone knowledge base.
 
         Args:
-            document (str): Document to add to the knowledge base
-            id (str, optional): Unique identifier for the document. Defaults to random UUID.
-            namespace (str): Namespace of the Pinecone index to search. Defaults to "global".
+            namespace (str, optional): Namespace of the Pinecone index to search. Defaults to "global".
+
+        Returns:
+            List[DocumentModel]: List of documents stored in the knowledge base
 
         Example:
             ```python
-            ai.add_document_to_kb("user123 has 4 cats")
+            documents = ai.list_documents_in_kb("user123")
+            for doc in documents:
+                print(doc)
+            # Returns: "Document 1", "Document 2", ...
             ```
 
         Note:
             - Requires Pinecone index to be configured
-            - Uses OpenAI embeddings API
         """
-        response = self._client.embeddings.create(
-            input=document,
-            model=self._openai_embedding_model,
+        return self._database.list_documents_in_kb(namespace)
+
+    def add_documents_to_kb(
+        self,
+        documents: List[DocumentModel],
+        namespace: str = "global",
+    ):
+        """Add documents to the Pinecone knowledge base.
+
+        Args:
+            documents (List[DocumentModel]): List of documents to add to the knowledge base
+            namespace (str): Namespace of the Pinecone index to search. Defaults to "global".
+
+        Example:
+            ```python
+            docs = [
+                {"id": "doc1", "text": "Document 1"},
+                {"id": "doc2", "text": "Document 2"},
+            ]
+            ai.add_documents_to_kb(docs, "user123")
+            ```
+
+        Note:
+            - Requires Pinecone index to be configured
+        """
+        embeddings = self._pinecone.inference.embed(
+            model=self._pinecone_embedding_model,
+            inputs=[d["text"] for d in documents],
+            parameters={"input_type": "passage", "truncate": "END"},
         )
-        self.kb.upsert(
-            vectors=[
+
+        vectors = []
+        for d, e in zip(documents, embeddings):
+            vectors.append(
                 {
-                    "id": id,
-                    "values": response.data[0].embedding,
+                    "id": d["id"],
+                    "values": e["values"],
                 }
-            ],
+            )
+
+        self.kb.upsert(
+            vectors=vectors,
             namespace=namespace,
         )
-        self._database.add_document_to_kb(id, namespace, document)
+
+        self._database.add_documents_to_kb(namespace, documents)
 
     def delete_document_from_kb(self, id: str, user_id: str = "global"):
         """Delete a document from the Pinecone knowledge base.

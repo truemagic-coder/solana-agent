@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "1.4.4"
+version = "2.0.0"
 description = "Build self-learning AI Agents"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -18,13 +18,12 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-openai = "^1.63.2"
+openai = "^1.64.0"
 pydantic = "^2.10.6"
 pymongo = "^4.11.1"
 zep-cloud = "^2.4.0"
 requests = "^2.32.3"
 pinecone = "^6.0.1"
-cohere = "^5.13.12"
 pandas = "^2.2.3"
 
 [build-system]
