@@ -537,7 +537,6 @@ class AI:
         prompt: str = "You combine the data with your reasoning to answer the query.",
         use_perplexity: bool = True,
         use_grok: bool = True,
-        use_facts: bool = True,
         use_kb: bool = True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
@@ -554,7 +553,6 @@ class AI:
             prompt (str, optional): Prompt for reasoning. Defaults to "You combine the data with your reasoning to answer the query."
             use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
             use_grok (bool, optional): Include X/Twitter search results. Defaults to True
-            use_facts (bool, optional): Include stored conversation facts. Defaults to True
             use_kb (bool, optional): Include Pinecone knowledge base search results. Defaults to True
             perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
             openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
@@ -586,13 +584,6 @@ class AI:
                     kb_results = ""
             else:
                 kb_results = ""
-            if use_facts:
-                try:
-                    facts = self.search_facts(user_id, query)
-                except Exception:
-                    facts = ""
-            else:
-                facts = ""
             if use_perplexity:
                 try:
                     search_results = self.search_internet(
@@ -609,6 +600,8 @@ class AI:
             else:
                 x_search_results = ""
 
+            memory = self._sync_zep.memory.get(session_id=user_id)
+
             response = self._client.chat.completions.create(
                 model=openai_model,
                 messages=[
@@ -618,7 +611,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {query}, Facts: {facts}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
+                        "content": f"Query: {query}, Memory: {memory}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
                     },
                 ],
             )
@@ -769,7 +762,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"{user_text} {memory}",
+                        "content": f"Query: {user_text}, Memory: {memory}",
                     },
                 ],
                 tools=self._tools,
@@ -881,7 +874,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"{transcript} {memory}",
+                        "content": f"Query: {transcript}, Memory: {memory}",
                     },
                 ],
                 stream=True,
