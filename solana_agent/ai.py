@@ -680,54 +680,37 @@ class AI:
             "%Y-%m-%d %H:%M:%S %Z"
         )
 
-    # search facts tool - has to be sync
-    def search_facts(
+    # has to be sync for tool
+    def get_memory_context(
         self,
         user_id: str,
-        query: str,
-        limit: int = 10,
     ) -> str:
-        """Search stored conversation facts using Zep memory integration.
+        """Retrieve contextual memory for a specific user from Zep memory storage.
 
         Args:
-            user_id (str): Unique identifier for the user
-            query (str): Search query to find relevant facts
-            limit (int, optional): Maximum number of facts to return. Defaults to 10.
+            user_id (str): Unique identifier for the user whose memory context to retrieve
 
         Returns:
-            str: JSON string of matched facts or error message
+            str: User's memory context or error message if retrieval fails
 
         Example:
             ```python
-            facts = ai.search_facts(
-                user_id="user123",
-                query="How many cats do I have?"
-            )
-            # Returns: [{"fact": "user123 has 4 cats", "timestamp": "2022-01-01T12:00:00Z"}]
+            context = ai.get_memory_context("user123")
+            print(context)
+            # Returns: "User previously mentioned having 3 dogs and living in London"
             ```
 
         Note:
-            Requires Zep integration to be configured with valid API key.
-            This is a synchronous tool method required for OpenAI function calling.
+            - This is a synchronous tool method required for OpenAI function calling
+            - Requires Zep integration to be configured with valid API key
+            - Returns error message if Zep is not configured or retrieval fails
+            - Useful for maintaining conversation context across sessions
         """
-        if self._sync_zep:
-            try:
-                facts = []
-                results = self._sync_zep.memory.search_sessions(
-                    user_id=user_id,
-                    session_ids=[user_id],
-                    text=query,
-                    limit=limit,
-                )
-                for result in results.results:
-                    fact = result.fact.fact
-                    timestamp = result.fact.created_at
-                    facts.append({"fact": fact, "timestamp": timestamp})
-                return json.dumps(facts)
-            except Exception as e:
-                return f"Failed to search facts. Error: {e}"
-        else:
-            return "Zep integration not configured."
+        try:
+            memory = self._sync_zep.memory.get(session_id=user_id)
+            return memory.context
+        except Exception as e:
+            return f"Failed to get memory context. Error: {e}"
 
     # search internet tool - has to be sync
     def search_internet(
