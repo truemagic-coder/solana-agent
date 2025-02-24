@@ -122,10 +122,8 @@ class AI:
         pinecone_index_name: str = None,
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
-        code_interpreter: bool = False,
-        file_search: bool = False,
-        openai_assistant_model: Literal["gpt-4o-mini",
-                                        "gpt-4o"] = "gpt-4o-mini",
+        openai_base_url: str = None,
+        openai_model: str = "gpt-4o-mini",
     ):
         """Initialize a new AI assistant with memory and tool integration capabilities.
 
@@ -141,9 +139,8 @@ class AI:
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
-            code_interpreter (bool, optional): Enable code interpretation. Defaults to False
-            file_search (bool, optional): Enable file search tool. Defaults to False
-            openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
+            openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
+            openai_model (str, optional): OpenAI model to use. Defaults to "gpt-4o-mini"
 
         Example:
             ```python
@@ -164,23 +161,6 @@ class AI:
         self._client = OpenAI(api_key=openai_api_key)
         self._name = name
         self._instructions = instructions
-        self._openai_assistant_model = openai_assistant_model
-        self._file_search = file_search
-        if file_search:
-            self._tools = (
-                [
-                    {"type": "code_interpreter"},
-                    {"type": "file_search"},
-                ]
-                if code_interpreter
-                else [{"type": "file_search"}]
-            )
-        else:
-            self._tools = [{"type": "code_interpreter"}
-                           ] if code_interpreter else []
-
-        self._tool_handlers = {}
-        self._assistant_id = None
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
@@ -197,86 +177,6 @@ class AI:
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
-
-    async def __aenter__(self):
-        assistants = self._client.beta.assistants.list()
-        existing_assistant = next(
-            (a for a in assistants if a.name == self._name), None)
-
-        if existing_assistant:
-            self._assistant_id = existing_assistant.id
-        else:
-            self._assistant_id = self._client.beta.assistants.create(
-                name=self._name,
-                instructions=self._instructions,
-                tools=self._tools,
-                model=self._openai_assistant_model,
-            ).id
-            self._database.delete_all_threads()
-        if self._file_search:
-            vector_store_id = self._database.get_vector_store_id()
-            if vector_store_id:
-                self._vector_store = self._client.beta.vector_stores.retrieve(
-                    vector_store_id=vector_store_id
-                )
-            else:
-                uid = uuid.uuid4().hex
-                self._vector_store = self._client.beta.vector_stores.create(
-                    name=uid)
-                self._database.save_vector_store_id(self._vector_store.id)
-            self._client.beta.assistants.update(
-                assistant_id=self._assistant_id,
-                tool_resources={
-                    "file_search": {"vector_store_ids": [self._vector_store.id]}
-                },
-            )
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        # Perform any cleanup actions here
-        pass
-
-    async def _create_thread(self, user_id: str) -> str:
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread = self._client.beta.threads.create()
-            thread_id = thread.id
-            self._database.save_thread_id(user_id, thread_id)
-            if self._zep:
-                try:
-                    await self._zep.user.add(user_id=user_id)
-                except Exception:
-                    pass
-                try:
-                    await self._zep.memory.add_session(
-                        user_id=user_id, session_id=user_id
-                    )
-                except Exception:
-                    pass
-
-        return thread_id
-
-    async def _cancel_run(self, thread_id: str, run_id: str):
-        try:
-            self._client.beta.threads.runs.cancel(
-                thread_id=thread_id, run_id=run_id)
-        except Exception as e:
-            print(f"Error cancelling run: {e}")
-
-    async def _get_active_run(self, thread_id: str) -> Optional[str]:
-        runs = self._client.beta.threads.runs.list(
-            thread_id=thread_id, limit=1)
-        for run in runs:
-            if run.status in ["in_progress"]:
-                return run.id
-        return None
-
-    async def _get_run_status(self, thread_id: str, run_id: str) -> str:
-        run = self._client.beta.threads.runs.retrieve(
-            thread_id=thread_id, run_id=run_id
-        )
-        return run.status
 
     def csv_to_text(self, file, filename: str) -> str:
         """Convert a CSV file to a Markdown table text format optimized for LLM ingestion.
@@ -406,106 +306,6 @@ class AI:
         self.add_documents_to_kb(
             documents=[DocumentModel(id=id, text=document)], namespace=namespace
         )
-
-    def delete_vector_store_and_files(self):
-        """Delete the OpenAI vector store and files.
-
-        Example:
-            ```python
-            ai.delete_vector_store()
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Deletes the vector store and all associated files
-        """
-        vector_store_id = self._database.get_vector_store_id()
-        if vector_store_id:
-            self._client.beta.vector_stores.delete(vector_store_id)
-            self._database.delete_vector_store_id(vector_store_id)
-            for file in self._database.files.find().to_list():
-                self._client.files.delete(file["file_id"])
-                self._database.delete_file(file["file_id"])
-
-    def max_files(self) -> bool:
-        """Check if the OpenAI vector store has reached its maximum file capacity.
-
-        Returns:
-            bool: True if file count is at maximum (10,000), False otherwise
-
-        Example:
-            ```python
-            if ai.max_files():
-                print("Vector store is full")
-            else:
-                print("Can still add more files")
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - OpenAI vector stores have a 10,000 file limit
-            - Returns False if vector store is not configured
-        """
-        self._vector_store.file_counts.completed == 10000
-
-    def file_count(self) -> int:
-        """Get the total number of files processed in the OpenAI vector store.
-
-        Returns:
-            int: Number of successfully processed files in the vector store
-
-        Example:
-            ```python
-            count = ai.file_count()
-            print(f"Processed {count} files")
-            # Returns: "Processed 5 files"
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Only counts successfully processed files
-            - Returns 0 if vector store is not configured
-        """
-        self._vector_store.file_counts.completed
-
-    def add_file(
-        self,
-        filename: str,
-        file_stream: bytes,
-    ) -> Literal["in_progress", "completed", "cancelled", "failed"]:
-        """Upload and process a file in the OpenAI vector store.
-
-        Args:
-            filename (str): Name of the file to upload
-            file_stream (bytes): Raw bytes of the file to upload
-
-        Returns:
-            Literal["in_progress", "completed", "cancelled", "failed"]: Status of file processing
-
-        Example:
-            ```python
-            with open('document.pdf', 'rb') as f:
-                status = ai.add_file(f.filename, f.read())
-                if status == "completed":
-                    print("File processed successfully")
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Files are vectorized for semantic search
-            - Maximum file size: 512MB
-            - Maximum 10,000 files per vector store
-            - Processing may take a few seconds to minutes
-        """
-        vector_store_id = self._database.get_vector_store_id()
-        file = self._client.files.create(
-            file=(filename, file_stream), purpose="assistants"
-        )
-        file_batch = self._client.beta.vector_stores.files.create_and_poll(
-            vector_store_id=vector_store_id, file_id=file.id
-        )
-        self._database.add_file(file.id)
-        return file_batch.status
 
     def search_kb(
         self,
@@ -936,15 +736,11 @@ class AI:
             This is an async method and must be awaited.
         """
         try:
-            await self.delete_assistant_thread(user_id)
-        except Exception:
-            pass
-        try:
             self._database.clear_user_history(user_id)
         except Exception:
             pass
         try:
-            await self.delete_facts(user_id)
+            await self.delete_memory(user_id)
         except Exception:
             pass
 
@@ -960,8 +756,8 @@ class AI:
         thread_id = self._database.get_thread_id(user_id)
         await self._client.beta.threads.delete(thread_id=thread_id)
 
-    async def delete_facts(self, user_id: str):
-        """Delete stored conversation facts for a specific user from Zep memory.
+    async def delete_memory(self, user_id: str):
+        """Delete memory for a specific user from Zep memory.
 
         Args:
             user_id (str): Unique identifier for the user whose facts should be deleted
@@ -1205,26 +1001,6 @@ class AI:
         ) as response:
             for chunk in response.iter_bytes(1024):
                 yield chunk
-
-    def _handle_requires_action(self, data, run_id):
-        tool_outputs = []
-
-        for tool in data.required_action.submit_tool_outputs.tool_calls:
-            if tool.function.name in self._tool_handlers:
-                handler = self._tool_handlers[tool.function.name]
-                inputs = json.loads(tool.function.arguments)
-                output = handler(**inputs)
-                tool_outputs.append(
-                    {"tool_call_id": tool.id, "output": output})
-
-        self._submit_tool_outputs(tool_outputs, run_id)
-
-    def _submit_tool_outputs(self, tool_outputs, run_id):
-        with self._client.beta.threads.runs.submit_tool_outputs_stream(
-            thread_id=self._current_thread_id, run_id=run_id, tool_outputs=tool_outputs
-        ) as stream:
-            for text in stream.text_deltas:
-                asyncio.create_task(self._accumulated_value_queue.put(text))
 
     def add_tool(self, func: Callable):
         """Register a custom function as an AI tool using decorator pattern.
