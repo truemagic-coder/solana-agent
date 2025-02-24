@@ -1,15 +1,12 @@
 import asyncio
 import datetime
 import json
-from typing import AsyncGenerator, List, Literal, Optional, Dict, Any, Callable
+from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
 import uuid
 import pandas as pd
 from pydantic import BaseModel
 from pymongo import MongoClient
 from openai import OpenAI
-from openai import AssistantEventHandler
-from openai.types.beta.threads import TextDelta, Text
-from typing_extensions import override
 import inspect
 import requests
 from zep_cloud.client import AsyncZep
@@ -23,57 +20,19 @@ class DocumentModel(BaseModel):
     text: str
 
 
-class EventHandler(AssistantEventHandler):
-    def __init__(self, tool_handlers, ai_instance):
-        super().__init__()
-        self._tool_handlers = tool_handlers
-        self._ai_instance = ai_instance
-
-    @override
-    def on_text_delta(self, delta: TextDelta, snapshot: Text):
-        asyncio.create_task(
-            self._ai_instance._accumulated_value_queue.put(delta.value))
-
-    @override
-    def on_event(self, event):
-        if event.event == "thread.run.requires_action":
-            run_id = event.data.id
-            self._ai_instance._handle_requires_action(event.data, run_id)
-
-
-class ToolConfig(BaseModel):
-    name: str
-    description: str
-    parameters: Dict[str, Any]
-
-
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
         self._client = MongoClient(db_url)
         self.db = self._client[db_name]
-        self._threads = self.db["threads"]
         self.messages = self.db["messages"]
         self.kb = self.db["kb"]
-        self.vector_stores = self.db["vector_stores"]
-        self.files = self.db["files"]
-
-    def save_thread_id(self, user_id: str, thread_id: str):
-        self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
-
-    def get_thread_id(self, user_id: str) -> Optional[str]:
-        document = self._threads.find_one({"user_id": user_id})
-        return document["thread_id"] if document else None
 
     def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
         self.messages.insert_one(metadata)
 
-    def delete_all_threads(self):
-        self._threads.delete_many({})
-
     def clear_user_history(self, user_id: str):
         self.messages.delete_many({"user_id": user_id})
-        self._threads.delete_one({"user_id": user_id})
 
     def add_documents_to_kb(self, namespace: str, documents: List[DocumentModel]):
         for document in documents:
@@ -91,22 +50,6 @@ class MongoDatabase:
             for doc in documents
         ]
 
-    def get_vector_store_id(self) -> str | None:
-        document = self.vector_stores.find_one()
-        return document["vector_store_id"] if document else None
-
-    def save_vector_store_id(self, vector_store_id: str):
-        self.vector_stores.insert_one({"vector_store_id": vector_store_id})
-
-    def delete_vector_store_id(self, vector_store_id: str):
-        self.vector_stores.delete_one({"vector_store_id": vector_store_id})
-
-    def add_file(self, file_id: str):
-        self.files.insert_one({"file_id": file_id})
-
-    def delete_file(self, file_id: str):
-        self.files.delete_one({"file_id": file_id})
-
 
 class AI:
     def __init__(
@@ -115,7 +58,7 @@ class AI:
         name: str,
         instructions: str,
         database: Any,
-        zep_api_key: str = None,
+        zep_api_key: str,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
         pinecone_api_key: str = None,
@@ -132,7 +75,7 @@ class AI:
             name (str): Name identifier for the assistant
             instructions (str): Base behavioral instructions for the AI
             database (Any): Database instance for message/thread storage
-            zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
+            zep_api_key (str): API key for Zep memory storage
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
@@ -149,22 +92,25 @@ class AI:
                 name="Assistant",
                 instructions="Be helpful and concise",
                 database=MongoDatabase("mongodb://localhost", "ai_db"),
+                zep_api_key="your-zep-key",
             )
             ```
         Notes:
             - Requires valid OpenAI API key for core functionality
+            - Supports any OpenAI compatible model for conversation
+            - Requires valid Zep API key for memory storage
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity, Pinecone, Gemini, and Grok
-            - Supports code interpretation and custom tool functions
+            - Optional integrations for Perplexity, Pinecone, Gemini, and Grok
             - You must create the Pinecone index in the dashboard before using it
         """
-        self._client = OpenAI(api_key=openai_api_key)
+        self._client = OpenAI(api_key=openai_api_key, base_url=openai_base_url) if openai_base_url else OpenAI(
+            api_key=openai_api_key)
         self._name = name
         self._instructions = instructions
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
-        self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
-        self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
+        self._zep = AsyncZep(api_key=zep_api_key)
+        self._sync_zep = Zep(api_key=zep_api_key)
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
         self._gemini_api_key = gemini_api_key
@@ -177,6 +123,9 @@ class AI:
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
+        self._openai_base_url = openai_base_url
+        self._openai_model = openai_model
+        self._tools = []
 
     def csv_to_text(self, file, filename: str) -> str:
         """Convert a CSV file to a Markdown table text format optimized for LLM ingestion.
@@ -809,35 +758,24 @@ class AI:
         """
         self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread_id = await self._create_thread(user_id)
-
-        self._current_thread_id = thread_id
-
-        # Check for active runs and cancel if necessary
-        active_run_id = await self._get_active_run(thread_id)
-        if active_run_id:
-            await self._cancel_run(thread_id, active_run_id)
-            while await self._get_run_status(thread_id, active_run_id) != "cancelled":
-                await asyncio.sleep(0.1)
-
-        # Create a message in the thread
-        self._client.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=user_text,
-        )
-        event_handler = EventHandler(self._tool_handlers, self)
-
         async def stream_processor():
-            with self._client.beta.threads.runs.stream(
-                thread_id=thread_id,
-                assistant_id=self._assistant_id,
-                event_handler=event_handler,
+            memory = await self.get_memory_context(user_id)
+            with self._client.chat.completions.create(
+                model=self._openai_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._instructions,
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{user_text} {memory}",
+                    },
+                ],
+                tools=self._tools,
+                stream=True,
             ) as stream:
-                stream.until_done()
+                stream.response_stream = self._accumulated_value_queue
 
         # Start the stream processor in a separate task
         asyncio.create_task(stream_processor())
@@ -930,27 +868,26 @@ class AI:
         # Reset the queue for each new conversation
         self._accumulated_value_queue = asyncio.Queue()
 
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread_id = await self._create_thread(user_id)
-
-        self._current_thread_id = thread_id
         transcript = await self._listen(audio_bytes, input_format)
-        event_handler = EventHandler(self._tool_handlers, self)
-        self._client.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=transcript,
-        )
 
         async def stream_processor():
-            with self._client.beta.threads.runs.stream(
-                thread_id=thread_id,
-                assistant_id=self._assistant_id,
-                event_handler=event_handler,
+            memory = await self.get_memory_context(user_id)
+            with self._client.chat.completions.create(
+                model=self._openai_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._instructions,
+                    },
+                    {
+                        "role": "user",
+                        "content": f"{transcript} {memory}",
+                    },
+                ],
+                stream=True,
+                tools=self._tools,
             ) as stream:
-                stream.until_done()
+                stream.response_stream = self._accumulated_value_queue
 
         # Start the stream processor in a separate task
         asyncio.create_task(stream_processor())
@@ -1048,7 +985,6 @@ class AI:
             },
         }
         self._tools.append(tool_config)
-        self._tool_handlers[func.__name__] = func
         return func
 
 
