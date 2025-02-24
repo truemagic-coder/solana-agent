@@ -55,10 +55,9 @@ class AI:
     def __init__(
         self,
         openai_api_key: str,
-        name: str,
         instructions: str,
         database: Any,
-        zep_api_key: str,
+        zep_api_key: str = None,
         perplexity_api_key: str = None,
         grok_api_key: str = None,
         pinecone_api_key: str = None,
@@ -68,14 +67,13 @@ class AI:
         openai_base_url: str = None,
         openai_model: str = "gpt-4o-mini",
     ):
-        """Initialize a new AI assistant with memory and tool integration capabilities.
+        """Initialize a new AI assistant instance.
 
         Args:
             openai_api_key (str): OpenAI API key for core AI functionality
-            name (str): Name identifier for the assistant
             instructions (str): Base behavioral instructions for the AI
             database (Any): Database instance for message/thread storage
-            zep_api_key (str): API key for Zep memory storage
+            zep_api_key (str, optional): API key for Zep memory storage. Defaults to None
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
@@ -89,10 +87,8 @@ class AI:
             ```python
             ai = AI(
                 openai_api_key="your-key",
-                name="Assistant",
                 instructions="Be helpful and concise",
-                database=MongoDatabase("mongodb://localhost", "ai_db"),
-                zep_api_key="your-zep-key",
+                database=MongoDatabase("mongodb://localhost", "ai_db")
             )
             ```
         Notes:
@@ -105,12 +101,11 @@ class AI:
         """
         self._client = OpenAI(api_key=openai_api_key, base_url=openai_base_url) if openai_base_url else OpenAI(
             api_key=openai_api_key)
-        self._name = name
         self._instructions = instructions
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
-        self._zep = AsyncZep(api_key=zep_api_key)
-        self._sync_zep = Zep(api_key=zep_api_key)
+        self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
+        self._sync_zep = Zep(api_key=zep_api_key) if zep_api_key else None
         self._perplexity_api_key = perplexity_api_key
         self._grok_api_key = grok_api_key
         self._gemini_api_key = gemini_api_key
@@ -126,6 +121,13 @@ class AI:
         self._openai_base_url = openai_base_url
         self._openai_model = openai_model
         self._tools = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Perform any cleanup actions here
+        pass
 
     def csv_to_text(self, file, filename: str) -> str:
         """Convert a CSV file to a Markdown table text format optimized for LLM ingestion.
@@ -584,6 +586,7 @@ class AI:
                     kb_results = ""
             else:
                 kb_results = ""
+
             if use_perplexity:
                 try:
                     search_results = self.search_internet(
@@ -592,6 +595,7 @@ class AI:
                     search_results = ""
             else:
                 search_results = ""
+
             if use_grok:
                 try:
                     x_search_results = self.search_x(query, grok_model)
@@ -600,7 +604,10 @@ class AI:
             else:
                 x_search_results = ""
 
-            memory = self._sync_zep.memory.get(session_id=user_id)
+            if self._zep:
+                memory = self._sync_zep.memory.get(session_id=user_id)
+            else:
+                memory = ""
 
             response = self._client.chat.completions.create(
                 model=openai_model,
@@ -730,11 +737,11 @@ class AI:
         """Process text input and stream AI responses asynchronously.
 
         Args:
-            user_id (str): Unique identifier for the user/conversation
-            user_text (str): Text input from user to process
+            user_id (str): Unique identifier for the user/conversation.
+            user_text (str): Text input from user to process.
 
         Returns:
-            AsyncGenerator[str, None]: Stream of response text chunks
+            AsyncGenerator[str, None]: Stream of response text chunks (including tool call results).
 
         Example:
             ```python
@@ -743,17 +750,18 @@ class AI:
             ```
 
         Note:
-            - Maintains conversation thread using OpenAI's thread system
-            - Stores messages in configured database (MongoDB/SQLite)
-            - Integrates with Zep memory if configured
-            - Handles concurrent runs by canceling active ones
-            - Streams responses for real-time interaction
+            - Maintains conversation thread using OpenAI's thread system.
+            - Stores messages in configured database (MongoDB/SQLite).
+            - Integrates with Zep memory if configured.
+            - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
         self._accumulated_value_queue = asyncio.Queue()
+        final_tool_calls = {}  # Accumulate tool call deltas
+        final_response = ""
 
         async def stream_processor():
-            memory = await self.get_memory_context(user_id)
-            with self._client.chat.completions.create(
+            memory = self.get_memory_context(user_id)
+            response = self._client.chat.completions.create(
                 model=self._openai_model,
                 messages=[
                     {
@@ -762,39 +770,69 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {user_text}, Memory: {memory}",
+                        "content": f"Query: {user_text}",
                     },
                 ],
                 tools=self._tools,
                 stream=True,
-            ) as stream:
-                stream.response_stream = self._accumulated_value_queue
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
 
-        # Start the stream processor in a separate task
+                # Process tool call deltas (if any)
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+                        if tool_call.function.name:
+                            # Initialize a new tool call record
+                            final_tool_calls[index] = {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments or ""
+                            }
+                        elif tool_call.function.arguments:
+                            # Append additional arguments if provided in subsequent chunks
+                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+
+                            try:
+                                args = json.loads(
+                                    final_tool_calls[index]["arguments"])
+                                func = getattr(
+                                    self, final_tool_calls[index]["name"])
+                                # Execute the tool call (synchronously; adjust if async is needed)
+                                result = func(**args)
+                                await self._accumulated_value_queue.put(f"\nTool result: {result}\n")
+                                # Remove the cached tool call info so it doesn't block future calls
+                                del final_tool_calls[index]
+                            except json.JSONDecodeError:
+                                # If the accumulated arguments aren't valid yet, wait for more chunks.
+                                continue
+
+                # Process regular response content
+                if delta.content is not None:
+                    await self._accumulated_value_queue.put(delta.content)
+
+        # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
 
-        # Yield values from the queue as they become available
-        full_response = ""
+        # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(
-                    self._accumulated_value_queue.get(), timeout=0.1
-                )
+                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
                 if value is not None:
-                    full_response += value
+                    final_response += value
                     yield value
             except asyncio.TimeoutError:
+                # Break only if the queue is empty (assuming stream ended)
                 if self._accumulated_value_queue.empty():
                     break
 
-        # Save the message to the database
+        # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
             "message": user_text,
-            "response": full_response,
+            "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
-
         self._database.save_message(user_id, metadata)
         if self._zep:
             messages = [
@@ -806,7 +844,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=full_response,
+                    content=final_response,
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -865,7 +903,7 @@ class AI:
 
         async def stream_processor():
             memory = await self.get_memory_context(user_id)
-            with self._client.chat.completions.create(
+            response = self._client.chat.completions.create(
                 model=self._openai_model,
                 messages=[
                     {
@@ -879,8 +917,43 @@ class AI:
                 ],
                 stream=True,
                 tools=self._tools,
-            ) as stream:
-                stream.response_stream = self._accumulated_value_queue
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
+
+                # Handle tool calls
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+
+                        # Initialize new tool call
+                        if tool_call.function.name:
+                            final_tool_calls[index] = {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments or ""
+                            }
+                        # Append arguments
+                        elif tool_call.function.arguments:
+                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+
+                            try:
+                                args = json.loads(
+                                    final_tool_calls[index]["arguments"])
+                                func = getattr(
+                                    self, final_tool_calls[index]["name"])
+                                result = func(**args)
+                                final_response += str(result)
+                                yield str(result)
+                            except json.JSONDecodeError:
+                                continue
+
+                # Handle regular content
+                if delta.content:
+                    final_response += delta.content
+                    yield delta.content
+
+                self._accumulated_value_queue.put(
+                    chunk.choices[0].delta.content)
 
         # Start the stream processor in a separate task
         asyncio.create_task(stream_processor())
@@ -978,6 +1051,8 @@ class AI:
             },
         }
         self._tools.append(tool_config)
+        # Attach the function to the instance so getattr can find it later.
+        setattr(self, func.__name__, func)
         return func
 
 
