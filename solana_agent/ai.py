@@ -372,7 +372,7 @@ class AI:
         """
         embeddings = self._pinecone.inference.embed(
             model=self._pinecone_embedding_model,
-            inputs=[d["text"] for d in documents],
+            inputs=[d.text for d in documents],
             parameters={"input_type": "passage", "truncate": "END"},
         )
 
@@ -380,7 +380,7 @@ class AI:
         for d, e in zip(documents, embeddings):
             vectors.append(
                 {
-                    "id": d["id"],
+                    "id": d.id,
                     "values": e["values"],
                 }
             )
@@ -460,8 +460,8 @@ class AI:
         try:
             memory = self._sync_zep.memory.get(session_id=user_id)
             return memory.context
-        except Exception as e:
-            return f"Failed to get memory context. Error: {e}"
+        except Exception:
+            return ""
 
     # search internet tool - has to be sync
     def search_internet(
@@ -770,7 +770,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {user_text}",
+                        "content": f"Query: {user_text}, Memory: {memory}",
                     },
                 ],
                 tools=self._tools,
@@ -800,7 +800,26 @@ class AI:
                                     self, final_tool_calls[index]["name"])
                                 # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
-                                await self._accumulated_value_queue.put(f"\nTool result: {result}\n")
+                                response = self._client.chat.completions.create(
+                                    model=self._openai_model,
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": self._instructions,
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": result,
+                                        },
+                                    ],
+                                    tools=self._tools,
+                                    stream=True,
+                                )
+                                for chunk in response:
+                                    delta = chunk.choices[0].delta
+
+                                    if delta.content is not None:
+                                        await self._accumulated_value_queue.put(delta.content)
                                 # Remove the cached tool call info so it doesn't block future calls
                                 del final_tool_calls[index]
                             except json.JSONDecodeError:
@@ -896,13 +915,13 @@ class AI:
             - Streams audio response using OpenAI TTS
         """
 
-        # Reset the queue for each new conversation
-        self._accumulated_value_queue = asyncio.Queue()
-
         transcript = await self._listen(audio_bytes, input_format)
+        self._accumulated_value_queue = asyncio.Queue()
+        final_tool_calls = {}  # Accumulate tool call deltas
+        final_response = ""
 
         async def stream_processor():
-            memory = await self.get_memory_context(user_id)
+            memory = self.get_memory_context(user_id)
             response = self._client.chat.completions.create(
                 model=self._openai_model,
                 messages=[
@@ -915,25 +934,24 @@ class AI:
                         "content": f"Query: {transcript}, Memory: {memory}",
                     },
                 ],
-                stream=True,
                 tools=self._tools,
+                stream=True,
             )
             for chunk in response:
                 delta = chunk.choices[0].delta
 
-                # Handle tool calls
+                # Process tool call deltas (if any)
                 if delta.tool_calls:
                     for tool_call in delta.tool_calls:
                         index = tool_call.index
-
-                        # Initialize new tool call
                         if tool_call.function.name:
+                            # Initialize a new tool call record
                             final_tool_calls[index] = {
                                 "name": tool_call.function.name,
                                 "arguments": tool_call.function.arguments or ""
                             }
-                        # Append arguments
                         elif tool_call.function.arguments:
+                            # Append additional arguments if provided in subsequent chunks
                             final_tool_calls[index]["arguments"] += tool_call.function.arguments
 
                             try:
@@ -941,45 +959,61 @@ class AI:
                                     final_tool_calls[index]["arguments"])
                                 func = getattr(
                                     self, final_tool_calls[index]["name"])
+                                # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
-                                final_response += str(result)
-                                yield str(result)
+                                response = self._client.chat.completions.create(
+                                    model=self._openai_model,
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": self._instructions,
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": result,
+                                        },
+                                    ],
+                                    tools=self._tools,
+                                    stream=True,
+                                )
+                                for chunk in response:
+                                    delta = chunk.choices[0].delta
+
+                                    if delta.content is not None:
+                                        await self._accumulated_value_queue.put(delta.content)
+                                # Remove the cached tool call info so it doesn't block future calls
+                                del final_tool_calls[index]
                             except json.JSONDecodeError:
+                                # If the accumulated arguments aren't valid yet, wait for more chunks.
                                 continue
 
-                # Handle regular content
-                if delta.content:
-                    final_response += delta.content
-                    yield delta.content
+                # Process regular response content
+                if delta.content is not None:
+                    await self._accumulated_value_queue.put(delta.content)
 
-                self._accumulated_value_queue.put(
-                    chunk.choices[0].delta.content)
-
-        # Start the stream processor in a separate task
+        # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
 
-        # Collect the full response
-        full_response = ""
+        # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(
-                    self._accumulated_value_queue.get(), timeout=0.1
-                )
+                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
                 if value is not None:
-                    full_response += value
+                    final_response += value
+                    yield value
             except asyncio.TimeoutError:
+                # Break only if the queue is empty (assuming stream ended)
                 if self._accumulated_value_queue.empty():
                     break
 
+        # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
             "message": transcript,
-            "response": full_response,
+            "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
-
         self._database.save_message(user_id, metadata)
-
         if self._zep:
             messages = [
                 Message(
@@ -990,7 +1024,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=full_response,
+                    content=final_response,
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -999,7 +1033,7 @@ class AI:
         with self._client.audio.speech.with_streaming_response.create(
             model="tts-1",
             voice=voice,
-            input=full_response,
+            input=final_response,
             response_format=response_format,
         ) as response:
             for chunk in response.iter_bytes(1024):
