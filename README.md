@@ -29,16 +29,15 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Real-time voice-to-voice conversations
 
 🧠 **Memory System and Extensibility**
-- Advanced AI memory combining conversational context, conversational facts, knowledge base, file search, and parallel tool calling
+- Advanced AI memory combining conversational context, knowledge base, and parallel tool calling
 - Create custom tools for extending the Agent's capabilities like further API integrations
 
 🔍 **Multi-Source Search and Reasoning**
 - Internet search via Perplexity
 - X (Twitter) search using Grok
-- Conversational fact search powered by Zep
+- Conversational memory powered by Zep
 - Conversational message history using MongoDB (on-prem or hosted)
-- Knowledge Base (KB) using Pinecone with reranking by Cohere - available globally or user-specific
-- File uploading and searching using OpenAI like for PDFs
+- Knowledge Base (KB) using Pinecone with reranking - available globally or user-specific
 - Upload CSVs to be processed into summary reports and stored in the Knowledge Base (KB) using Gemini
 - Comprehensive reasoning combining multiple data sources
 
@@ -51,7 +50,7 @@ Unlike traditional AI assistants that forget conversations after each session, S
    - Persistent cross-session knowledge retention
    - Automatic self-learning from conversations
    - Knowledge Base to add domain specific knowledge
-   - File uploads to perform document context search 
+   - CSV file uploads to perform document context search 
 
 🏢 **Enterprise Focus**
    - Production-ready out of the box in a few lines of code

@@ -1,16 +1,12 @@
 import asyncio
 import datetime
 import json
-from typing import AsyncGenerator, Literal, Optional, Dict, Any, Callable
+from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
 import uuid
-import cohere
 import pandas as pd
 from pydantic import BaseModel
 from pymongo import MongoClient
 from openai import OpenAI
-from openai import AssistantEventHandler
-from openai.types.beta.threads import TextDelta, Text
-from typing_extensions import override
 import inspect
 import requests
 from zep_cloud.client import AsyncZep
@@ -19,88 +15,46 @@ from zep_cloud.types import Message
 from pinecone import Pinecone
 
 
-class EventHandler(AssistantEventHandler):
-    def __init__(self, tool_handlers, ai_instance):
-        super().__init__()
-        self._tool_handlers = tool_handlers
-        self._ai_instance = ai_instance
-
-    @override
-    def on_text_delta(self, delta: TextDelta, snapshot: Text):
-        asyncio.create_task(
-            self._ai_instance._accumulated_value_queue.put(delta.value))
-
-    @override
-    def on_event(self, event):
-        if event.event == "thread.run.requires_action":
-            run_id = event.data.id
-            self._ai_instance._handle_requires_action(event.data, run_id)
-
-
-class ToolConfig(BaseModel):
-    name: str
-    description: str
-    parameters: Dict[str, Any]
+class DocumentModel(BaseModel):
+    id: str
+    text: str
 
 
 class MongoDatabase:
     def __init__(self, db_url: str, db_name: str):
         self._client = MongoClient(db_url)
         self.db = self._client[db_name]
-        self._threads = self.db["threads"]
         self.messages = self.db["messages"]
         self.kb = self.db["kb"]
-        self.vector_stores = self.db["vector_stores"]
-        self.files = self.db["files"]
-
-    def save_thread_id(self, user_id: str, thread_id: str):
-        self._threads.insert_one({"thread_id": thread_id, "user_id": user_id})
-
-    def get_thread_id(self, user_id: str) -> Optional[str]:
-        document = self._threads.find_one({"user_id": user_id})
-        return document["thread_id"] if document else None
 
     def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
         self.messages.insert_one(metadata)
 
-    def delete_all_threads(self):
-        self._threads.delete_many({})
-
     def clear_user_history(self, user_id: str):
         self.messages.delete_many({"user_id": user_id})
-        self._threads.delete_one({"user_id": user_id})
 
-    def add_document_to_kb(self, id: str, namespace: str, document: str):
-        storage = {}
-        storage["namespace"] = namespace
-        storage["reference"] = id
-        storage["document"] = document
-        storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
-        self.kb.insert_one(storage)
+    def add_documents_to_kb(self, namespace: str, documents: List[DocumentModel]):
+        for document in documents:
+            storage = {}
+            storage["namespace"] = namespace
+            storage["reference"] = document.id
+            storage["document"] = document.text
+            storage["timestamp"] = datetime.datetime.now(datetime.timezone.utc)
+            self.kb.insert_one(storage)
 
-    def get_vector_store_id(self) -> str | None:
-        document = self.vector_stores.find_one()
-        return document["vector_store_id"] if document else None
-
-    def save_vector_store_id(self, vector_store_id: str):
-        self.vector_stores.insert_one({"vector_store_id": vector_store_id})
-
-    def delete_vector_store_id(self, vector_store_id: str):
-        self.vector_stores.delete_one({"vector_store_id": vector_store_id})
-
-    def add_file(self, file_id: str):
-        self.files.insert_one({"file_id": file_id})
-
-    def delete_file(self, file_id: str):
-        self.files.delete_one({"file_id": file_id})
+    def list_documents_in_kb(self, namespace: str) -> List[DocumentModel]:
+        documents = self.kb.find({"namespace": namespace})
+        return [
+            DocumentModel(id=doc["reference"], text=doc["document"])
+            for doc in documents
+        ]
 
 
 class AI:
     def __init__(
         self,
         openai_api_key: str,
-        name: str,
         instructions: str,
         database: Any,
         zep_api_key: str = None,
@@ -108,74 +62,46 @@ class AI:
         grok_api_key: str = None,
         pinecone_api_key: str = None,
         pinecone_index_name: str = None,
-        cohere_api_key: str = None,
-        cohere_model: Literal["rerank-v3.5"] = "rerank-v3.5",
+        pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
-        code_interpreter: bool = False,
-        file_search: bool = False,
-        openai_assistant_model: Literal["gpt-4o-mini",
-                                        "gpt-4o"] = "gpt-4o-mini",
-        openai_embedding_model: Literal[
-            "text-embedding-3-small", "text-embedding-3-large"
-        ] = "text-embedding-3-large",
+        openai_base_url: str = None,
+        openai_model: str = "gpt-4o-mini",
     ):
-        """Initialize a new AI assistant with memory and tool integration capabilities.
+        """Initialize a new AI assistant instance.
 
         Args:
             openai_api_key (str): OpenAI API key for core AI functionality
-            name (str): Name identifier for the assistant
             instructions (str): Base behavioral instructions for the AI
             database (Any): Database instance for message/thread storage
-            zep_api_key (str, optional): API key for Zep memory integration. Defaults to None
+            zep_api_key (str, optional): API key for Zep memory storage. Defaults to None
             perplexity_api_key (str, optional): API key for Perplexity search. Defaults to None
             grok_api_key (str, optional): API key for X/Twitter search via Grok. Defaults to None
             pinecone_api_key (str, optional): API key for Pinecone. Defaults to None
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
-            cohere_api_key (str, optional): API key for Cohere search. Defaults to None
-            cohere_model (Literal["rerank-v3.5"], optional): Cohere model for reranking. Defaults to "rerank-v3.5"
+            pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
-            code_interpreter (bool, optional): Enable code interpretation. Defaults to False
-            file_search (bool, optional): Enable file search tool. Defaults to False
-            openai_assistant_model (Literal["gpt-4o-mini", "gpt-4o"], optional): OpenAI model for assistant. Defaults to "gpt-4o-mini"
-            openai_embedding_model (Literal["text-embedding-3-small", "text-embedding-3-large"], optional): OpenAI model for text embedding. Defaults to "text-embedding-3-large"
+            openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
+            openai_model (str, optional): OpenAI model to use. Defaults to "gpt-4o-mini"
 
         Example:
             ```python
             ai = AI(
                 openai_api_key="your-key",
-                name="Assistant",
                 instructions="Be helpful and concise",
-                database=MongoDatabase("mongodb://localhost", "ai_db"),
+                database=MongoDatabase("mongodb://localhost", "ai_db")
             )
             ```
         Notes:
             - Requires valid OpenAI API key for core functionality
+            - Supports any OpenAI compatible model for conversation
+            - Requires valid Zep API key for memory storage
             - Database instance for storing messages and threads
-            - Optional integrations for Zep, Perplexity, Pinecone, Cohere, Gemini, and Grok
-            - Supports code interpretation and custom tool functions
+            - Optional integrations for Perplexity, Pinecone, Gemini, and Grok
             - You must create the Pinecone index in the dashboard before using it
         """
-        self._client = OpenAI(api_key=openai_api_key)
-        self._name = name
+        self._client = OpenAI(api_key=openai_api_key, base_url=openai_base_url) if openai_base_url else OpenAI(
+            api_key=openai_api_key)
         self._instructions = instructions
-        self._openai_assistant_model = openai_assistant_model
-        self._openai_embedding_model = openai_embedding_model
-        self._file_search = file_search
-        if file_search:
-            self._tools = (
-                [
-                    {"type": "code_interpreter"},
-                    {"type": "file_search"},
-                ]
-                if code_interpreter
-                else [{"type": "file_search"}]
-            )
-        else:
-            self._tools = [{"type": "code_interpreter"}
-                           ] if code_interpreter else []
-
-        self._tool_handlers = {}
-        self._assistant_id = None
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
@@ -187,93 +113,21 @@ class AI:
             Pinecone(api_key=pinecone_api_key) if pinecone_api_key else None
         )
         self._pinecone_index_name = pinecone_index_name if pinecone_index_name else None
+        self._pinecone_embedding_model = pinecone_embed_model
         self.kb = (
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
-        self._co = cohere.ClientV2(
-            api_key=cohere_api_key) if cohere_api_key else None
-        self._co_model = cohere_model if cohere_api_key else None
+        self._openai_base_url = openai_base_url
+        self._openai_model = openai_model
+        self._tools = []
 
     async def __aenter__(self):
-        assistants = self._client.beta.assistants.list()
-        existing_assistant = next(
-            (a for a in assistants if a.name == self._name), None)
-
-        if existing_assistant:
-            self._assistant_id = existing_assistant.id
-        else:
-            self._assistant_id = self._client.beta.assistants.create(
-                name=self._name,
-                instructions=self._instructions,
-                tools=self._tools,
-                model=self._openai_assistant_model,
-            ).id
-            self._database.delete_all_threads()
-        if self._file_search:
-            vectore_store_id = self._database.get_vector_store_id()
-            if vectore_store_id:
-                self._vector_store = self._client.beta.vector_stores.retrieve(
-                    vector_store_id=vectore_store_id
-                )
-            else:
-                uid = uuid.uuid4().hex
-                self._vector_store = self._client.beta.vector_stores.create(
-                    name=uid)
-                self._database.save_vector_store_id(self._vector_store.id)
-            self._client.beta.assistants.update(
-                assistant_id=self._assistant_id,
-                tool_resources={
-                    "file_search": {"vector_store_ids": [self._vector_store.id]}
-                },
-            )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # Perform any cleanup actions here
         pass
-
-    async def _create_thread(self, user_id: str) -> str:
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread = self._client.beta.threads.create()
-            thread_id = thread.id
-            self._database.save_thread_id(user_id, thread_id)
-            if self._zep:
-                try:
-                    await self._zep.user.add(user_id=user_id)
-                except Exception:
-                    pass
-                try:
-                    await self._zep.memory.add_session(
-                        user_id=user_id, session_id=user_id
-                    )
-                except Exception:
-                    pass
-
-        return thread_id
-
-    async def _cancel_run(self, thread_id: str, run_id: str):
-        try:
-            self._client.beta.threads.runs.cancel(
-                thread_id=thread_id, run_id=run_id)
-        except Exception as e:
-            print(f"Error cancelling run: {e}")
-
-    async def _get_active_run(self, thread_id: str) -> Optional[str]:
-        runs = self._client.beta.threads.runs.list(
-            thread_id=thread_id, limit=1)
-        for run in runs:
-            if run.status in ["in_progress"]:
-                return run.id
-        return None
-
-    async def _get_run_status(self, thread_id: str, run_id: str) -> str:
-        run = self._client.beta.threads.runs.retrieve(
-            thread_id=thread_id, run_id=run_id
-        )
-        return run.status
 
     def csv_to_text(self, file, filename: str) -> str:
         """Convert a CSV file to a Markdown table text format optimized for LLM ingestion.
@@ -368,20 +222,20 @@ class AI:
         self,
         file,
         filename: str,
-        prompt: str = "Summarize the markdown table into a report, include important metrics and totals.",
+        id: str = uuid.uuid4().hex,
+        prompt: str = "Summarize the table into a report, include important metrics and totals.",
         namespace: str = "global",
-        model: Literal["gemini-2.0-flash",
-                       "gemini-1.5-pro"] = "gemini-1.5-pro",
+        model: Literal["gemini-2.0-flash"] = "gemini-2.0-flash",
     ):
         """Upload and process a CSV file into the knowledge base with AI summarization.
 
         Args:
             file (BinaryIO): The CSV file to upload and process
             filename (str): The name of the CSV file
-            prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the markdown table into a report, include important metrics and totals."
+            id (str, optional): Unique identifier for the document. Defaults to a random UUID.
+            prompt (str, optional): Custom prompt for summarization. Defaults to "Summarize the table into a report, include important metrics and totals."
             namespace (str, optional): Knowledge base namespace. Defaults to "global".
-            model (Literal["gemini-2.0-flash", "gemini-1.5-pro"], optional):
-                Gemini model for summarization. Defaults to "gemini-1.5-pro"
+            model (Literal["gemini-2.0-flash"], optional): Gemini model for summarization. Defaults to "gemini-2.0-flash".
 
         Example:
             ```python
@@ -393,123 +247,32 @@ class AI:
 
         Note:
             - Converts CSV to Markdown table format
-            - Uses Gemini AI to generate a summary
+            - Uses Gemini AI to generate a summary - total of 1M context tokens
             - Stores summary in Pinecone knowledge base
             - Requires configured Pinecone index
             - Supports custom prompts for targeted summaries
         """
         csv_text = self.csv_to_text(file, filename)
-        print(csv_text)
         document = self.summarize(csv_text, prompt, model)
-        print(document)
-        self.add_document_to_kb(document=document, namespace=namespace)
+        self.add_documents_to_kb(
+            documents=[DocumentModel(id=id, text=document)], namespace=namespace
+        )
 
-    def delete_vector_store_and_files(self):
-        """Delete the OpenAI vector store and files.
-
-        Example:
-            ```python
-            ai.delete_vector_store()
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Deletes the vector store and all associated files
-        """
-        vector_store_id = self._database.get_vector_store_id()
-        if vector_store_id:
-            self._client.beta.vector_stores.delete(vector_store_id)
-            self._database.delete_vector_store_id(vector_store_id)
-            for file in self._database.files.find().to_list():
-                self._client.files.delete(file["file_id"])
-                self._database.delete_file(file["file_id"])
-
-    def max_files(self) -> bool:
-        """Check if the OpenAI vector store has reached its maximum file capacity.
-
-        Returns:
-            bool: True if file count is at maximum (10,000), False otherwise
-
-        Example:
-            ```python
-            if ai.max_files():
-                print("Vector store is full")
-            else:
-                print("Can still add more files")
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - OpenAI vector stores have a 10,000 file limit
-            - Returns False if vector store is not configured
-        """
-        self._vector_store.file_counts.completed == 10000
-
-    def file_count(self) -> int:
-        """Get the total number of files processed in the OpenAI vector store.
-
-        Returns:
-            int: Number of successfully processed files in the vector store
-
-        Example:
-            ```python
-            count = ai.file_count()
-            print(f"Processed {count} files")
-            # Returns: "Processed 5 files"
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Only counts successfully processed files
-            - Returns 0 if vector store is not configured
-        """
-        self._vector_store.file_counts.completed
-
-    def add_file(
+    def search_kb(
         self,
-        filename: str,
-        file_stream: bytes,
-    ) -> Literal["in_progress", "completed", "cancelled", "failed"]:
-        """Upload and process a file in the OpenAI vector store.
-
-        Args:
-            filename (str): Name of the file to upload
-            file_stream (bytes): Raw bytes of the file to upload
-
-        Returns:
-            Literal["in_progress", "completed", "cancelled", "failed"]: Status of file processing
-
-        Example:
-            ```python
-            with open('document.pdf', 'rb') as f:
-                status = ai.add_file(f.filename, f.read())
-                if status == "completed":
-                    print("File processed successfully")
-            ```
-
-        Note:
-            - Requires file_search=True in AI initialization
-            - Files are vectorized for semantic search
-            - Maximum file size: 512MB
-            - Maximum 10,000 files per vector store
-            - Processing may take a few seconds to minutes
-        """
-        vector_store_id = self._database.get_vector_store_id()
-        file = self._client.files.create(
-            file=(filename, file_stream), purpose="assistants"
-        )
-        file_batch = self._client.beta.vector_stores.files.create_and_poll(
-            vector_store_id=vector_store_id, file_id=file.id
-        )
-        self._database.add_file(file.id)
-        return file_batch.status
-
-    def search_kb(self, query: str, namespace: str = "global", limit: int = 3) -> str:
-        """Search Pinecone knowledge base using OpenAI embeddings.
+        query: str,
+        namespace: str = "global",
+        rerank_model: Literal["cohere-rerank-3.5"] = "cohere-rerank-3.5",
+        inner_limit: int = 10,
+        limit: int = 3,
+    ) -> str:
+        """Search Pinecone knowledge base.
 
         Args:
             query (str): Search query to find relevant documents
             namespace (str, optional): Namespace of the Pinecone to search. Defaults to "global".
+            rerank_model (Literal["cohere-rerank-3.5"], optional): Rerank model on Pinecone. Defaults to "cohere-rerank-3.5".
+            inner_limit (int, optional): Maximum number of results to rerank. Defaults to 10.
             limit (int, optional): Maximum number of results to return. Defaults to 3.
 
         Returns:
@@ -517,25 +280,23 @@ class AI:
 
         Example:
             ```python
-            results = ai.search_kb("user123", "machine learning basics")
+            results = ai.search_kb("machine learning basics", "user123")
             # Returns: '["Document 1", "Document 2", ...]'
             ```
 
         Note:
             - Requires configured Pinecone index
-            - Uses OpenAI embeddings for semantic search
-            - Returns JSON-serialized Pinecone match metadata results
             - Returns error message string if search fails
-            - Optionally reranks results using Cohere API
         """
         try:
-            response = self._client.embeddings.create(
-                input=query,
-                model=self._openai_embedding_model,
+            embedding = self._pinecone.inference.embed(
+                model=self._pinecone_embedding_model,
+                inputs=[query],
+                parameters={"input_type": "query"},
             )
             search_results = self.kb.query(
-                vector=response.data[0].embedding,
-                top_k=10,
+                vector=embedding[0].values,
+                top_k=inner_limit,
                 include_metadata=False,
                 include_values=False,
                 namespace=namespace,
@@ -548,62 +309,88 @@ class AI:
             for id in ids:
                 document = self._database.kb.find_one({"reference": id})
                 docs.append(document["document"])
-            if self._co:
-                try:
-                    response = self._co.rerank(
-                        model=self._co_model,
-                        query=query,
-                        documents=docs,
-                        top_n=limit,
-                    )
-                    reranked_docs = response.results
-                    new_docs = []
-                    for doc in reranked_docs:
-                        new_docs.append(docs[doc.index])
-                    return json.dumps(new_docs)
-                except Exception:
-                    return json.dumps(docs[:limit])
-            else:
+            try:
+                reranked_docs = self._pinecone.inference.rerank(
+                    model=rerank_model,
+                    query=query,
+                    documents=docs,
+                    top_n=limit,
+                )
+                new_docs = []
+                for doc in reranked_docs.data:
+                    new_docs.append(docs[doc.index])
+                return json.dumps(new_docs)
+            except Exception:
                 return json.dumps(docs[:limit])
         except Exception as e:
             return f"Failed to search KB. Error: {e}"
 
-    def add_document_to_kb(
-        self,
-        document: str,
-        id: str = uuid.uuid4().hex,
-        namespace: str = "global",
-    ):
-        """Add a document to the Pinecone knowledge base with OpenAI embeddings.
+    def list_documents_in_kb(self, namespace: str = "global") -> List[DocumentModel]:
+        """List all documents stored in the Pinecone knowledge base.
 
         Args:
-            document (str): Document to add to the knowledge base
-            id (str, optional): Unique identifier for the document. Defaults to random UUID.
-            namespace (str): Namespace of the Pinecone index to search. Defaults to "global".
+            namespace (str, optional): Namespace of the Pinecone index to search. Defaults to "global".
+
+        Returns:
+            List[DocumentModel]: List of documents stored in the knowledge base
 
         Example:
             ```python
-            ai.add_document_to_kb("user123 has 4 cats")
+            documents = ai.list_documents_in_kb("user123")
+            for doc in documents:
+                print(doc)
+            # Returns: "Document 1", "Document 2", ...
             ```
 
         Note:
             - Requires Pinecone index to be configured
-            - Uses OpenAI embeddings API
         """
-        response = self._client.embeddings.create(
-            input=document,
-            model=self._openai_embedding_model,
+        return self._database.list_documents_in_kb(namespace)
+
+    def add_documents_to_kb(
+        self,
+        documents: List[DocumentModel],
+        namespace: str = "global",
+    ):
+        """Add documents to the Pinecone knowledge base.
+
+        Args:
+            documents (List[DocumentModel]): List of documents to add to the knowledge base
+            namespace (str): Namespace of the Pinecone index to search. Defaults to "global".
+
+        Example:
+            ```python
+            docs = [
+                {"id": "doc1", "text": "Document 1"},
+                {"id": "doc2", "text": "Document 2"},
+            ]
+            ai.add_documents_to_kb(docs, "user123")
+            ```
+
+        Note:
+            - Requires Pinecone index to be configured
+        """
+        embeddings = self._pinecone.inference.embed(
+            model=self._pinecone_embedding_model,
+            inputs=[d.text for d in documents],
+            parameters={"input_type": "passage", "truncate": "END"},
         )
-        self.kb.upsert(
-            vectors=[
+
+        vectors = []
+        for d, e in zip(documents, embeddings):
+            vectors.append(
                 {
-                    "id": id,
-                    "values": response.data[0].embedding,
+                    "id": d.id,
+                    "values": e["values"],
                 }
-            ],
+            )
+
+        self.kb.upsert(
+            vectors=vectors,
             namespace=namespace,
         )
-        self._database.add_document_to_kb(id, namespace, document)
+
+        self._database.add_documents_to_kb(namespace, documents)
 
     def delete_document_from_kb(self, id: str, user_id: str = "global"):
         """Delete a document from the Pinecone knowledge base.
@@ -644,54 +431,37 @@ class AI:
             "%Y-%m-%d %H:%M:%S %Z"
         )
 
-    # search facts tool - has to be sync
-    def search_facts(
+    # has to be sync for tool
+    def get_memory_context(
         self,
         user_id: str,
-        query: str,
-        limit: int = 10,
     ) -> str:
-        """Search stored conversation facts using Zep memory integration.
+        """Retrieve contextual memory for a specific user from Zep memory storage.
 
         Args:
-            user_id (str): Unique identifier for the user
-            query (str): Search query to find relevant facts
-            limit (int, optional): Maximum number of facts to return. Defaults to 10.
+            user_id (str): Unique identifier for the user whose memory context to retrieve
 
         Returns:
-            str: JSON string of matched facts or error message
+            str: User's memory context or error message if retrieval fails
 
         Example:
             ```python
-            facts = ai.search_facts(
-                user_id="user123",
-                query="How many cats do I have?"
-            )
-            # Returns: [{"fact": "user123 has 4 cats", "timestamp": "2022-01-01T12:00:00Z"}]
+            context = ai.get_memory_context("user123")
+            print(context)
+            # Returns: "User previously mentioned having 3 dogs and living in London"
             ```
 
         Note:
-            Requires Zep integration to be configured with valid API key.
-            This is a synchronous tool method required for OpenAI function calling.
+            - This is a synchronous tool method required for OpenAI function calling
+            - Requires Zep integration to be configured with valid API key
+            - Returns error message if Zep is not configured or retrieval fails
+            - Useful for maintaining conversation context across sessions
         """
-        if self._sync_zep:
-            try:
-                facts = []
-                results = self._sync_zep.memory.search_sessions(
-                    user_id=user_id,
-                    session_ids=[user_id],
-                    text=query,
-                    limit=limit,
-                )
-                for result in results.results:
-                    fact = result.fact.fact
-                    timestamp = result.fact.created_at
-                    facts.append({"fact": fact, "timestamp": timestamp})
-                return json.dumps(facts)
-            except Exception as e:
-                return f"Failed to search facts. Error: {e}"
-        else:
-            return "Zep integration not configured."
+        try:
+            memory = self._sync_zep.memory.get(session_id=user_id)
+            return memory.context
+        except Exception:
+            return ""
 
     # search internet tool - has to be sync
     def search_internet(
@@ -769,7 +539,6 @@ class AI:
         prompt: str = "You combine the data with your reasoning to answer the query.",
         use_perplexity: bool = True,
         use_grok: bool = True,
-        use_facts: bool = True,
         use_kb: bool = True,
         perplexity_model: Literal[
             "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
@@ -786,7 +555,6 @@ class AI:
             prompt (str, optional): Prompt for reasoning. Defaults to "You combine the data with your reasoning to answer the query."
             use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
             use_grok (bool, optional): Include X/Twitter search results. Defaults to True
-            use_facts (bool, optional): Include stored conversation facts. Defaults to True
             use_kb (bool, optional): Include Pinecone knowledge base search results. Defaults to True
             perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
             openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
@@ -818,13 +586,7 @@ class AI:
                     kb_results = ""
             else:
                 kb_results = ""
-            if use_facts:
-                try:
-                    facts = self.search_facts(user_id, query)
-                except Exception:
-                    facts = ""
-            else:
-                facts = ""
+
             if use_perplexity:
                 try:
                     search_results = self.search_internet(
@@ -833,6 +595,7 @@ class AI:
                     search_results = ""
             else:
                 search_results = ""
+
             if use_grok:
                 try:
                     x_search_results = self.search_x(query, grok_model)
@@ -840,6 +603,11 @@ class AI:
                     x_search_results = ""
             else:
                 x_search_results = ""
+
+            if self._zep:
+                memory = self._sync_zep.memory.get(session_id=user_id)
+            else:
+                memory = ""
 
             response = self._client.chat.completions.create(
                 model=openai_model,
@@ -850,7 +618,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {query}, Facts: {facts}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
+                        "content": f"Query: {query}, Memory: {memory}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
                     },
                 ],
             )
@@ -917,15 +685,11 @@ class AI:
             This is an async method and must be awaited.
         """
         try:
-            await self.delete_assistant_thread(user_id)
-        except Exception:
-            pass
-        try:
             self._database.clear_user_history(user_id)
         except Exception:
             pass
         try:
-            await self.delete_facts(user_id)
+            await self.delete_memory(user_id)
         except Exception:
             pass
 
@@ -941,8 +705,8 @@ class AI:
         thread_id = self._database.get_thread_id(user_id)
         await self._client.beta.threads.delete(thread_id=thread_id)
 
-    async def delete_facts(self, user_id: str):
-        """Delete stored conversation facts for a specific user from Zep memory.
+    async def delete_memory(self, user_id: str):
+        """Delete memory for a specific user from Zep memory.
 
         Args:
             user_id (str): Unique identifier for the user whose facts should be deleted
@@ -973,11 +737,11 @@ class AI:
         """Process text input and stream AI responses asynchronously.
 
         Args:
-            user_id (str): Unique identifier for the user/conversation
-            user_text (str): Text input from user to process
+            user_id (str): Unique identifier for the user/conversation.
+            user_text (str): Text input from user to process.
 
         Returns:
-            AsyncGenerator[str, None]: Stream of response text chunks
+            AsyncGenerator[str, None]: Stream of response text chunks (including tool call results).
 
         Example:
             ```python
@@ -986,69 +750,108 @@ class AI:
             ```
 
         Note:
-            - Maintains conversation thread using OpenAI's thread system
-            - Stores messages in configured database (MongoDB/SQLite)
-            - Integrates with Zep memory if configured
-            - Handles concurrent runs by canceling active ones
-            - Streams responses for real-time interaction
+            - Maintains conversation thread using OpenAI's thread system.
+            - Stores messages in configured database (MongoDB/SQLite).
+            - Integrates with Zep memory if configured.
+            - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
         self._accumulated_value_queue = asyncio.Queue()
-
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread_id = await self._create_thread(user_id)
-
-        self._current_thread_id = thread_id
-
-        # Check for active runs and cancel if necessary
-        active_run_id = await self._get_active_run(thread_id)
-        if active_run_id:
-            await self._cancel_run(thread_id, active_run_id)
-            while await self._get_run_status(thread_id, active_run_id) != "cancelled":
-                await asyncio.sleep(0.1)
-
-        # Create a message in the thread
-        self._client.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=user_text,
-        )
-        event_handler = EventHandler(self._tool_handlers, self)
+        final_tool_calls = {}  # Accumulate tool call deltas
+        final_response = ""
 
         async def stream_processor():
-            with self._client.beta.threads.runs.stream(
-                thread_id=thread_id,
-                assistant_id=self._assistant_id,
-                event_handler=event_handler,
-            ) as stream:
-                stream.until_done()
+            memory = self.get_memory_context(user_id)
+            response = self._client.chat.completions.create(
+                model=self._openai_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._instructions,
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Query: {user_text}, Memory: {memory}",
+                    },
+                ],
+                tools=self._tools,
+                stream=True,
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
 
-        # Start the stream processor in a separate task
+                # Process tool call deltas (if any)
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+                        if tool_call.function.name:
+                            # Initialize a new tool call record
+                            final_tool_calls[index] = {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments or ""
+                            }
+                        elif tool_call.function.arguments:
+                            # Append additional arguments if provided in subsequent chunks
+                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+
+                            try:
+                                args = json.loads(
+                                    final_tool_calls[index]["arguments"])
+                                func = getattr(
+                                    self, final_tool_calls[index]["name"])
+                                # Execute the tool call (synchronously; adjust if async is needed)
+                                result = func(**args)
+                                response = self._client.chat.completions.create(
+                                    model=self._openai_model,
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": self._instructions,
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": result,
+                                        },
+                                    ],
+                                    tools=self._tools,
+                                    stream=True,
+                                )
+                                for chunk in response:
+                                    delta = chunk.choices[0].delta
+
+                                    if delta.content is not None:
+                                        await self._accumulated_value_queue.put(delta.content)
+                                # Remove the cached tool call info so it doesn't block future calls
+                                del final_tool_calls[index]
+                            except json.JSONDecodeError:
+                                # If the accumulated arguments aren't valid yet, wait for more chunks.
+                                continue
+
+                # Process regular response content
+                if delta.content is not None:
+                    await self._accumulated_value_queue.put(delta.content)
+
+        # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
 
-        # Yield values from the queue as they become available
-        full_response = ""
+        # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(
-                    self._accumulated_value_queue.get(), timeout=0.1
-                )
+                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
                 if value is not None:
-                    full_response += value
+                    final_response += value
                     yield value
             except asyncio.TimeoutError:
+                # Break only if the queue is empty (assuming stream ended)
                 if self._accumulated_value_queue.empty():
                     break
 
-        # Save the message to the database
+        # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
             "message": user_text,
-            "response": full_response,
+            "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
-
         self._database.save_message(user_id, metadata)
         if self._zep:
             messages = [
@@ -1060,7 +863,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=full_response,
+                    content=final_response,
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1112,56 +915,105 @@ class AI:
             - Streams audio response using OpenAI TTS
         """
 
-        # Reset the queue for each new conversation
-        self._accumulated_value_queue = asyncio.Queue()
-
-        thread_id = self._database.get_thread_id(user_id)
-
-        if thread_id is None:
-            thread_id = await self._create_thread(user_id)
-
-        self._current_thread_id = thread_id
         transcript = await self._listen(audio_bytes, input_format)
-        event_handler = EventHandler(self._tool_handlers, self)
-        self._client.beta.threads.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=transcript,
-        )
+        self._accumulated_value_queue = asyncio.Queue()
+        final_tool_calls = {}  # Accumulate tool call deltas
+        final_response = ""
 
         async def stream_processor():
-            with self._client.beta.threads.runs.stream(
-                thread_id=thread_id,
-                assistant_id=self._assistant_id,
-                event_handler=event_handler,
-            ) as stream:
-                stream.until_done()
+            memory = self.get_memory_context(user_id)
+            response = self._client.chat.completions.create(
+                model=self._openai_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._instructions,
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Query: {transcript}, Memory: {memory}",
+                    },
+                ],
+                tools=self._tools,
+                stream=True,
+            )
+            for chunk in response:
+                delta = chunk.choices[0].delta
 
-        # Start the stream processor in a separate task
+                # Process tool call deltas (if any)
+                if delta.tool_calls:
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+                        if tool_call.function.name:
+                            # Initialize a new tool call record
+                            final_tool_calls[index] = {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments or ""
+                            }
+                        elif tool_call.function.arguments:
+                            # Append additional arguments if provided in subsequent chunks
+                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+
+                            try:
+                                args = json.loads(
+                                    final_tool_calls[index]["arguments"])
+                                func = getattr(
+                                    self, final_tool_calls[index]["name"])
+                                # Execute the tool call (synchronously; adjust if async is needed)
+                                result = func(**args)
+                                response = self._client.chat.completions.create(
+                                    model=self._openai_model,
+                                    messages=[
+                                        {
+                                            "role": "system",
+                                            "content": self._instructions,
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": result,
+                                        },
+                                    ],
+                                    tools=self._tools,
+                                    stream=True,
+                                )
+                                for chunk in response:
+                                    delta = chunk.choices[0].delta
+
+                                    if delta.content is not None:
+                                        await self._accumulated_value_queue.put(delta.content)
+                                # Remove the cached tool call info so it doesn't block future calls
+                                del final_tool_calls[index]
+                            except json.JSONDecodeError:
+                                # If the accumulated arguments aren't valid yet, wait for more chunks.
+                                continue
+
+                # Process regular response content
+                if delta.content is not None:
+                    await self._accumulated_value_queue.put(delta.content)
+
+        # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
 
-        # Collect the full response
-        full_response = ""
+        # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(
-                    self._accumulated_value_queue.get(), timeout=0.1
-                )
+                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
                 if value is not None:
-                    full_response += value
+                    final_response += value
+                    yield value
             except asyncio.TimeoutError:
+                # Break only if the queue is empty (assuming stream ended)
                 if self._accumulated_value_queue.empty():
                     break
 
+        # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
             "message": transcript,
-            "response": full_response,
+            "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
-
         self._database.save_message(user_id, metadata)
-
         if self._zep:
             messages = [
                 Message(
@@ -1172,7 +1024,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=full_response,
+                    content=final_response,
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1181,31 +1033,11 @@ class AI:
         with self._client.audio.speech.with_streaming_response.create(
             model="tts-1",
             voice=voice,
-            input=full_response,
+            input=final_response,
             response_format=response_format,
         ) as response:
             for chunk in response.iter_bytes(1024):
                 yield chunk
-
-    def _handle_requires_action(self, data, run_id):
-        tool_outputs = []
-
-        for tool in data.required_action.submit_tool_outputs.tool_calls:
-            if tool.function.name in self._tool_handlers:
-                handler = self._tool_handlers[tool.function.name]
-                inputs = json.loads(tool.function.arguments)
-                output = handler(**inputs)
-                tool_outputs.append(
-                    {"tool_call_id": tool.id, "output": output})
-
-        self._submit_tool_outputs(tool_outputs, run_id)
-
-    def _submit_tool_outputs(self, tool_outputs, run_id):
-        with self._client.beta.threads.runs.submit_tool_outputs_stream(
-            thread_id=self._current_thread_id, run_id=run_id, tool_outputs=tool_outputs
-        ) as stream:
-            for text in stream.text_deltas:
-                asyncio.create_task(self._accumulated_value_queue.put(text))
 
     def add_tool(self, func: Callable):
         """Register a custom function as an AI tool using decorator pattern.
@@ -1253,7 +1085,8 @@ class AI:
             },
         }
         self._tools.append(tool_config)
-        self._tool_handlers[func.__name__] = func
+        # Attach the function to the instance so getattr can find it later.
+        setattr(self, func.__name__, func)
         return func
 
 
