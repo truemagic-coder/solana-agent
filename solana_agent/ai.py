@@ -101,7 +101,16 @@ class AI:
         """
         self._client = OpenAI(api_key=openai_api_key, base_url=openai_base_url) if openai_base_url else OpenAI(
             api_key=openai_api_key)
-        self._instructions = instructions
+        memory_instructions = """
+            You are a highly intelligent, context-aware conversational AI. When a user sends a query or statement, you should not only process the current input but also retrieve and integrate relevant context from their previous interactions. Use the memory data to:
+            - Infer nuances in the user's intent.
+            - Recall previous topics, preferences, or facts that might be relevant.
+            - Provide a thoughtful, clear, and structured response.
+            - Clarify ambiguous queries by relating them to known user history.
+
+            Always be concise and ensure that your response maintains coherence across the conversation while respecting the user's context and previous data.
+        """
+        self._instructions = instructions + " " + memory_instructions
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         self._zep = AsyncZep(api_key=zep_api_key) if zep_api_key else None
@@ -766,11 +775,12 @@ class AI:
                 messages=[
                     {
                         "role": "system",
-                        "content": self._instructions,
+                        "content": self._instructions + f" Memory: {memory}",
+
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {user_text}, Memory: {memory}",
+                        "content": user_text,
                     },
                 ],
                 tools=self._tools,
@@ -927,11 +937,11 @@ class AI:
                 messages=[
                     {
                         "role": "system",
-                        "content": self._instructions,
+                        "content": self._instructions + f" Memory: {memory}",
                     },
                     {
                         "role": "user",
-                        "content": f"Query: {transcript}, Memory: {memory}",
+                        "content":  transcript,
                     },
                 ],
                 tools=self._tools,
