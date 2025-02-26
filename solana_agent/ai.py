@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from pymongo import MongoClient
 from openai import OpenAI
 import inspect
+import pytz
 import requests
 from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_cloud.client import Zep as ZepCloud
@@ -69,7 +70,9 @@ class AI:
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
         openai_base_url: str = None,
-        openai_model: str = "gpt-4o-mini",
+        main_model: str = "o3-mini",
+        tool_formatting_model: str = "gpt-4o-mini",
+        tool_formatting_instructions: str = None,
     ):
         """Initialize a new AI assistant instance.
 
@@ -86,8 +89,9 @@ class AI:
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
             openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
-            openai_model (str, optional): OpenAI model to use. Defaults to "gpt-4o-mini"
-
+            main_model (str, optional): Main OpenAI model for conversation. Defaults to "o3-mini"
+            tool_formatting_model (str, optional): OpenAI model for tool formatting. Defaults to "gpt-4o-mini"
+            tool_formatting_instructions (str, optional): Instructions for tool formatting
         Example:
             ```python
             ai = AI(
@@ -116,6 +120,7 @@ class AI:
             Always be concise and ensure that your response maintains coherence across the conversation while respecting the user's context and previous data.
         """
         self._instructions = instructions + " " + memory_instructions
+        self._tool_formatting_instructions = tool_formatting_instructions
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         if zep_api_key and not zep_base_url:
@@ -140,7 +145,8 @@ class AI:
                 self._pinecone_index_name) if self._pinecone else None
         )
         self._openai_base_url = openai_base_url
-        self._openai_model = openai_model
+        self._main_model = main_model
+        self._tool_formatting_model = tool_formatting_model
         self._tools = []
 
     async def __aenter__(self):
@@ -431,16 +437,19 @@ class AI:
         self.kb.delete(ids=[id], namespace=user_id)
         self._database.kb.delete_one({"reference": id})
 
-    def check_time(self) -> str:
+    def check_time(self, timezone: str) -> str:
         """Get current UTC time formatted as a string via Cloudflare's NTP service.
 
+        Args:
+            timezone (str): Timezone to convert the time to (e.g., "America/New_York")
+
         Returns:
-            str: Current UTC time in format 'YYYY-MM-DD HH:MM:SS UTC'
+            str: Current time in the requested timezone in format 'YYYY-MM-DD HH:MM:SS'
 
         Example:
             ```python
-            time = ai.check_time()
-            # Returns: "2025-02-26 15:30:45 UTC"
+            time = ai.check_time("America/New_York")
+            # Returns: "The current time in America/New_York is 2025-02-26 10:30:45"
             ```
 
         Note:
@@ -448,14 +457,23 @@ class AI:
             Fetches time over NTP from Cloudflare's time server (time.cloudflare.com).
         """
         try:
+            # Request time from Cloudflare's NTP server
             client = ntplib.NTPClient()
-            # Request time from Cloudflare's NTP server.
             response = client.request("time.cloudflare.com", version=3)
-            dt = datetime.datetime.fromtimestamp(
+
+            # Get UTC time from NTP response
+            utc_dt = datetime.datetime.fromtimestamp(
                 response.tx_time, datetime.timezone.utc)
-            # convert time based on location
-            the_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-            return f"The current time is {the_time}"
+
+            # Convert to requested timezone
+            try:
+                tz = pytz.timezone(timezone)
+                local_dt = utc_dt.astimezone(tz)
+                formatted_time = local_dt.strftime("%Y-%m-%d %H:%M:%S")
+                return f"The current time in {timezone} is {formatted_time}"
+            except pytz.exceptions.UnknownTimeZoneError:
+                return f"Error: Unknown timezone '{timezone}'. Please use a valid timezone like 'America/New_York'."
+
         except Exception as e:
             return f"Error getting the current time: {e}"
 
@@ -790,7 +808,7 @@ class AI:
         async def stream_processor():
             memory = self.get_memory_context(user_id)
             response = self._client.chat.completions.create(
-                model=self._openai_model,
+                model=self._main_model,
                 messages=[
                     {
                         "role": "system",
@@ -830,11 +848,11 @@ class AI:
                                 # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
                                 response = self._client.chat.completions.create(
-                                    model=self._openai_model,
+                                    model=self._tool_formatting_model,
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": self._instructions,
+                                            "content": self._tool_formatting_instructions,
                                         },
                                         {
                                             "role": "user",
@@ -990,11 +1008,11 @@ class AI:
                                 # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
                                 response = self._client.chat.completions.create(
-                                    model=self._openai_model,
+                                    model=self._tool_formatting_model,
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": self._instructions,
+                                            "content": self._tool_formatting_instructions,
                                         },
                                         {
                                             "role": "user",
