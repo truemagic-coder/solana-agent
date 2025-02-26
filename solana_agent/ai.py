@@ -453,9 +453,11 @@ class AI:
             response = client.request("time.cloudflare.com", version=3)
             dt = datetime.datetime.fromtimestamp(
                 response.tx_time, datetime.timezone.utc)
-            return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+            # convert time based on location
+            the_time = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+            return f"The current time is {the_time}"
         except Exception as e:
-            return f"Error: {e}"
+            return f"Error getting the current time: {e}"
 
     # has to be sync for tool
     def get_memory_context(
