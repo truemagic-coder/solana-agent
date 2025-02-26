@@ -72,7 +72,6 @@ class AI:
         openai_base_url: str = None,
         tool_calling_model: str = "gpt-4o-mini",
         reasoning_model: str = "gpt-4o-mini",
-        reasoning_instructions: str = None,
     ):
         """Initialize a new AI assistant instance.
 
@@ -91,7 +90,6 @@ class AI:
             openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
             tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
-            reasoning_instructions (str, optional): Instructions for reasoning. Defaults to None
         Example:
             ```python
             ai = AI(
@@ -124,11 +122,7 @@ class AI:
             You always take the Tool Result over the Memory Context in terms of priority.
         """
         self._instructions = instructions
-        self._reasoning_instructions = (
-            reasoning_instructions + " " + self._memory_instructions
-            if reasoning_instructions
-            else self._memory_instructions
-        )
+        self._reasoning_instructions = self._memory_instructions + " " + instructions
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         if zep_api_key and not zep_base_url:
