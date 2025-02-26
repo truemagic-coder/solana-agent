@@ -989,12 +989,13 @@ class AI:
 
         async def stream_processor():
             memory = self.get_memory_context(user_id)
+            regular_content = ""  # Add this to accumulate regular content
             response = self._client.chat.completions.create(
-                model=self._openai_model,
+                model=self._main_model,
                 messages=[
                     {
                         "role": "system",
-                        "content": self._instructions + f" Memory: {memory}",
+                        "content": self._instructions,
                     },
                     {
                         "role": "user",
@@ -1005,6 +1006,7 @@ class AI:
                 stream=True,
             )
             for chunk in response:
+                result = ""
                 delta = chunk.choices[0].delta
 
                 # Process tool call deltas (if any)
@@ -1035,7 +1037,7 @@ class AI:
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": f" Rules: {self._tool_formatting_instructions}, Result: {result}",
+                                            "content": f"Rules: {self._tool_formatting_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
                                     ],
                                     stream=True,
@@ -1055,7 +1057,29 @@ class AI:
 
                 # Process regular response content
                 if delta.content is not None:
-                    await self._accumulated_value_queue.put(delta.content)
+                    regular_content += delta.content  # Accumulate instead of directly sending
+
+            # After processing all chunks from the first response
+            if regular_content:  # Only if we have regular content
+                # Format the regular content with memory context, similar to tool results
+                response = self._client.chat.completions.create(
+                    model=self._tool_formatting_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"Rules: {self._memory_instructions}, Regular Content: {regular_content}, Memory Context: {memory}",
+                        },
+                        {
+                            "role": "user",
+                            "content": transcript,
+                        }
+                    ],
+                    stream=True,
+                )
+                for chunk in response:
+                    delta = chunk.choices[0].delta
+                    if delta.content is not None:
+                        await self._accumulated_value_queue.put(delta.content)
 
         # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
