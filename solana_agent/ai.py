@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import ntplib
 import json
 from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
 import uuid
@@ -430,9 +431,8 @@ class AI:
         self.kb.delete(ids=[id], namespace=user_id)
         self._database.kb.delete_one({"reference": id})
 
-    # check time tool - has to be sync
     def check_time(self) -> str:
-        """Get current UTC time formatted as a string.
+        """Get current UTC time formatted as a string via Cloudflare's NTP service.
 
         Returns:
             str: Current UTC time in format 'YYYY-MM-DD HH:MM:SS UTC'
@@ -440,16 +440,22 @@ class AI:
         Example:
             ```python
             time = ai.check_time()
-            # Returns: "2024-02-13 15:30:45 UTC"
+            # Returns: "2025-02-26 15:30:45 UTC"
             ```
 
         Note:
             This is a synchronous tool method required for OpenAI function calling.
-            Always returns time in UTC timezone for consistency.
+            Fetches time over NTP from Cloudflare's time server (time.cloudflare.com).
         """
-        return datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S %Z"
-        )
+        try:
+            client = ntplib.NTPClient()
+            # Request time from Cloudflare's NTP server.
+            response = client.request("time.cloudflare.com", version=3)
+            dt = datetime.datetime.fromtimestamp(
+                response.tx_time, datetime.timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        except Exception as e:
+            return f"Error: {e}"
 
     # has to be sync for tool
     def get_memory_context(

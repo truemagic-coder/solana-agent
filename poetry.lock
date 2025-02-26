@@ -357,6 +357,17 @@ files = [
 ]
 
 [[package]]
+name = "ntplib"
+version = "0.4.0"
+description = "Python NTP library"
+optional = false
+python-versions = "*"
+files = [
+    {file = "ntplib-0.4.0-py2.py3-none-any.whl", hash = "sha256:8d27375329ed7ff38755f7b6d4658b28edc147cadf40338a63a0da8133469d60"},
+    {file = "ntplib-0.4.0.tar.gz", hash = "sha256:899d8fb5f8c2555213aea95efca02934c7343df6ace9d7628a5176b176906267"},
+]
+
+[[package]]
 name = "numpy"
 version = "2.0.2"
 description = "Fundamental package for array computing in Python"
@@ -995,4 +1006,4 @@ typing_extensions = ">=4.0.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "113fe35b5a998f06d1f55f85e13a0181aa69a97a1922443b8afa02d1cdb86f6c"
+content-hash = "da3725179a496919ccae785ec4dc138358da9c68564a217def2c7abccf8c31c9"
