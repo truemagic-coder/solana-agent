@@ -70,7 +70,7 @@ class AI:
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
         openai_base_url: str = None,
-        main_model: str = "o3-mini",
+        main_model: str = "gpt-4o-mini",
         tool_formatting_model: str = "gpt-4o-mini",
         tool_formatting_instructions: str = None,
     ):
@@ -89,7 +89,7 @@ class AI:
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
             openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
-            main_model (str, optional): Main OpenAI model for conversation. Defaults to "o3-mini"
+            main_model (str, optional): Main OpenAI model for conversation. Defaults to "gpt-4o-mini"
             tool_formatting_model (str, optional): OpenAI model for tool formatting. Defaults to "gpt-4o-mini"
             tool_formatting_instructions (str, optional): Instructions for tool formatting
         Example:
@@ -108,9 +108,12 @@ class AI:
             - Optional integrations for Perplexity, Pinecone, Gemini, and Grok
             - You must create the Pinecone index in the dashboard before using it
         """
-        self._client = OpenAI(api_key=openai_api_key, base_url=openai_base_url) if openai_base_url else OpenAI(
-            api_key=openai_api_key)
-        memory_instructions = """
+        self._client = (
+            OpenAI(api_key=openai_api_key, base_url=openai_base_url)
+            if openai_base_url
+            else OpenAI(api_key=openai_api_key)
+        )
+        self._memory_instructions = """
             You are a highly intelligent, context-aware conversational AI. When a user sends a query or statement, you should not only process the current input but also retrieve and integrate relevant context from their previous interactions. Use the memory data to:
             - Infer nuances in the user's intent.
             - Recall previous topics, preferences, or facts that might be relevant.
@@ -118,9 +121,13 @@ class AI:
             - Clarify ambiguous queries by relating them to known user history.
 
             Always be concise and ensure that your response maintains coherence across the conversation while respecting the user's context and previous data.
+            You always take the Tool Result over the Memory Context in terms of priority.
         """
-        self._instructions = instructions + " " + memory_instructions
-        self._tool_formatting_instructions = tool_formatting_instructions
+        self._instructions = instructions
+        self._tool_formatting_instructions = (
+            tool_formatting_instructions + " " +
+            self._memory_instructions if tool_formatting_instructions else self._memory_instructions
+        )
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
         if zep_api_key and not zep_base_url:
@@ -463,7 +470,8 @@ class AI:
 
             # Get UTC time from NTP response
             utc_dt = datetime.datetime.fromtimestamp(
-                response.tx_time, datetime.timezone.utc)
+                response.tx_time, datetime.timezone.utc
+            )
 
             # Convert to requested timezone
             try:
@@ -739,18 +747,6 @@ class AI:
         except Exception:
             pass
 
-    async def delete_assistant_thread(self, user_id: str):
-        """Delete stored conversation thread for a user on OpenAI.
-
-        Example:
-            ```python
-            await ai.delete_assistant_thread("user123")
-            # Deletes the assistant conversation thread for a user
-            ```
-        """
-        thread_id = self._database.get_thread_id(user_id)
-        await self._client.beta.threads.delete(thread_id=thread_id)
-
     async def delete_memory(self, user_id: str):
         """Delete memory for a specific user from Zep memory.
 
@@ -807,13 +803,13 @@ class AI:
 
         async def stream_processor():
             memory = self.get_memory_context(user_id)
+            regular_content = ""  # Add this to accumulate regular content
             response = self._client.chat.completions.create(
                 model=self._main_model,
                 messages=[
                     {
                         "role": "system",
-                        "content": self._instructions + f" Memory: {memory}",
-
+                        "content": self._instructions,
                     },
                     {
                         "role": "user",
@@ -824,6 +820,7 @@ class AI:
                 stream=True,
             )
             for chunk in response:
+                result = ""
                 delta = chunk.choices[0].delta
 
                 # Process tool call deltas (if any)
@@ -834,11 +831,13 @@ class AI:
                             # Initialize a new tool call record
                             final_tool_calls[index] = {
                                 "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments or ""
+                                "arguments": tool_call.function.arguments or "",
                             }
                         elif tool_call.function.arguments:
                             # Append additional arguments if provided in subsequent chunks
-                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+                            final_tool_calls[index]["arguments"] += (
+                                tool_call.function.arguments
+                            )
 
                             try:
                                 args = json.loads(
@@ -852,11 +851,7 @@ class AI:
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": self._tool_formatting_instructions,
-                                        },
-                                        {
-                                            "role": "user",
-                                            "content": result,
+                                            "content": f"Rules: {self._tool_formatting_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
                                     ],
                                     stream=True,
@@ -865,7 +860,9 @@ class AI:
                                     delta = chunk.choices[0].delta
 
                                     if delta.content is not None:
-                                        await self._accumulated_value_queue.put(delta.content)
+                                        await self._accumulated_value_queue.put(
+                                            delta.content
+                                        )
                                 # Remove the cached tool call info so it doesn't block future calls
                                 del final_tool_calls[index]
                             except json.JSONDecodeError:
@@ -874,7 +871,29 @@ class AI:
 
                 # Process regular response content
                 if delta.content is not None:
-                    await self._accumulated_value_queue.put(delta.content)
+                    regular_content += delta.content  # Accumulate instead of directly sending
+
+            # After processing all chunks from the first response
+            if regular_content:  # Only if we have regular content
+                # Format the regular content with memory context, similar to tool results
+                response = self._client.chat.completions.create(
+                    model=self._tool_formatting_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"Rules: {self._memory_instructions}, Regular Content: {regular_content}, Memory Context: {memory}",
+                        },
+                        {
+                            "role": "user",
+                            "content": user_text,
+                        }
+                    ],
+                    stream=True,
+                )
+                for chunk in response:
+                    delta = chunk.choices[0].delta
+                    if delta.content is not None:
+                        await self._accumulated_value_queue.put(delta.content)
 
         # Start the stream processor as a background task
         asyncio.create_task(stream_processor())
@@ -882,7 +901,9 @@ class AI:
         # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
+                value = await asyncio.wait_for(
+                    self._accumulated_value_queue.get(), timeout=0.1
+                )
                 if value is not None:
                     final_response += value
                     yield value
@@ -977,7 +998,7 @@ class AI:
                     },
                     {
                         "role": "user",
-                        "content":  transcript,
+                        "content": transcript,
                     },
                 ],
                 tools=self._tools,
@@ -994,11 +1015,13 @@ class AI:
                             # Initialize a new tool call record
                             final_tool_calls[index] = {
                                 "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments or ""
+                                "arguments": tool_call.function.arguments or "",
                             }
                         elif tool_call.function.arguments:
                             # Append additional arguments if provided in subsequent chunks
-                            final_tool_calls[index]["arguments"] += tool_call.function.arguments
+                            final_tool_calls[index]["arguments"] += (
+                                tool_call.function.arguments
+                            )
 
                             try:
                                 args = json.loads(
@@ -1012,11 +1035,7 @@ class AI:
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": self._tool_formatting_instructions,
-                                        },
-                                        {
-                                            "role": "user",
-                                            "content": result,
+                                            "content": f" Rules: {self._tool_formatting_instructions}, Result: {result}",
                                         },
                                     ],
                                     stream=True,
@@ -1025,7 +1044,9 @@ class AI:
                                     delta = chunk.choices[0].delta
 
                                     if delta.content is not None:
-                                        await self._accumulated_value_queue.put(delta.content)
+                                        await self._accumulated_value_queue.put(
+                                            delta.content
+                                        )
                                 # Remove the cached tool call info so it doesn't block future calls
                                 del final_tool_calls[index]
                             except json.JSONDecodeError:
@@ -1042,7 +1063,9 @@ class AI:
         # Yield values from the queue as they become available.
         while True:
             try:
-                value = await asyncio.wait_for(self._accumulated_value_queue.get(), timeout=0.1)
+                value = await asyncio.wait_for(
+                    self._accumulated_value_queue.get(), timeout=0.1
+                )
                 if value is not None:
                     final_response += value
                     yield value
