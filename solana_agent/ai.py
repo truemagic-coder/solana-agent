@@ -70,9 +70,9 @@ class AI:
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
         openai_base_url: str = None,
-        main_model: str = "gpt-4o-mini",
-        tool_formatting_model: str = "gpt-4o-mini",
-        tool_formatting_instructions: str = None,
+        tool_calling_model: str = "gpt-4o-mini",
+        reasoning_model: str = "gpt-4o-mini",
+        reasoning_instructions: str = None,
     ):
         """Initialize a new AI assistant instance.
 
@@ -89,9 +89,9 @@ class AI:
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
             openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
-            main_model (str, optional): Main OpenAI model for conversation. Defaults to "gpt-4o-mini"
-            tool_formatting_model (str, optional): OpenAI model for tool formatting. Defaults to "gpt-4o-mini"
-            tool_formatting_instructions (str, optional): Instructions for tool formatting
+            tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
+            reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
+            reasoning_instructions (str, optional): Instructions for reasoning. Defaults to None
         Example:
             ```python
             ai = AI(
@@ -124,9 +124,10 @@ class AI:
             You always take the Tool Result over the Memory Context in terms of priority.
         """
         self._instructions = instructions
-        self._tool_formatting_instructions = (
-            tool_formatting_instructions + " " +
-            self._memory_instructions if tool_formatting_instructions else self._memory_instructions
+        self._reasoning_instructions = (
+            reasoning_instructions + " " + self._memory_instructions
+            if reasoning_instructions
+            else self._memory_instructions
         )
         self._database: MongoDatabase = database
         self._accumulated_value_queue = asyncio.Queue()
@@ -152,8 +153,8 @@ class AI:
                 self._pinecone_index_name) if self._pinecone else None
         )
         self._openai_base_url = openai_base_url
-        self._main_model = main_model
-        self._tool_formatting_model = tool_formatting_model
+        self._tool_calling_model = tool_calling_model
+        self._reasoning_model = reasoning_model
         self._tools = []
 
     async def __aenter__(self):
@@ -585,101 +586,6 @@ class AI:
         except Exception as e:
             return f"Failed to search Perplexity. Error: {e}"
 
-    # reason tool - has to be sync
-    def reason(
-        self,
-        user_id: str,
-        query: str,
-        prompt: str = "You combine the data with your reasoning to answer the query.",
-        use_perplexity: bool = True,
-        use_grok: bool = True,
-        use_kb: bool = True,
-        perplexity_model: Literal[
-            "sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"
-        ] = "sonar",
-        openai_model: Literal["o1", "o3-mini"] = "o3-mini",
-        grok_model: Literal["grok-2-latest"] = "grok-2-latest",
-        namespace: str = "global",
-    ) -> str:
-        """Combine multiple data sources with AI reasoning to answer queries.
-
-        Args:
-            user_id (str): Unique identifier for the user
-            query (str): The question or query to reason about
-            prompt (str, optional): Prompt for reasoning. Defaults to "You combine the data with your reasoning to answer the query."
-            use_perplexity (bool, optional): Include Perplexity search results. Defaults to True
-            use_grok (bool, optional): Include X/Twitter search results. Defaults to True
-            use_kb (bool, optional): Include Pinecone knowledge base search results. Defaults to True
-            perplexity_model (Literal, optional): Perplexity model to use. Defaults to "sonar"
-            openai_model (Literal, optional): OpenAI model for reasoning. Defaults to "o3-mini"
-            grok_model (Literal, optional): Grok model for X search. Defaults to "grok-beta"
-            namespace (str): Namespace of the Pinecone index to search. Defaults to "global"
-
-        Returns:
-            str: Reasoned response combining all enabled data sources or error message
-
-        Example:
-            ```python
-            result = ai.reason(
-                user_id="user123",
-                query="What are the latest AI trends?",
-            )
-            # Returns: "Based on multiple sources: [comprehensive answer]"
-            ```
-
-        Note:
-            This is a synchronous tool method required for OpenAI function calling.
-            Requires configuration of relevant API keys for enabled data sources.
-            Will gracefully handle missing or failed data sources.
-        """
-        try:
-            if use_kb:
-                try:
-                    kb_results = self.search_kb(query, namespace)
-                except Exception:
-                    kb_results = ""
-            else:
-                kb_results = ""
-
-            if use_perplexity:
-                try:
-                    search_results = self.search_internet(
-                        query, perplexity_model)
-                except Exception:
-                    search_results = ""
-            else:
-                search_results = ""
-
-            if use_grok:
-                try:
-                    x_search_results = self.search_x(query, grok_model)
-                except Exception:
-                    x_search_results = ""
-            else:
-                x_search_results = ""
-
-            if self._zep:
-                memory = self._sync_zep.memory.get(session_id=user_id)
-            else:
-                memory = ""
-
-            response = self._client.chat.completions.create(
-                model=openai_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": prompt,
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Query: {query}, Memory: {memory}, KB Results: {kb_results}, Internet Search Results: {search_results}, X Search Results: {x_search_results}",
-                    },
-                ],
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"Failed to reason. Error: {e}"
-
     # x search tool - has to be sync
     def search_x(
         self, query: str, model: Literal["grok-2-latest"] = "grok-2-latest"
@@ -801,11 +707,21 @@ class AI:
         final_tool_calls = {}  # Accumulate tool call deltas
         final_response = ""
 
+        if self._zep:
+            messages = [
+                Message(
+                    role="user",
+                    role_type="user",
+                    content=user_text,
+                ),
+            ]
+            await self._zep.memory.add(session_id=user_id, messages=messages)
+
         async def stream_processor():
             memory = self.get_memory_context(user_id)
-            regular_content = ""  # Add this to accumulate regular content
+            regular_content = ""
             response = self._client.chat.completions.create(
-                model=self._main_model,
+                model=self._tool_calling_model,
                 messages=[
                     {
                         "role": "system",
@@ -847,11 +763,11 @@ class AI:
                                 # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
                                 response = self._client.chat.completions.create(
-                                    model=self._tool_formatting_model,
+                                    model=self._reasoning_model,
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": f"Rules: {self._tool_formatting_instructions}, Tool Result: {result}, Memory Context: {memory}",
+                                            "content": f"Rules: {self._reasoning_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
                                     ],
                                     stream=True,
@@ -871,22 +787,24 @@ class AI:
 
                 # Process regular response content
                 if delta.content is not None:
-                    regular_content += delta.content  # Accumulate instead of directly sending
+                    regular_content += (
+                        delta.content
+                    )  # Accumulate instead of directly sending
 
             # After processing all chunks from the first response
             if regular_content:  # Only if we have regular content
                 # Format the regular content with memory context, similar to tool results
                 response = self._client.chat.completions.create(
-                    model=self._tool_formatting_model,
+                    model=self._reasoning_model,
                     messages=[
                         {
                             "role": "system",
-                            "content": f"Rules: {self._memory_instructions}, Regular Content: {regular_content}, Memory Context: {memory}",
+                            "content": f"Rules: {self._reasoning_instructions}, Memory Context: {memory}",
                         },
                         {
                             "role": "user",
                             "content": user_text,
-                        }
+                        },
                     ],
                     stream=True,
                 )
@@ -920,20 +838,6 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
         self._database.save_message(user_id, metadata)
-        if self._zep:
-            messages = [
-                Message(
-                    role="user",
-                    role_type="user",
-                    content=user_text,
-                ),
-                Message(
-                    role="assistant",
-                    role_type="assistant",
-                    content=final_response,
-                ),
-            ]
-            await self._zep.memory.add(session_id=user_id, messages=messages)
 
     async def conversation(
         self,
@@ -987,11 +891,21 @@ class AI:
         final_tool_calls = {}  # Accumulate tool call deltas
         final_response = ""
 
+        if self._zep:
+            messages = [
+                Message(
+                    role="user",
+                    role_type="user",
+                    content=transcript,
+                ),
+            ]
+            await self._zep.memory.add(session_id=user_id, messages=messages)
+
         async def stream_processor():
             memory = self.get_memory_context(user_id)
             regular_content = ""  # Add this to accumulate regular content
             response = self._client.chat.completions.create(
-                model=self._main_model,
+                model=self._tool_calling_model,
                 messages=[
                     {
                         "role": "system",
@@ -1033,11 +947,11 @@ class AI:
                                 # Execute the tool call (synchronously; adjust if async is needed)
                                 result = func(**args)
                                 response = self._client.chat.completions.create(
-                                    model=self._tool_formatting_model,
+                                    model=self._reasoning_model,
                                     messages=[
                                         {
                                             "role": "system",
-                                            "content": f"Rules: {self._tool_formatting_instructions}, Tool Result: {result}, Memory Context: {memory}",
+                                            "content": f"Rules: {self._reasoning_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
                                     ],
                                     stream=True,
@@ -1057,22 +971,24 @@ class AI:
 
                 # Process regular response content
                 if delta.content is not None:
-                    regular_content += delta.content  # Accumulate instead of directly sending
+                    regular_content += (
+                        delta.content
+                    )  # Accumulate instead of directly sending
 
             # After processing all chunks from the first response
             if regular_content:  # Only if we have regular content
                 # Format the regular content with memory context, similar to tool results
                 response = self._client.chat.completions.create(
-                    model=self._tool_formatting_model,
+                    model=self._reasoning_model,
                     messages=[
                         {
                             "role": "system",
-                            "content": f"Rules: {self._memory_instructions}, Regular Content: {regular_content}, Memory Context: {memory}",
+                            "content": f"Rules: {self._reasoning_instructions}, Memory Context: {memory}",
                         },
                         {
                             "role": "user",
                             "content": transcript,
-                        }
+                        },
                     ],
                     stream=True,
                 )
@@ -1106,20 +1022,6 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
         self._database.save_message(user_id, metadata)
-        if self._zep:
-            messages = [
-                Message(
-                    role="user",
-                    role_type="user",
-                    content=transcript,
-                ),
-                Message(
-                    role="assistant",
-                    role_type="assistant",
-                    content=final_response,
-                ),
-            ]
-            await self._zep.memory.add(session_id=user_id, messages=messages)
 
         # Generate and stream the audio response
         with self._client.audio.speech.with_streaming_response.create(
