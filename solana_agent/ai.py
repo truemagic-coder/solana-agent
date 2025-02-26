@@ -763,6 +763,10 @@ class AI:
                                             "role": "system",
                                             "content": f"Rules: {self._reasoning_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
+                                        {
+                                            "role": "user",
+                                            "content": user_text,
+                                        }
                                     ],
                                     stream=True,
                                 )
@@ -947,6 +951,10 @@ class AI:
                                             "role": "system",
                                             "content": f"Rules: {self._reasoning_instructions}, Tool Result: {result}, Memory Context: {memory}",
                                         },
+                                        {
+                                            "role": "user",
+                                            "content": transcript,
+                                        }
                                     ],
                                     stream=True,
                                 )
