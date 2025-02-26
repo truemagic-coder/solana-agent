@@ -833,7 +833,6 @@ class AI:
                                             "content": result,
                                         },
                                     ],
-                                    tools=self._tools,
                                     stream=True,
                                 )
                                 for chunk in response:
@@ -994,7 +993,6 @@ class AI:
                                             "content": result,
                                         },
                                     ],
-                                    tools=self._tools,
                                     stream=True,
                                 )
                                 for chunk in response:
