@@ -766,7 +766,7 @@ class AI:
                                         {
                                             "role": "user",
                                             "content": user_text,
-                                        }
+                                        },
                                     ],
                                     stream=True,
                                 )
@@ -836,6 +836,16 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
         self._database.save_message(user_id, metadata)
+
+        if self._zep:
+            messages = [
+                Message(
+                    role="assistant",
+                    role_type="assistant",
+                    content=final_response,
+                ),
+            ]
+            await self._zep.memory.add(session_id=user_id, messages=messages)
 
     async def conversation(
         self,
@@ -954,7 +964,7 @@ class AI:
                                         {
                                             "role": "user",
                                             "content": transcript,
-                                        }
+                                        },
                                     ],
                                     stream=True,
                                 )
@@ -1024,6 +1034,16 @@ class AI:
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
         self._database.save_message(user_id, metadata)
+
+        if self._zep:
+            messages = [
+                Message(
+                    role="assistant",
+                    role_type="assistant",
+                    content=final_response,
+                ),
+            ]
+            await self._zep.memory.add(session_id=user_id, messages=messages)
 
         # Generate and stream the audio response
         with self._client.audio.speech.with_streaming_response.create(
