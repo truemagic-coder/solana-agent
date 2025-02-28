@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import traceback
 import ntplib
 import json
 from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
@@ -1106,4 +1107,292 @@ class AI:
         return func
 
 
-tool = AI.add_tool
+class MultiAgentSystem:
+    """A multi-agent system that coordinates specialized AI agents with handoff capabilities."""
+
+    def __init__(self, database: MongoDatabase, router_model: str = "gpt-4o"):
+        """Initialize the multi-agent system with a shared database.
+
+        Args:
+            database (MongoDatabase): Shared MongoDB database instance
+            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o".
+        """
+        self.agents = {}  # name -> AI instance
+        self.specializations = {}  # name -> description
+        self.database = database
+        self.router_model = router_model
+
+        # Ensure handoffs collection exists
+        if "handoffs" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("handoffs")
+        self.handoffs = self.database.db["handoffs"]
+
+        print(
+            f"MultiAgentSystem initialized with router model: {router_model}")
+
+    def register(self, name: str, agent: AI, specialization: str):
+        """Register a specialized agent with the multi-agent system."""
+        # Add the agent to the system first
+        self.agents[name] = agent
+        self.specializations[name] = specialization
+
+        print(
+            f"Registered agent: {name}, specialization: {specialization[:50]}...")
+        print(f"Current agents: {list(self.agents.keys())}")
+
+        # We need to refresh handoff tools for ALL agents whenever a new one is registered
+        self._update_all_agent_tools()
+
+    def _update_all_agent_tools(self):
+        """Update all agents with current handoff capabilities."""
+        # For each registered agent, update its handoff tool
+        for agent_name, agent in self.agents.items():
+            # Get other agents that this agent can hand off to
+            available_targets = [
+                name for name in self.agents.keys() if name != agent_name
+            ]
+
+            # First remove any existing handoff tool if present
+            agent._tools = [
+                t for t in agent._tools if t["function"]["name"] != "request_handoff"
+            ]
+
+            # Create handoff tool with explicit naming requirements
+            def create_handoff_tool(current_agent_name, available_targets_list):
+                def request_handoff(target_agent: str, reason: str) -> str:
+                    """Request an immediate handoff to another specialized agent.
+                    This is an INTERNAL SYSTEM TOOL. The user will NOT see your reasoning about the handoff.
+                    Use this tool IMMEDIATELY when a query is outside your expertise.
+
+                    Args:
+                        target_agent (str): Name of agent to transfer to. MUST be one of: {', '.join(available_targets_list)}.
+                          DO NOT INVENT NEW NAMES OR VARIATIONS. Use EXACTLY one of these names.
+                        reason (str): Brief explanation of why this question requires the specialist
+
+                    Returns:
+                        str: Empty string - the handoff is handled internally
+                    """
+                    # Prevent self-handoffs
+                    if target_agent == current_agent_name:
+                        print(
+                            f"[HANDOFF ERROR] Agent {current_agent_name} attempted to hand off to itself"
+                        )
+                        if available_targets_list:
+                            target_agent = available_targets_list[0]
+                            print(
+                                f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead"
+                            )
+                        else:
+                            print(
+                                "[HANDOFF ERROR] No other agents available to hand off to"
+                            )
+                            return ""
+
+                    # Validate target agent exists
+                    if target_agent not in self.agents:
+                        print(
+                            f"[HANDOFF WARNING] Invalid target '{target_agent}'")
+                        if available_targets_list:
+                            original_target = target_agent
+                            target_agent = available_targets_list[0]
+                            print(
+                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'"
+                            )
+                        else:
+                            print(
+                                "[HANDOFF ERROR] No valid target agents available")
+                            return ""
+
+                    print(
+                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}"
+                    )
+
+                    # Set handoff info in the agent instance for processing
+                    agent._handoff_info = {
+                        "target": target_agent, "reason": reason}
+
+                    # Return empty string - the actual handoff happens in the process method
+                    return ""
+
+                return request_handoff
+
+            # Use the factory to create a properly-bound tool function
+            handoff_tool = create_handoff_tool(agent_name, available_targets)
+
+            # Initialize handoff info attribute
+            agent._handoff_info = None
+
+            # Add the updated handoff tool with proper closure
+            agent.add_tool(handoff_tool)
+
+            # Add critical handoff instructions to the agent's base instructions
+            handoff_examples = "\n".join(
+                [
+                    f"  - `{name}` ({self.specializations[name][:40]}...)"
+                    for name in available_targets
+                ]
+            )
+            handoff_instructions = f"""
+            STRICT HANDOFF GUIDANCE:
+            1. You must use ONLY the EXACT agent names listed below for handoffs:
+               {handoff_examples}
+               
+            2. DO NOT INVENT, MODIFY, OR CREATE NEW AGENT NAMES like "Smart Contract Developer" or "Technical Expert"
+            
+            3. For technical implementation questions, use "developer" (not variations like "developer expert" or "tech specialist")
+            
+            4. ONLY these EXACT agent names will work for handoffs: {', '.join(available_targets)}
+            """
+
+            # Update agent instructions with handoff guidance
+            agent._instructions = agent._instructions + "\n\n" + handoff_instructions
+
+            print(
+                f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
+            )
+
+    async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+        """Process the user request with appropriate agent and handle handoffs."""
+        try:
+            # Check if any agents are registered
+            if not self.agents:
+                yield "Error: No agents are registered with the system. Please register at least one agent first."
+                return
+
+            # Get routing decision
+            first_agent = next(iter(self.agents.values()))
+            agent_name = await self._get_routing_decision(first_agent, user_text)
+            current_agent = self.agents[agent_name]
+            print(f"Starting conversation with agent: {agent_name}")
+
+            # Initialize a flag for handoff detection
+            handoff_detected = False
+            response_started = False
+
+            # Reset handoff info for this interaction
+            current_agent._handoff_info = None
+
+            # Process initial agent's response
+            async for chunk in current_agent.text(user_id, user_text):
+                # Check for handoff after each chunk
+                if current_agent._handoff_info and not handoff_detected:
+                    handoff_detected = True
+                    target_name = current_agent._handoff_info["target"]
+                    target_agent = self.agents[target_name]
+                    reason = current_agent._handoff_info["reason"]
+
+                    # Record handoff without waiting
+                    asyncio.create_task(
+                        self._record_handoff(
+                            user_id, agent_name, target_name, reason, user_text
+                        )
+                    )
+
+                    # Process with target agent
+                    print(f"[HANDOFF] Forwarding to {target_name}")
+                    handoff_query = f"""
+                    Answer this ENTIRE question completely from scratch:
+    
+                    {user_text}
+    
+                    IMPORTANT INSTRUCTIONS:
+                    1. Address ALL aspects of the question comprehensively
+                    2. Organize your response in a logical, structured manner
+                    3. Include both explanations AND implementations as needed
+                    4. Do not mention any handoff or that you're continuing from another agent
+                    5. Answer as if you are addressing the complete question from the beginning
+                    6. Consider any relevant context from previous conversation
+                    """
+
+                    # If we've already started returning some text, add a separator
+                    if response_started:
+                        yield "\n\n---\n\n"
+
+                    # Stream directly from target agent
+                    async for new_chunk in target_agent.text(user_id, handoff_query):
+                        yield new_chunk
+                        # Force immediate delivery of each chunk
+                        await asyncio.sleep(0)
+                    return
+                else:
+                    # Only yield content if no handoff has been detected
+                    if not handoff_detected:
+                        response_started = True
+                        yield chunk
+                        await asyncio.sleep(0)  # Force immediate delivery
+
+        except Exception as e:
+            print(f"Error in multi-agent processing: {str(e)}")
+            print(traceback.format_exc())
+            yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _get_routing_decision(self, agent, user_text):
+        """Get routing decision in parallel to reduce latency."""
+        enhanced_prompt = f"""
+        Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
+        
+        User query: "{user_text}"
+        
+        Available specialists:
+        {json.dumps(self.specializations, indent=2)}
+        
+        CRITICAL ROUTING INSTRUCTIONS:
+        1. For compound questions with multiple aspects spanning different domains,
+           choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
+        
+        2. Choose implementation specialists (technical, development, coding) only when
+           the query is PURELY about implementation with no conceptual explanation needed.
+        
+        3. When a query involves a SEQUENCE (like "explain X and then do Y"),
+           prioritize the specialist handling the FIRST part of the sequence.
+        
+        Return ONLY the name of the single most appropriate specialist.
+        """
+
+        # Route to appropriate agent
+        router_response = agent._client.chat.completions.create(
+            model=self.router_model,
+            messages=[
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.2,
+        )
+
+        # Extract the selected agent
+        raw_response = router_response.choices[0].message.content.strip()
+        print(f"Router model raw response: '{raw_response}'")
+
+        return self._match_agent_name(raw_response)
+
+    async def _record_handoff(self, user_id, from_agent, to_agent, reason, query):
+        """Record handoff in database without blocking the main flow."""
+        self.handoffs.insert_one(
+            {
+                "user_id": user_id,
+                "from_agent": from_agent,
+                "to_agent": to_agent,
+                "reason": reason,
+                "query": query,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+            }
+        )
+
+    def _match_agent_name(self, raw_response):
+        """Match router response to an actual agent name."""
+        # Exact match (priority)
+        if raw_response in self.agents:
+            return raw_response
+
+        # Case-insensitive match
+        for name in self.agents:
+            if name.lower() == raw_response.lower():
+                return name
+
+        # Partial match
+        for name in self.agents:
+            if name.lower() in raw_response.lower():
+                return name
+
+        # Fallback to first agent
+        return list(self.agents.keys())[0]
