@@ -32,6 +32,12 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Advanced AI memory combining conversational context, knowledge base, and parallel tool calling
 - Create custom tools for extending the Agent's capabilities like further API integrations
 
+🤖 **Multi-Agent Swarms**
+- Create specialized agents with different expertise domains
+- Automatic routing of queries to the most appropriate specialist
+- Seamless handoffs between agents for complex multi-domain questions
+- Shared memory and context across the entire agent swarm
+
 🔍 **Multi-Source Search and Reasoning**
 - Internet search via Perplexity
 - X (Twitter) search using Grok
@@ -51,6 +57,13 @@ Unlike traditional AI assistants that forget conversations after each session, S
    - Automatic self-learning from conversations
    - Knowledge Base to add domain specific knowledge
    - CSV file uploads to perform document context search 
+
+🤝 **Intelligent Multi-Agent Systems**
+   - First-class support for specialized agent swarms
+   - Dynamic inter-agent routing based on query complexity
+   - Seamless handoffs with continuous memory preservation
+   - Single unified interface for the entire agent network
+   - No custom coding required for agent coordination
 
 🏢 **Enterprise Focus**
    - Production-ready out of the box in a few lines of code
