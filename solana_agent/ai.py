@@ -1131,10 +1131,8 @@ class MultiAgentSystem:
 
     def register(self, name: str, agent: AI, specialization: str):
         """Register a specialized agent with the multi-agent system."""
-        # Add the agent to the system
+        # Add the agent to the system first
         self.agents[name] = agent
-
-        # First update specializations dict so it's available for the tool
         self.specializations[name] = specialization
 
         # Add handoff capability to the agent
@@ -1165,47 +1163,21 @@ class MultiAgentSystem:
                     print("[HANDOFF ERROR] No other agents available to hand off to")
                     return ""
 
+            # Validate target agent exists
+            if target_agent not in self.agents:
+                available_targets = [
+                    k for k in self.agents.keys() if k != name]
+                if available_targets:
+                    target_agent = available_targets[0]
+                    print(
+                        f"[HANDOFF CORRECTION] Invalid target '{target_agent}', redirecting to {target_agent}")
+                else:
+                    print("[HANDOFF ERROR] No valid target agents available")
+                    return ""
+
             print(f"[HANDOFF TOOL CALLED] {name} -> {target_agent}: {reason}")
             # Return ONLY the marker - no extra explanations
             return f"__HANDOFF__{target_agent}__{reason}__"
-
-        # Get other agents' names and specializations for clearer instructions
-        other_agents = {k: v for k,
-                        v in self.specializations.items() if k != name}
-
-        # MUCH clearer handoff instructions with available agents listed
-        handoff_instructions = f"""
-        You are a {specialization} specialist.
-        
-        STRICT HANDOFF RULES:
-        1. For ANY query containing elements outside your expertise:
-           * DO NOT RESPOND AT ALL to the user directly
-           * IMMEDIATELY use the request_handoff tool - it must be your very first action
-           * The handoff is handled invisibly by the system - the user won't see your reasoning
-           * DO NOT explain that you're transferring or why - just use the tool
-        
-        2. For compound queries with multiple parts:
-           * If ANY part is outside your expertise, hand off the ENTIRE query
-           * NEVER answer only the parts within your expertise
-        
-        3. The handoff tool is an INTERNAL SYSTEM COMMAND - the user doesn't see your reason
-           for the handoff, only that they're being transferred
-        
-        4. OTHER AVAILABLE AGENTS AND THEIR SPECIALTIES:
-        {json.dumps(other_agents, indent=4)}
-        
-        5. IMPORTANT: You can ONLY transfer to these specific agents: {', '.join([k for k in self.agents.keys() if k != name])}
-           * You CANNOT handoff to yourself
-           * Use the EXACT agent names as shown above
-           * For technical implementation questions, use the 'developer' agent
-           * For financial explanations, use the 'finance' agent
-        """
-
-        # Update agent instructions with the enhanced handoff guidance
-        agent._instructions = agent._instructions + "\n" + handoff_instructions
-
-        print(f"Registered agent: {name}")
-        print(f"Current agents: {list(self.agents.keys())}")
 
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
@@ -1226,21 +1198,18 @@ class MultiAgentSystem:
             
             CRITICAL ROUTING INSTRUCTIONS:
             1. For compound questions with BOTH financial AND technical components, 
-            choose the finance agent first, as explaining concepts should happen before implementation.
+               choose the finance agent first, as explaining concepts should happen before implementation.
             
             2. Only choose the developer agent as the first responder if the query is PURELY technical
-            with no financial education or explanation components.
+               with no financial education or explanation components.
             
-            3. For queries that span multiple domains, select the specialist who handles the PRIMARY
-            aspect or has the broader expertise to understand when to initiate handoffs.
-            
-            Return ONLY the name of the single most appropriate specialist from the list provided.
+            Return ONLY the name of the single most appropriate specialist.
             """
 
             # Get any agent to use its OpenAI client
             first_agent = next(iter(self.agents.values()))
 
-            # Use the specified model for routing decisions
+            # Route to appropriate agent
             router_response = first_agent._client.chat.completions.create(
                 model=self.router_model,
                 messages=[
@@ -1250,81 +1219,31 @@ class MultiAgentSystem:
                 temperature=0.2,  # Lower temperature for more precise routing
             )
 
-            # Extract and clean up the response
+            # Extract the selected agent
             raw_response = router_response.choices[0].message.content.strip()
             print(f"Router model raw response: '{raw_response}'")
 
-            # Try different matching strategies
-            agent_name = None
-
-            # Exact match (priority)
-            if raw_response in self.agents:
-                agent_name = raw_response
-                print(f"Selected agent (exact match): {agent_name}")
-            else:
-                # Case-insensitive match
-                for name in self.agents:
-                    if name.lower() == raw_response.lower():
-                        agent_name = name
-                        print(
-                            f"Selected agent (case-insensitive match): {agent_name}")
-                        break
-
-                # If still no match, look for the specialist name within the response
-                if not agent_name:
-                    for name in self.agents:
-                        if name.lower() in raw_response.lower():
-                            agent_name = name
-                            print(
-                                f"Selected agent (partial match): {agent_name}")
-                            break
-
-                # Last resort fallback
-                if not agent_name:
-                    agent_name = list(self.agents.keys())[0]
-                    print(
-                        f"WARNING: Could not match '{raw_response}' to any agent. Falling back to: {agent_name}")
-
+            agent_name = self._match_agent_name(raw_response)
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
             buffer = ""
-            chunk_count = 0
             found_handoff = False
-            parts_before_handoff = ""
 
             # Process with initial agent
             async for chunk in current_agent.text(user_id, user_text):
-                chunk_count += 1
                 buffer += chunk
 
                 # Check for handoff marker
                 if "__HANDOFF__" in buffer:
                     found_handoff = True
-                    print(f"[HANDOFF DETECTED] in chunk #{chunk_count}")
+                    print("[HANDOFF DETECTED]")
 
-                    # Split at the marker
-                    parts = buffer.split("__HANDOFF__", 1)
-                    parts_before_handoff = parts[0].strip()
-
-                    # Don't yield any content that might contain refusals or explanations about handoffs
-                    # This is the key fix - we filter out text before the handoff marker
-                    filtered_content = parts_before_handoff
-                    if any(phrase in filtered_content.lower() for phrase in [
-                        "i'll transfer", "transferring you", "let me connect",
-                        "handoff", "hand off", "specialist", "outside my expertise",
-                        "not my specialty", "i can't answer", "i'm not qualified",
-                        "i need to transfer", "would be better", "more appropriate"
-                    ]):
-                        # Skip yielding content that talks about handoffs or specialist limitations
-                        filtered_content = ""
-
-                    # Only yield filtered content if it's meaningful
-                    # Arbitrary minimum length to avoid fragments
-                    if filtered_content and len(filtered_content) > 15:
-                        yield filtered_content
+                    # Skip ALL content before the handoff marker
+                    # This is crucial - we don't want ANY partial answers
 
                     # Extract handoff details
+                    parts = buffer.split("__HANDOFF__", 1)
                     handoff_parts = parts[1].split(
                         "__", 2) if len(parts) > 1 else []
 
@@ -1332,21 +1251,7 @@ class MultiAgentSystem:
                         target_name = handoff_parts[0]
                         reason = handoff_parts[1]
 
-                        print(
-                            f"[HANDOFF DETAILS] To: {target_name}, Reason: {reason}")
-
-                        if target_name not in self.agents:
-                            print(
-                                f"ERROR: Target agent '{target_name}' not found!")
-                            yield "\n\nI apologize, but I need to transfer you to a specialist who isn't currently available. Let me help you myself.\n\n"
-                            # Fall back to continuing with the current agent
-                            remaining_text = parts[1].split(
-                                "__", 2)[-1] if len(handoff_parts) > 2 else ""
-                            if remaining_text:
-                                yield remaining_text
-                            continue
-
-                        # Store handoff record in database
+                        # Store handoff record
                         self.handoffs.insert_one({
                             "user_id": user_id,
                             "from_agent": agent_name,
@@ -1356,53 +1261,46 @@ class MultiAgentSystem:
                             "timestamp": datetime.datetime.now(datetime.timezone.utc)
                         })
 
-                        # Yield handoff notice - only if necessary (if we yielded content before)
-                        if filtered_content:
-                            handoff_notice = f"\n\nTransferring to {target_name} specialist...\n\n"
-                            yield handoff_notice
-
-                        # Handle the handoff to new agent with clear, well-formatted query
+                        # Process with target agent (no handoff message needed)
                         try:
-                            # Use a specially formatted handoff query that enforces complete answers
-                            handoff_query = f"""This question was transferred to you because: {reason}
-                            
-    Original question: {user_text}
-    
-    IMPORTANT: You must address ALL aspects of the original question completely. DO NOT mention that this was transferred to you or refer to another agent's limitations."""
-
-                            handoff_chunk_count = 0
+                            handoff_query = f"""Answer this question completely: {user_text}"""
                             async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
-                                handoff_chunk_count += 1
                                 yield new_chunk
-
-                            print(
-                                f"Completed handoff sequence with {handoff_chunk_count} chunks")
-                            return  # End processing after handoff completes
                         except Exception as e:
-                            # Recover from errors in the target agent
                             print(f"Error during handoff processing: {e}")
-                            yield "\n\nI apologize for the technical difficulty. Let me answer your question directly.\n\n"
-                            # Fall back to current agent if target fails
-                            async for recovery_chunk in current_agent.text(user_id, user_text):
-                                yield recovery_chunk
-                            return
-                    else:
-                        # Malformed handoff marker, continue with original content
-                        print("Malformed handoff marker detected")
-                        yield buffer
-                        buffer = ""
-                else:
-                    # Only yield chunks if no handoff has been detected
-                    if not found_handoff:
-                        yield chunk
-                        buffer = ""  # Reset buffer after yielding
+                            yield "\n\nI apologize for the technical difficulty.\n\n"
+
+                        return  # End processing after handoff completes
+
+                elif not found_handoff:
+                    # Only yield if no handoff has been detected
+                    yield chunk
+                    buffer = ""  # Reset buffer after yielding
 
         except Exception as e:
-            # Global error handling to prevent complete chat failures
             print(f"Error in multi-agent processing: {str(e)}")
             import traceback
             print(traceback.format_exc())
-            yield "\n\nI apologize for the technical difficulty. Please try your question again.\n\n"
+            yield "\n\nI apologize for the technical difficulty. Please try again.\n\n"
+
+    def _match_agent_name(self, raw_response):
+        """Match router response to an actual agent name."""
+        # Exact match (priority)
+        if raw_response in self.agents:
+            return raw_response
+
+        # Case-insensitive match
+        for name in self.agents:
+            if name.lower() == raw_response.lower():
+                return name
+
+        # Partial match
+        for name in self.agents:
+            if name.lower() in raw_response.lower():
+                return name
+
+        # Fallback to first agent
+        return list(self.agents.keys())[0]
 
     async def process_voice(
         self,
