@@ -4,20 +4,20 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-Solana Agent is the first self-learning AI Agent framework.
+Solana Agent is the first self-learning AI Agent Swarm framework.
 
 ## Why Solana Agent?
 
-### 🧬 The First Self-Learning AI Agent
+### 🧬 The First Self-Learning AI Agent Swarm Framework
 
 Unlike traditional AI assistants that forget conversations after each session, Solana Agent maintains a rich, searchable memory system that grows smarter with every interaction.
 
 **Why This Matters:**
+- 🤖 **Swarm Intelligence**: Shares memory across all agents in the swarm
 - 📈 **Continuous Learning**: Evolves with every new interaction
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
 - 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
 - 🧠 **Knowledge Base**: Add domain-specific knowledge for better reasoning
-- 🏢 **File Context**: Upload propriety files to be part of the conversation
 - 🛡️ **Secure**: Secure and private memory and data storage 
 
 **Experience Agentic IQ!**
