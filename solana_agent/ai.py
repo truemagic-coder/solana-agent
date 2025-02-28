@@ -1279,33 +1279,29 @@ class MultiAgentSystem:
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
-            # For handoff detection - use minimal sliding window
+            # For handoff detection
             handoff_detector = "__HANDOFF__"
-            sliding_window = ""
-            max_window_size = len(handoff_detector) + 50
+            handoff_buffer = ""
+            max_buffer_size = len(handoff_detector) + 50
             found_handoff = False
 
-            # Process initial agent's response with minimal buffering
+            # Process initial agent's response with handoff detection
             async for chunk in current_agent.text(user_id, user_text):
                 if found_handoff:
                     continue  # Skip remaining chunks after handoff
 
-                # CRITICAL: Yield each chunk immediately with no preprocessing
-                yield chunk
-                # Force context switch to allow client to receive chunk
-                await asyncio.sleep(0)
+                # Add to handoff detection buffer
+                handoff_buffer += chunk
+                if len(handoff_buffer) > max_buffer_size:
+                    handoff_buffer = handoff_buffer[-max_buffer_size:]
 
-                # Simple handoff detection with minimal processing
-                sliding_window += chunk
-                if len(sliding_window) > max_window_size:
-                    sliding_window = sliding_window[-max_window_size:]
-
-                if handoff_detector in sliding_window and not found_handoff:
+                # Check for handoff marker BEFORE yielding content
+                if handoff_detector in handoff_buffer:
                     found_handoff = True
                     print("[HANDOFF DETECTED]")
 
-                    # Process handoff with minimal delay
-                    parts = sliding_window.split(handoff_detector, 1)
+                    # Process handoff immediately
+                    parts = handoff_buffer.split(handoff_detector, 1)
                     handoff_parts = parts[1].split(
                         "__", 2) if len(parts) > 1 else []
 
@@ -1322,9 +1318,18 @@ class MultiAgentSystem:
 
                         # Process with target agent
                         print(f"[HANDOFF] Forwarding to {target_name}")
-                        handoff_query = (
-                            user_text  # Simplified query to reduce processing
-                        )
+                        handoff_query = f"""
+                        Answer this ENTIRE question completely from scratch:
+
+                        {user_text}
+
+                        IMPORTANT INSTRUCTIONS:
+                        1. Address ALL aspects of the question comprehensively
+                        2. Organize your response in a logical, structured manner
+                        3. Include both explanations AND implementations as needed
+                        4. Do not mention any handoff or that you're continuing from another agent
+                        5. Answer as if you are addressing the complete question from the beginning
+                        """
 
                         # Stream directly from target agent
                         async for new_chunk in self.agents[target_name].text(
@@ -1334,6 +1339,11 @@ class MultiAgentSystem:
                             # Force immediate delivery of each chunk
                             await asyncio.sleep(0)
                         return
+                else:
+                    # FIXED: This should be at the same level as the if statement above,
+                    # not nested inside the handoff detection logic
+                    yield chunk
+                    await asyncio.sleep(0)  # Force immediate delivery
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
