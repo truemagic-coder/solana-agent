@@ -1262,30 +1262,32 @@ class MultiAgentSystem:
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
-            # For handoff detection
+            # For handoff detection - use minimal sliding window
             handoff_detector = "__HANDOFF__"
             sliding_window = ""
             max_window_size = len(handoff_detector) + 50
-
-            # Stream from initial agent
             found_handoff = False
+
+            # Process initial agent's response with minimal buffering
             async for chunk in current_agent.text(user_id, user_text):
                 if found_handoff:
                     continue  # Skip remaining chunks after handoff
 
-                # Immediate yield for streaming performance
+                # CRITICAL: Yield each chunk immediately with no preprocessing
                 yield chunk
+                # Force context switch to allow client to receive chunk
+                await asyncio.sleep(0)
 
-                # Minimal handoff detection with sliding window
+                # Simple handoff detection with minimal processing
                 sliding_window += chunk
                 if len(sliding_window) > max_window_size:
                     sliding_window = sliding_window[-max_window_size:]
 
-                if handoff_detector in sliding_window:
+                if handoff_detector in sliding_window and not found_handoff:
                     found_handoff = True
                     print("[HANDOFF DETECTED]")
 
-                    # Extract handoff details
+                    # Process handoff with minimal delay
                     parts = sliding_window.split(handoff_detector, 1)
                     handoff_parts = parts[1].split(
                         "__", 2) if len(parts) > 1 else []
@@ -1294,35 +1296,32 @@ class MultiAgentSystem:
                         target_name = handoff_parts[0]
                         reason = handoff_parts[1]
 
-                        # Record handoff in background
+                        # Record handoff without waiting
                         asyncio.create_task(
                             self._record_handoff(
-                                user_id, agent_name, target_name, reason, user_text)
+                                user_id, agent_name, target_name, reason, user_text
+                            )
                         )
 
                         # Process with target agent
-                        handoff_query = f"""
-                        You must answer this ENTIRE question completely from scratch.
-                        
-                        Question: {user_text}
-                        
-                        IMPORTANT INSTRUCTIONS:
-                        1. Address ALL aspects of the question comprehensively
-                        2. Organize your response in a logical, structured manner
-                        3. Include BOTH educational explanations AND technical implementations as needed
-                        4. Do not mention any handoff or that you're continuing from another agent
-                        5. Answer as if you are addressing the complete question from the beginning
-                        """
-
                         print(f"[HANDOFF] Forwarding to {target_name}")
-                        yield "\n\n"  # Add a visual separation
-                        async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
+                        handoff_query = (
+                            user_text  # Simplified query to reduce processing
+                        )
+
+                        # Stream directly from target agent
+                        async for new_chunk in self.agents[target_name].text(
+                            user_id, handoff_query
+                        ):
                             yield new_chunk
+                            # Force immediate delivery of each chunk
+                            await asyncio.sleep(0)
                         return
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
 
