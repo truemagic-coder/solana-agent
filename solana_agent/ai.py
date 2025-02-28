@@ -1106,4 +1106,413 @@ class AI:
         return func
 
 
-tool = AI.add_tool
+class MultiAgentSystem:
+    """A multi-agent system that coordinates specialized AI agents with handoff capabilities."""
+
+    def __init__(self, database: MongoDatabase, router_model: str = "gpt-4o"):
+        """Initialize the multi-agent system with a shared database.
+
+        Args:
+            database (MongoDatabase): Shared MongoDB database instance
+            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o".
+        """
+        self.agents = {}  # name -> AI instance
+        self.specializations = {}  # name -> description
+        self.database = database
+        self.router_model = router_model
+
+        # Ensure handoffs collection exists
+        if "handoffs" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("handoffs")
+        self.handoffs = self.database.db["handoffs"]
+
+        print(
+            f"MultiAgentSystem initialized with router model: {router_model}")
+
+    def register(self, name: str, agent: AI, specialization: str):
+        """Register a specialized agent with the multi-agent system.
+
+        Args:
+            name (str): Name of the agent
+            agent (AI): Specialized AI agent instance
+            specialization (str): Description of the agent's specialization
+        """
+        # Add the agent to the system
+        self.agents[name] = agent
+
+        # First update specializations dict so it's available for the tool
+        self.specializations[name] = specialization
+
+        # Add handoff capability to the agent
+        @agent.add_tool
+        def request_handoff(target_agent: str, reason: str) -> str:
+            """Request an immediate handoff to another specialized agent.
+            This is an INTERNAL SYSTEM TOOL. The user will NOT see your reasoning about the handoff.
+            Use this tool IMMEDIATELY when a query is outside your expertise.
+
+            Args:
+                target_agent (str): Name of agent to transfer to
+                reason (str): Brief explanation of why this question requires the specialist
+
+            Returns:
+                str: Internal handoff marker (not shown to user)
+            """
+            print(
+                f"[HANDOFF TOOL CALLED] {name} -> {target_agent}: {reason}")
+            # Return ONLY the marker - no extra explanations
+            return f"__HANDOFF__{target_agent}__{reason}__"
+
+        # MUCH clearer handoff instructions
+        handoff_instructions = f"""
+        You are a {specialization} specialist.
+        
+        STRICT HANDOFF RULES:
+        1. For ANY query containing elements outside your expertise:
+        * DO NOT RESPOND AT ALL to the user directly
+        * IMMEDIATELY use the request_handoff tool - it must be your very first action
+        * The handoff is handled invisibly by the system - the user won't see your reasoning
+        * DO NOT explain that you're transferring or why - just use the tool
+        
+        2. For compound queries with multiple parts:
+        * If ANY part is outside your expertise, hand off the ENTIRE query
+        * NEVER answer only the parts within your expertise
+        
+        3. The handoff tool is an INTERNAL SYSTEM COMMAND - the user doesn't see your reason
+        for the handoff, only that they're being transferred
+        """
+
+        # Update agent instructions with the enhanced handoff guidance
+        agent._instructions = agent._instructions + "\n" + handoff_instructions
+
+    async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+        """Process the user request with appropriate agent and handle handoffs."""
+        try:
+            # Check if any agents are registered
+            if not self.agents:
+                yield "Error: No agents are registered with the system. Please register at least one agent first."
+                return
+
+            # Use a more sophisticated prompt for better routing
+            enhanced_prompt = f"""
+            Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
+            
+            User query: "{user_text}"
+            
+            Available specialists:
+            {json.dumps(self.specializations, indent=2)}
+            
+            CRITICAL ROUTING INSTRUCTIONS:
+            1. For compound questions with BOTH financial AND technical components, 
+            choose the finance agent first, as explaining concepts should happen before implementation.
+            
+            2. Only choose the developer agent as the first responder if the query is PURELY technical
+            with no financial education or explanation components.
+            
+            3. For queries that span multiple domains, select the specialist who handles the PRIMARY
+            aspect or has the broader expertise to understand when to initiate handoffs.
+            
+            Return ONLY the name of the single most appropriate specialist from the list provided.
+            """
+
+            # Get any agent to use its OpenAI client
+            first_agent = next(iter(self.agents.values()))
+
+            # Use the specified model for routing decisions
+            router_response = first_agent._client.chat.completions.create(
+                model=self.router_model,
+                messages=[
+                    {"role": "system", "content": enhanced_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+                temperature=0.2,  # Lower temperature for more precise routing
+            )
+
+            # Extract and clean up the response
+            raw_response = router_response.choices[0].message.content.strip()
+            print(f"Router model raw response: '{raw_response}'")
+
+            # Try different matching strategies
+            agent_name = None
+
+            # Exact match (priority)
+            if raw_response in self.agents:
+                agent_name = raw_response
+                print(f"Selected agent (exact match): {agent_name}")
+            else:
+                # Case-insensitive match
+                for name in self.agents:
+                    if name.lower() == raw_response.lower():
+                        agent_name = name
+                        print(
+                            f"Selected agent (case-insensitive match): {agent_name}")
+                        break
+
+                # If still no match, look for the specialist name within the response
+                if not agent_name:
+                    for name in self.agents:
+                        if name.lower() in raw_response.lower():
+                            agent_name = name
+                            print(
+                                f"Selected agent (partial match): {agent_name}")
+                            break
+
+                # Last resort fallback
+                if not agent_name:
+                    agent_name = list(self.agents.keys())[0]
+                    print(
+                        f"WARNING: Could not match '{raw_response}' to any agent. Falling back to: {agent_name}")
+
+            current_agent = self.agents[agent_name]
+            print(f"Starting conversation with agent: {agent_name}")
+
+            buffer = ""
+            chunk_count = 0
+            found_handoff = False
+            parts_before_handoff = ""
+
+            # Process with initial agent
+            async for chunk in current_agent.text(user_id, user_text):
+                chunk_count += 1
+                buffer += chunk
+
+                # Check for handoff marker
+                if "__HANDOFF__" in buffer:
+                    found_handoff = True
+                    print(f"[HANDOFF DETECTED] in chunk #{chunk_count}")
+
+                    # Split at the marker
+                    parts = buffer.split("__HANDOFF__", 1)
+                    parts_before_handoff = parts[0].strip()
+
+                    # Don't yield any content that might contain refusals or explanations about handoffs
+                    # This is the key fix - we filter out text before the handoff marker
+                    filtered_content = parts_before_handoff
+                    if any(phrase in filtered_content.lower() for phrase in [
+                        "i'll transfer", "transferring you", "let me connect",
+                        "handoff", "hand off", "specialist", "outside my expertise",
+                        "not my specialty", "i can't answer", "i'm not qualified",
+                        "i need to transfer", "would be better", "more appropriate"
+                    ]):
+                        # Skip yielding content that talks about handoffs or specialist limitations
+                        filtered_content = ""
+
+                    # Only yield filtered content if it's meaningful
+                    # Arbitrary minimum length to avoid fragments
+                    if filtered_content and len(filtered_content) > 15:
+                        yield filtered_content
+
+                    # Extract handoff details
+                    handoff_parts = parts[1].split(
+                        "__", 2) if len(parts) > 1 else []
+
+                    if len(handoff_parts) >= 2:
+                        target_name = handoff_parts[0]
+                        reason = handoff_parts[1]
+
+                        print(
+                            f"[HANDOFF DETAILS] To: {target_name}, Reason: {reason}")
+
+                        if target_name not in self.agents:
+                            print(
+                                f"ERROR: Target agent '{target_name}' not found!")
+                            yield "\n\nI apologize, but I need to transfer you to a specialist who isn't currently available. Let me help you myself.\n\n"
+                            # Fall back to continuing with the current agent
+                            remaining_text = parts[1].split(
+                                "__", 2)[-1] if len(handoff_parts) > 2 else ""
+                            if remaining_text:
+                                yield remaining_text
+                            continue
+
+                        # Store handoff record in database
+                        self.handoffs.insert_one({
+                            "user_id": user_id,
+                            "from_agent": agent_name,
+                            "to_agent": target_name,
+                            "reason": reason,
+                            "query": user_text,
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc)
+                        })
+
+                        # Yield handoff notice - only if necessary (if we yielded content before)
+                        if filtered_content:
+                            handoff_notice = f"\n\nTransferring to {target_name} specialist...\n\n"
+                            yield handoff_notice
+
+                        # Handle the handoff to new agent with clear, well-formatted query
+                        try:
+                            # Use a specially formatted handoff query that enforces complete answers
+                            handoff_query = f"""This question was transferred to you because: {reason}
+                            
+    Original question: {user_text}
+    
+    IMPORTANT: You must address ALL aspects of the original question completely. DO NOT mention that this was transferred to you or refer to another agent's limitations."""
+
+                            handoff_chunk_count = 0
+                            async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
+                                handoff_chunk_count += 1
+                                yield new_chunk
+
+                            print(
+                                f"Completed handoff sequence with {handoff_chunk_count} chunks")
+                            return  # End processing after handoff completes
+                        except Exception as e:
+                            # Recover from errors in the target agent
+                            print(f"Error during handoff processing: {e}")
+                            yield "\n\nI apologize for the technical difficulty. Let me answer your question directly.\n\n"
+                            # Fall back to current agent if target fails
+                            async for recovery_chunk in current_agent.text(user_id, user_text):
+                                yield recovery_chunk
+                            return
+                    else:
+                        # Malformed handoff marker, continue with original content
+                        print("Malformed handoff marker detected")
+                        yield buffer
+                        buffer = ""
+                else:
+                    # Only yield chunks if no handoff has been detected
+                    if not found_handoff:
+                        yield chunk
+                        buffer = ""  # Reset buffer after yielding
+
+        except Exception as e:
+            # Global error handling to prevent complete chat failures
+            print(f"Error in multi-agent processing: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield "\n\nI apologize for the technical difficulty. Please try your question again.\n\n"
+
+    async def process_voice(
+        self,
+        user_id: str,
+        audio_bytes: bytes,
+        voice: Literal["alloy", "echo", "fable",
+                       "onyx", "nova", "shimmer"] = "nova",
+        input_format: Literal[
+            "flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"
+        ] = "mp4",
+        response_format: Literal["mp3", "opus",
+                                 "aac", "flac", "wav", "pcm"] = "aac",
+    ) -> AsyncGenerator[bytes, None]:
+        """Process voice conversations with appropriate agent and handle handoffs.
+
+        Args:
+            user_id (str): Unique identifier for the user
+            audio_bytes (bytes): Raw audio input bytes to process
+            voice (Literal, optional): Voice to use for TTS. Defaults to "nova".
+            input_format (Literal, optional): Input audio format. Defaults to "mp4".
+            response_format (Literal, optional): Output audio format. Defaults to "aac".
+
+        Yields:
+            bytes: Audio response chunks from the appropriate agent
+        """
+        # First, use any agent to transcribe the audio
+        first_agent = next(iter(self.agents.values()))
+        transcript = await first_agent._listen(audio_bytes, input_format)
+        print(f"Transcribed audio: '{transcript}'")
+
+        # Select the most appropriate agent based on transcript
+        # Use a more sophisticated prompt for better routing
+        enhanced_prompt = f"""
+        Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
+        
+        User query: "{transcript}"
+        
+        Available specialists:
+        {json.dumps(self.specializations, indent=2)}
+        
+        IMPORTANT: If the query contains multiple parts that span different specialties,
+        select the specialist who can handle the PRIMARY intent or the MOST COMPLEX aspect.
+        
+        Return ONLY the name of the single most appropriate specialist.
+        """
+
+        # Use the specified model for routing decisions
+        router_response = first_agent._client.chat.completions.create(
+            model=self.router_model,
+            messages=[
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": transcript},
+            ],
+            temperature=0.2,
+        )
+
+        # Extract and match agent
+        raw_response = router_response.choices[0].message.content.strip()
+        agent_name = (
+            raw_response if raw_response in self.agents else list(self.agents.keys())[
+                0]
+        )
+        current_agent = self.agents[agent_name]
+        print(
+            f"Selected voice agent: {agent_name} for transcript: '{transcript}'")
+
+        # Get text response first to check for possible handoff
+        text_response = ""
+        buffer = ""
+
+        # Process text response first to check for handoffs
+        async for chunk in current_agent.text(user_id, transcript):
+            buffer += chunk
+
+            # Check for handoff marker
+            if "__HANDOFF__" in buffer:
+                # Handle handoff for voice similarly to text, but we'll collect the full response first
+                print("[VOICE HANDOFF DETECTED]")
+                parts = buffer.split("__HANDOFF__", 1)
+                handoff_parts = parts[1].split(
+                    "__", 2) if len(parts) > 1 else []
+
+                if len(handoff_parts) >= 2:
+                    target_name = handoff_parts[0]
+                    reason = handoff_parts[1]
+
+                    # Record the handoff
+                    self.handoffs.insert_one(
+                        {
+                            "user_id": user_id,
+                            "from_agent": agent_name,
+                            "to_agent": target_name,
+                            "reason": reason,
+                            "query": transcript,
+                            "type": "voice",
+                            "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    )
+
+                    # Create handoff text response
+                    handoff_query = f"This question was transferred to you because: {reason}. Original question: {transcript}"
+
+                    # Get complete response from target agent
+                    full_response = ""
+                    async for new_chunk in self.agents[target_name].text(
+                        user_id, handoff_query
+                    ):
+                        full_response += new_chunk
+
+                    # Add transition phrase to beginning
+                    text_response = f"I'm transferring you to our {target_name} specialist. {full_response}"
+                    break
+            else:
+                text_response = buffer
+
+        # Convert final text response to audio
+        tts_agent = current_agent  # Use the last active agent for TTS
+
+        # Save the conversation to the database
+        metadata = {
+            "user_id": user_id,
+            "message": transcript,
+            "response": text_response,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc),
+        }
+        self.database.save_message(user_id, metadata)
+
+        # Generate and stream audio response
+        with tts_agent._client.audio.speech.with_streaming_response.create(
+            model="tts-1",
+            voice=voice,
+            input=text_response,
+            response_format=response_format,
+        ) as response:
+            for chunk in response.iter_bytes(1024):
+                yield chunk
