@@ -1151,7 +1151,6 @@ class MultiAgentSystem:
             available_targets = [
                 name for name in self.agents.keys() if name != agent_name
             ]
-            specialization = self.specializations[agent_name]
 
             # First remove any existing handoff tool if present
             agent._tools = [
@@ -1279,6 +1278,7 @@ class MultiAgentSystem:
                 if current_agent._handoff_info and not handoff_detected:
                     handoff_detected = True
                     target_name = current_agent._handoff_info["target"]
+                    target_agent = self.agents[target_name]
                     reason = current_agent._handoff_info["reason"]
 
                     # Record handoff without waiting
@@ -1301,6 +1301,7 @@ class MultiAgentSystem:
                     3. Include both explanations AND implementations as needed
                     4. Do not mention any handoff or that you're continuing from another agent
                     5. Answer as if you are addressing the complete question from the beginning
+                    6. Consider any relevant context from previous conversation
                     """
 
                     # If we've already started returning some text, add a separator
@@ -1308,9 +1309,7 @@ class MultiAgentSystem:
                         yield "\n\n---\n\n"
 
                     # Stream directly from target agent
-                    async for new_chunk in self.agents[target_name].text(
-                        user_id, handoff_query
-                    ):
+                    async for new_chunk in target_agent.text(user_id, handoff_query):
                         yield new_chunk
                         # Force immediate delivery of each chunk
                         await asyncio.sleep(0)
