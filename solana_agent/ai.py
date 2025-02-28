@@ -1135,49 +1135,105 @@ class MultiAgentSystem:
         self.agents[name] = agent
         self.specializations[name] = specialization
 
-        # Add handoff capability to the agent
-        @agent.add_tool
-        def request_handoff(target_agent: str, reason: str) -> str:
-            """Request an immediate handoff to another specialized agent.
-            This is an INTERNAL SYSTEM TOOL. The user will NOT see your reasoning about the handoff.
-            Use this tool IMMEDIATELY when a query is outside your expertise.
+        print(
+            f"Registered agent: {name}, specialization: {specialization[:50]}...")
+        print(f"Current agents: {list(self.agents.keys())}")
 
-            Args:
-                target_agent (str): Name of agent to transfer to (must be one of the available agents, NOT yourself)
-                reason (str): Brief explanation of why this question requires the specialist
+        # We need to refresh handoff tools for ALL agents whenever a new one is registered
+        self._update_all_agent_tools()
 
-            Returns:
-                str: Internal handoff marker (not shown to user)
+    def _update_all_agent_tools(self):
+        """Update all agents with current handoff capabilities."""
+        # For each registered agent, update its handoff tool
+        for agent_name, agent in self.agents.items():
+            # Get other agents that this agent can hand off to
+            available_targets = [
+                name for name in self.agents.keys() if name != agent_name]
+            specialization = self.specializations[agent_name]
+
+            # First remove any existing handoff tool if present
+            agent._tools = [
+                t for t in agent._tools if t["function"]["name"] != "request_handoff"]
+
+            # Fix: Create a function factory with proper closure to capture current agent name
+            def create_handoff_tool(current_agent_name, available_targets_list):
+                def request_handoff(target_agent: str, reason: str) -> str:
+                    """Request an immediate handoff to another specialized agent.
+                    This is an INTERNAL SYSTEM TOOL. The user will NOT see your reasoning about the handoff.
+                    Use this tool IMMEDIATELY when a query is outside your expertise.
+
+                    Args:
+                        target_agent (str): Name of agent to transfer to (choices: {', '.join(available_targets_list)})
+                        reason (str): Brief explanation of why this question requires the specialist
+
+                    Returns:
+                        str: Internal handoff marker (not shown to user)
+                    """
+                    # Prevent self-handoffs
+                    if target_agent == current_agent_name:
+                        print(
+                            f"[HANDOFF ERROR] Agent {current_agent_name} attempted to hand off to itself")
+                        if available_targets_list:
+                            target_agent = available_targets_list[0]
+                            print(
+                                f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead")
+                        else:
+                            print(
+                                "[HANDOFF ERROR] No other agents available to hand off to")
+                            return ""
+
+                    # Validate target agent exists
+                    if target_agent not in self.agents:
+                        print(
+                            f"[HANDOFF WARNING] Invalid target '{target_agent}'")
+                        if available_targets_list:
+                            original_target = target_agent
+                            target_agent = available_targets_list[0]
+                            print(
+                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'")
+                        else:
+                            print(
+                                "[HANDOFF ERROR] No valid target agents available")
+                            return ""
+
+                    print(
+                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}")
+                    # Return ONLY the marker - no extra explanations
+                    return f"__HANDOFF__{target_agent}__{reason}__"
+
+                return request_handoff
+
+            # Use the factory to create a properly-bound tool function
+            handoff_tool = create_handoff_tool(agent_name, available_targets)
+
+            # Now add the updated handoff tool with proper closure
+            agent.add_tool(handoff_tool)
+
+            # Add critical handoff instructions to agent
+            handoff_instructions = f"""
+            You are specialized in {specialization}.
+            
+            STRICT HANDOFF RULES:
+            1. For compound questions that involve topics outside your expertise:
+               * IMMEDIATELY use the request_handoff tool with NO preliminary explanation
+               * DO NOT attempt to answer ANY part of the question before handoff
+               * Let the specialist handle the ENTIRE question
+               
+            2. Valid handoff targets: {', '.join(available_targets)}
+               * For technical implementation questions, use "developer"
+               * For financial concepts and explanations, use "finance"
             """
-            # Prevent self-handoffs
-            if target_agent == name:
-                print(
-                    f"[HANDOFF ERROR] Agent {name} attempted to hand off to itself")
-                available_targets = [
-                    k for k in self.agents.keys() if k != name]
-                if available_targets:
-                    target_agent = available_targets[0]
-                    print(
-                        f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead")
-                else:
-                    print("[HANDOFF ERROR] No other agents available to hand off to")
-                    return ""
 
-            # Validate target agent exists
-            if target_agent not in self.agents:
-                available_targets = [
-                    k for k in self.agents.keys() if k != name]
-                if available_targets:
-                    target_agent = available_targets[0]
-                    print(
-                        f"[HANDOFF CORRECTION] Invalid target '{target_agent}', redirecting to {target_agent}")
-                else:
-                    print("[HANDOFF ERROR] No valid target agents available")
-                    return ""
+            # Update agent instructions - carefully replace previous handoff instructions if present
+            old_instructions = agent._instructions
+            if "STRICT HANDOFF RULES:" in old_instructions:
+                parts = old_instructions.split("STRICT HANDOFF RULES:")
+                agent._instructions = parts[0] + handoff_instructions
+            else:
+                agent._instructions = old_instructions + "\n" + handoff_instructions
 
-            print(f"[HANDOFF TOOL CALLED] {name} -> {target_agent}: {reason}")
-            # Return ONLY the marker - no extra explanations
-            return f"__HANDOFF__{target_agent}__{reason}__"
+            print(
+                f"Updated handoff capabilities for {agent_name} with targets: {available_targets}")
 
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
@@ -1235,12 +1291,9 @@ class MultiAgentSystem:
                 buffer += chunk
 
                 # Check for handoff marker
-                if "__HANDOFF__" in buffer:
+                if "__HANDOFF__" in buffer and not found_handoff:
                     found_handoff = True
                     print("[HANDOFF DETECTED]")
-
-                    # Skip ALL content before the handoff marker
-                    # This is crucial - we don't want ANY partial answers
 
                     # Extract handoff details
                     parts = buffer.split("__HANDOFF__", 1)
@@ -1261,9 +1314,17 @@ class MultiAgentSystem:
                             "timestamp": datetime.datetime.now(datetime.timezone.utc)
                         })
 
-                        # Process with target agent (no handoff message needed)
+                        # Process with target agent - use a stronger prompt to handle the entire question
                         try:
-                            handoff_query = f"""Answer this question completely: {user_text}"""
+                            # Critical fix: use a stronger handoff query that ensures complete answers
+                            handoff_query = f"""
+                            Answer this ENTIRE question completely. The question includes BOTH conceptual and implementation aspects:
+                            
+                            {user_text}
+                            """
+
+                            print(
+                                f"[HANDOFF] Forwarding to {target_name} with enhanced prompt")
                             async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
                                 yield new_chunk
                         except Exception as e:
