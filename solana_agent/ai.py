@@ -1107,8 +1107,8 @@ class AI:
         return func
 
 
-class MultiAgentSystem:
-    """A multi-agent system that coordinates specialized AI agents with handoff capabilities."""
+class Swarm:
+    """An AI Agent Swarm that coordinates specialized AI agents with handoff capabilities."""
 
     def __init__(self, database: MongoDatabase, router_model: str = "gpt-4o"):
         """Initialize the multi-agent system with a shared database.
