@@ -1215,22 +1215,24 @@ class MultiAgentSystem:
             
             STRICT HANDOFF RULES:
             1. For compound questions that involve topics outside your expertise:
-               * IMMEDIATELY use the request_handoff tool with NO preliminary explanation
-               * DO NOT attempt to answer ANY part of the question before handoff
-               * Let the specialist handle the ENTIRE question
-               
+            * IMMEDIATELY use the request_handoff tool with NO preliminary explanation
+            * DO NOT attempt to answer ANY part of the question before handoff
+            * Let the specialist handle the ENTIRE question
+            
             2. Valid handoff targets: {', '.join(available_targets)}
-               * For technical implementation questions, use "developer"
-               * For financial concepts and explanations, use "finance"
             """
 
-            # Update agent instructions - carefully replace previous handoff instructions if present
-            old_instructions = agent._instructions
-            if "STRICT HANDOFF RULES:" in old_instructions:
-                parts = old_instructions.split("STRICT HANDOFF RULES:")
-                agent._instructions = parts[0] + handoff_instructions
-            else:
-                agent._instructions = old_instructions + "\n" + handoff_instructions
+            # Add specialized guidance based on available agents
+            if available_targets:
+                handoff_guidance = "\n   Handoff guidance:\n"
+                for target in available_targets:
+                    target_specialization = self.specializations.get(
+                        target, "")
+                    # Add first 50 chars of specialization as brief description
+                    short_desc = target_specialization[:50] + (
+                        "..." if len(target_specialization) > 50 else "")
+                    handoff_guidance += f"   * For questions about {short_desc}, use \"{target}\"\n"
+                handoff_instructions += handoff_guidance
 
             print(
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}")
@@ -1253,11 +1255,14 @@ class MultiAgentSystem:
             {json.dumps(self.specializations, indent=2)}
             
             CRITICAL ROUTING INSTRUCTIONS:
-            1. For compound questions with BOTH financial AND technical components, 
-               choose the finance agent first, as explaining concepts should happen before implementation.
+            1. For compound questions with multiple aspects spanning different domains,
+            choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
             
-            2. Only choose the developer agent as the first responder if the query is PURELY technical
-               with no financial education or explanation components.
+            2. Choose implementation specialists (technical, development, coding) only when
+            the query is PURELY about implementation with no conceptual explanation needed.
+            
+            3. When a query involves a SEQUENCE (like "explain X and then do Y"),
+            prioritize the specialist handling the FIRST part of the sequence.
             
             Return ONLY the name of the single most appropriate specialist.
             """
@@ -1316,11 +1321,21 @@ class MultiAgentSystem:
 
                         # Process with target agent - use a stronger prompt to handle the entire question
                         try:
-                            # Critical fix: use a stronger handoff query that ensures complete answers
+                            # FIXED: Enhanced handoff prompt that specifically instructs the target agent
+                            # to handle both conceptual and implementation parts
                             handoff_query = f"""
-                            Answer this ENTIRE question completely. The question includes BOTH conceptual and implementation aspects:
+                            You must answer this ENTIRE question completely from scratch.
                             
-                            {user_text}
+                            Question: {user_text}
+                            
+                            IMPORTANT INSTRUCTIONS:
+                            1. Address ALL aspects of the question comprehensively
+                            2. Organize your response in a logical, structured manner
+                            3. Include BOTH educational explanations AND technical implementations as needed
+                            4. Do not mention any handoff or that you're continuing from another agent
+                            5. Answer as if you are addressing the complete question from the beginning
+
+                            Begin your response now:
                             """
 
                             print(
