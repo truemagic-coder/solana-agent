@@ -1165,7 +1165,7 @@ class MultiAgentSystem:
                     Use this tool IMMEDIATELY when a query is outside your expertise.
 
                     Args:
-                        target_agent (str): Name of agent to transfer to (choices: {', '.join(available_targets_list)})
+                        target_agent (str): Name of agent to transfer to. MUST be one of these exact names: {', '.join(available_targets_list)}
                         reason (str): Brief explanation of why this question requires the specialist
 
                     Returns:
@@ -1216,33 +1216,50 @@ class MultiAgentSystem:
             # Now add the updated handoff tool with proper closure
             agent.add_tool(handoff_tool)
 
-            # Add critical handoff instructions to agent
+            # Add critical handoff instructions to agent with MUCH clearer agent selection guidance
             handoff_instructions = f"""
             You are specialized in {specialization}.
             
             STRICT HANDOFF RULES:
             1. For compound questions that involve topics outside your expertise:
-            * IMMEDIATELY use the request_handoff tool with NO preliminary explanation
-            * DO NOT attempt to answer ANY part of the question before handoff
-            * Let the specialist handle the ENTIRE question
-            
-            2. Valid handoff targets: {', '.join(available_targets)}
+               * IMMEDIATELY use the request_handoff tool with NO preliminary explanation
+               * DO NOT attempt to answer ANY part of the question before handoff
+               * Let the specialist handle the ENTIRE question
+               
+            2. AVAILABLE HANDOFF TARGETS - USE EXACT NAMES ONLY:
             """
 
-            # Add specialized guidance based on available agents
+            # Add specialized guidance with strict agent name validation
             if available_targets:
-                handoff_guidance = "\n   Handoff guidance:\n"
+                # Add table of available agents and their specializations
+                handoff_instructions += "\n   | Agent Name | Specialization |\n   |------------|---------------|\n"
                 for target in available_targets:
                     target_specialization = self.specializations.get(
                         target, "")
-                    # Add first 50 chars of specialization as brief description
+                    # Add first 50 chars of specialization as description
                     short_desc = target_specialization[:50] + (
                         "..." if len(target_specialization) > 50 else ""
                     )
-                    handoff_guidance += (
-                        f'   * For questions about {short_desc}, use "{target}"\n'
-                    )
-                handoff_instructions += handoff_guidance
+                    handoff_instructions += f"   | `{target}` | {short_desc} |\n"
+
+                # Add very explicit warning
+                handoff_instructions += "\n   ⚠️ CRITICAL: You must use ONLY these EXACT agent names listed above.\n"
+                handoff_instructions += "   DO NOT invent new agent names like 'smart contract expert' or 'technical specialist'.\n"
+
+                # Add specific examples
+                handoff_instructions += "\n   EXAMPLES:\n"
+                if "developer" in available_targets:
+                    handoff_instructions += '   ✅ Correct: `request_handoff("developer", "This requires coding knowledge.")`\n'
+                if "finance" in available_targets:
+                    handoff_instructions += '   ✅ Correct: `request_handoff("finance", "This requires financial analysis.")`\n'
+                handoff_instructions += '   ❌ Incorrect: `request_handoff("smart contract expert", "...")`\n'
+                handoff_instructions += '   ❌ Incorrect: `request_handoff("technical specialist", "...")`\n'
+                handoff_instructions += (
+                    '   ❌ Incorrect: `request_handoff("code expert", "...")`\n'
+                )
+
+            # Update agent instructions
+            agent._instructions = agent._instructions + "\n" + handoff_instructions
 
             print(
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
