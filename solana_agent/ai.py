@@ -1158,7 +1158,7 @@ class MultiAgentSystem:
                 t for t in agent._tools if t["function"]["name"] != "request_handoff"
             ]
 
-            # Fix: Create a function factory with proper closure to capture current agent name
+            # Create handoff tool with explicit naming requirements
             def create_handoff_tool(current_agent_name, available_targets_list):
                 def request_handoff(target_agent: str, reason: str) -> str:
                     """Request an immediate handoff to another specialized agent.
@@ -1166,7 +1166,8 @@ class MultiAgentSystem:
                     Use this tool IMMEDIATELY when a query is outside your expertise.
 
                     Args:
-                        target_agent (str): Name of agent to transfer to. MUST be one of these exact names: {', '.join(available_targets_list)}
+                        target_agent (str): Name of agent to transfer to. MUST be one of: {', '.join(available_targets_list)}.
+                          DO NOT INVENT NEW NAMES OR VARIATIONS. Use EXACTLY one of these names.
                         reason (str): Brief explanation of why this question requires the specialist
 
                     Returns:
@@ -1222,10 +1223,34 @@ class MultiAgentSystem:
             # Initialize handoff info attribute
             agent._handoff_info = None
 
-            # Now add the updated handoff tool with proper closure
+            # Add the updated handoff tool with proper closure
             agent.add_tool(handoff_tool)
 
-            # Rest of the method remains the same...
+            # Add critical handoff instructions to the agent's base instructions
+            handoff_examples = "\n".join(
+                [
+                    f"  - `{name}` ({self.specializations[name][:40]}...)"
+                    for name in available_targets
+                ]
+            )
+            handoff_instructions = f"""
+            STRICT HANDOFF GUIDANCE:
+            1. You must use ONLY the EXACT agent names listed below for handoffs:
+               {handoff_examples}
+               
+            2. DO NOT INVENT, MODIFY, OR CREATE NEW AGENT NAMES like "Smart Contract Developer" or "Technical Expert"
+            
+            3. For technical implementation questions, use "developer" (not variations like "developer expert" or "tech specialist")
+            
+            4. ONLY these EXACT agent names will work for handoffs: {', '.join(available_targets)}
+            """
+
+            # Update agent instructions with handoff guidance
+            agent._instructions = agent._instructions + "\n\n" + handoff_instructions
+
+            print(
+                f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
+            )
 
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
