@@ -1256,37 +1256,37 @@ class MultiAgentSystem:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
                 return
 
-            # Get any agent to use its OpenAI client
+            # Get routing decision
             first_agent = next(iter(self.agents.values()))
-
-            # Get routing decision in parallel while we prepare other components
-            routing_task = asyncio.create_task(
-                self._get_routing_decision(first_agent, user_text)
-            )
-
-            # While routing is happening, prepare handoff detection
-            handoff_detector = "__HANDOFF__"
-            buffer = ""
-            found_handoff = False
-
-            # Wait for routing to complete
-            agent_name = await routing_task
+            agent_name = await self._get_routing_decision(first_agent, user_text)
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
-            # Process with initial agent - use smaller buffer chunks for faster streaming
-            buffer_size = 0
-            async for chunk in current_agent.text(user_id, user_text):
-                buffer += chunk
-                buffer_size += len(chunk)
+            # For handoff detection
+            handoff_detector = "__HANDOFF__"
+            sliding_window = ""
+            max_window_size = len(handoff_detector) + 50
 
-                # Check for handoff marker - only search in recent part of buffer for efficiency
-                if handoff_detector in buffer and not found_handoff:
+            # Stream from initial agent
+            found_handoff = False
+            async for chunk in current_agent.text(user_id, user_text):
+                if found_handoff:
+                    continue  # Skip remaining chunks after handoff
+
+                # Immediate yield for streaming performance
+                yield chunk
+
+                # Minimal handoff detection with sliding window
+                sliding_window += chunk
+                if len(sliding_window) > max_window_size:
+                    sliding_window = sliding_window[-max_window_size:]
+
+                if handoff_detector in sliding_window:
                     found_handoff = True
                     print("[HANDOFF DETECTED]")
 
                     # Extract handoff details
-                    parts = buffer.split(handoff_detector, 1)
+                    parts = sliding_window.split(handoff_detector, 1)
                     handoff_parts = parts[1].split(
                         "__", 2) if len(parts) > 1 else []
 
@@ -1294,14 +1294,13 @@ class MultiAgentSystem:
                         target_name = handoff_parts[0]
                         reason = handoff_parts[1]
 
-                        # Store handoff record in background
+                        # Record handoff in background
                         asyncio.create_task(
                             self._record_handoff(
-                                user_id, agent_name, target_name, reason, user_text
-                            )
+                                user_id, agent_name, target_name, reason, user_text)
                         )
 
-                        # Process with target agent immediately
+                        # Process with target agent
                         handoff_query = f"""
                         You must answer this ENTIRE question completely from scratch.
                         
@@ -1316,24 +1315,14 @@ class MultiAgentSystem:
                         """
 
                         print(f"[HANDOFF] Forwarding to {target_name}")
-                        async for new_chunk in self.agents[target_name].text(
-                            user_id, handoff_query
-                        ):
+                        yield "\n\n"  # Add a visual separation
+                        async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
                             yield new_chunk
-
-                        return  # End processing after handoff completes
-
-                # Only yield if no handoff has been detected
-                elif not found_handoff:
-                    # Yield more frequently to reduce lag
-                    yield chunk
-                    # Keep only the last 100 chars for handoff detection
-                    buffer = buffer[-100:]
+                        return
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             import traceback
-
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
 
@@ -1407,139 +1396,3 @@ class MultiAgentSystem:
 
         # Fallback to first agent
         return list(self.agents.keys())[0]
-
-    async def process_voice(
-        self,
-        user_id: str,
-        audio_bytes: bytes,
-        voice: Literal["alloy", "echo", "fable",
-                       "onyx", "nova", "shimmer"] = "nova",
-        input_format: Literal[
-            "flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"
-        ] = "mp4",
-        response_format: Literal["mp3", "opus",
-                                 "aac", "flac", "wav", "pcm"] = "aac",
-    ) -> AsyncGenerator[bytes, None]:
-        """Process voice conversations with appropriate agent and handle handoffs.
-
-        Args:
-            user_id (str): Unique identifier for the user
-            audio_bytes (bytes): Raw audio input bytes to process
-            voice (Literal, optional): Voice to use for TTS. Defaults to "nova".
-            input_format (Literal, optional): Input audio format. Defaults to "mp4".
-            response_format (Literal, optional): Output audio format. Defaults to "aac".
-
-        Yields:
-            bytes: Audio response chunks from the appropriate agent
-        """
-        # First, use any agent to transcribe the audio
-        first_agent = next(iter(self.agents.values()))
-        transcript = await first_agent._listen(audio_bytes, input_format)
-        print(f"Transcribed audio: '{transcript}'")
-
-        # Select the most appropriate agent based on transcript
-        # Use a more sophisticated prompt for better routing
-        enhanced_prompt = f"""
-        Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
-        
-        User query: "{transcript}"
-        
-        Available specialists:
-        {json.dumps(self.specializations, indent=2)}
-        
-        IMPORTANT: If the query contains multiple parts that span different specialties,
-        select the specialist who can handle the PRIMARY intent or the MOST COMPLEX aspect.
-        
-        Return ONLY the name of the single most appropriate specialist.
-        """
-
-        # Use the specified model for routing decisions
-        router_response = first_agent._client.chat.completions.create(
-            model=self.router_model,
-            messages=[
-                {"role": "system", "content": enhanced_prompt},
-                {"role": "user", "content": transcript},
-            ],
-            temperature=0.2,
-        )
-
-        # Extract and match agent
-        raw_response = router_response.choices[0].message.content.strip()
-        agent_name = (
-            raw_response if raw_response in self.agents else list(self.agents.keys())[
-                0]
-        )
-        current_agent = self.agents[agent_name]
-        print(
-            f"Selected voice agent: {agent_name} for transcript: '{transcript}'")
-
-        # Get text response first to check for possible handoff
-        text_response = ""
-        buffer = ""
-
-        # Process text response first to check for handoffs
-        async for chunk in current_agent.text(user_id, transcript):
-            buffer += chunk
-
-            # Check for handoff marker
-            if "__HANDOFF__" in buffer:
-                # Handle handoff for voice similarly to text, but we'll collect the full response first
-                print("[VOICE HANDOFF DETECTED]")
-                parts = buffer.split("__HANDOFF__", 1)
-                handoff_parts = parts[1].split(
-                    "__", 2) if len(parts) > 1 else []
-
-                if len(handoff_parts) >= 2:
-                    target_name = handoff_parts[0]
-                    reason = handoff_parts[1]
-
-                    # Record the handoff
-                    self.handoffs.insert_one(
-                        {
-                            "user_id": user_id,
-                            "from_agent": agent_name,
-                            "to_agent": target_name,
-                            "reason": reason,
-                            "query": transcript,
-                            "type": "voice",
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                        }
-                    )
-
-                    # Create handoff text response
-                    handoff_query = f"This question was transferred to you because: {reason}. Original question: {transcript}"
-
-                    # Get complete response from target agent
-                    full_response = ""
-                    async for new_chunk in self.agents[target_name].text(
-                        user_id, handoff_query
-                    ):
-                        full_response += new_chunk
-
-                    # Add transition phrase to beginning
-                    text_response = f"I'm transferring you to our {target_name} specialist. {full_response}"
-                    break
-            else:
-                text_response = buffer
-
-        # Convert final text response to audio
-        tts_agent = current_agent  # Use the last active agent for TTS
-
-        # Save the conversation to the database
-        metadata = {
-            "user_id": user_id,
-            "message": transcript,
-            "response": text_response,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc),
-        }
-        self.database.save_message(user_id, metadata)
-
-        # Generate and stream audio response
-        with tts_agent._client.audio.speech.with_streaming_response.create(
-            model="tts-1",
-            voice=voice,
-            input=text_response,
-            response_format=response_format,
-        ) as response:
-            for chunk in response.iter_bytes(1024):
-                yield chunk
