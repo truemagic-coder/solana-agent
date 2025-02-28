@@ -1148,12 +1148,14 @@ class MultiAgentSystem:
         for agent_name, agent in self.agents.items():
             # Get other agents that this agent can hand off to
             available_targets = [
-                name for name in self.agents.keys() if name != agent_name]
+                name for name in self.agents.keys() if name != agent_name
+            ]
             specialization = self.specializations[agent_name]
 
             # First remove any existing handoff tool if present
             agent._tools = [
-                t for t in agent._tools if t["function"]["name"] != "request_handoff"]
+                t for t in agent._tools if t["function"]["name"] != "request_handoff"
+            ]
 
             # Fix: Create a function factory with proper closure to capture current agent name
             def create_handoff_tool(current_agent_name, available_targets_list):
@@ -1172,14 +1174,17 @@ class MultiAgentSystem:
                     # Prevent self-handoffs
                     if target_agent == current_agent_name:
                         print(
-                            f"[HANDOFF ERROR] Agent {current_agent_name} attempted to hand off to itself")
+                            f"[HANDOFF ERROR] Agent {current_agent_name} attempted to hand off to itself"
+                        )
                         if available_targets_list:
                             target_agent = available_targets_list[0]
                             print(
-                                f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead")
+                                f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead"
+                            )
                         else:
                             print(
-                                "[HANDOFF ERROR] No other agents available to hand off to")
+                                "[HANDOFF ERROR] No other agents available to hand off to"
+                            )
                             return ""
 
                     # Validate target agent exists
@@ -1190,14 +1195,16 @@ class MultiAgentSystem:
                             original_target = target_agent
                             target_agent = available_targets_list[0]
                             print(
-                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'")
+                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'"
+                            )
                         else:
                             print(
                                 "[HANDOFF ERROR] No valid target agents available")
                             return ""
 
                     print(
-                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}")
+                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}"
+                    )
                     # Return ONLY the marker - no extra explanations
                     return f"__HANDOFF__{target_agent}__{reason}__"
 
@@ -1230,12 +1237,16 @@ class MultiAgentSystem:
                         target, "")
                     # Add first 50 chars of specialization as brief description
                     short_desc = target_specialization[:50] + (
-                        "..." if len(target_specialization) > 50 else "")
-                    handoff_guidance += f"   * For questions about {short_desc}, use \"{target}\"\n"
+                        "..." if len(target_specialization) > 50 else ""
+                    )
+                    handoff_guidance += (
+                        f'   * For questions about {short_desc}, use "{target}"\n'
+                    )
                 handoff_instructions += handoff_guidance
 
             print(
-                f"Updated handoff capabilities for {agent_name} with targets: {available_targets}")
+                f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
+            )
 
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
@@ -1245,63 +1256,37 @@ class MultiAgentSystem:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
                 return
 
-            # Use a more sophisticated prompt for better routing
-            enhanced_prompt = f"""
-            Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
-            
-            User query: "{user_text}"
-            
-            Available specialists:
-            {json.dumps(self.specializations, indent=2)}
-            
-            CRITICAL ROUTING INSTRUCTIONS:
-            1. For compound questions with multiple aspects spanning different domains,
-            choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
-            
-            2. Choose implementation specialists (technical, development, coding) only when
-            the query is PURELY about implementation with no conceptual explanation needed.
-            
-            3. When a query involves a SEQUENCE (like "explain X and then do Y"),
-            prioritize the specialist handling the FIRST part of the sequence.
-            
-            Return ONLY the name of the single most appropriate specialist.
-            """
-
             # Get any agent to use its OpenAI client
             first_agent = next(iter(self.agents.values()))
 
-            # Route to appropriate agent
-            router_response = first_agent._client.chat.completions.create(
-                model=self.router_model,
-                messages=[
-                    {"role": "system", "content": enhanced_prompt},
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.2,  # Lower temperature for more precise routing
+            # Get routing decision in parallel while we prepare other components
+            routing_task = asyncio.create_task(
+                self._get_routing_decision(first_agent, user_text)
             )
 
-            # Extract the selected agent
-            raw_response = router_response.choices[0].message.content.strip()
-            print(f"Router model raw response: '{raw_response}'")
-
-            agent_name = self._match_agent_name(raw_response)
-            current_agent = self.agents[agent_name]
-            print(f"Starting conversation with agent: {agent_name}")
-
+            # While routing is happening, prepare handoff detection
+            handoff_detector = "__HANDOFF__"
             buffer = ""
             found_handoff = False
 
-            # Process with initial agent
+            # Wait for routing to complete
+            agent_name = await routing_task
+            current_agent = self.agents[agent_name]
+            print(f"Starting conversation with agent: {agent_name}")
+
+            # Process with initial agent - use smaller buffer chunks for faster streaming
+            buffer_size = 0
             async for chunk in current_agent.text(user_id, user_text):
                 buffer += chunk
+                buffer_size += len(chunk)
 
-                # Check for handoff marker
-                if "__HANDOFF__" in buffer and not found_handoff:
+                # Check for handoff marker - only search in recent part of buffer for efficiency
+                if handoff_detector in buffer and not found_handoff:
                     found_handoff = True
                     print("[HANDOFF DETECTED]")
 
                     # Extract handoff details
-                    parts = buffer.split("__HANDOFF__", 1)
+                    parts = buffer.split(handoff_detector, 1)
                     handoff_parts = parts[1].split(
                         "__", 2) if len(parts) > 1 else []
 
@@ -1309,55 +1294,100 @@ class MultiAgentSystem:
                         target_name = handoff_parts[0]
                         reason = handoff_parts[1]
 
-                        # Store handoff record
-                        self.handoffs.insert_one({
-                            "user_id": user_id,
-                            "from_agent": agent_name,
-                            "to_agent": target_name,
-                            "reason": reason,
-                            "query": user_text,
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc)
-                        })
+                        # Store handoff record in background
+                        asyncio.create_task(
+                            self._record_handoff(
+                                user_id, agent_name, target_name, reason, user_text
+                            )
+                        )
 
-                        # Process with target agent - use a stronger prompt to handle the entire question
-                        try:
-                            # FIXED: Enhanced handoff prompt that specifically instructs the target agent
-                            # to handle both conceptual and implementation parts
-                            handoff_query = f"""
-                            You must answer this ENTIRE question completely from scratch.
-                            
-                            Question: {user_text}
-                            
-                            IMPORTANT INSTRUCTIONS:
-                            1. Address ALL aspects of the question comprehensively
-                            2. Organize your response in a logical, structured manner
-                            3. Include BOTH educational explanations AND technical implementations as needed
-                            4. Do not mention any handoff or that you're continuing from another agent
-                            5. Answer as if you are addressing the complete question from the beginning
+                        # Process with target agent immediately
+                        handoff_query = f"""
+                        You must answer this ENTIRE question completely from scratch.
+                        
+                        Question: {user_text}
+                        
+                        IMPORTANT INSTRUCTIONS:
+                        1. Address ALL aspects of the question comprehensively
+                        2. Organize your response in a logical, structured manner
+                        3. Include BOTH educational explanations AND technical implementations as needed
+                        4. Do not mention any handoff or that you're continuing from another agent
+                        5. Answer as if you are addressing the complete question from the beginning
+                        """
 
-                            Begin your response now:
-                            """
-
-                            print(
-                                f"[HANDOFF] Forwarding to {target_name} with enhanced prompt")
-                            async for new_chunk in self.agents[target_name].text(user_id, handoff_query):
-                                yield new_chunk
-                        except Exception as e:
-                            print(f"Error during handoff processing: {e}")
-                            yield "\n\nI apologize for the technical difficulty.\n\n"
+                        print(f"[HANDOFF] Forwarding to {target_name}")
+                        async for new_chunk in self.agents[target_name].text(
+                            user_id, handoff_query
+                        ):
+                            yield new_chunk
 
                         return  # End processing after handoff completes
 
+                # Only yield if no handoff has been detected
                 elif not found_handoff:
-                    # Only yield if no handoff has been detected
+                    # Yield more frequently to reduce lag
                     yield chunk
-                    buffer = ""  # Reset buffer after yielding
+                    # Keep only the last 100 chars for handoff detection
+                    buffer = buffer[-100:]
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
-            yield "\n\nI apologize for the technical difficulty. Please try again.\n\n"
+            yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _get_routing_decision(self, agent, user_text):
+        """Get routing decision in parallel to reduce latency."""
+        enhanced_prompt = f"""
+        Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
+        
+        User query: "{user_text}"
+        
+        Available specialists:
+        {json.dumps(self.specializations, indent=2)}
+        
+        CRITICAL ROUTING INSTRUCTIONS:
+        1. For compound questions with multiple aspects spanning different domains,
+           choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
+        
+        2. Choose implementation specialists (technical, development, coding) only when
+           the query is PURELY about implementation with no conceptual explanation needed.
+        
+        3. When a query involves a SEQUENCE (like "explain X and then do Y"),
+           prioritize the specialist handling the FIRST part of the sequence.
+        
+        Return ONLY the name of the single most appropriate specialist.
+        """
+
+        # Route to appropriate agent
+        router_response = agent._client.chat.completions.create(
+            model=self.router_model,
+            messages=[
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.2,
+        )
+
+        # Extract the selected agent
+        raw_response = router_response.choices[0].message.content.strip()
+        print(f"Router model raw response: '{raw_response}'")
+
+        return self._match_agent_name(raw_response)
+
+    async def _record_handoff(self, user_id, from_agent, to_agent, reason, query):
+        """Record handoff in database without blocking the main flow."""
+        self.handoffs.insert_one(
+            {
+                "user_id": user_id,
+                "from_agent": from_agent,
+                "to_agent": to_agent,
+                "reason": reason,
+                "query": query,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+            }
+        )
 
     def _match_agent_name(self, raw_response):
         """Match router response to an actual agent name."""
