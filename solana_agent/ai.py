@@ -1130,13 +1130,7 @@ class MultiAgentSystem:
             f"MultiAgentSystem initialized with router model: {router_model}")
 
     def register(self, name: str, agent: AI, specialization: str):
-        """Register a specialized agent with the multi-agent system.
-
-        Args:
-            name (str): Name of the agent
-            agent (AI): Specialized AI agent instance
-            specialization (str): Description of the agent's specialization
-        """
+        """Register a specialized agent with the multi-agent system."""
         # Add the agent to the system
         self.agents[name] = agent
 
@@ -1151,38 +1145,67 @@ class MultiAgentSystem:
             Use this tool IMMEDIATELY when a query is outside your expertise.
 
             Args:
-                target_agent (str): Name of agent to transfer to
+                target_agent (str): Name of agent to transfer to (must be one of the available agents, NOT yourself)
                 reason (str): Brief explanation of why this question requires the specialist
 
             Returns:
                 str: Internal handoff marker (not shown to user)
             """
-            print(
-                f"[HANDOFF TOOL CALLED] {name} -> {target_agent}: {reason}")
+            # Prevent self-handoffs
+            if target_agent == name:
+                print(
+                    f"[HANDOFF ERROR] Agent {name} attempted to hand off to itself")
+                available_targets = [
+                    k for k in self.agents.keys() if k != name]
+                if available_targets:
+                    target_agent = available_targets[0]
+                    print(
+                        f"[HANDOFF CORRECTION] Redirecting to {target_agent} instead")
+                else:
+                    print("[HANDOFF ERROR] No other agents available to hand off to")
+                    return ""
+
+            print(f"[HANDOFF TOOL CALLED] {name} -> {target_agent}: {reason}")
             # Return ONLY the marker - no extra explanations
             return f"__HANDOFF__{target_agent}__{reason}__"
 
-        # MUCH clearer handoff instructions
+        # Get other agents' names and specializations for clearer instructions
+        other_agents = {k: v for k,
+                        v in self.specializations.items() if k != name}
+
+        # MUCH clearer handoff instructions with available agents listed
         handoff_instructions = f"""
         You are a {specialization} specialist.
         
         STRICT HANDOFF RULES:
         1. For ANY query containing elements outside your expertise:
-        * DO NOT RESPOND AT ALL to the user directly
-        * IMMEDIATELY use the request_handoff tool - it must be your very first action
-        * The handoff is handled invisibly by the system - the user won't see your reasoning
-        * DO NOT explain that you're transferring or why - just use the tool
+           * DO NOT RESPOND AT ALL to the user directly
+           * IMMEDIATELY use the request_handoff tool - it must be your very first action
+           * The handoff is handled invisibly by the system - the user won't see your reasoning
+           * DO NOT explain that you're transferring or why - just use the tool
         
         2. For compound queries with multiple parts:
-        * If ANY part is outside your expertise, hand off the ENTIRE query
-        * NEVER answer only the parts within your expertise
+           * If ANY part is outside your expertise, hand off the ENTIRE query
+           * NEVER answer only the parts within your expertise
         
         3. The handoff tool is an INTERNAL SYSTEM COMMAND - the user doesn't see your reason
-        for the handoff, only that they're being transferred
+           for the handoff, only that they're being transferred
+        
+        4. OTHER AVAILABLE AGENTS AND THEIR SPECIALTIES:
+        {json.dumps(other_agents, indent=4)}
+        
+        5. IMPORTANT: You can ONLY transfer to these specific agents: {', '.join([k for k in self.agents.keys() if k != name])}
+           * You CANNOT handoff to yourself
+           * Use the EXACT agent names as shown above
+           * For technical implementation questions, use the 'developer' agent
+           * For financial explanations, use the 'finance' agent
         """
 
         # Update agent instructions with the enhanced handoff guidance
         agent._instructions = agent._instructions + "\n" + handoff_instructions
+
+        print(f"Registered agent: {name}")
+        print(f"Current agents: {list(self.agents.keys())}")
 
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
