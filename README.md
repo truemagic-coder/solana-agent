@@ -67,6 +67,13 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Cross-domain insight discovery and connection building
 - Autonomous knowledge refinement through verification tasks
 
+### 🕰️ **Time-Aware Intelligence**
+- Automatic timezone detection and management
+- Precise time-based scheduling and reminders
+- Date and time awareness across all conversations
+- Configurable timezone preferences for each agent
+- Real-time NTP synchronization for accurate time reporting
+
 ## Privacy and Collective Memory
 
 Solana Agent's collective memory system is designed with privacy in mind:
@@ -76,6 +83,16 @@ Solana Agent's collective memory system is designed with privacy in mind:
 - **Optional Feature**: Easily disable collective memory with the `enable_collective_memory=False` parameter
 - **Transparency**: Extracted insights are accessible and reviewable
 - **Customizable Thresholds**: Adjust what qualifies as a valuable insight worth sharing
+
+## Time Awareness
+
+Solana Agent's time awareness system ensures your AI assistants always provide chronologically accurate responses:
+
+- **Automatic Time Integration**: All agents automatically have access to accurate time information
+- **Global Time Management**: Get precise time in any timezone using NTP synchronization
+- **Timezone Configuration**: Set per-agent or system-wide default timezones
+- **Scheduling Support**: Enhanced date-time processing for setting reminders and appointments
+- **Contextual Date Awareness**: All agents understand "today," "next week," or "in 3 days" contextually
 
 When collective memory is enabled, the system extracts valuable factual knowledge that can benefit all users, while carefully avoiding personal or sensitive information. For environments with stricter privacy requirements, the feature can be completely disabled.
 
