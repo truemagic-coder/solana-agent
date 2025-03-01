@@ -26,6 +26,12 @@ class MockMongoDb:
         """Return list of collection names."""
         return list(self._collections.keys())
 
+    def create_collection(self, name):
+        """Create a new collection in the mock database."""
+        if name not in self._collections:
+            self._collections[name] = MockMongoCollection()
+        return self._collections[name]
+
     def __getitem__(self, name):
         return self._collections[name]
 

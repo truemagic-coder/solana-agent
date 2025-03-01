@@ -1382,13 +1382,24 @@ class Swarm:
             self.database.db.create_collection("collective_memory")
         self.collective_memory = self.database.db["collective_memory"]
 
+        # Create text index for MongoDB text search
+        try:
+            self.collective_memory.create_index(
+                [("fact", "text"), ("relevance", "text")]
+            )
+            print("Created text search index for collective memory")
+        except Exception as e:
+            print(f"Warning: Text index creation might have failed: {e}")
+
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
+
+        # Update the extract_and_store_insights method in Swarm class
 
     async def extract_and_store_insights(
         self, user_id: str, conversation: dict
     ) -> None:
-        """Extract important insights from a conversation and add to collective memory."""
+        """Extract and store insights with hybrid vector/text search capabilities."""
         # Get first agent to use its OpenAI client
         if not self.agents:
             return
@@ -1432,20 +1443,76 @@ class Swarm:
             insights_text = response.choices[0].message.content
             insights = json.loads(insights_text)
 
-            # Store any extracted insights
+            # Store in MongoDB (keeps all metadata and text)
             timestamp = datetime.datetime.now(datetime.timezone.utc)
+            mongo_records = []
+
             for insight in insights:
+                record_id = str(uuid.uuid4())
+                insight["_id"] = record_id
                 insight["timestamp"] = timestamp
                 insight["source_user_id"] = user_id
-                self.collective_memory.insert_one(insight)
+                mongo_records.append(insight)
 
-            print(f"Stored {len(insights)} insights from conversation")
+            if mongo_records:
+                for record in mongo_records:
+                    self.collective_memory.insert_one(record)
+
+            # Also store in Pinecone for semantic search if available
+            if (
+                insights
+                and hasattr(first_agent, "_pinecone")
+                and first_agent._pinecone
+                and first_agent.kb
+            ):
+                try:
+                    # Generate embeddings
+                    texts = [
+                        f"{insight['fact']}: {insight['relevance']}"
+                        for insight in insights
+                    ]
+                    embeddings = first_agent._pinecone.inference.embed(
+                        model=first_agent._pinecone_embedding_model, inputs=texts
+                    )
+
+                    # Create vectors for Pinecone
+                    vectors = []
+                    for insight, embedding in zip(insights, embeddings):
+                        vectors.append(
+                            {
+                                "id": insight["_id"],
+                                "values": embedding.values,
+                                "metadata": {
+                                    "fact": insight["fact"],
+                                    "relevance": insight["relevance"],
+                                    "timestamp": str(timestamp),
+                                    "source_user_id": user_id,
+                                },
+                            }
+                        )
+
+                    # Store in Pinecone
+                    first_agent.kb.upsert(
+                        vectors=vectors, namespace="collective_memory"
+                    )
+                    print(
+                        f"Stored {len(insights)} insights in both MongoDB and Pinecone"
+                    )
+                except Exception as e:
+                    print(f"Error storing insights in Pinecone: {e}")
+            else:
+                print(f"Stored {len(insights)} insights in MongoDB only")
 
         except Exception as e:
-            print(f"Failed to extract insights: {e}")
+            print(f"Failed to extract insights: {str(e)}")
+
+        # Update the search_collective_memory method in Swarm class
 
     def search_collective_memory(self, query: str, limit: int = 5) -> str:
-        """Search the collective memory for relevant insights.
+        """Search the collective memory using a hybrid approach.
+
+        First tries semantic vector search through Pinecone, then falls back to
+        MongoDB text search, and finally to recency-based search as needed.
 
         Args:
             query: The search query
@@ -1455,36 +1522,103 @@ class Swarm:
             Formatted string with relevant insights
         """
         try:
-            # Simple keyword search (can be enhanced with vector search later)
-            results = list(
-                self.collective_memory.find(
-                    {"$text": {"$search": query}}, {
-                        "score": {"$meta": "textScore"}}
-                )
-                .sort([("score", {"$meta": "textScore"})])
-                .limit(limit)
-            )
+            results = []
+            search_method = "recency"  # Default method if others fail
 
+            # Try semantic search with Pinecone first
+            if self.agents:
+                first_agent = next(iter(self.agents.values()))
+                if (
+                    hasattr(first_agent, "_pinecone")
+                    and first_agent._pinecone
+                    and first_agent.kb
+                ):
+                    try:
+                        # Generate embedding for query
+                        embedding = first_agent._pinecone.inference.embed(
+                            model=first_agent._pinecone_embedding_model, inputs=[
+                                query]
+                        )
+
+                        # Search Pinecone
+                        pinecone_results = first_agent.kb.query(
+                            vector=embedding[0].values,
+                            top_k=limit * 2,  # Get more results to allow for filtering
+                            include_metadata=True,
+                            namespace="collective_memory",
+                        )
+
+                        # Extract results from Pinecone
+                        if pinecone_results.matches:
+                            for match in pinecone_results.matches:
+                                if hasattr(match, "metadata") and match.metadata:
+                                    results.append(
+                                        {
+                                            "fact": match.metadata.get(
+                                                "fact", "Unknown fact"
+                                            ),
+                                            "relevance": match.metadata.get(
+                                                "relevance", ""
+                                            ),
+                                            "score": match.score,
+                                        }
+                                    )
+
+                            # Get top results
+                            results = sorted(
+                                results, key=lambda x: x.get("score", 0), reverse=True
+                            )[:limit]
+                            search_method = "semantic"
+                    except Exception as e:
+                        print(f"Pinecone search error: {e}")
+
+            # Fall back to MongoDB keyword search if needed
             if not results:
-                # Fall back to most recent insights
-                results = list(
-                    self.collective_memory.find().sort("timestamp", -1).limit(limit)
-                )
+                try:
+                    # First try text search if we have the index
+                    mongo_results = list(
+                        self.collective_memory.find(
+                            {"$text": {"$search": query}},
+                            {"score": {"$meta": "textScore"}},
+                        )
+                        .sort([("score", {"$meta": "textScore"})])
+                        .limit(limit)
+                    )
 
+                    if mongo_results:
+                        results = mongo_results
+                        search_method = "keyword"
+                    else:
+                        # Fall back to most recent insights
+                        results = list(
+                            self.collective_memory.find()
+                            .sort("timestamp", -1)
+                            .limit(limit)
+                        )
+                        search_method = "recency"
+                except Exception as e:
+                    print(f"MongoDB search error: {e}")
+                    # Final fallback - just get most recent
+                    results = list(
+                        self.collective_memory.find().sort("timestamp", -1).limit(limit)
+                    )
+
+            # Format the results
             if not results:
                 return "No collective knowledge available."
 
-            # Format the insights
-            formatted = ["## Relevant Collective Knowledge"]
+            formatted = [
+                f"## Relevant Collective Knowledge (using {search_method} search)"
+            ]
             for insight in results:
                 formatted.append(
-                    f"- **{insight['fact']}** _{insight.get('relevance', '')}_"
+                    f"- **{insight.get('fact')}** _{insight.get('relevance', '')}_"
                 )
 
             return "\n".join(formatted)
 
         except Exception as e:
-            print(f"Error searching collective memory: {e}")
+            print(f"Error searching collective memory: {str(e)}")
             return "Error retrieving collective knowledge."
 
     def register(self, name: str, agent: AI, specialization: str):
@@ -1492,6 +1626,19 @@ class Swarm:
         # Add the agent to the system first
         self.agents[name] = agent
         self.specializations[name] = specialization
+
+        # Add collective memory tool to the agent
+        @agent.add_tool
+        def query_collective_knowledge(query: str) -> str:
+            """Query the swarm's collective knowledge from all users.
+
+            Args:
+                query (str): The search query to look for in collective knowledge
+
+            Returns:
+                str: Relevant insights from the swarm's collective memory
+            """
+            return self.search_collective_memory(query)
 
         print(
             f"Registered agent: {name}, specialization: {specialization[:50]}...")
