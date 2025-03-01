@@ -707,6 +707,35 @@ class AI:
         except Exception:
             pass
 
+    def make_time_aware(self, default_timezone="UTC"):
+        """Make the agent time-aware by adding time checking capability.
+
+        Args:
+            default_timezone (str): Default timezone to use for time awareness
+
+        Returns:
+            self: For method chaining
+        """
+        # Add time awareness to instructions
+        time_instructions = f"""
+        IMPORTANT: You are time-aware. The current date is {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")}.
+        If the user asks about time, current events, or scheduling, check the exact time in their timezone.
+        Use the check_time tool to get precise time information when relevant to the conversation.
+        Default timezone: {default_timezone} (use this when user's timezone is unknown)
+        """
+
+        self._instructions = self._instructions + "\n\n" + time_instructions
+
+        # Ensure the check_time tool is registered (in case it was removed)
+        existing_tools = [t["function"]["name"] for t in self._tools]
+        if "check_time" not in existing_tools:
+            # Get method reference
+            check_time_func = self.check_time
+            # Re-register it using our add_tool decorator
+            self.add_tool(check_time_func)
+
+        return self
+
     async def research_and_learn(self, topic: str) -> str:
         """Research a topic and add findings to collective memory.
 
@@ -1430,6 +1459,7 @@ class Swarm:
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
         enable_autonomous_learning: bool = True,
+        default_timezone: str = "UTC",
     ):
         """Initialize the multi-agent system with a shared database.
 
@@ -1444,6 +1474,7 @@ class Swarm:
         self.insight_model = insight_model
         self.enable_collective_memory = enable_collective_memory
         self.enable_autonomous_learning = enable_autonomous_learning
+        self.default_timezone = default_timezone
 
         # Initialize explorer if autonomous learning is enabled
         if enable_autonomous_learning:
@@ -1706,6 +1737,9 @@ class Swarm:
 
     def register(self, name: str, agent: AI, specialization: str):
         """Register a specialized agent with the multi-agent system."""
+        # Make agent time-aware first
+        agent.make_time_aware(self.default_timezone)
+
         # Add the agent to the system first
         self.agents[name] = agent
         self.specializations[name] = specialization
