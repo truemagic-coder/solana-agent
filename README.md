@@ -86,7 +86,7 @@ Solana Agent's collective memory system is designed with privacy in mind:
 
 ## Time Awareness
 
-Solana Agent's time awareness system ensures your AI assistants always provide chronologically accurate responses:
+Solana Agent's time awareness system ensures your AI agents always provide chronologically accurate responses:
 
 - **Automatic Time Integration**: All agents automatically have access to accurate time information
 - **Global Time Management**: Get precise time in any timezone using NTP synchronization

@@ -499,25 +499,19 @@ class AI:
         self.kb.delete(ids=[id], namespace=user_id)
         self._database.kb.delete_one({"reference": id})
 
-    def check_time(self, timezone: str) -> str:
-        """Get current UTC time formatted as a string via Cloudflare's NTP service.
+    def check_time(self, timezone: str = None) -> str:
+        """Get current UTC time formatted as a string.
 
         Args:
-            timezone (str): Timezone to convert the time to (e.g., "America/New_York")
+            timezone (str, optional): Timezone to convert the time to (e.g., "America/New_York").
+              If None, uses the agent's default timezone.
 
         Returns:
             str: Current time in the requested timezone in format 'YYYY-MM-DD HH:MM:SS'
-
-        Example:
-            ```python
-            time = ai.check_time("America/New_York")
-            # Returns: "The current time in America/New_York is 2025-02-26 10:30:45"
-            ```
-
-        Note:
-            This is a synchronous tool method required for OpenAI function calling.
-            Fetches time over NTP from Cloudflare's time server (time.cloudflare.com).
         """
+        # Use provided timezone or fall back to agent default
+        timezone = timezone or self._default_timezone or "UTC"
+
         try:
             # Request time from Cloudflare's NTP server
             client = ntplib.NTPClient()
@@ -830,7 +824,7 @@ class AI:
         )
         return transcription.text
 
-    async def text(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+    async def text(self, user_id: str, user_text: str, timezone: str = None) -> AsyncGenerator[str, None]:
         """Process text input and stream AI responses asynchronously.
 
         Args:
@@ -852,6 +846,9 @@ class AI:
             - Integrates with Zep memory if configured.
             - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
+        # Store current timezone for this conversation (used by check_time tool)
+        self._current_timezone = timezone
+
         # Check for completed tasks first
         task_results = self.get_task_results(user_id)
 
@@ -1872,8 +1869,14 @@ class Swarm:
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
             )
 
-    async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
-        """Process the user request with appropriate agent and handle handoffs."""
+    async def process(self, user_id: str, user_text: str, timezone: str = None) -> AsyncGenerator[str, None]:
+        """Process the user request with appropriate agent and handle handoffs.
+
+        Args:
+            user_id (str): Unique user identifier 
+            user_text (str): User's text input
+            timezone (str, optional): User-specific timezone
+        """
         try:
             # Handle special commands
             if user_text.strip().lower().startswith("!memory "):
@@ -1900,7 +1903,7 @@ class Swarm:
             confidence_score = 1.0  # Default high confidence
 
             # Process response stream
-            async for chunk in self._stream_response(user_id, user_text, current_agent):
+            async for chunk in self._stream_response(user_id, user_text, current_agent, timezone):
                 yield chunk
                 final_response += chunk
 
@@ -1960,13 +1963,13 @@ class Swarm:
             yield "\n\nI apologize for the technical difficulty.\n\n"
 
     async def _stream_response(
-        self, user_id, user_text, current_agent
+        self, user_id, user_text, current_agent, timezone=None
     ) -> AsyncGenerator[str, None]:
         """Stream response from an agent, handling potential handoffs."""
         handoff_detected = False
         response_started = False
 
-        async for chunk in current_agent.text(user_id, user_text):
+        async for chunk in current_agent.text(user_id, user_text, timezone):
             # Check for handoff after each chunk
             if current_agent._handoff_info and not handoff_detected:
                 handoff_detected = True
