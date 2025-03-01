@@ -12,7 +12,7 @@ Solana Agent is the first definitive AGI framework. Unlike traditional AI framew
 
 ## Why Solana Agent?
 
-### 🤖 The Definitive AGI Framework
+### The Definitive AGI Framework
 
 Unlike traditional AI assistants that forget conversations after each session, Solana Agent combines persistent memory, autonomous learning, and collective intelligence into a system that grows smarter with every interaction.
 
@@ -73,6 +73,13 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Chronologically accurate responses across all conversations
 - Default timezone fallbacks at both agent and swarm levels
 - Seamless timezone preservation during agent handoffs
+
+### ⚖️ **Self-Critical System**
+- AI critic that evaluates agent responses for quality and accuracy
+- Autonomous identification of improvement areas across all agents
+- Prioritized feedback based on severity and impact
+- Automatic scheduling of learning tasks for high-priority issues
+- System-wide trend analysis to track collective improvement
 
 ## Privacy and Collective Memory
 

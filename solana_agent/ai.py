@@ -1452,17 +1452,19 @@ class Swarm:
     def __init__(
         self,
         database: MongoDatabase,
-        router_model: str = "gpt-4o",
+        router_model: str = "gpt-4o-mini",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
         enable_autonomous_learning: bool = True,
         default_timezone: str = "UTC",
+        enable_critic: bool = True,  # New parameter
+        critique_frequency: float = 0.1,  # New parameter
     ):
         """Initialize the multi-agent system with a shared database.
 
         Args:
             database (MongoDatabase): Shared MongoDB database instance
-            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o".
+            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
         """
         self.agents = {}  # name -> AI instance
         self.specializations = {}  # name -> description
@@ -1472,6 +1474,12 @@ class Swarm:
         self.enable_collective_memory = enable_collective_memory
         self.enable_autonomous_learning = enable_autonomous_learning
         self.default_timezone = default_timezone
+        self.enable_critic = enable_critic
+
+        # Initialize critic if enabled
+        if enable_critic:
+            self.critic = Critic(
+                self, critique_model=insight_model, critique_frequency=critique_frequency)
 
         # Initialize explorer if autonomous learning is enabled
         if enable_autonomous_learning:
@@ -1968,8 +1976,12 @@ class Swarm:
         """Stream response from an agent, handling potential handoffs."""
         handoff_detected = False
         response_started = False
+        full_response = ""
 
         async for chunk in current_agent.text(user_id, user_text, timezone):
+            # Accumulate the full response for critic analysis
+            full_response += chunk
+
             # Check for handoff after each chunk
             if current_agent._handoff_info and not handoff_detected:
                 handoff_detected = True
@@ -2011,6 +2023,17 @@ class Swarm:
                 response_started = True
                 yield chunk
                 await asyncio.sleep(0)  # Force immediate delivery
+
+        # After full response is delivered, invoke critic (if enabled)
+        if self.enable_critic and hasattr(self, "critic"):
+            # Don't block - run asynchronously
+            asyncio.create_task(
+                self.critic.analyze_interaction(
+                    agent_name=current_agent.__class__.__name__,
+                    user_query=user_text,
+                    response=full_response
+                )
+            )
 
     async def _run_post_processing_tasks(self, tasks):
         """Run multiple post-processing tasks concurrently."""
@@ -2154,3 +2177,138 @@ class KnowledgeExplorer:
         )
 
         print(f"📚 Scheduled autonomous learning task for topic: {topic}")
+
+
+class Critic:
+    """System that evaluates agent responses and suggests improvements."""
+
+    def __init__(self, swarm, critique_model="gpt-4o-mini", critique_frequency=0.1):
+        """Initialize the critic system.
+
+        Args:
+            swarm: The agent swarm to monitor
+            critique_model: Model to use for evaluations
+            critique_frequency: Fraction of interactions to analyze (0.1 = 10%)
+        """
+        self.swarm = swarm
+        self.critique_model = critique_model
+        self.critique_frequency = critique_frequency
+        self.feedback_collection = swarm.database.db["agent_feedback"]
+
+        # Create index for feedback collection
+        if "agent_feedback" not in swarm.database.db.list_collection_names():
+            swarm.database.db.create_collection("agent_feedback")
+            self.feedback_collection.create_index([("agent_name", 1)])
+            self.feedback_collection.create_index([("improvement_area", 1)])
+
+    async def analyze_interaction(self, agent_name, user_query, response, random_seed=None):
+        """Analyze an agent interaction and provide improvement feedback."""
+        # Randomly decide whether to analyze this interaction based on frequency
+        import random
+        if random_seed is not None:
+            random.seed(random_seed)
+        if random.random() > self.critique_frequency:
+            return
+
+        # Get first agent's client for analysis
+        first_agent = next(iter(self.swarm.agents.values()))
+
+        prompt = f"""
+        As a critic, analyze this agent interaction to identify specific improvements.
+        
+        INTERACTION:
+        User query: {user_query}
+        Agent response: {response}
+        
+        Provide feedback in the following areas:
+        1. Accuracy: Is the information correct and precise?
+        2. Completeness: Did the response fully address the query?
+        3. Clarity: Is the response clear, well-structured and easy to understand?
+        4. Efficiency: Could the response have been more concise without losing value?
+        5. Tone: Was the tone appropriate for the context?
+        
+        FORMAT YOUR RESPONSE AS VALID JSON:
+        {{
+            "strengths": ["strength 1", "strength 2"],
+            "improvement_areas": [
+                {{
+                    "area": "Area name (e.g., 'Accuracy', 'Completeness')",
+                    "issue": "Specific issue identified",
+                    "recommendation": "Specific actionable improvement"
+                }}
+            ],
+            "overall_score": 0.0-1.0,
+            "priority": "low/medium/high"
+        }}
+        """
+
+        try:
+            response = first_agent._client.chat.completions.create(
+                model=self.critique_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+            )
+
+            feedback = json.loads(response.choices[0].message.content)
+
+            # Store feedback in database
+            for area in feedback["improvement_areas"]:
+                self.feedback_collection.insert_one({
+                    "agent_name": agent_name,
+                    "user_query": user_query,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                    "improvement_area": area["area"],
+                    "issue": area["issue"],
+                    "recommendation": area["recommendation"],
+                    "overall_score": feedback["overall_score"],
+                    "priority": feedback["priority"],
+                })
+
+            # If high priority feedback, schedule immediate learning task
+            if feedback["priority"] == "high" and feedback["improvement_areas"]:
+                top_issue = feedback["improvement_areas"][0]
+                await self.schedule_improvement_task(agent_name, top_issue)
+
+            return feedback
+
+        except Exception as e:
+            print(f"Error in critic analysis: {e}")
+            return None
+
+    async def schedule_improvement_task(self, agent_name, issue):
+        """Schedule a task to address a high-priority improvement area."""
+        if agent_name in self.swarm.agents:
+            agent = self.swarm.agents[agent_name]
+
+            # Create learning task for the agent
+            topic = f"How to improve {issue['area'].lower()} in responses: {issue['issue']}"
+
+            await agent.schedule_task(
+                user_id="system_critic",
+                task_name=f"Improve {issue['area']}",
+                task_type="self_improvement",
+                function="research_and_learn",
+                parameters={"topic": topic}
+            )
+
+            print(
+                f"📝 Scheduled improvement task for {agent_name}: {issue['area']}")
+
+    def get_agent_feedback(self, agent_name=None, limit=10):
+        """Get recent feedback for an agent or all agents."""
+        query = {"agent_name": agent_name} if agent_name else {}
+        feedback = list(self.feedback_collection.find(
+            query).sort("timestamp", -1).limit(limit))
+        return feedback
+
+    def get_improvement_trends(self):
+        """Get trends in improvement areas across all agents."""
+        pipeline = [
+            {"$group": {
+                "_id": "$improvement_area",
+                "count": {"$sum": 1},
+                "avg_score": {"$avg": "$overall_score"}
+            }},
+            {"$sort": {"count": -1}}
+        ]
+        return list(self.feedback_collection.aggregate(pipeline))
