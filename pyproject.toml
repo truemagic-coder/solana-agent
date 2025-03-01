@@ -28,6 +28,11 @@ pinecone = "^6.0.1"
 pandas = "^2.2.3"
 ntplib = "^0.4.0"
 
+[tool.poetry.dev-dependencies]
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
+pytest-asyncio = "^0.25.3"
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
