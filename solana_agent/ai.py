@@ -1359,6 +1359,7 @@ class Swarm:
         database: MongoDatabase,
         router_model: str = "gpt-4o",
         insight_model: str = "gpt-4o-mini",
+        enable_collective_memory: bool = True,
     ):
         """Initialize the multi-agent system with a shared database.
 
@@ -1371,6 +1372,7 @@ class Swarm:
         self.database = database
         self.router_model = router_model
         self.insight_model = insight_model
+        self.enable_collective_memory = enable_collective_memory
 
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
@@ -1378,18 +1380,21 @@ class Swarm:
         self.handoffs = self.database.db["handoffs"]
 
         # Create collective memory collection
-        if "collective_memory" not in self.database.db.list_collection_names():
-            self.database.db.create_collection("collective_memory")
-        self.collective_memory = self.database.db["collective_memory"]
+        if enable_collective_memory:
+            if "collective_memory" not in self.database.db.list_collection_names():
+                self.database.db.create_collection("collective_memory")
+            self.collective_memory = self.database.db["collective_memory"]
 
-        # Create text index for MongoDB text search
-        try:
-            self.collective_memory.create_index(
-                [("fact", "text"), ("relevance", "text")]
-            )
-            print("Created text search index for collective memory")
-        except Exception as e:
-            print(f"Warning: Text index creation might have failed: {e}")
+            # Create text index for MongoDB text search
+            try:
+                self.collective_memory.create_index(
+                    [("fact", "text"), ("relevance", "text")]
+                )
+                print("Created text search index for collective memory")
+            except Exception as e:
+                print(f"Warning: Text index creation might have failed: {e}")
+        else:
+            print("Collective memory feature is disabled")
 
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
@@ -1522,6 +1527,9 @@ class Swarm:
             Formatted string with relevant insights
         """
         try:
+            if not self.enable_collective_memory:
+                return "Collective memory feature is disabled."
+
             results = []
             search_method = "recency"  # Default method if others fail
 
@@ -1836,16 +1844,18 @@ class Swarm:
 
                 final_response += chunk
 
-            # After conversation completes, enhance all agents with conversation insights
-            conversation = {
-                "user_id": user_id,
-                "message": user_text,
-                "response": final_response,  # You need to capture this from your existing code
-            }
+            if self.enable_collective_memory:
+                # After conversation completes, enhance all agents with conversation insights
+                conversation = {
+                    "user_id": user_id,
+                    "message": user_text,
+                    "response": final_response,  # You need to capture this from your existing code
+                }
 
-            # Don't block - run asynchronously
-            asyncio.create_task(
-                self.extract_and_store_insights(user_id, conversation))
+                # Don't block - run asynchronously
+                asyncio.create_task(
+                    self.extract_and_store_insights(user_id, conversation)
+                )
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
