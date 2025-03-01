@@ -33,6 +33,9 @@ class MockMongoDb:
         return self._collections[name]
 
     def __getitem__(self, name):
+        # Auto-create collections when they don't exist
+        if name not in self._collections:
+            self._collections[name] = MockMongoCollection()
         return self._collections[name]
 
 
@@ -176,7 +179,10 @@ class MockMongoDB:
 @pytest.fixture
 def mock_database():
     """Create a mock database for testing."""
-    return MockMongoDB()
+    db = MockMongoDB()
+    # Ensure the agent_feedback collection exists for Critic
+    db.db._collections["agent_feedback"] = MockMongoCollection()
+    return db
 
 
 @pytest.fixture
@@ -293,7 +299,7 @@ def ai_instance(mock_database, mock_openai_client, mock_zep_client, mock_pinecon
 @pytest.fixture
 def swarm_instance(mock_database, ai_instance):
     """Create a Swarm instance with a mocked database."""
-    swarm = Swarm(mock_database, router_model="gpt-4o")
+    swarm = Swarm(mock_database, router_model="gpt-4o", enable_critic=False)
 
     # Mock routing decision FIRST so it's available to other functions
     swarm._get_routing_decision = AsyncMock()
@@ -325,13 +331,17 @@ def swarm_instance(mock_database, ai_instance):
     return swarm
 
 
-# Basic initialization and MongoDB tests
 def test_ai_initialization(ai_instance):
     """Test that AI instance initializes with correct attributes."""
     assert isinstance(ai_instance, AI)
     assert ai_instance._instructions == "Be a helpful assistant."
-    assert ai_instance._tools == []
-    assert ai_instance._client is not None
+
+    # Check if search_internet tool is in tools list
+    has_search_tool = any(
+        tool.get("function", {}).get("name") == "search_internet"
+        for tool in ai_instance._tools
+    )
+    assert has_search_tool, "Internet search tool should be added by default"
 
 
 def test_mongodb_save_message(mock_database):
@@ -393,6 +403,8 @@ def test_check_time(ai_instance):
 
 def test_add_tool(ai_instance):
     """Test adding a custom tool to the AI instance."""
+    # Count initial tools
+    initial_tools_count = len(ai_instance._tools)
 
     # Define a test tool
     def test_tool(param1: str, param2: int = 10) -> str:
@@ -403,10 +415,17 @@ def test_add_tool(ai_instance):
     ai_instance.add_tool(test_tool)
 
     # Verify the tool was added
-    assert len(ai_instance._tools) == 1
-    tool_config = ai_instance._tools[0]
+    assert len(ai_instance._tools) == initial_tools_count + 1
+
+    # Find the added tool
+    tool_config = None
+    for tool in ai_instance._tools:
+        if tool["function"]["name"] == "test_tool":
+            tool_config = tool
+            break
+
+    assert tool_config is not None
     assert tool_config["type"] == "function"
-    assert tool_config["function"]["name"] == "test_tool"
     assert "param1" in tool_config["function"]["parameters"]["properties"]
     assert "param2" in tool_config["function"]["parameters"]["properties"]
     assert "param1" in tool_config["function"]["parameters"]["required"]
