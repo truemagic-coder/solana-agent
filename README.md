@@ -1,67 +1,71 @@
 # Solana Agent
 
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-orange.svg)](https://www.python.org/downloads/)
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-Solana Agent is the first self-learning AI Agent Swarm framework.
+**Craft AGI systems that evolve beyond imagination!**
+
+Solana Agent is the first definitive AGI framework. Unlike traditional AI frameworks that stay static after deployment, Solana Agent continuously learns, adapts, and enhances its own capabilities through autonomous exploration and collective intelligence.
 
 ## Why Solana Agent?
 
-### 🧬 The First Self-Learning AI Agent Swarm Framework
+### 🤖 The Definitive AGI Framework
 
-Unlike traditional AI assistants that forget conversations after each session, Solana Agent maintains a rich, searchable memory system that grows smarter with every interaction.
+Unlike traditional AI assistants that forget conversations after each session, Solana Agent combines persistent memory, autonomous learning, and collective intelligence into a system that grows smarter with every interaction.
 
 **Why This Matters:**
-- 🤖 **Swarm Intelligence**: Shares memory across all agents in the swarm
-- 📈 **Continuous Learning**: Evolves with every new interaction
+- 🐝 **Swarm Intelligence**: Distributes cognition across specialized agents with shared knowledge
+- 📚 **Continuous Learning**: Identifies and autonomously fills knowledge gaps
+- 🔄 **Self-Improvement**: Detects confidence levels and researches weak areas automatically
+- 🧠 **Collective Memory**: Cross-user insights enriching the entire system's capabilities
 - 🎯 **Context-Aware**: Recalls past interactions for more relevant responses
-- 🔄 **Self-Improving**: Builds knowledge and improves reasoning automatically
-- 🧠 **Knowledge Base**: Add domain-specific knowledge for better reasoning
-- 💭 **Collective Insights**: Extracts valuable knowledge from all user interactions
-- 🛡️ **Secure**: Secure and private memory and data storage 
-
-**Experience Agentic IQ!**
+- 🛡️ **Enterprise-Ready**: Production-stable with privacy controls and deployment flexibility
 
 ## Features
 
-🔄 **Real-time AI Interactions**
-- Streaming text-based conversations
-- Real-time voice-to-voice conversations
+### 🗣️ **Advanced Interaction Layer**
+- Streaming text-based conversations with real-time thinking
+- Voice-to-voice conversations with natural cadence
+- Multi-turn context preservation and reasoning
 
-🧠 **Memory System and Extensibility**
-- Advanced AI memory combining conversational context, knowledge base, and parallel tool calling
-- Create custom tools for extending the Agent's capabilities like further API integrations
+### 🧠 **Autonomous Learning Engine**
+- Self-improving system that detects knowledge gaps through confidence monitoring
+- Automatically schedules research tasks to strengthen weak knowledge areas
+- Continuously enhances collective memory through insight extraction
+- Prioritizes learning based on user interaction patterns and task importance
+- Creates virtuous learning loops without human intervention
 
-🤖 **Multi-Agent Swarms**
-- Create specialized agents with different expertise domains
-- Automatic routing of queries to the most appropriate specialist
-- Seamless handoffs between agents for complex multi-domain questions
-- Shared memory and context across the entire agent swarm
+### 🤖 **Multi-Agent Swarm Architecture**
+- Dynamic specialized agent creation and coordination
+- Intelligent routing based on query content and agent expertise
+- Seamless handoffs with comprehensive context passing
+- Parallel processing capabilities for complex multi-part questions
+- Shared memory and collective intelligence across the entire swarm
 
-🔍 **Multi-Source Search and Reasoning**
-- Internet search via Perplexity
-- X (Twitter) search using Grok
-- Conversational memory powered by Zep
-- Conversational message history using MongoDB (on-prem or hosted)
-- Knowledge Base (KB) using Pinecone with reranking - available globally or user-specific
-- Upload CSVs to be processed into summary reports and stored in the Knowledge Base (KB) using Gemini
-- Comprehensive reasoning combining multiple data sources
+### 🔍 **Multi-Source Knowledge Integration**
+- Real-time internet search via Perplexity API
+- Social media monitoring via X/Twitter (Grok API)
+- Long-term conversational memory with Zep's graph-based storage
+- Structured data analysis with CSV processing and summarization
+- Vector-based knowledge retrieval with semantic search
+- Hybrid search combining vector similarity and text relevance
 
-⚙️ **Task Management and Automation**
-- Schedule one-time or recurring tasks for future execution
-- Run computationally intensive operations as background tasks
-- Support for long-running operations without blocking user interactions
-- Task status tracking and delivery of results when completed
-- Intelligent notification system for completed tasks
+### ⚙️ **Advanced Task Orchestration**
+- Scheduled tasks with one-time, recurring, and conditional execution
+- Long-running background operations for resource-intensive processing
+- Asynchronous execution model preventing conversation blocking
+- Comprehensive task status tracking and result delivery
+- Cross-agent task delegation and completion verification
 
-🌐 **Collective Swarm Intelligence**
-- Hybrid semantic-keyword search for collective knowledge discovery
-- Automatic extraction of valuable insights from all conversations
-- Self-learning knowledge base that improves with each user interaction
-- Cross-user knowledge sharing while preserving privacy
-- Semantic search for finding conceptually related information even with different wording
-- Automatic ranking of insights by relevance and importance
+### 🌐 **Collective Swarm Intelligence**
+- Hybrid semantic-keyword search spanning all user interactions
+- Privacy-preserving knowledge extraction from conversations
+- Self-organizing knowledge base with automatic categorization
+- Cross-domain insight discovery and connection building
+- Autonomous knowledge refinement through verification tasks
 
 ## Privacy and Collective Memory
 
@@ -79,40 +83,34 @@ When collective memory is enabled, the system extracts valuable factual knowledg
 
 ### 🎯 Key Differentiators
 
-🧠 **Advanced Memory Architecture**
-   - Built-in episodic memory vs LangChain's basic memory types
-   - Persistent cross-session knowledge retention
-   - Automatic self-learning from conversations
-   - Knowledge Base to add domain specific knowledge
-   - CSV file uploads to perform document context search 
-   - Collective swarm memory that learns from all user interactions
+#### 💡 **AGI-First Architecture**
+- Designed for autonomous intelligence and self-improvement
+- Built-in knowledge gap detection and autonomous learning
+- Framework for agents to improve themselves without human intervention
 
-🤝 **Intelligent Multi-Agent Systems**
-   - First-class support for specialized agent swarms
-   - Dynamic inter-agent routing based on query complexity
-   - Seamless handoffs with continuous memory preservation
-   - Single unified interface for the entire agent network
-   - No custom coding required for agent coordination
-   - Shared collective intelligence across all agents
+#### 🧠 **Advanced Memory Architecture**
+- Sophisticated episodic and semantic memory vs. basic memory types
+- Cross-session knowledge retention with importance-based storage
+- Autonomous extraction of insights from conversations
+- Collective memory across users and agents
 
-🏢 **Enterprise Focus**
-   - Production-ready out of the box in a few lines of code
-   - Enterprise-grade deployment options for all components and services
-   - Simple conventions over complex configurations
-   - Asynchronous task management for high-load scenarios
+#### 🤝 **True Multi-Agent Orchestration**
+- First-class swarm intelligence with specialized agent teams
+- Dynamic routing based on expertise and query complexity
+- Seamless context preservation during handoffs
+- Single unified interface for the entire agent ecosystem
 
-🛠️ **Simplified Development**
-   - No chain building required
-   - Python plain functions vs complex chaining
-   - Fewer moving parts equals more stable applications
-   - Smaller repo size by 1000x: Solana Agent @ ~500 LOC vs LangChain @ ~500,000 LOC
-   - Built-in task scheduling and background processing
+#### 🏢 **Enterprise Production Readiness**
+- Deployment-ready with minimal configuration
+- Comprehensive error handling and recovery mechanisms
+- Scalable architecture supporting high-concurrency environments
+- Privacy-preserving design with configurable controls
 
-🚀 **Performance**
-   - Optimized for real-time streaming responses
-   - Built-in voice processing capabilities
-   - Multi-source search with automatic reasoning synthesis
-   - Efficient handling of long-running and scheduled tasks
+#### 🛠️ **Developer Experience**
+- Clean, intuitive API without excessive abstractions
+- Standard Python functions vs complex chaining constructs
+- Minimal boilerplate for common operations
+- ~1500 vs ~500,000 lines of code
 
 ## Installation
 

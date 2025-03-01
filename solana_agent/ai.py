@@ -128,6 +128,7 @@ class AI:
         openai_base_url: str = None,
         tool_calling_model: str = "gpt-4o-mini",
         reasoning_model: str = "gpt-4o-mini",
+        research_model: str = "gpt-4o-mini",
     ):
         """Initialize a new AI assistant instance.
 
@@ -146,6 +147,7 @@ class AI:
             openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
             tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
+            research_model (str, optional): Model for research. Defaults to "gpt-4o-mini"
         Example:
             ```python
             ai = AI(
@@ -205,6 +207,7 @@ class AI:
         self._openai_base_url = openai_base_url
         self._tool_calling_model = tool_calling_model
         self._reasoning_model = reasoning_model
+        self._research_model = research_model
         self._tools = []
         self._job_processor_task = None
 
@@ -703,6 +706,72 @@ class AI:
             await self.delete_memory(user_id)
         except Exception:
             pass
+
+    async def research_and_learn(self, topic: str) -> str:
+        """Research a topic and add findings to collective memory.
+
+        Args:
+            topic: The topic to research and learn about
+
+        Returns:
+            Summary of what was learned
+        """
+        try:
+            # First, search the internet for information
+            search_results = await self.search_internet(
+                f"comprehensive information about {topic}"
+            )
+
+            # Extract structured knowledge
+            prompt = f"""
+            Based on these search results about "{topic}", extract 3-5 factual insights 
+            worth adding to our collective knowledge.
+            
+            Search results:
+            {search_results}
+            
+            Format each insight as a JSON object with:
+            1. "fact": The factual information
+            2. "relevance": Short explanation of why this is generally useful
+            
+            Return ONLY a valid JSON array. Example:
+            [
+                {{"fact": "Topic X has property Y", "relevance": "Important for understanding Z"}}
+            ]
+            """
+
+            response = self._client.chat.completions.create(
+                model=self._research_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Extract factual knowledge from research.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+            )
+
+            insights = json.loads(response.choices[0].message.content)
+
+            # Add to collective memory via the swarm
+            if hasattr(self, "_swarm") and self._swarm and insights:
+                conversation = {
+                    "message": f"Research on {topic}",
+                    "response": json.dumps(insights),
+                    "user_id": "system_explorer",
+                }
+                await self._swarm.extract_and_store_insights(
+                    "system_explorer", conversation
+                )
+
+                # Return a summary of what was learned
+                return f"✅ Added {len(insights)} new insights about '{topic}' to collective memory."
+
+            return "⚠️ Could not add insights to collective memory."
+
+        except Exception as e:
+            return f"❌ Error researching topic: {str(e)}"
 
     async def delete_memory(self, user_id: str):
         """Delete memory for a specific user from Zep memory.
@@ -1360,6 +1429,7 @@ class Swarm:
         router_model: str = "gpt-4o",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
+        enable_autonomous_learning: bool = True,
     ):
         """Initialize the multi-agent system with a shared database.
 
@@ -1373,6 +1443,11 @@ class Swarm:
         self.router_model = router_model
         self.insight_model = insight_model
         self.enable_collective_memory = enable_collective_memory
+        self.enable_autonomous_learning = enable_autonomous_learning
+
+        # Initialize explorer if autonomous learning is enabled
+        if enable_autonomous_learning:
+            self.knowledge_explorer = KnowledgeExplorer(self)
 
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
@@ -1766,101 +1841,146 @@ class Swarm:
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
         try:
-            # Check if this is a request to access collective memory
+            # Handle special commands
             if user_text.strip().lower().startswith("!memory "):
                 query = user_text[8:].strip()
                 yield self.search_collective_memory(query)
                 return
 
-            # Check if any agents are registered
+            # Check for registered agents
             if not self.agents:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
                 return
 
-            # Get routing decision
+            # Get initial routing and agent
             first_agent = next(iter(self.agents.values()))
             agent_name = await self._get_routing_decision(first_agent, user_text)
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
-            # Initialize a flag for handoff detection
-            handoff_detected = False
-            response_started = False
-
-            # Reset handoff info for this interaction
+            # Reset handoff info
             current_agent._handoff_info = None
 
-            # Initialize final response
+            # Response tracking
             final_response = ""
+            confidence_score = 1.0  # Default high confidence
 
-            # Process initial agent's response
-            async for chunk in current_agent.text(user_id, user_text):
-                # Check for handoff after each chunk
-                if current_agent._handoff_info and not handoff_detected:
-                    handoff_detected = True
-                    target_name = current_agent._handoff_info["target"]
-                    target_agent = self.agents[target_name]
-                    reason = current_agent._handoff_info["reason"]
-
-                    # Record handoff without waiting
-                    asyncio.create_task(
-                        self._record_handoff(
-                            user_id, agent_name, target_name, reason, user_text
-                        )
-                    )
-
-                    # Process with target agent
-                    print(f"[HANDOFF] Forwarding to {target_name}")
-                    handoff_query = f"""
-                    Answer this ENTIRE question completely from scratch:
-    
-                    {user_text}
-    
-                    IMPORTANT INSTRUCTIONS:
-                    1. Address ALL aspects of the question comprehensively
-                    2. Organize your response in a logical, structured manner
-                    3. Include both explanations AND implementations as needed
-                    4. Do not mention any handoff or that you're continuing from another agent
-                    5. Answer as if you are addressing the complete question from the beginning
-                    6. Consider any relevant context from previous conversation
-                    """
-
-                    # If we've already started returning some text, add a separator
-                    if response_started:
-                        yield "\n\n---\n\n"
-
-                    # Stream directly from target agent
-                    async for new_chunk in target_agent.text(user_id, handoff_query):
-                        yield new_chunk
-                        # Force immediate delivery of each chunk
-                        await asyncio.sleep(0)
-                    return
-                else:
-                    # Only yield content if no handoff has been detected
-                    if not handoff_detected:
-                        response_started = True
-                        yield chunk
-                        await asyncio.sleep(0)  # Force immediate delivery
-
+            # Process response stream
+            async for chunk in self._stream_response(user_id, user_text, current_agent):
+                yield chunk
                 final_response += chunk
 
-            if self.enable_collective_memory:
-                # After conversation completes, enhance all agents with conversation insights
-                conversation = {
-                    "user_id": user_id,
-                    "message": user_text,
-                    "response": final_response,  # You need to capture this from your existing code
-                }
+                # Detect confidence signals in response
+                lower_chunk = chunk.lower()
+                if any(
+                    phrase in lower_chunk
+                    for phrase in [
+                        "i'm not sure",
+                        "uncertain",
+                        "i don't know",
+                        "limited information",
+                    ]
+                ):
+                    confidence_score = 0.4
+                elif any(
+                    phrase in lower_chunk
+                    for phrase in ["might be", "possibly", "perhaps"]
+                ):
+                    confidence_score = 0.7
 
-                # Don't block - run asynchronously
-                asyncio.create_task(
-                    self.extract_and_store_insights(user_id, conversation)
+            # Post-processing: learn from conversation
+            conversation = {
+                "user_id": user_id,
+                "message": user_text,
+                "response": final_response,
+            }
+
+            # Run post-processing tasks concurrently
+            tasks = []
+
+            # Add collective memory task if enabled
+            if self.enable_collective_memory:
+                tasks.append(self.extract_and_store_insights(
+                    user_id, conversation))
+
+            # Add autonomous learning task if enabled and confidence is low
+            if (
+                self.enable_autonomous_learning
+                and hasattr(self, "knowledge_explorer")
+                and confidence_score < 0.8
+            ):
+                tasks.append(
+                    self.knowledge_explorer.analyze_interaction(
+                        user_id, user_text, final_response, confidence_score
+                    )
                 )
+
+            # Run all post-processing tasks concurrently
+            if tasks:
+                # Don't block - run asynchronously
+                asyncio.create_task(self._run_post_processing_tasks(tasks))
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _stream_response(
+        self, user_id, user_text, current_agent
+    ) -> AsyncGenerator[str, None]:
+        """Stream response from an agent, handling potential handoffs."""
+        handoff_detected = False
+        response_started = False
+
+        async for chunk in current_agent.text(user_id, user_text):
+            # Check for handoff after each chunk
+            if current_agent._handoff_info and not handoff_detected:
+                handoff_detected = True
+                target_name = current_agent._handoff_info["target"]
+                target_agent = self.agents[target_name]
+                reason = current_agent._handoff_info["reason"]
+
+                # Record handoff without waiting
+                asyncio.create_task(
+                    self._record_handoff(
+                        user_id, current_agent, target_name, reason, user_text
+                    )
+                )
+
+                # Add separator if needed
+                if response_started:
+                    yield "\n\n---\n\n"
+
+                # Pass to target agent with comprehensive instructions
+                handoff_query = f"""
+                Answer this ENTIRE question completely from scratch:
+                {user_text}
+                
+                IMPORTANT INSTRUCTIONS:
+                1. Address ALL aspects of the question comprehensively
+                2. Include both explanations AND implementations as needed
+                3. Do not mention any handoff or that you're continuing from another agent
+                4. Consider any relevant context from previous conversation
+                """
+
+                # Stream from target agent
+                async for new_chunk in target_agent.text(user_id, handoff_query):
+                    yield new_chunk
+                    await asyncio.sleep(0)  # Force immediate delivery
+                return
+
+            # Regular response if no handoff detected
+            if not handoff_detected:
+                response_started = True
+                yield chunk
+                await asyncio.sleep(0)  # Force immediate delivery
+
+    async def _run_post_processing_tasks(self, tasks):
+        """Run multiple post-processing tasks concurrently."""
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            print(f"Error in post-processing tasks: {e}")
 
     async def _get_routing_decision(self, agent, user_text):
         """Get routing decision in parallel to reduce latency."""
@@ -1932,3 +2052,68 @@ class Swarm:
 
         # Fallback to first agent
         return list(self.agents.keys())[0]
+
+
+class KnowledgeExplorer:
+    """System that identifies knowledge gaps and autonomously fills them."""
+
+    def __init__(self, swarm, confidence_threshold=0.6):
+        self.swarm = swarm
+        self.confidence_threshold = confidence_threshold
+        self.priority_topics = set()
+
+    async def analyze_interaction(self, user_id, message, response, confidence_score):
+        """Analyze a completed interaction for potential knowledge gaps."""
+        # Skip high-confidence responses
+        if confidence_score > self.confidence_threshold:
+            return
+
+        # Extract potential knowledge gap topics
+        try:
+            # Use first agent's client for extraction
+            first_agent = next(iter(self.swarm.agents.values()))
+
+            prompt = f"""
+            Analyze this conversation where the AI expressed low confidence.
+            Identify 1-3 specific knowledge gap topics that would improve future responses.
+            
+            User: {message}
+            AI response: {response}
+            Confidence: {confidence_score}
+            
+            Return ONLY a JSON array of topics, no other text. Example:
+            ["topic 1", "topic 2"]
+            """
+
+            response = first_agent._client.chat.completions.create(
+                model=self.swarm.insight_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+
+            topics = json.loads(response.choices[0].message.content)
+
+            # Schedule learning tasks for each topic
+            for topic in topics:
+                if topic not in self.priority_topics:
+                    self.priority_topics.add(topic)
+                    await self.schedule_knowledge_acquisition(topic, user_id)
+
+        except Exception as e:
+            print(f"Error in knowledge gap analysis: {e}")
+
+    async def schedule_knowledge_acquisition(self, topic, user_id):
+        """Schedule a task to research and learn about a topic."""
+        # Get a suitable agent for research
+        first_agent = next(iter(self.swarm.agents.values()))
+
+        # Schedule the task
+        await first_agent.schedule_task(
+            user_id=user_id,
+            task_name=f"Learn about: {topic}",
+            task_type="knowledge_acquisition",
+            function="research_and_learn",
+            parameters={"topic": topic},
+        )
+
+        print(f"📚 Scheduled autonomous learning task for topic: {topic}")
