@@ -129,6 +129,7 @@ class AI:
         tool_calling_model: str = "gpt-4o-mini",
         reasoning_model: str = "gpt-4o-mini",
         research_model: str = "gpt-4o-mini",
+        enable_internet_search: bool = True,
     ):
         """Initialize a new AI assistant instance.
 
@@ -148,6 +149,7 @@ class AI:
             tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
             research_model (str, optional): Model for research. Defaults to "gpt-4o-mini"
+            enable_internet_search (bool, optional): Enable internet search tools. Defaults to True
         Example:
             ```python
             ai = AI(
@@ -210,6 +212,32 @@ class AI:
         self._research_model = research_model
         self._tools = []
         self._job_processor_task = None
+
+        # Automatically add internet search tool if API key is provided and feature is enabled
+        if perplexity_api_key and enable_internet_search:
+            # Use the add_tool decorator functionality directly
+            search_internet_tool = {
+                "type": "function",
+                "function": {
+                    "name": "search_internet",
+                    "description": self.search_internet.__doc__,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query string"},
+                            "model": {
+                                "type": "string",
+                                "description": "Perplexity model to use",
+                                "enum": ["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"],
+                                "default": "sonar"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+            self._tools.append(search_internet_tool)
+            print("Internet search capability added as default tool")
 
     async def __aenter__(self):
         return self
