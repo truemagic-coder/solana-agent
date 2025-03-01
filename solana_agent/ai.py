@@ -1354,7 +1354,12 @@ class AI:
 class Swarm:
     """An AI Agent Swarm that coordinates specialized AI agents with handoff capabilities."""
 
-    def __init__(self, database: MongoDatabase, router_model: str = "gpt-4o"):
+    def __init__(
+        self,
+        database: MongoDatabase,
+        router_model: str = "gpt-4o",
+        insight_model: str = "gpt-4o-mini",
+    ):
         """Initialize the multi-agent system with a shared database.
 
         Args:
@@ -1365,14 +1370,122 @@ class Swarm:
         self.specializations = {}  # name -> description
         self.database = database
         self.router_model = router_model
+        self.insight_model = insight_model
 
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
             self.database.db.create_collection("handoffs")
         self.handoffs = self.database.db["handoffs"]
 
+        # Create collective memory collection
+        if "collective_memory" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("collective_memory")
+        self.collective_memory = self.database.db["collective_memory"]
+
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
+
+    async def extract_and_store_insights(
+        self, user_id: str, conversation: dict
+    ) -> None:
+        """Extract important insights from a conversation and add to collective memory."""
+        # Get first agent to use its OpenAI client
+        if not self.agents:
+            return
+
+        first_agent = next(iter(self.agents.values()))
+
+        # Create the prompt to extract insights
+        prompt = f"""
+        Review this conversation and extract 0-3 IMPORTANT factual insights worth remembering for future users.
+        Only extract FACTUAL information that would be valuable across multiple conversations.
+        Do NOT include opinions, personal preferences, or user-specific details.
+        
+        Conversation:
+        User: {conversation.get('message', '')}
+        Assistant: {conversation.get('response', '')}
+        
+        Format each insight as a JSON object with:
+        1. "fact": The factual information
+        2. "relevance": Short explanation of why this is generally useful
+        
+        Return ONLY a valid JSON array, even if empty. Example:
+        [
+            {{"fact": "Solana processes 65,000 TPS", "relevance": "Important performance metric for blockchain comparisons"}}
+        ]
+        """
+
+        # Extract insights using AI
+        try:
+            response = first_agent._client.chat.completions.create(
+                model=self.insight_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Extract important factual insights from conversations.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+            )
+
+            insights_text = response.choices[0].message.content
+            insights = json.loads(insights_text)
+
+            # Store any extracted insights
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
+            for insight in insights:
+                insight["timestamp"] = timestamp
+                insight["source_user_id"] = user_id
+                self.collective_memory.insert_one(insight)
+
+            print(f"Stored {len(insights)} insights from conversation")
+
+        except Exception as e:
+            print(f"Failed to extract insights: {e}")
+
+    def search_collective_memory(self, query: str, limit: int = 5) -> str:
+        """Search the collective memory for relevant insights.
+
+        Args:
+            query: The search query
+            limit: Maximum number of results to return
+
+        Returns:
+            Formatted string with relevant insights
+        """
+        try:
+            # Simple keyword search (can be enhanced with vector search later)
+            results = list(
+                self.collective_memory.find(
+                    {"$text": {"$search": query}}, {
+                        "score": {"$meta": "textScore"}}
+                )
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+
+            if not results:
+                # Fall back to most recent insights
+                results = list(
+                    self.collective_memory.find().sort("timestamp", -1).limit(limit)
+                )
+
+            if not results:
+                return "No collective knowledge available."
+
+            # Format the insights
+            formatted = ["## Relevant Collective Knowledge"]
+            for insight in results:
+                formatted.append(
+                    f"- **{insight['fact']}** _{insight.get('relevance', '')}_"
+                )
+
+            return "\n".join(formatted)
+
+        except Exception as e:
+            print(f"Error searching collective memory: {e}")
+            return "Error retrieving collective knowledge."
 
     def register(self, name: str, agent: AI, specialization: str):
         """Register a specialized agent with the multi-agent system."""
@@ -1498,6 +1611,12 @@ class Swarm:
     async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs."""
         try:
+            # Check if this is a request to access collective memory
+            if user_text.strip().lower().startswith("!memory "):
+                query = user_text[8:].strip()
+                yield self.search_collective_memory(query)
+                return
+
             # Check if any agents are registered
             if not self.agents:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
@@ -1515,6 +1634,9 @@ class Swarm:
 
             # Reset handoff info for this interaction
             current_agent._handoff_info = None
+
+            # Initialize final response
+            final_response = ""
 
             # Process initial agent's response
             async for chunk in current_agent.text(user_id, user_text):
@@ -1564,6 +1686,19 @@ class Swarm:
                         response_started = True
                         yield chunk
                         await asyncio.sleep(0)  # Force immediate delivery
+
+                final_response += chunk
+
+            # After conversation completes, enhance all agents with conversation insights
+            conversation = {
+                "user_id": user_id,
+                "message": user_text,
+                "response": final_response,  # You need to capture this from your existing code
+            }
+
+            # Don't block - run asynchronously
+            asyncio.create_task(
+                self.extract_and_store_insights(user_id, conversation))
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
