@@ -68,11 +68,11 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Autonomous knowledge refinement through verification tasks
 
 ### 🕰️ **Time-Aware Intelligence**
-- Automatic timezone detection and management
-- Precise time-based scheduling and reminders
-- Date and time awareness across all conversations
-- Configurable timezone preferences for each agent
-- Real-time NTP synchronization for accurate time reporting
+- User-specific timezone handling for personalized time references
+- Precise time-based scheduling and reminders with NTP synchronization
+- Chronologically accurate responses across all conversations
+- Default timezone fallbacks at both agent and swarm levels
+- Seamless timezone preservation during agent handoffs
 
 ## Privacy and Collective Memory
 
@@ -84,17 +84,17 @@ Solana Agent's collective memory system is designed with privacy in mind:
 - **Transparency**: Extracted insights are accessible and reviewable
 - **Customizable Thresholds**: Adjust what qualifies as a valuable insight worth sharing
 
+When collective memory is enabled, the system extracts valuable factual knowledge that can benefit all users, while carefully avoiding personal or sensitive information. For environments with stricter privacy requirements, the feature can be completely disabled.
+
 ## Time Awareness
 
-Solana Agent's time awareness system ensures your AI agents always provide chronologically accurate responses:
+Solana Agent's time awareness system ensures your AI assistants always provide chronologically accurate responses based on each user's timezone:
 
-- **Automatic Time Integration**: All agents automatically have access to accurate time information
+- **User-Based Time Context**: Pass user timezone directly in conversation requests
 - **Global Time Management**: Get precise time in any timezone using NTP synchronization
-- **Timezone Configuration**: Set per-agent or system-wide default timezones
-- **Scheduling Support**: Enhanced date-time processing for setting reminders and appointments
-- **Contextual Date Awareness**: All agents understand "today," "next week," or "in 3 days" contextually
-
-When collective memory is enabled, the system extracts valuable factual knowledge that can benefit all users, while carefully avoiding personal or sensitive information. For environments with stricter privacy requirements, the feature can be completely disabled.
+- **Timezone Preservation**: Maintains timezone context during agent handoffs
+- **Default Fallbacks**: Configurable defaults at both agent and swarm levels
+- **Contextual Date Awareness**: All agents understand "today," "next week," or "in 3 days" relative to user's timezone
 
 ## Why Choose Solana Agent Over LangChain?
 
