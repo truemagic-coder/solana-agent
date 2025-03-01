@@ -31,6 +31,7 @@ class MongoDatabase:
         self.db = self._client[db_name]
         self.messages = self.db["messages"]
         self.kb = self.db["kb"]
+        self.jobs = self.db["jobs"]
 
     def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
@@ -54,6 +55,60 @@ class MongoDatabase:
             DocumentModel(id=doc["reference"], text=doc["document"])
             for doc in documents
         ]
+
+    def create_job(
+        self,
+        user_id: str,
+        job_type: str,
+        details: Dict[str, Any],
+        scheduled_time: datetime.datetime = None,
+    ) -> str:
+        """Create a new job in the database."""
+        job_id = str(uuid.uuid4())
+        job = {
+            "job_id": job_id,
+            "user_id": user_id,
+            "job_type": job_type,
+            "details": details,
+            "status": "pending",
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+            "scheduled_time": scheduled_time,
+            "started_at": None,
+            "completed_at": None,
+            "result": None,
+            "error": None,
+            "delivered": False,
+        }
+        self.jobs.insert_one(job)
+        return job_id
+
+    def update_job_status(
+        self, job_id: str, status: str, result: Any = None, error: str = None
+    ):
+        """Update job status and optionally result/error."""
+        update = {"status": status}
+
+        if status == "running":
+            update["started_at"] = datetime.datetime.now(datetime.timezone.utc)
+        elif status in ["completed", "failed"]:
+            update["completed_at"] = datetime.datetime.now(
+                datetime.timezone.utc)
+
+        if result is not None:
+            update["result"] = result
+        if error is not None:
+            update["error"] = error
+
+        self.jobs.update_one({"job_id": job_id}, {"$set": update})
+
+    def mark_job_delivered(self, job_id: str):
+        """Mark a job's results as delivered to the user."""
+        self.jobs.update_one({"job_id": job_id}, {"$set": {"delivered": True}})
+
+    def get_completed_undelivered_jobs(self, user_id: str):
+        """Get completed jobs with results not yet delivered to the user."""
+        query = {"user_id": user_id, "status": "completed", "delivered": False}
+        return list(self.jobs.find(query))
 
 
 class AI:
@@ -151,6 +206,7 @@ class AI:
         self._tool_calling_model = tool_calling_model
         self._reasoning_model = reasoning_model
         self._tools = []
+        self._job_processor_task = None
 
     async def __aenter__(self):
         return self
@@ -698,6 +754,22 @@ class AI:
             - Integrates with Zep memory if configured.
             - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
+        # Check for completed tasks first
+        task_results = self.get_task_results(user_id)
+
+        # If we have results and this isn't a task command, show notification
+        if task_results and not user_text.lower().startswith("!task"):
+            result_count = len(task_results)
+            yield f"🔔 {result_count} task{'s' if result_count > 1 else ''} completed!\n\n"
+
+            for task_name, details in task_results.items():
+                yield f"📊 Results from '{task_name}':\n{details['result']}\n\n"
+
+        # Handle task commands
+        if user_text.strip().lower() == "!tasks":
+            yield self.list_tasks(user_id)
+            return
+
         self._accumulated_value_queue = asyncio.Queue()
         final_tool_calls = {}  # Accumulate tool call deltas
         final_response = ""
@@ -1105,6 +1177,178 @@ class AI:
         # Attach the function to the instance so getattr can find it later.
         setattr(self, func.__name__, func)
         return func
+
+    def schedule_task(
+        self,
+        user_id: str,
+        task_name: str,
+        task_type: str,
+        function: str,
+        parameters: Dict[str, Any],
+        run_at: str = None,
+    ) -> str:
+        """Schedule a task to run now or later.
+
+        Args:
+            user_id (str): User ID for this task
+            task_name (str): Human-readable name of the task
+            task_type (str): Category of task (e.g. 'search', 'analysis')
+            function (str): Function to execute
+            parameters (Dict[str, Any]): Parameters for the function
+            run_at (str, optional): When to run task (ISO format or None for immediate)
+
+        Returns:
+            str: Confirmation message with task ID
+        """
+        # Parse the time if provided
+        scheduled_time = None
+        if run_at:
+            try:
+                scheduled_time = datetime.datetime.fromisoformat(run_at)
+                scheduled_time = scheduled_time.replace(
+                    tzinfo=datetime.timezone.utc)
+            except ValueError:
+                # Fall back to now if can't parse
+                scheduled_time = None
+
+        # Schedule the job
+        try:
+            job_id = self._database.create_job(
+                user_id=user_id,
+                job_type=task_type,
+                details={"name": task_name,
+                         "function": function, "args": parameters},
+                scheduled_time=scheduled_time,
+            )
+
+            # Run immediately if no scheduled time
+            if not scheduled_time:
+                asyncio.create_task(self._execute_job(job_id))
+                return f"✅ Task '{task_name}' started. Results will appear in your chat when complete."
+            else:
+                # Format time nicely
+                time_str = scheduled_time.strftime("%Y-%m-%d %H:%M:%S")
+                return f"⏰ Task '{task_name}' scheduled for {time_str}."
+        except Exception as e:
+            return f"❌ Could not schedule task: {str(e)}"
+
+    def list_tasks(self, user_id: str) -> str:
+        """List all tasks for a user.
+
+        Args:
+            user_id (str): User ID to check tasks for
+
+        Returns:
+            str: Formatted list of tasks
+        """
+        try:
+            # Get all jobs for this user
+            all_jobs = list(self._database.jobs.find({"user_id": user_id}))
+
+            if not all_jobs:
+                return "No tasks found."
+
+            # Format as readable output
+            result = "📋 Your tasks:\n\n"
+
+            for job in all_jobs:
+                status = job["status"]
+                name = job["details"].get("name", "Unnamed task")
+                job_type = job["job_type"]
+                job_id = job["job_id"][:8]  # Short ID
+
+                # Format based on status
+                if status == "pending":
+                    scheduled = job.get("scheduled_time")
+                    when = (
+                        f"scheduled for {scheduled.strftime('%Y-%m-%d %H:%M')}"
+                        if scheduled
+                        else "waiting to start"
+                    )
+                    result += f"⏳ {name} ({job_type}) - {when} [ID: {job_id}]\n"
+                elif status == "running":
+                    result += f"⚙️ {name} ({job_type}) - running [ID: {job_id}]\n"
+                elif status == "completed":
+                    completed = job.get("completed_at")
+                    when = (
+                        completed.strftime("%Y-%m-%d %H:%M")
+                        if completed
+                        else "recently"
+                    )
+                    result += (
+                        f"✅ {name} ({job_type}) - completed {when} [ID: {job_id}]\n"
+                    )
+                elif status == "failed":
+                    result += f"❌ {name} ({job_type}) - failed [ID: {job_id}]\n"
+
+            return result
+        except Exception as e:
+            return f"Error listing tasks: {str(e)}"
+
+    def get_task_results(
+        self, user_id: str, clear_delivered: bool = True
+    ) -> Dict[str, Any]:
+        """Get completed task results.
+
+        Args:
+            user_id (str): User ID to get results for
+            clear_delivered (bool): Whether to mark tasks as delivered
+
+        Returns:
+            Dict[str, Any]: Task results by task name
+        """
+        completed_jobs = self._database.get_completed_undelivered_jobs(user_id)
+
+        results = {}
+        for job in completed_jobs:
+            task_name = job["details"].get("name", f"Task {job['job_id'][:8]}")
+            results[task_name] = {
+                "result": job.get("result", "No result data"),
+                "completed_at": job.get("completed_at"),
+                "job_type": job["job_type"],
+            }
+
+            if clear_delivered:
+                self._database.mark_job_delivered(job["job_id"])
+
+        return results
+
+    async def _execute_job(self, job_id: str):
+        """Execute a job based on its job_id."""
+        try:
+            # Get job details
+            job = self._database.jobs.find_one({"job_id": job_id})
+            if not job:
+                print(f"[JOB ERROR] Job {job_id} not found")
+                return
+
+            # Update status to running
+            self._database.update_job_status(job_id, "running")
+
+            # Get function and args
+            function_name = job["details"]["function"]
+            function_args = job["details"]["args"]
+
+            # Execute the function
+            func = getattr(self, function_name)
+
+            # Check if function is async
+            if asyncio.iscoroutinefunction(func):
+                result = await func(**function_args)
+            else:
+                # Run synchronous functions in a thread pool to avoid blocking
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, lambda: func(**function_args))
+
+            # Update job with result
+            self._database.update_job_status(
+                job_id, "completed", result=result)
+
+        except Exception as e:
+            error_details = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+            print(f"[JOB ERROR] Error executing job {job_id}: {error_details}")
+            self._database.update_job_status(
+                job_id, "failed", error=error_details)
 
 
 class Swarm:
