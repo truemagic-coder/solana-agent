@@ -1297,7 +1297,7 @@ class Swarm:
     def __init__(
         self,
         database: MongoDatabase,
-        swarm_directive: str = None,
+        directive: str = None,
         router_model: str = "gpt-4o-mini",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
@@ -1308,7 +1308,7 @@ class Swarm:
 
         Args:
             database (MongoDatabase): Shared MongoDB database instance
-            swarm_directive (str, optional): Core directive/mission that governs all agents. Defaults to None.
+            directive (str, optional): Core directive/mission that governs all agents. Defaults to None.
             router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
             insight_model (str, optional): Model to extract collective insights. Defaults to "gpt-4o-mini".
             enable_collective_memory (bool, optional): Whether to enable collective memory. Defaults to True.
@@ -1326,7 +1326,7 @@ class Swarm:
 
         # Store swarm directive
         self.swarm_directive = (
-            swarm_directive
+            directive
             or """
         You are part of an agent swarm that works together to serve users effectively.
         Your goals are to provide accurate, helpful responses while collaborating with other agents.
