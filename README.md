@@ -40,8 +40,8 @@ Solana Agent transforms AI from isolated conversations into a continuously evolv
 - Social media monitoring via X/Twitter (Grok API)
 - Long-term conversational memory with Zep's graph-based storage
 - Structured data analysis with CSV processing and summarization
-- Vector-based knowledge retrieval with semantic search
-- Hybrid search combining vector similarity and text relevance
+- Vector-based knowledge retrieval with semantic search via Pinecone
+- Hybrid search combining vector similarity and text relevance via MongoDB and Pinecone
 
 ### 🌐 **Collective Swarm Intelligence**
 - Hybrid semantic-keyword search spanning all user interactions

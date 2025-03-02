@@ -1301,8 +1301,8 @@ class Swarm:
         router_model: str = "gpt-4o-mini",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
+        enable_critic: bool = True,
         default_timezone: str = "UTC",
-        enable_critic: bool = True,  # New parameter
     ):
         """Initialize the multi-agent system with a shared database.
 
@@ -1312,9 +1312,8 @@ class Swarm:
             router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
             insight_model (str, optional): Model to extract collective insights. Defaults to "gpt-4o-mini".
             enable_collective_memory (bool, optional): Whether to enable collective memory. Defaults to True.
-            default_timezone (str, optional): Default timezone for time-awareness. Defaults to "UTC".
             enable_critic (bool, optional): Whether to enable the critic system. Defaults to True.
-            critique_frequency (float, optional): Fraction of interactions to analyze. Defaults to 0.1.
+            default_timezone (str, optional): Default timezone for time-awareness. Defaults to "UTC".
         """
         self.agents = {}  # name -> AI instance
         self.specializations = {}  # name -> description
@@ -1447,7 +1446,10 @@ class Swarm:
                         for record in mongo_records
                     ]
                     embeddings = first_agent._pinecone.inference.embed(
-                        model=first_agent._pinecone_embedding_model, inputs=texts
+                        model=first_agent._pinecone_embedding_model,
+                        inputs=texts,
+                        parameters={"input_type": "passage",
+                                    "truncate": "END"},
                     )
 
                     # Create vectors for Pinecone
@@ -1512,8 +1514,10 @@ class Swarm:
                     try:
                         # Generate embedding for query
                         embedding = first_agent._pinecone.inference.embed(
-                            model=first_agent._pinecone_embedding_model, inputs=[
-                                query]
+                            model=first_agent._pinecone_embedding_model,
+                            inputs=[query],
+                            parameters={"input_type": "passage",
+                                        "truncate": "END"},
                         )
 
                         # Search Pinecone
