@@ -42,6 +42,21 @@ class CritiqueFeedback(BaseModel):
     )
 
 
+class MemoryInsight(BaseModel):
+    fact: str = Field(...,
+                      description="The factual information worth remembering")
+    relevance: str = Field(
+        ..., description="Short explanation of why this fact is generally useful"
+    )
+
+
+class CollectiveMemoryResponse(BaseModel):
+    insights: List[MemoryInsight] = Field(
+        default_factory=list,
+        description="List of factual insights extracted from the conversation",
+    )
+
+
 class DocumentModel(BaseModel):
     id: str
     text: str
@@ -93,7 +108,6 @@ class AI:
         pinecone_index_name: str = None,
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
-        openai_base_url: str = None,
         tool_calling_model: str = "gpt-4o-mini",
         reasoning_model: str = "gpt-4o-mini",
         research_model: str = "gpt-4o-mini",
@@ -114,7 +128,6 @@ class AI:
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
-            openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
             tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
             research_model (str, optional): Model for research. Defaults to "gpt-4o-mini"
@@ -136,11 +149,7 @@ class AI:
             - Optional integrations for Perplexity, Pinecone, Gemini, and Grok
             - You must create the Pinecone index in the dashboard before using it
         """
-        self._client = (
-            OpenAI(api_key=openai_api_key, base_url=openai_base_url)
-            if openai_base_url
-            else OpenAI(api_key=openai_api_key)
-        )
+        self._client = OpenAI(api_key=openai_api_key)
         self._memory_instructions = """
             You are a highly intelligent, context-aware conversational AI. When a user sends a query or statement, you should not only process the current input but also retrieve and integrate relevant context from their previous interactions. Use the memory data to:
             - Infer nuances in the user's intent.
@@ -176,7 +185,6 @@ class AI:
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
-        self._openai_base_url = openai_base_url
         self._tool_calling_model = tool_calling_model
         self._reasoning_model = reasoning_model
         self._research_model = research_model
@@ -1385,20 +1393,12 @@ class Swarm:
         Conversation:
         User: {conversation.get('message', '')}
         Assistant: {conversation.get('response', '')}
-        
-        Format each insight as a JSON object with:
-        1. "fact": The factual information
-        2. "relevance": Short explanation of why this is generally useful
-        
-        Return ONLY a valid JSON array, even if empty. Example:
-        [
-            {{"fact": "Solana processes 65,000 TPS", "relevance": "Important performance metric for blockchain comparisons"}}
-        ]
         """
 
-        # Extract insights using AI
+        # Extract insights using AI with structured parsing
         try:
-            response = first_agent._client.chat.completions.create(
+            # Parse the response using the Pydantic model
+            completion = first_agent._client.beta.chat.completions.parse(
                 model=self.insight_model,
                 messages=[
                     {
@@ -1407,22 +1407,27 @@ class Swarm:
                     },
                     {"role": "user", "content": prompt},
                 ],
+                response_format=CollectiveMemoryResponse,
                 temperature=0.1,
             )
 
-            insights_text = response.choices[0].message.content
-            insights = json.loads(insights_text)
+            # Extract the Pydantic model
+            memory_response = completion.choices[0].message.parsed
 
             # Store in MongoDB (keeps all metadata and text)
             timestamp = datetime.datetime.now(datetime.timezone.utc)
             mongo_records = []
 
-            for insight in insights:
+            for insight in memory_response.insights:
                 record_id = str(uuid.uuid4())
-                insight["_id"] = record_id
-                insight["timestamp"] = timestamp
-                insight["source_user_id"] = user_id
-                mongo_records.append(insight)
+                record = {
+                    "_id": record_id,
+                    "fact": insight.fact,
+                    "relevance": insight.relevance,
+                    "timestamp": timestamp,
+                    "source_user_id": user_id,
+                }
+                mongo_records.append(record)
 
             if mongo_records:
                 for record in mongo_records:
@@ -1430,7 +1435,7 @@ class Swarm:
 
             # Also store in Pinecone for semantic search if available
             if (
-                insights
+                mongo_records
                 and hasattr(first_agent, "_pinecone")
                 and first_agent._pinecone
                 and first_agent.kb
@@ -1438,8 +1443,8 @@ class Swarm:
                 try:
                     # Generate embeddings
                     texts = [
-                        f"{insight['fact']}: {insight['relevance']}"
-                        for insight in insights
+                        f"{record['fact']}: {record['relevance']}"
+                        for record in mongo_records
                     ]
                     embeddings = first_agent._pinecone.inference.embed(
                         model=first_agent._pinecone_embedding_model, inputs=texts
@@ -1447,14 +1452,14 @@ class Swarm:
 
                     # Create vectors for Pinecone
                     vectors = []
-                    for insight, embedding in zip(insights, embeddings):
+                    for record, embedding in zip(mongo_records, embeddings):
                         vectors.append(
                             {
-                                "id": insight["_id"],
+                                "id": record["_id"],
                                 "values": embedding.values,
                                 "metadata": {
-                                    "fact": insight["fact"],
-                                    "relevance": insight["relevance"],
+                                    "fact": record["fact"],
+                                    "relevance": record["relevance"],
                                     "timestamp": str(timestamp),
                                     "source_user_id": user_id,
                                 },
@@ -1466,12 +1471,12 @@ class Swarm:
                         vectors=vectors, namespace="collective_memory"
                     )
                     print(
-                        f"Stored {len(insights)} insights in both MongoDB and Pinecone"
+                        f"Stored {len(mongo_records)} insights in both MongoDB and Pinecone"
                     )
                 except Exception as e:
                     print(f"Error storing insights in Pinecone: {e}")
             else:
-                print(f"Stored {len(insights)} insights in MongoDB only")
+                print(f"Stored {len(mongo_records)} insights in MongoDB only")
 
         except Exception as e:
             print(f"Failed to extract insights: {str(e)}")
@@ -1807,18 +1812,6 @@ class Swarm:
                 tasks.append(self.extract_and_store_insights(
                     user_id, conversation))
 
-            # Add autonomous learning task if enabled and confidence is low
-            if (
-                self.enable_autonomous_learning
-                and hasattr(self, "knowledge_explorer")
-                and confidence_score < 0.8
-            ):
-                tasks.append(
-                    self.knowledge_explorer.analyze_interaction(
-                        user_id, user_text, final_response, confidence_score
-                    )
-                )
-
             # Run all post-processing tasks concurrently
             if tasks:
                 # Don't block - run asynchronously
@@ -1867,10 +1860,10 @@ class Swarm:
             augmented_instruction = f"""
             Answer this question: {user_text}
         
-        IMPORTANT - Apply these specific improvements from previous feedback:
-        {feedback_text}
-        """
-        print(f"Applying feedback to improve response: {feedback_text}")
+            IMPORTANT - Apply these specific improvements from previous feedback:
+            {feedback_text}
+            """
+            print(f"Applying feedback to improve response: {feedback_text}")
 
         async for chunk in current_agent.text(user_id, augmented_instruction, timezone):
             # Accumulate the full response for critic analysis
