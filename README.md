@@ -8,11 +8,11 @@
 
 **Craft AGI systems that evolve beyond imagination!**
 
-Solana Agent is the first definitive AGI framework. Unlike traditional AI frameworks that stay static after deployment, Solana Agent continuously learns, adapts, and enhances its own capabilities through autonomous exploration and collective intelligence.
+Solana Agent is the first AGI framework. Unlike traditional AI frameworks that stay static after deployment, Solana Agent continuously learns, adapts, and enhances its own capabilities through autonomous exploration and collective intelligence.
 
 ## Why Solana Agent?
 
-### The Definitive AGI Framework
+### The First AGI Framework
 
 Unlike traditional AI assistants that forget conversations after each session, Solana Agent combines persistent memory, autonomous learning, and collective intelligence into a system that grows smarter with every interaction.
 
@@ -52,13 +52,6 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Structured data analysis with CSV processing and summarization
 - Vector-based knowledge retrieval with semantic search
 - Hybrid search combining vector similarity and text relevance
-
-### ⚙️ **Advanced Task Orchestration**
-- Scheduled tasks with one-time, recurring, and conditional execution
-- Long-running background operations for resource-intensive processing
-- Asynchronous execution model preventing conversation blocking
-- Comprehensive task status tracking and result delivery
-- Cross-agent task delegation and completion verification
 
 ### 🌐 **Collective Swarm Intelligence**
 - Hybrid semantic-keyword search spanning all user interactions

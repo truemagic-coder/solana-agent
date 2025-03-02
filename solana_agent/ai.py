@@ -56,60 +56,6 @@ class MongoDatabase:
             for doc in documents
         ]
 
-    def create_job(
-        self,
-        user_id: str,
-        job_type: str,
-        details: Dict[str, Any],
-        scheduled_time: datetime.datetime = None,
-    ) -> str:
-        """Create a new job in the database."""
-        job_id = str(uuid.uuid4())
-        job = {
-            "job_id": job_id,
-            "user_id": user_id,
-            "job_type": job_type,
-            "details": details,
-            "status": "pending",
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "scheduled_time": scheduled_time,
-            "started_at": None,
-            "completed_at": None,
-            "result": None,
-            "error": None,
-            "delivered": False,
-        }
-        self.jobs.insert_one(job)
-        return job_id
-
-    def update_job_status(
-        self, job_id: str, status: str, result: Any = None, error: str = None
-    ):
-        """Update job status and optionally result/error."""
-        update = {"status": status}
-
-        if status == "running":
-            update["started_at"] = datetime.datetime.now(datetime.timezone.utc)
-        elif status in ["completed", "failed"]:
-            update["completed_at"] = datetime.datetime.now(
-                datetime.timezone.utc)
-
-        if result is not None:
-            update["result"] = result
-        if error is not None:
-            update["error"] = error
-
-        self.jobs.update_one({"job_id": job_id}, {"$set": update})
-
-    def mark_job_delivered(self, job_id: str):
-        """Mark a job's results as delivered to the user."""
-        self.jobs.update_one({"job_id": job_id}, {"$set": {"delivered": True}})
-
-    def get_completed_undelivered_jobs(self, user_id: str):
-        """Get completed jobs with results not yet delivered to the user."""
-        query = {"user_id": user_id, "status": "completed", "delivered": False}
-        return list(self.jobs.find(query))
-
 
 class AI:
     def __init__(
@@ -130,6 +76,7 @@ class AI:
         reasoning_model: str = "gpt-4o-mini",
         research_model: str = "gpt-4o-mini",
         enable_internet_search: bool = True,
+        default_timezone: str = "UTC",
     ):
         """Initialize a new AI assistant instance.
 
@@ -150,6 +97,7 @@ class AI:
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
             research_model (str, optional): Model for research. Defaults to "gpt-4o-mini"
             enable_internet_search (bool, optional): Enable internet search tools. Defaults to True
+            default_timezone (str, optional): Default timezone for time awareness. Defaults to "UTC"
         Example:
             ```python
             ai = AI(
@@ -212,6 +160,7 @@ class AI:
         self._research_model = research_model
         self._tools = []
         self._job_processor_task = None
+        self._default_timezone = default_timezone
 
         # Automatically add internet search tool if API key is provided and feature is enabled
         if perplexity_api_key and enable_internet_search:
@@ -220,21 +169,29 @@ class AI:
                 "type": "function",
                 "function": {
                     "name": "search_internet",
-                    "description": self.search_internet.__doc__,
+                    "description": "Search the internet using Perplexity AI API",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string", "description": "Search query string"},
+                            "query": {
+                                "type": "string",
+                                "description": "Search query string",
+                            },
                             "model": {
                                 "type": "string",
                                 "description": "Perplexity model to use",
-                                "enum": ["sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-reasoning"],
-                                "default": "sonar"
-                            }
+                                "enum": [
+                                    "sonar",
+                                    "sonar-pro",
+                                    "sonar-reasoning-pro",
+                                    "sonar-reasoning",
+                                ],
+                                "default": "sonar",
+                            },
                         },
-                        "required": ["query"]
-                    }
-                }
+                        "required": ["query"],
+                    },
+                },
             }
             self._tools.append(search_internet_tool)
             print("Internet search capability added as default tool")
@@ -745,8 +702,9 @@ class AI:
         Use the check_time tool to get precise time information when relevant to the conversation.
         Default timezone: {default_timezone} (use this when user's timezone is unknown)
         """
-
         self._instructions = self._instructions + "\n\n" + time_instructions
+
+        self._default_timezone = default_timezone
 
         # Ensure the check_time tool is registered (in case it was removed)
         existing_tools = [t["function"]["name"] for t in self._tools]
@@ -852,7 +810,9 @@ class AI:
         )
         return transcription.text
 
-    async def text(self, user_id: str, user_text: str, timezone: str = None) -> AsyncGenerator[str, None]:
+    async def text(
+        self, user_id: str, user_text: str, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
         """Process text input and stream AI responses asynchronously.
 
         Args:
@@ -874,24 +834,21 @@ class AI:
             - Integrates with Zep memory if configured.
             - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
-        # Store current timezone for this conversation (used by check_time tool)
-        self._current_timezone = timezone
+        # Store current user ID for task scheduling context
+        self._current_user_id = user_id
 
-        # Check for completed tasks first
-        task_results = self.get_task_results(user_id)
+        # Store timezone with user ID for persistence
+        if timezone:
+            if not hasattr(self, "_user_timezones"):
+                self._user_timezones = {}
+            self._user_timezones[user_id] = timezone
 
-        # If we have results and this isn't a task command, show notification
-        if task_results and not user_text.lower().startswith("!task"):
-            result_count = len(task_results)
-            yield f"🔔 {result_count} task{'s' if result_count > 1 else ''} completed!\n\n"
-
-            for task_name, details in task_results.items():
-                yield f"📊 Results from '{task_name}':\n{details['result']}\n\n"
-
-        # Handle task commands
-        if user_text.strip().lower() == "!tasks":
-            yield self.list_tasks(user_id)
-            return
+        # Set current timezone for this session
+        self._current_timezone = (
+            timezone
+            if timezone
+            else self._user_timezones.get(user_id, self._default_timezone)
+        )
 
         self._accumulated_value_queue = asyncio.Queue()
         final_tool_calls = {}  # Accumulate tool call deltas
@@ -1301,178 +1258,6 @@ class AI:
         setattr(self, func.__name__, func)
         return func
 
-    def schedule_task(
-        self,
-        user_id: str,
-        task_name: str,
-        task_type: str,
-        function: str,
-        parameters: Dict[str, Any],
-        run_at: str = None,
-    ) -> str:
-        """Schedule a task to run now or later.
-
-        Args:
-            user_id (str): User ID for this task
-            task_name (str): Human-readable name of the task
-            task_type (str): Category of task (e.g. 'search', 'analysis')
-            function (str): Function to execute
-            parameters (Dict[str, Any]): Parameters for the function
-            run_at (str, optional): When to run task (ISO format or None for immediate)
-
-        Returns:
-            str: Confirmation message with task ID
-        """
-        # Parse the time if provided
-        scheduled_time = None
-        if run_at:
-            try:
-                scheduled_time = datetime.datetime.fromisoformat(run_at)
-                scheduled_time = scheduled_time.replace(
-                    tzinfo=datetime.timezone.utc)
-            except ValueError:
-                # Fall back to now if can't parse
-                scheduled_time = None
-
-        # Schedule the job
-        try:
-            job_id = self._database.create_job(
-                user_id=user_id,
-                job_type=task_type,
-                details={"name": task_name,
-                         "function": function, "args": parameters},
-                scheduled_time=scheduled_time,
-            )
-
-            # Run immediately if no scheduled time
-            if not scheduled_time:
-                asyncio.create_task(self._execute_job(job_id))
-                return f"✅ Task '{task_name}' started. Results will appear in your chat when complete."
-            else:
-                # Format time nicely
-                time_str = scheduled_time.strftime("%Y-%m-%d %H:%M:%S")
-                return f"⏰ Task '{task_name}' scheduled for {time_str}."
-        except Exception as e:
-            return f"❌ Could not schedule task: {str(e)}"
-
-    def list_tasks(self, user_id: str) -> str:
-        """List all tasks for a user.
-
-        Args:
-            user_id (str): User ID to check tasks for
-
-        Returns:
-            str: Formatted list of tasks
-        """
-        try:
-            # Get all jobs for this user
-            all_jobs = list(self._database.jobs.find({"user_id": user_id}))
-
-            if not all_jobs:
-                return "No tasks found."
-
-            # Format as readable output
-            result = "📋 Your tasks:\n\n"
-
-            for job in all_jobs:
-                status = job["status"]
-                name = job["details"].get("name", "Unnamed task")
-                job_type = job["job_type"]
-                job_id = job["job_id"][:8]  # Short ID
-
-                # Format based on status
-                if status == "pending":
-                    scheduled = job.get("scheduled_time")
-                    when = (
-                        f"scheduled for {scheduled.strftime('%Y-%m-%d %H:%M')}"
-                        if scheduled
-                        else "waiting to start"
-                    )
-                    result += f"⏳ {name} ({job_type}) - {when} [ID: {job_id}]\n"
-                elif status == "running":
-                    result += f"⚙️ {name} ({job_type}) - running [ID: {job_id}]\n"
-                elif status == "completed":
-                    completed = job.get("completed_at")
-                    when = (
-                        completed.strftime("%Y-%m-%d %H:%M")
-                        if completed
-                        else "recently"
-                    )
-                    result += (
-                        f"✅ {name} ({job_type}) - completed {when} [ID: {job_id}]\n"
-                    )
-                elif status == "failed":
-                    result += f"❌ {name} ({job_type}) - failed [ID: {job_id}]\n"
-
-            return result
-        except Exception as e:
-            return f"Error listing tasks: {str(e)}"
-
-    def get_task_results(
-        self, user_id: str, clear_delivered: bool = True
-    ) -> Dict[str, Any]:
-        """Get completed task results.
-
-        Args:
-            user_id (str): User ID to get results for
-            clear_delivered (bool): Whether to mark tasks as delivered
-
-        Returns:
-            Dict[str, Any]: Task results by task name
-        """
-        completed_jobs = self._database.get_completed_undelivered_jobs(user_id)
-
-        results = {}
-        for job in completed_jobs:
-            task_name = job["details"].get("name", f"Task {job['job_id'][:8]}")
-            results[task_name] = {
-                "result": job.get("result", "No result data"),
-                "completed_at": job.get("completed_at"),
-                "job_type": job["job_type"],
-            }
-
-            if clear_delivered:
-                self._database.mark_job_delivered(job["job_id"])
-
-        return results
-
-    async def _execute_job(self, job_id: str):
-        """Execute a job based on its job_id."""
-        try:
-            # Get job details
-            job = self._database.jobs.find_one({"job_id": job_id})
-            if not job:
-                print(f"[JOB ERROR] Job {job_id} not found")
-                return
-
-            # Update status to running
-            self._database.update_job_status(job_id, "running")
-
-            # Get function and args
-            function_name = job["details"]["function"]
-            function_args = job["details"]["args"]
-
-            # Execute the function
-            func = getattr(self, function_name)
-
-            # Check if function is async
-            if asyncio.iscoroutinefunction(func):
-                result = await func(**function_args)
-            else:
-                # Run synchronous functions in a thread pool to avoid blocking
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(None, lambda: func(**function_args))
-
-            # Update job with result
-            self._database.update_job_status(
-                job_id, "completed", result=result)
-
-        except Exception as e:
-            error_details = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-            print(f"[JOB ERROR] Error executing job {job_id}: {error_details}")
-            self._database.update_job_status(
-                job_id, "failed", error=error_details)
-
 
 class Swarm:
     """An AI Agent Swarm that coordinates specialized AI agents with handoff capabilities."""
@@ -1513,10 +1298,13 @@ class Swarm:
         self.enable_critic = enable_critic
 
         # Store swarm directive
-        self.swarm_directive = swarm_directive or """
+        self.swarm_directive = (
+            swarm_directive
+            or """
         You are part of an agent swarm that works together to serve users effectively.
         Your goals are to provide accurate, helpful responses while collaborating with other agents.
         """
+        )
 
         self.formatted_directive = f"""
             ┌─────────────── SWARM DIRECTIVE ───────────────┐
@@ -1527,7 +1315,10 @@ class Swarm:
         # Initialize critic if enabled
         if enable_critic:
             self.critic = Critic(
-                self, critique_model=insight_model, critique_frequency=critique_frequency)
+                self,
+                critique_model=insight_model,
+                critique_frequency=critique_frequency,
+            )
 
         # Initialize explorer if autonomous learning is enabled
         if enable_autonomous_learning:
@@ -1669,8 +1460,6 @@ class Swarm:
 
         except Exception as e:
             print(f"Failed to extract insights: {str(e)}")
-
-        # Update the search_collective_memory method in Swarm class
 
     def search_collective_memory(self, query: str, limit: int = 5) -> str:
         """Search the collective memory using a hybrid approach.
@@ -1928,11 +1717,13 @@ class Swarm:
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
             )
 
-    async def process(self, user_id: str, user_text: str, timezone: str = None) -> AsyncGenerator[str, None]:
+    async def process(
+        self, user_id: str, user_text: str, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle handoffs.
 
         Args:
-            user_id (str): Unique user identifier 
+            user_id (str): Unique user identifier
             user_text (str): User's text input
             timezone (str, optional): User-specific timezone
         """
@@ -1962,7 +1753,9 @@ class Swarm:
             confidence_score = 1.0  # Default high confidence
 
             # Process response stream
-            async for chunk in self._stream_response(user_id, user_text, current_agent, timezone):
+            async for chunk in self._stream_response(
+                user_id, user_text, current_agent, timezone
+            ):
                 yield chunk
                 final_response += chunk
 
@@ -2082,7 +1875,7 @@ class Swarm:
                 self.critic.analyze_interaction(
                     agent_name=current_agent.__class__.__name__,
                     user_query=user_text,
-                    response=full_response
+                    response=full_response,
                 )
             )
 
@@ -2214,20 +2007,15 @@ class KnowledgeExplorer:
             print(f"Error in knowledge gap analysis: {e}")
 
     async def schedule_knowledge_acquisition(self, topic, user_id):
-        """Schedule a task to research and learn about a topic."""
+        """Execute research immediately instead of scheduling."""
         # Get a suitable agent for research
         first_agent = next(iter(self.swarm.agents.values()))
 
-        # Schedule the task
-        await first_agent.schedule_task(
-            user_id=user_id,
-            task_name=f"Learn about: {topic}",
-            task_type="knowledge_acquisition",
-            function="research_and_learn",
-            parameters={"topic": topic},
-        )
+        # Execute research directly
+        result = await first_agent.research_and_learn(topic)
 
-        print(f"📚 Scheduled autonomous learning task for topic: {topic}")
+        print(f"📚 Executed learning task for topic: {topic}")
+        return result
 
 
 class Critic:
@@ -2252,10 +2040,13 @@ class Critic:
             self.feedback_collection.create_index([("agent_name", 1)])
             self.feedback_collection.create_index([("improvement_area", 1)])
 
-    async def analyze_interaction(self, agent_name, user_query, response, random_seed=None):
+    async def analyze_interaction(
+        self, agent_name, user_query, response, random_seed=None
+    ):
         """Analyze an agent interaction and provide improvement feedback."""
         # Randomly decide whether to analyze this interaction based on frequency
         import random
+
         if random_seed is not None:
             random.seed(random_seed)
         if random.random() > self.critique_frequency:
@@ -2304,16 +2095,18 @@ class Critic:
 
             # Store feedback in database
             for area in feedback["improvement_areas"]:
-                self.feedback_collection.insert_one({
-                    "agent_name": agent_name,
-                    "user_query": user_query,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                    "improvement_area": area["area"],
-                    "issue": area["issue"],
-                    "recommendation": area["recommendation"],
-                    "overall_score": feedback["overall_score"],
-                    "priority": feedback["priority"],
-                })
+                self.feedback_collection.insert_one(
+                    {
+                        "agent_name": agent_name,
+                        "user_query": user_query,
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                        "improvement_area": area["area"],
+                        "issue": area["issue"],
+                        "recommendation": area["recommendation"],
+                        "overall_score": feedback["overall_score"],
+                        "priority": feedback["priority"],
+                    }
+                )
 
             # If high priority feedback, schedule immediate learning task
             if feedback["priority"] == "high" and feedback["improvement_areas"]:
@@ -2327,39 +2120,41 @@ class Critic:
             return None
 
     async def schedule_improvement_task(self, agent_name, issue):
-        """Schedule a task to address a high-priority improvement area."""
+        """Execute improvement task immediately."""
         if agent_name in self.swarm.agents:
             agent = self.swarm.agents[agent_name]
 
-            # Create learning task for the agent
-            topic = f"How to improve {issue['area'].lower()} in responses: {issue['issue']}"
-
-            await agent.schedule_task(
-                user_id="system_critic",
-                task_name=f"Improve {issue['area']}",
-                task_type="self_improvement",
-                function="research_and_learn",
-                parameters={"topic": topic}
+            # Create topic for improvement
+            topic = (
+                f"How to improve {issue['area'].lower()} in responses: {issue['issue']}"
             )
 
+            # Execute research directly
+            result = await agent.research_and_learn(topic)
+
             print(
-                f"📝 Scheduled improvement task for {agent_name}: {issue['area']}")
+                f"📝 Executed improvement task for {agent_name}: {issue['area']}")
+            return result
 
     def get_agent_feedback(self, agent_name=None, limit=10):
         """Get recent feedback for an agent or all agents."""
         query = {"agent_name": agent_name} if agent_name else {}
-        feedback = list(self.feedback_collection.find(
-            query).sort("timestamp", -1).limit(limit))
+        feedback = list(
+            self.feedback_collection.find(query).sort(
+                "timestamp", -1).limit(limit)
+        )
         return feedback
 
     def get_improvement_trends(self):
         """Get trends in improvement areas across all agents."""
         pipeline = [
-            {"$group": {
-                "_id": "$improvement_area",
-                "count": {"$sum": 1},
-                "avg_score": {"$avg": "$overall_score"}
-            }},
-            {"$sort": {"count": -1}}
+            {
+                "$group": {
+                    "_id": "$improvement_area",
+                    "count": {"$sum": 1},
+                    "avg_score": {"$avg": "$overall_score"},
+                }
+            },
+            {"$sort": {"count": -1}},
         ]
         return list(self.feedback_collection.aggregate(pipeline))

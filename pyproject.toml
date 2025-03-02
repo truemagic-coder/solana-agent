@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "7.0.0"
+version = "7.0.0-dev13"
 description = "Build self-learning AI Agent Swarm"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -18,7 +18,7 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-openai = "^1.65.1"
+openai = "^1.65.2"
 pydantic = "^2.10.6"
 pymongo = "^4.11.1"
 zep-cloud = "^2.4.0"
