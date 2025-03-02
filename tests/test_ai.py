@@ -299,7 +299,7 @@ def ai_instance(mock_database, mock_openai_client, mock_zep_client, mock_pinecon
 @pytest.fixture
 def swarm_instance(mock_database, ai_instance):
     """Create a Swarm instance with a mocked database."""
-    swarm = Swarm(mock_database, router_model="gpt-4o", enable_critic=False)
+    swarm = Swarm(mock_database, enable_critic=False)
 
     # Mock routing decision FIRST so it's available to other functions
     swarm._get_routing_decision = AsyncMock()
@@ -609,12 +609,11 @@ async def test_text_processing(ai_instance):
 # Swarm tests
 def test_swarm_initialization(mock_database):
     """Test Swarm class initialization."""
-    swarm = Swarm(mock_database, "gpt-4o")
+    swarm = Swarm(mock_database)
 
     assert swarm.agents == {}
     assert swarm.specializations == {}
     assert swarm.database == mock_database
-    assert swarm.router_model == "gpt-4o"
     assert swarm.handoffs is not None
 
 
@@ -625,6 +624,12 @@ async def test_swarm_register(swarm_instance):
     second_agent = MagicMock(spec=AI)
     second_agent._tools = []
     second_agent.add_tool = MagicMock()
+
+    # Add _instructions attribute to mock for swarm directive feature
+    second_agent._instructions = "Original instructions"
+
+    # Add make_time_aware method to mock for time awareness feature
+    second_agent.make_time_aware = MagicMock(return_value=second_agent)
 
     # Register the agent
     swarm_instance.register(
@@ -637,6 +642,14 @@ async def test_swarm_register(swarm_instance):
 
     # Verify _update_all_agent_tools was called
     swarm_instance._update_all_agent_tools.assert_called_once()
+
+    # Verify make_time_aware was called
+    second_agent.make_time_aware.assert_called_once()
+
+    # Verify directive was applied - check for content rather than exact prefix
+    assert "┌─────────────── SWARM DIRECTIVE ───────────────┐" in second_agent._instructions
+    assert "You are part of an agent swarm" in second_agent._instructions
+    assert "Original instructions" in second_agent._instructions
 
 
 @pytest.mark.asyncio

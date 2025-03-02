@@ -1518,11 +1518,10 @@ class Swarm:
         Your goals are to provide accurate, helpful responses while collaborating with other agents.
         """
 
-        # Format the directive with proper structure
         self.formatted_directive = f"""
-        ┌─────────────── SWARM DIRECTIVE ───────────────┐
-        {self.swarm_directive}
-        └─────────────────────────────────────────────--┘
+            ┌─────────────── SWARM DIRECTIVE ───────────────┐
+            {self.swarm_directive}
+            └─────────────────────────────────────────────┘
         """
 
         # Initialize critic if enabled
