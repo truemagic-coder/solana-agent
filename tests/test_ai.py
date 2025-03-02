@@ -1,6 +1,5 @@
 import pytest
 import datetime
-import uuid
 import json
 from io import StringIO
 from unittest.mock import MagicMock, AsyncMock, patch
