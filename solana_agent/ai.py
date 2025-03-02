@@ -843,13 +843,19 @@ class AI:
         return transcription.text
 
     async def text(
-        self, user_id: str, user_text: str, timezone: str = None
+        self,
+        user_id: str,
+        user_text: str,
+        timezone: str = None,
+        original_user_text: str = None,
     ) -> AsyncGenerator[str, None]:
         """Process text input and stream AI responses asynchronously.
 
         Args:
             user_id (str): Unique identifier for the user/conversation.
             user_text (str): Text input from user to process.
+            original_user_text (str, optional): Original user message for storage. If provided,
+                                           this will be stored instead of user_text. Defaults to None.
 
         Returns:
             AsyncGenerator[str, None]: Stream of response text chunks (including tool call results).
@@ -1013,10 +1019,15 @@ class AI:
                 if self._accumulated_value_queue.empty():
                     break
 
+        # For storage purposes, use original text if provided
+        message_to_store = (
+            original_user_text if original_user_text is not None else user_text
+        )
+
         # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
-            "message": user_text,
+            "message": message_to_store,
             "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
@@ -1850,7 +1861,9 @@ class Swarm:
             """
             print(f"Applying feedback to improve response: {feedback_text}")
 
-        async for chunk in current_agent.text(user_id, augmented_instruction, timezone):
+        async for chunk in current_agent.text(
+            user_id, augmented_instruction, timezone, user_text
+        ):
             # Accumulate the full response for critic analysis
             full_response += chunk
 
