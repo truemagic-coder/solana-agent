@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "solana-agent"
-version = "7.0.0-dev24"
-description = "Build self-learning AI Agent Swarm"
+version = "7.0.0"
+description = "The first AGI framework"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/truemagic-coder/solana-agent"
-keywords = ["ai", "openai", "ai agents"]
+keywords = ["ai", "openai", "ai agents", "agi"]
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",

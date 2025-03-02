@@ -1770,7 +1770,6 @@ class Swarm:
 
             # Response tracking
             final_response = ""
-            confidence_score = 1.0  # Default high confidence
 
             # Process response stream
             async for chunk in self._stream_response(
@@ -1778,24 +1777,6 @@ class Swarm:
             ):
                 yield chunk
                 final_response += chunk
-
-                # Detect confidence signals in response
-                lower_chunk = chunk.lower()
-                if any(
-                    phrase in lower_chunk
-                    for phrase in [
-                        "i'm not sure",
-                        "uncertain",
-                        "i don't know",
-                        "limited information",
-                    ]
-                ):
-                    confidence_score = 0.4
-                elif any(
-                    phrase in lower_chunk
-                    for phrase in ["might be", "possibly", "perhaps"]
-                ):
-                    confidence_score = 0.7
 
             # Post-processing: learn from conversation
             conversation = {
