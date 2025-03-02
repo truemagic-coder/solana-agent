@@ -81,6 +81,13 @@ Unlike traditional AI assistants that forget conversations after each session, S
 - Automatic scheduling of learning tasks for high-priority issues
 - System-wide trend analysis to track collective improvement
 
+### 🎯 **Unified Mission Framework**
+- Define organization-wide values, goals, and operating principles
+- Automatically applied to all agents in the swarm
+- Visually distinct formatting for clarity and emphasis
+- Consistent decision-making aligned with organizational priorities
+- Individual agent specializations work within the directive framework
+
 ## Privacy and Collective Memory
 
 Solana Agent's collective memory system is designed with privacy in mind:
@@ -123,6 +130,7 @@ Solana Agent's time awareness system ensures your AI assistants always provide c
 - Dynamic routing based on expertise and query complexity
 - Seamless context preservation during handoffs
 - Single unified interface for the entire agent ecosystem
+- Unified mission framework for consistent decision making
 
 #### 🏢 **Enterprise Production Readiness**
 - Deployment-ready with minimal configuration

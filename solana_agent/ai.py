@@ -1480,6 +1480,7 @@ class Swarm:
     def __init__(
         self,
         database: MongoDatabase,
+        swarm_directive: str = None,
         router_model: str = "gpt-4o-mini",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
@@ -1492,7 +1493,14 @@ class Swarm:
 
         Args:
             database (MongoDatabase): Shared MongoDB database instance
+            swarm_directive (str, optional): Core directive/mission that governs all agents. Defaults to None.
             router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
+            insight_model (str, optional): Model to extract collective insights. Defaults to "gpt-4o-mini".
+            enable_collective_memory (bool, optional): Whether to enable collective memory. Defaults to True.
+            enable_autonomous_learning (bool, optional): Whether to enable autonomous learning. Defaults to True.
+            default_timezone (str, optional): Default timezone for time-awareness. Defaults to "UTC".
+            enable_critic (bool, optional): Whether to enable the critic system. Defaults to True.
+            critique_frequency (float, optional): Fraction of interactions to analyze. Defaults to 0.1.
         """
         self.agents = {}  # name -> AI instance
         self.specializations = {}  # name -> description
@@ -1503,6 +1511,19 @@ class Swarm:
         self.enable_autonomous_learning = enable_autonomous_learning
         self.default_timezone = default_timezone
         self.enable_critic = enable_critic
+
+        # Store swarm directive
+        self.swarm_directive = swarm_directive or """
+        You are part of an agent swarm that works together to serve users effectively.
+        Your goals are to provide accurate, helpful responses while collaborating with other agents.
+        """
+
+        # Format the directive with proper structure
+        self.formatted_directive = f"""
+        ┌─────────────── SWARM DIRECTIVE ───────────────┐
+        {self.swarm_directive}
+        └─────────────────────────────────────────────--┘
+        """
 
         # Initialize critic if enabled
         if enable_critic:
@@ -1772,6 +1793,9 @@ class Swarm:
         """Register a specialized agent with the multi-agent system."""
         # Make agent time-aware first
         agent.make_time_aware(self.default_timezone)
+
+        # Apply swarm directive to the agent
+        agent._instructions = f"{self.formatted_directive}\n\n{agent._instructions}"
 
         # Add the agent to the system first
         self.agents[name] = agent
