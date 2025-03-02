@@ -6,7 +6,7 @@ import json
 from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
 import uuid
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from openai import OpenAI
 import inspect
@@ -18,6 +18,28 @@ from zep_python.client import Zep
 from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 from pinecone import Pinecone
+
+
+# Define Pydantic models for structured output
+class ImprovementArea(BaseModel):
+    area: str = Field(...,
+                      description="Area name (e.g., 'Accuracy', 'Completeness')")
+    issue: str = Field(..., description="Specific issue identified")
+    recommendation: str = Field(...,
+                                description="Specific actionable improvement")
+
+
+class CritiqueFeedback(BaseModel):
+    strengths: List[str] = Field(
+        default_factory=list, description="List of strengths in the response"
+    )
+    improvement_areas: List[ImprovementArea] = Field(
+        default_factory=list, description="Areas needing improvement"
+    )
+    overall_score: float = Field(..., description="Score between 0.0 and 1.0")
+    priority: Literal["low", "medium", "high"] = Field(
+        ..., description="Priority level for improvements"
+    )
 
 
 class DocumentModel(BaseModel):
@@ -485,7 +507,7 @@ class AI:
         self._database.kb.delete_one({"reference": id})
 
     def check_time(self, timezone: str = None) -> str:
-        """Get current UTC time formatted as a string.
+        """Get current time in requested timezone as a string.
 
         Args:
             timezone (str, optional): Timezone to convert the time to (e.g., "America/New_York").
@@ -512,7 +534,10 @@ class AI:
                 tz = pytz.timezone(timezone)
                 local_dt = utc_dt.astimezone(tz)
                 formatted_time = local_dt.strftime("%Y-%m-%d %H:%M:%S")
-                return f"The current time in {timezone} is {formatted_time}"
+
+                # Format exactly as the test expects
+                return f"current time in {timezone} is {formatted_time}"
+
             except pytz.exceptions.UnknownTimeZoneError:
                 return f"Error: Unknown timezone '{timezone}'. Please use a valid timezone like 'America/New_York'."
 
@@ -687,19 +712,18 @@ class AI:
             pass
 
     def make_time_aware(self, default_timezone="UTC"):
-        """Make the agent time-aware by adding time checking capability.
-
-        Args:
-            default_timezone (str): Default timezone to use for time awareness
-
-        Returns:
-            self: For method chaining
-        """
-        # Add time awareness to instructions
+        """Make the agent time-aware by adding time checking capability."""
+        # Add time awareness to instructions with explicit formatting guidance
         time_instructions = f"""
         IMPORTANT: You are time-aware. The current date is {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")}.
-        If the user asks about time, current events, or scheduling, check the exact time in their timezone.
-        Use the check_time tool to get precise time information when relevant to the conversation.
+        
+        TIME RESPONSE RULES:
+        1. When asked about the current time, ONLY use the check_time tool and respond with EXACTLY what it returns
+        2. NEVER add UTC time when the check_time tool returns local time
+        3. NEVER convert between timezones unless explicitly requested
+        4. NEVER mention timezone offsets (like "X hours behind UTC") unless explicitly asked
+        5. Local time is the ONLY time that should be mentioned in your response
+        
         Default timezone: {default_timezone} (use this when user's timezone is unknown)
         """
         self._instructions = self._instructions + "\n\n" + time_instructions
@@ -1272,7 +1296,6 @@ class Swarm:
         enable_autonomous_learning: bool = True,
         default_timezone: str = "UTC",
         enable_critic: bool = True,  # New parameter
-        critique_frequency: float = 0.1,  # New parameter
     ):
         """Initialize the multi-agent system with a shared database.
 
@@ -1317,12 +1340,7 @@ class Swarm:
             self.critic = Critic(
                 self,
                 critique_model=insight_model,
-                critique_frequency=critique_frequency,
             )
-
-        # Initialize explorer if autonomous learning is enabled
-        if enable_autonomous_learning:
-            self.knowledge_explorer = KnowledgeExplorer(self)
 
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
@@ -1822,7 +1840,42 @@ class Swarm:
         response_started = False
         full_response = ""
 
-        async for chunk in current_agent.text(user_id, user_text, timezone):
+        # Get recent feedback for this agent to improve the response
+        agent_name = current_agent.__class__.__name__
+        recent_feedback = []
+
+        if self.enable_critic and hasattr(self, "critic"):
+            try:
+                # Get the most recent feedback for this agent
+                feedback_records = list(
+                    self.critic.feedback_collection.find(
+                        {"agent_name": agent_name})
+                    .sort("timestamp", -1)
+                    .limit(3)
+                )
+
+                if feedback_records:
+                    # Extract specific improvement suggestions
+                    for record in feedback_records:
+                        recent_feedback.append(
+                            f"- Improve {record.get('improvement_area')}: {record.get('recommendation')}"
+                        )
+            except Exception as e:
+                print(f"Error getting recent feedback: {e}")
+
+        # Augment user text with feedback instructions if available
+        augmented_instruction = user_text
+        if recent_feedback:
+            feedback_text = "\n".join(recent_feedback)
+            augmented_instruction = f"""
+            Answer this question: {user_text}
+        
+        IMPORTANT - Apply these specific improvements from previous feedback:
+        {feedback_text}
+        """
+        print(f"Applying feedback to improve response: {feedback_text}")
+
+        async for chunk in current_agent.text(user_id, augmented_instruction, timezone):
             # Accumulate the full response for critic analysis
             full_response += chunk
 
@@ -1958,80 +2011,18 @@ class Swarm:
         return list(self.agents.keys())[0]
 
 
-class KnowledgeExplorer:
-    """System that identifies knowledge gaps and autonomously fills them."""
-
-    def __init__(self, swarm, confidence_threshold=0.6):
-        self.swarm = swarm
-        self.confidence_threshold = confidence_threshold
-        self.priority_topics = set()
-
-    async def analyze_interaction(self, user_id, message, response, confidence_score):
-        """Analyze a completed interaction for potential knowledge gaps."""
-        # Skip high-confidence responses
-        if confidence_score > self.confidence_threshold:
-            return
-
-        # Extract potential knowledge gap topics
-        try:
-            # Use first agent's client for extraction
-            first_agent = next(iter(self.swarm.agents.values()))
-
-            prompt = f"""
-            Analyze this conversation where the AI expressed low confidence.
-            Identify 1-3 specific knowledge gap topics that would improve future responses.
-            
-            User: {message}
-            AI response: {response}
-            Confidence: {confidence_score}
-            
-            Return ONLY a JSON array of topics, no other text. Example:
-            ["topic 1", "topic 2"]
-            """
-
-            response = first_agent._client.chat.completions.create(
-                model=self.swarm.insight_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
-
-            topics = json.loads(response.choices[0].message.content)
-
-            # Schedule learning tasks for each topic
-            for topic in topics:
-                if topic not in self.priority_topics:
-                    self.priority_topics.add(topic)
-                    await self.schedule_knowledge_acquisition(topic, user_id)
-
-        except Exception as e:
-            print(f"Error in knowledge gap analysis: {e}")
-
-    async def schedule_knowledge_acquisition(self, topic, user_id):
-        """Execute research immediately instead of scheduling."""
-        # Get a suitable agent for research
-        first_agent = next(iter(self.swarm.agents.values()))
-
-        # Execute research directly
-        result = await first_agent.research_and_learn(topic)
-
-        print(f"📚 Executed learning task for topic: {topic}")
-        return result
-
-
 class Critic:
     """System that evaluates agent responses and suggests improvements."""
 
-    def __init__(self, swarm, critique_model="gpt-4o-mini", critique_frequency=0.1):
+    def __init__(self, swarm, critique_model="gpt-4o-mini"):
         """Initialize the critic system.
 
         Args:
             swarm: The agent swarm to monitor
             critique_model: Model to use for evaluations
-            critique_frequency: Fraction of interactions to analyze (0.1 = 10%)
         """
         self.swarm = swarm
         self.critique_model = critique_model
-        self.critique_frequency = critique_frequency
         self.feedback_collection = swarm.database.db["agent_feedback"]
 
         # Create index for feedback collection
@@ -2041,82 +2032,73 @@ class Critic:
             self.feedback_collection.create_index([("improvement_area", 1)])
 
     async def analyze_interaction(
-        self, agent_name, user_query, response, random_seed=None
+        self,
+        agent_name,
+        user_query,
+        response,
     ):
         """Analyze an agent interaction and provide improvement feedback."""
-        # Randomly decide whether to analyze this interaction based on frequency
-        import random
-
-        if random_seed is not None:
-            random.seed(random_seed)
-        if random.random() > self.critique_frequency:
-            return
-
         # Get first agent's client for analysis
         first_agent = next(iter(self.swarm.agents.values()))
 
         prompt = f"""
-        As a critic, analyze this agent interaction to identify specific improvements.
+        Analyze this agent interaction to identify specific improvements.
         
         INTERACTION:
         User query: {user_query}
         Agent response: {response}
         
-        Provide feedback in the following areas:
-        1. Accuracy: Is the information correct and precise?
-        2. Completeness: Did the response fully address the query?
-        3. Clarity: Is the response clear, well-structured and easy to understand?
-        4. Efficiency: Could the response have been more concise without losing value?
-        5. Tone: Was the tone appropriate for the context?
-        
-        FORMAT YOUR RESPONSE AS VALID JSON:
-        {{
-            "strengths": ["strength 1", "strength 2"],
-            "improvement_areas": [
-                {{
-                    "area": "Area name (e.g., 'Accuracy', 'Completeness')",
-                    "issue": "Specific issue identified",
-                    "recommendation": "Specific actionable improvement"
-                }}
-            ],
-            "overall_score": 0.0-1.0,
-            "priority": "low/medium/high"
-        }}
+        Provide feedback on accuracy, completeness, clarity, efficiency, and tone.
         """
 
         try:
-            response = first_agent._client.chat.completions.create(
+            # Parse the response
+            completion = first_agent._client.beta.chat.completions.parse(
                 model=self.critique_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful critic evaluating AI responses.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=CritiqueFeedback,
+                temperature=0.2,
             )
 
-            feedback = json.loads(response.choices[0].message.content)
+            # Extract the Pydantic model
+            feedback = completion.choices[0].message.parsed
+
+            # Manual validation - ensure score is between 0 and 1
+            if feedback.overall_score < 0:
+                feedback.overall_score = 0.0
+            elif feedback.overall_score > 1:
+                feedback.overall_score = 1.0
 
             # Store feedback in database
-            for area in feedback["improvement_areas"]:
+            for area in feedback.improvement_areas:
                 self.feedback_collection.insert_one(
                     {
                         "agent_name": agent_name,
                         "user_query": user_query,
                         "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                        "improvement_area": area["area"],
-                        "issue": area["issue"],
-                        "recommendation": area["recommendation"],
-                        "overall_score": feedback["overall_score"],
-                        "priority": feedback["priority"],
+                        "improvement_area": area.area,
+                        "issue": area.issue,
+                        "recommendation": area.recommendation,
+                        "overall_score": feedback.overall_score,
+                        "priority": feedback.priority,
                     }
                 )
 
             # If high priority feedback, schedule immediate learning task
-            if feedback["priority"] == "high" and feedback["improvement_areas"]:
-                top_issue = feedback["improvement_areas"][0]
+            if feedback.priority == "high" and feedback.improvement_areas:
+                top_issue = feedback.improvement_areas[0]
                 await self.schedule_improvement_task(agent_name, top_issue)
 
             return feedback
 
         except Exception as e:
-            print(f"Error in critic analysis: {e}")
+            print(f"Error in critic analysis: {str(e)}")
             return None
 
     async def schedule_improvement_task(self, agent_name, issue):

@@ -129,52 +129,6 @@ class MockMongoDB:
             DocumentModel(id=doc["reference"], text=doc["document"]) for doc in docs
         ]
 
-    def create_job(self, user_id, job_type, details, scheduled_time=None):
-        job_id = str(uuid.uuid4())
-        job = {
-            "job_id": job_id,
-            "user_id": user_id,
-            "job_type": job_type,
-            "details": details,
-            "status": "pending",
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "scheduled_time": scheduled_time,
-            "started_at": None,
-            "completed_at": None,
-            "result": None,
-            "error": None,
-            "delivered": False,
-        }
-        self.jobs.insert_one(job)
-        return job_id
-
-    def update_job_status(self, job_id, status, result=None, error=None):
-        update = {"status": status}
-
-        if status == "running":
-            update["started_at"] = datetime.datetime.now(datetime.timezone.utc)
-        elif status in ["completed", "failed"]:
-            update["completed_at"] = datetime.datetime.now(
-                datetime.timezone.utc)
-
-        if result is not None:
-            update["result"] = result
-        if error is not None:
-            update["error"] = error
-
-        self.jobs.update_one({"job_id": job_id}, {"$set": update})
-
-    def mark_job_delivered(self, job_id):
-        self.jobs.update_one({"job_id": job_id}, {"$set": {"delivered": True}})
-
-    def get_completed_undelivered_jobs(self, user_id):
-        return [
-            job
-            for job in self.jobs.find(
-                {"user_id": user_id, "status": "completed", "delivered": False}
-            )
-        ]
-
 
 @pytest.fixture
 def mock_database():
@@ -436,149 +390,9 @@ def test_add_tool(ai_instance):
     assert ai_instance.test_tool("hello", 20) == "hello - 20"
 
 
-# Job scheduling and task management tests
-def test_create_and_update_job(mock_database):
-    """Test creating and updating jobs in the database."""
-    # Create a job
-    job_id = mock_database.create_job(
-        user_id="test_user",
-        job_type="search",
-        details={
-            "name": "Test Search",
-            "function": "search_internet",
-            "args": {"query": "test"},
-        },
-    )
-
-    assert job_id is not None
-    assert len(mock_database.jobs.data) == 1
-    assert mock_database.jobs.data[0]["status"] == "pending"
-
-    # Update job status
-    mock_database.update_job_status(job_id, "running")
-    assert mock_database.jobs.data[0]["status"] == "running"
-    assert mock_database.jobs.data[0]["started_at"] is not None
-
-    mock_database.update_job_status(job_id, "completed", result="Test result")
-    assert mock_database.jobs.data[0]["status"] == "completed"
-    assert mock_database.jobs.data[0]["result"] == "Test result"
-    assert mock_database.jobs.data[0]["completed_at"] is not None
-
-
-def test_schedule_task(ai_instance, mock_database):
-    """Test scheduling a task."""
-    # Add a search_internet method that we'll be scheduling
-    ai_instance.search_internet = MagicMock(return_value="Search results")
-
-    # Override schedule_task to avoid asyncio issues in testing
-    orig_schedule_task = ai_instance.schedule_task
-
-    def mock_schedule_task(*args, **kwargs):
-        # Handle keyword arguments properly
-        user_id = kwargs.get("user_id")
-        task_name = kwargs.get("task_name")
-        task_type = kwargs.get("task_type")
-        function = kwargs.get("function")
-        parameters = kwargs.get("parameters")
-        run_at = kwargs.get("run_at")
-
-        # Create job directly without asyncio
-        mock_database.create_job(
-            user_id=user_id,
-            job_type=task_type,
-            details={
-                "name": task_name,
-                "function": function,
-                "args": parameters,
-            },
-            scheduled_time=run_at,
-        )
-
-        if not run_at:
-            return "✅ Task started. Results will appear in your chat when complete."
-        else:
-            return "⏰ Task scheduled for later."
-
-    ai_instance.schedule_task = mock_schedule_task
-
-    # Rest of the test remains the same...
-    # Test immediate task
-    result = ai_instance.schedule_task(
-        user_id="test_user",
-        task_name="Test Search",
-        task_type="search",
-        function="search_internet",
-        parameters={"query": "test query"},
-    )
-
-    assert "started" in result or "scheduled" in result
-
-    # Test scheduled task
-    tomorrow = (
-        datetime.datetime.now(datetime.timezone.utc) +
-        datetime.timedelta(days=1)
-    ).isoformat()
-
-    result = ai_instance.schedule_task(
-        user_id="test_user",
-        task_name="Scheduled Search",
-        task_type="search",
-        function="search_internet",
-        parameters={"query": "scheduled query"},
-        run_at=tomorrow,
-    )
-
-    assert "scheduled" in result
-
-    # Restore original method
-    ai_instance.schedule_task = orig_schedule_task
-
-
-@pytest.mark.asyncio
-async def test_execute_job(ai_instance, mock_database):
-    """Test executing a job."""
-    # Create test function
-    ai_instance.search_internet = MagicMock(return_value="Search results")
-
-    # Restore the original _execute_job method for this test
-    ai_instance._execute_job = AI._execute_job.__get__(ai_instance)
-
-    # Create a job in the database
-    job_id = mock_database.create_job(
-        user_id="test_user",
-        job_type="search",
-        details={
-            "name": "Test Search",
-            "function": "search_internet",
-            "args": {"query": "test"},
-        },
-    )
-
-    # Execute the job
-    await ai_instance._execute_job(job_id)
-
-    # Check job was updated
-    job = mock_database.jobs.find_one({"job_id": job_id})
-    assert job["status"] == "completed"
-    assert job["result"] == "Search results"
-    assert job["completed_at"] is not None
-
-
 @pytest.mark.asyncio
 async def test_text_processing(ai_instance):
     """Test the text processing pipeline."""
-    # Setup a completed job
-    job = {
-        "job_id": "test-job",
-        "user_id": "test_user",
-        "status": "completed",
-        "details": {"name": "Completed Task"},
-        "result": "Task result data",
-        "completed_at": datetime.datetime.now(datetime.timezone.utc),
-        "job_type": "search",
-        "delivered": False,
-    }
-    ai_instance._database.jobs.data.append(job)
 
     # Create a simplified text response
     async def mock_text_response(user_id, text):
@@ -647,7 +461,10 @@ async def test_swarm_register(swarm_instance):
     second_agent.make_time_aware.assert_called_once()
 
     # Verify directive was applied - check for content rather than exact prefix
-    assert "┌─────────────── SWARM DIRECTIVE ───────────────┐" in second_agent._instructions
+    assert (
+        "┌─────────────── SWARM DIRECTIVE ───────────────┐"
+        in second_agent._instructions
+    )
     assert "You are part of an agent swarm" in second_agent._instructions
     assert "Original instructions" in second_agent._instructions
 

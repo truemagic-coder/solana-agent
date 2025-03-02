@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "7.0.0-dev13"
+version = "7.0.0-dev20"
 description = "Build self-learning AI Agent Swarm"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
