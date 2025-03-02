@@ -101,7 +101,6 @@ Solana Agent's time awareness system ensures your AI assistants always provide c
 
 #### 💡 **AGI-First Architecture**
 - Designed for autonomous intelligence and self-improvement
-- Built-in knowledge gap detection and autonomous learning
 - Framework for agents to improve themselves without human intervention
 
 #### 🧠 **Advanced Memory Architecture**

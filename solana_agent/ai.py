@@ -1293,7 +1293,6 @@ class Swarm:
         router_model: str = "gpt-4o-mini",
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
-        enable_autonomous_learning: bool = True,
         default_timezone: str = "UTC",
         enable_critic: bool = True,  # New parameter
     ):
@@ -1305,7 +1304,6 @@ class Swarm:
             router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
             insight_model (str, optional): Model to extract collective insights. Defaults to "gpt-4o-mini".
             enable_collective_memory (bool, optional): Whether to enable collective memory. Defaults to True.
-            enable_autonomous_learning (bool, optional): Whether to enable autonomous learning. Defaults to True.
             default_timezone (str, optional): Default timezone for time-awareness. Defaults to "UTC".
             enable_critic (bool, optional): Whether to enable the critic system. Defaults to True.
             critique_frequency (float, optional): Fraction of interactions to analyze. Defaults to 0.1.
@@ -1316,7 +1314,6 @@ class Swarm:
         self.router_model = router_model
         self.insight_model = insight_model
         self.enable_collective_memory = enable_collective_memory
-        self.enable_autonomous_learning = enable_autonomous_learning
         self.default_timezone = default_timezone
         self.enable_critic = enable_critic
 
