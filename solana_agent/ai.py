@@ -6,7 +6,7 @@ import json
 from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
 import uuid
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from openai import OpenAI
 import inspect
@@ -20,6 +20,43 @@ from zep_cloud.types import Message
 from pinecone import Pinecone
 
 
+# Define Pydantic models for structured output
+class ImprovementArea(BaseModel):
+    area: str = Field(...,
+                      description="Area name (e.g., 'Accuracy', 'Completeness')")
+    issue: str = Field(..., description="Specific issue identified")
+    recommendation: str = Field(...,
+                                description="Specific actionable improvement")
+
+
+class CritiqueFeedback(BaseModel):
+    strengths: List[str] = Field(
+        default_factory=list, description="List of strengths in the response"
+    )
+    improvement_areas: List[ImprovementArea] = Field(
+        default_factory=list, description="Areas needing improvement"
+    )
+    overall_score: float = Field(..., description="Score between 0.0 and 1.0")
+    priority: Literal["low", "medium", "high"] = Field(
+        ..., description="Priority level for improvements"
+    )
+
+
+class MemoryInsight(BaseModel):
+    fact: str = Field(...,
+                      description="The factual information worth remembering")
+    relevance: str = Field(
+        ..., description="Short explanation of why this fact is generally useful"
+    )
+
+
+class CollectiveMemoryResponse(BaseModel):
+    insights: List[MemoryInsight] = Field(
+        default_factory=list,
+        description="List of factual insights extracted from the conversation",
+    )
+
+
 class DocumentModel(BaseModel):
     id: str
     text: str
@@ -31,6 +68,7 @@ class MongoDatabase:
         self.db = self._client[db_name]
         self.messages = self.db["messages"]
         self.kb = self.db["kb"]
+        self.jobs = self.db["jobs"]
 
     def save_message(self, user_id: str, metadata: Dict[str, Any]):
         metadata["user_id"] = user_id
@@ -70,9 +108,11 @@ class AI:
         pinecone_index_name: str = None,
         pinecone_embed_model: Literal["llama-text-embed-v2"] = "llama-text-embed-v2",
         gemini_api_key: str = None,
-        openai_base_url: str = None,
         tool_calling_model: str = "gpt-4o-mini",
         reasoning_model: str = "gpt-4o-mini",
+        research_model: str = "gpt-4o-mini",
+        enable_internet_search: bool = True,
+        default_timezone: str = "UTC",
     ):
         """Initialize a new AI assistant instance.
 
@@ -88,9 +128,11 @@ class AI:
             pinecone_index_name (str, optional): Name of the Pinecone index. Defaults to None
             pinecone_embed_model (Literal["llama-text-embed-v2"], optional): Pinecone embedding model. Defaults to "llama-text-embed-v2"
             gemini_api_key (str, optional): API key for Gemini search. Defaults to None
-            openai_base_url (str, optional): Base URL for OpenAI API. Defaults to None
             tool_calling_model (str, optional): Model for tool calling. Defaults to "gpt-4o-mini"
             reasoning_model (str, optional): Model for reasoning. Defaults to "gpt-4o-mini"
+            research_model (str, optional): Model for research. Defaults to "gpt-4o-mini"
+            enable_internet_search (bool, optional): Enable internet search tools. Defaults to True
+            default_timezone (str, optional): Default timezone for time awareness. Defaults to "UTC"
         Example:
             ```python
             ai = AI(
@@ -107,11 +149,7 @@ class AI:
             - Optional integrations for Perplexity, Pinecone, Gemini, and Grok
             - You must create the Pinecone index in the dashboard before using it
         """
-        self._client = (
-            OpenAI(api_key=openai_api_key, base_url=openai_base_url)
-            if openai_base_url
-            else OpenAI(api_key=openai_api_key)
-        )
+        self._client = OpenAI(api_key=openai_api_key)
         self._memory_instructions = """
             You are a highly intelligent, context-aware conversational AI. When a user sends a query or statement, you should not only process the current input but also retrieve and integrate relevant context from their previous interactions. Use the memory data to:
             - Infer nuances in the user's intent.
@@ -147,10 +185,46 @@ class AI:
             self._pinecone.Index(
                 self._pinecone_index_name) if self._pinecone else None
         )
-        self._openai_base_url = openai_base_url
         self._tool_calling_model = tool_calling_model
         self._reasoning_model = reasoning_model
+        self._research_model = research_model
         self._tools = []
+        self._job_processor_task = None
+        self._default_timezone = default_timezone
+
+        # Automatically add internet search tool if API key is provided and feature is enabled
+        if perplexity_api_key and enable_internet_search:
+            # Use the add_tool decorator functionality directly
+            search_internet_tool = {
+                "type": "function",
+                "function": {
+                    "name": "search_internet",
+                    "description": "Search the internet using Perplexity AI API",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query string",
+                            },
+                            "model": {
+                                "type": "string",
+                                "description": "Perplexity model to use",
+                                "enum": [
+                                    "sonar",
+                                    "sonar-pro",
+                                    "sonar-reasoning-pro",
+                                    "sonar-reasoning",
+                                ],
+                                "default": "sonar",
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            }
+            self._tools.append(search_internet_tool)
+            print("Internet search capability added as default tool")
 
     async def __aenter__(self):
         return self
@@ -440,25 +514,19 @@ class AI:
         self.kb.delete(ids=[id], namespace=user_id)
         self._database.kb.delete_one({"reference": id})
 
-    def check_time(self, timezone: str) -> str:
-        """Get current UTC time formatted as a string via Cloudflare's NTP service.
+    def check_time(self, timezone: str = None) -> str:
+        """Get current time in requested timezone as a string.
 
         Args:
-            timezone (str): Timezone to convert the time to (e.g., "America/New_York")
+            timezone (str, optional): Timezone to convert the time to (e.g., "America/New_York").
+              If None, uses the agent's default timezone.
 
         Returns:
             str: Current time in the requested timezone in format 'YYYY-MM-DD HH:MM:SS'
-
-        Example:
-            ```python
-            time = ai.check_time("America/New_York")
-            # Returns: "The current time in America/New_York is 2025-02-26 10:30:45"
-            ```
-
-        Note:
-            This is a synchronous tool method required for OpenAI function calling.
-            Fetches time over NTP from Cloudflare's time server (time.cloudflare.com).
         """
+        # Use provided timezone or fall back to agent default
+        timezone = timezone or self._default_timezone or "UTC"
+
         try:
             # Request time from Cloudflare's NTP server
             client = ntplib.NTPClient()
@@ -474,7 +542,10 @@ class AI:
                 tz = pytz.timezone(timezone)
                 local_dt = utc_dt.astimezone(tz)
                 formatted_time = local_dt.strftime("%Y-%m-%d %H:%M:%S")
-                return f"The current time in {timezone} is {formatted_time}"
+
+                # Format exactly as the test expects
+                return f"current time in {timezone} is {formatted_time}"
+
             except pytz.exceptions.UnknownTimeZoneError:
                 return f"Error: Unknown timezone '{timezone}'. Please use a valid timezone like 'America/New_York'."
 
@@ -648,6 +719,101 @@ class AI:
         except Exception:
             pass
 
+    def make_time_aware(self, default_timezone="UTC"):
+        """Make the agent time-aware by adding time checking capability."""
+        # Add time awareness to instructions with explicit formatting guidance
+        time_instructions = f"""
+        IMPORTANT: You are time-aware. The current date is {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")}.
+        
+        TIME RESPONSE RULES:
+        1. When asked about the current time, ONLY use the check_time tool and respond with EXACTLY what it returns
+        2. NEVER add UTC time when the check_time tool returns local time
+        3. NEVER convert between timezones unless explicitly requested
+        4. NEVER mention timezone offsets (like "X hours behind UTC") unless explicitly asked
+        5. Local time is the ONLY time that should be mentioned in your response
+        
+        Default timezone: {default_timezone} (use this when user's timezone is unknown)
+        """
+        self._instructions = self._instructions + "\n\n" + time_instructions
+
+        self._default_timezone = default_timezone
+
+        # Ensure the check_time tool is registered (in case it was removed)
+        existing_tools = [t["function"]["name"] for t in self._tools]
+        if "check_time" not in existing_tools:
+            # Get method reference
+            check_time_func = self.check_time
+            # Re-register it using our add_tool decorator
+            self.add_tool(check_time_func)
+
+        return self
+
+    async def research_and_learn(self, topic: str) -> str:
+        """Research a topic and add findings to collective memory.
+
+        Args:
+            topic: The topic to research and learn about
+
+        Returns:
+            Summary of what was learned
+        """
+        try:
+            # First, search the internet for information
+            search_results = await self.search_internet(
+                f"comprehensive information about {topic}"
+            )
+
+            # Extract structured knowledge
+            prompt = f"""
+            Based on these search results about "{topic}", extract 3-5 factual insights 
+            worth adding to our collective knowledge.
+            
+            Search results:
+            {search_results}
+            
+            Format each insight as a JSON object with:
+            1. "fact": The factual information
+            2. "relevance": Short explanation of why this is generally useful
+            
+            Return ONLY a valid JSON array. Example:
+            [
+                {{"fact": "Topic X has property Y", "relevance": "Important for understanding Z"}}
+            ]
+            """
+
+            response = self._client.chat.completions.create(
+                model=self._research_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Extract factual knowledge from research.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+            )
+
+            insights = json.loads(response.choices[0].message.content)
+
+            # Add to collective memory via the swarm
+            if hasattr(self, "_swarm") and self._swarm and insights:
+                conversation = {
+                    "message": f"Research on {topic}",
+                    "response": json.dumps(insights),
+                    "user_id": "system_explorer",
+                }
+                await self._swarm.extract_and_store_insights(
+                    "system_explorer", conversation
+                )
+
+                # Return a summary of what was learned
+                return f"✅ Added {len(insights)} new insights about '{topic}' to collective memory."
+
+            return "⚠️ Could not add insights to collective memory."
+
+        except Exception as e:
+            return f"❌ Error researching topic: {str(e)}"
+
     async def delete_memory(self, user_id: str):
         """Delete memory for a specific user from Zep memory.
 
@@ -676,12 +842,20 @@ class AI:
         )
         return transcription.text
 
-    async def text(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+    async def text(
+        self,
+        user_id: str,
+        user_text: str,
+        timezone: str = None,
+        original_user_text: str = None,
+    ) -> AsyncGenerator[str, None]:
         """Process text input and stream AI responses asynchronously.
 
         Args:
             user_id (str): Unique identifier for the user/conversation.
             user_text (str): Text input from user to process.
+            original_user_text (str, optional): Original user message for storage. If provided,
+                                           this will be stored instead of user_text. Defaults to None.
 
         Returns:
             AsyncGenerator[str, None]: Stream of response text chunks (including tool call results).
@@ -698,6 +872,22 @@ class AI:
             - Integrates with Zep memory if configured.
             - Supports tool calls by aggregating and executing them as their arguments stream in.
         """
+        # Store current user ID for task scheduling context
+        self._current_user_id = user_id
+
+        # Store timezone with user ID for persistence
+        if timezone:
+            if not hasattr(self, "_user_timezones"):
+                self._user_timezones = {}
+            self._user_timezones[user_id] = timezone
+
+        # Set current timezone for this session
+        self._current_timezone = (
+            timezone
+            if timezone
+            else self._user_timezones.get(user_id, self._default_timezone)
+        )
+
         self._accumulated_value_queue = asyncio.Queue()
         final_tool_calls = {}  # Accumulate tool call deltas
         final_response = ""
@@ -829,10 +1019,15 @@ class AI:
                 if self._accumulated_value_queue.empty():
                     break
 
+        # For storage purposes, use original text if provided
+        message_to_store = (
+            original_user_text if original_user_text is not None else user_text
+        )
+
         # Save the conversation to the database and Zep memory (if configured)
         metadata = {
             "user_id": user_id,
-            "message": user_text,
+            "message": message_to_store,
             "response": final_response,
             "timestamp": datetime.datetime.now(datetime.timezone.utc),
         }
@@ -1110,31 +1305,337 @@ class AI:
 class Swarm:
     """An AI Agent Swarm that coordinates specialized AI agents with handoff capabilities."""
 
-    def __init__(self, database: MongoDatabase, router_model: str = "gpt-4o"):
+    def __init__(
+        self,
+        database: MongoDatabase,
+        directive: str = None,
+        router_model: str = "gpt-4o-mini",
+        insight_model: str = "gpt-4o-mini",
+        enable_collective_memory: bool = True,
+        enable_critic: bool = True,
+        default_timezone: str = "UTC",
+    ):
         """Initialize the multi-agent system with a shared database.
 
         Args:
             database (MongoDatabase): Shared MongoDB database instance
-            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o".
+            directive (str, optional): Core directive/mission that governs all agents. Defaults to None.
+            router_model (str, optional): Model to use for routing decisions. Defaults to "gpt-4o-mini".
+            insight_model (str, optional): Model to extract collective insights. Defaults to "gpt-4o-mini".
+            enable_collective_memory (bool, optional): Whether to enable collective memory. Defaults to True.
+            enable_critic (bool, optional): Whether to enable the critic system. Defaults to True.
+            default_timezone (str, optional): Default timezone for time-awareness. Defaults to "UTC".
         """
         self.agents = {}  # name -> AI instance
         self.specializations = {}  # name -> description
         self.database = database
         self.router_model = router_model
+        self.insight_model = insight_model
+        self.enable_collective_memory = enable_collective_memory
+        self.default_timezone = default_timezone
+        self.enable_critic = enable_critic
+
+        # Store swarm directive
+        self.swarm_directive = (
+            directive
+            or """
+        You are part of an agent swarm that works together to serve users effectively.
+        Your goals are to provide accurate, helpful responses while collaborating with other agents.
+        """
+        )
+
+        self.formatted_directive = f"""
+            ┌─────────────── SWARM DIRECTIVE ───────────────┐
+            {self.swarm_directive}
+            └─────────────────────────────────────────────┘
+        """
+
+        # Initialize critic if enabled
+        if enable_critic:
+            self.critic = Critic(
+                self,
+                critique_model=insight_model,
+            )
 
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
             self.database.db.create_collection("handoffs")
         self.handoffs = self.database.db["handoffs"]
 
+        # Create collective memory collection
+        if enable_collective_memory:
+            if "collective_memory" not in self.database.db.list_collection_names():
+                self.database.db.create_collection("collective_memory")
+            self.collective_memory = self.database.db["collective_memory"]
+
+            # Create text index for MongoDB text search
+            try:
+                self.collective_memory.create_index(
+                    [("fact", "text"), ("relevance", "text")]
+                )
+                print("Created text search index for collective memory")
+            except Exception as e:
+                print(f"Warning: Text index creation might have failed: {e}")
+        else:
+            print("Collective memory feature is disabled")
+
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
 
+        # Update the extract_and_store_insights method in Swarm class
+
+    async def extract_and_store_insights(
+        self, user_id: str, conversation: dict
+    ) -> None:
+        """Extract and store insights with hybrid vector/text search capabilities."""
+        # Get first agent to use its OpenAI client
+        if not self.agents:
+            return
+
+        first_agent = next(iter(self.agents.values()))
+
+        # Create the prompt to extract insights
+        prompt = f"""
+        Review this conversation and extract 0-3 IMPORTANT factual insights worth remembering for future users.
+        Only extract FACTUAL information that would be valuable across multiple conversations.
+        Do NOT include opinions, personal preferences, or user-specific details.
+        
+        Conversation:
+        User: {conversation.get('message', '')}
+        Assistant: {conversation.get('response', '')}
+        """
+
+        # Extract insights using AI with structured parsing
+        try:
+            # Parse the response using the Pydantic model
+            completion = first_agent._client.beta.chat.completions.parse(
+                model=self.insight_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Extract important factual insights from conversations.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=CollectiveMemoryResponse,
+                temperature=0.1,
+            )
+
+            # Extract the Pydantic model
+            memory_response = completion.choices[0].message.parsed
+
+            # Store in MongoDB (keeps all metadata and text)
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
+            mongo_records = []
+
+            for insight in memory_response.insights:
+                record_id = str(uuid.uuid4())
+                record = {
+                    "_id": record_id,
+                    "fact": insight.fact,
+                    "relevance": insight.relevance,
+                    "timestamp": timestamp,
+                    "source_user_id": user_id,
+                }
+                mongo_records.append(record)
+
+            if mongo_records:
+                for record in mongo_records:
+                    self.collective_memory.insert_one(record)
+
+            # Also store in Pinecone for semantic search if available
+            if (
+                mongo_records
+                and hasattr(first_agent, "_pinecone")
+                and first_agent._pinecone
+                and first_agent.kb
+            ):
+                try:
+                    # Generate embeddings
+                    texts = [
+                        f"{record['fact']}: {record['relevance']}"
+                        for record in mongo_records
+                    ]
+                    embeddings = first_agent._pinecone.inference.embed(
+                        model=first_agent._pinecone_embedding_model,
+                        inputs=texts,
+                        parameters={"input_type": "passage",
+                                    "truncate": "END"},
+                    )
+
+                    # Create vectors for Pinecone
+                    vectors = []
+                    for record, embedding in zip(mongo_records, embeddings):
+                        vectors.append(
+                            {
+                                "id": record["_id"],
+                                "values": embedding.values,
+                                "metadata": {
+                                    "fact": record["fact"],
+                                    "relevance": record["relevance"],
+                                    "timestamp": str(timestamp),
+                                    "source_user_id": user_id,
+                                },
+                            }
+                        )
+
+                    # Store in Pinecone
+                    first_agent.kb.upsert(
+                        vectors=vectors, namespace="collective_memory"
+                    )
+                    print(
+                        f"Stored {len(mongo_records)} insights in both MongoDB and Pinecone"
+                    )
+                except Exception as e:
+                    print(f"Error storing insights in Pinecone: {e}")
+            else:
+                print(f"Stored {len(mongo_records)} insights in MongoDB only")
+
+        except Exception as e:
+            print(f"Failed to extract insights: {str(e)}")
+
+    def search_collective_memory(self, query: str, limit: int = 5) -> str:
+        """Search the collective memory using a hybrid approach.
+
+        First tries semantic vector search through Pinecone, then falls back to
+        MongoDB text search, and finally to recency-based search as needed.
+
+        Args:
+            query: The search query
+            limit: Maximum number of results to return
+
+        Returns:
+            Formatted string with relevant insights
+        """
+        try:
+            if not self.enable_collective_memory:
+                return "Collective memory feature is disabled."
+
+            results = []
+            search_method = "recency"  # Default method if others fail
+
+            # Try semantic search with Pinecone first
+            if self.agents:
+                first_agent = next(iter(self.agents.values()))
+                if (
+                    hasattr(first_agent, "_pinecone")
+                    and first_agent._pinecone
+                    and first_agent.kb
+                ):
+                    try:
+                        # Generate embedding for query
+                        embedding = first_agent._pinecone.inference.embed(
+                            model=first_agent._pinecone_embedding_model,
+                            inputs=[query],
+                            parameters={"input_type": "passage",
+                                        "truncate": "END"},
+                        )
+
+                        # Search Pinecone
+                        pinecone_results = first_agent.kb.query(
+                            vector=embedding[0].values,
+                            top_k=limit * 2,  # Get more results to allow for filtering
+                            include_metadata=True,
+                            namespace="collective_memory",
+                        )
+
+                        # Extract results from Pinecone
+                        if pinecone_results.matches:
+                            for match in pinecone_results.matches:
+                                if hasattr(match, "metadata") and match.metadata:
+                                    results.append(
+                                        {
+                                            "fact": match.metadata.get(
+                                                "fact", "Unknown fact"
+                                            ),
+                                            "relevance": match.metadata.get(
+                                                "relevance", ""
+                                            ),
+                                            "score": match.score,
+                                        }
+                                    )
+
+                            # Get top results
+                            results = sorted(
+                                results, key=lambda x: x.get("score", 0), reverse=True
+                            )[:limit]
+                            search_method = "semantic"
+                    except Exception as e:
+                        print(f"Pinecone search error: {e}")
+
+            # Fall back to MongoDB keyword search if needed
+            if not results:
+                try:
+                    # First try text search if we have the index
+                    mongo_results = list(
+                        self.collective_memory.find(
+                            {"$text": {"$search": query}},
+                            {"score": {"$meta": "textScore"}},
+                        )
+                        .sort([("score", {"$meta": "textScore"})])
+                        .limit(limit)
+                    )
+
+                    if mongo_results:
+                        results = mongo_results
+                        search_method = "keyword"
+                    else:
+                        # Fall back to most recent insights
+                        results = list(
+                            self.collective_memory.find()
+                            .sort("timestamp", -1)
+                            .limit(limit)
+                        )
+                        search_method = "recency"
+                except Exception as e:
+                    print(f"MongoDB search error: {e}")
+                    # Final fallback - just get most recent
+                    results = list(
+                        self.collective_memory.find().sort("timestamp", -1).limit(limit)
+                    )
+
+            # Format the results
+            if not results:
+                return "No collective knowledge available."
+
+            formatted = [
+                f"## Relevant Collective Knowledge (using {search_method} search)"
+            ]
+            for insight in results:
+                formatted.append(
+                    f"- **{insight.get('fact')}** _{insight.get('relevance', '')}_"
+                )
+
+            return "\n".join(formatted)
+
+        except Exception as e:
+            print(f"Error searching collective memory: {str(e)}")
+            return "Error retrieving collective knowledge."
+
     def register(self, name: str, agent: AI, specialization: str):
         """Register a specialized agent with the multi-agent system."""
+        # Make agent time-aware first
+        agent.make_time_aware(self.default_timezone)
+
+        # Apply swarm directive to the agent
+        agent._instructions = f"{self.formatted_directive}\n\n{agent._instructions}"
+
         # Add the agent to the system first
         self.agents[name] = agent
         self.specializations[name] = specialization
+
+        # Add collective memory tool to the agent
+        @agent.add_tool
+        def query_collective_knowledge(query: str) -> str:
+            """Query the swarm's collective knowledge from all users.
+
+            Args:
+                query (str): The search query to look for in collective knowledge
+
+            Returns:
+                str: Relevant insights from the swarm's collective memory
+            """
+            return self.search_collective_memory(query)
 
         print(
             f"Registered agent: {name}, specialization: {specialization[:50]}...")
@@ -1251,80 +1752,180 @@ class Swarm:
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
             )
 
-    async def process(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
-        """Process the user request with appropriate agent and handle handoffs."""
+    async def process(
+        self, user_id: str, user_text: str, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
+        """Process the user request with appropriate agent and handle handoffs.
+
+        Args:
+            user_id (str): Unique user identifier
+            user_text (str): User's text input
+            timezone (str, optional): User-specific timezone
+        """
         try:
-            # Check if any agents are registered
+            # Handle special commands
+            if user_text.strip().lower().startswith("!memory "):
+                query = user_text[8:].strip()
+                yield self.search_collective_memory(query)
+                return
+
+            # Check for registered agents
             if not self.agents:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
                 return
 
-            # Get routing decision
+            # Get initial routing and agent
             first_agent = next(iter(self.agents.values()))
             agent_name = await self._get_routing_decision(first_agent, user_text)
             current_agent = self.agents[agent_name]
             print(f"Starting conversation with agent: {agent_name}")
 
-            # Initialize a flag for handoff detection
-            handoff_detected = False
-            response_started = False
-
-            # Reset handoff info for this interaction
+            # Reset handoff info
             current_agent._handoff_info = None
 
-            # Process initial agent's response
-            async for chunk in current_agent.text(user_id, user_text):
-                # Check for handoff after each chunk
-                if current_agent._handoff_info and not handoff_detected:
-                    handoff_detected = True
-                    target_name = current_agent._handoff_info["target"]
-                    target_agent = self.agents[target_name]
-                    reason = current_agent._handoff_info["reason"]
+            # Response tracking
+            final_response = ""
 
-                    # Record handoff without waiting
-                    asyncio.create_task(
-                        self._record_handoff(
-                            user_id, agent_name, target_name, reason, user_text
-                        )
-                    )
+            # Process response stream
+            async for chunk in self._stream_response(
+                user_id, user_text, current_agent, timezone
+            ):
+                yield chunk
+                final_response += chunk
 
-                    # Process with target agent
-                    print(f"[HANDOFF] Forwarding to {target_name}")
-                    handoff_query = f"""
-                    Answer this ENTIRE question completely from scratch:
-    
-                    {user_text}
-    
-                    IMPORTANT INSTRUCTIONS:
-                    1. Address ALL aspects of the question comprehensively
-                    2. Organize your response in a logical, structured manner
-                    3. Include both explanations AND implementations as needed
-                    4. Do not mention any handoff or that you're continuing from another agent
-                    5. Answer as if you are addressing the complete question from the beginning
-                    6. Consider any relevant context from previous conversation
-                    """
+            # Post-processing: learn from conversation
+            conversation = {
+                "user_id": user_id,
+                "message": user_text,
+                "response": final_response,
+            }
 
-                    # If we've already started returning some text, add a separator
-                    if response_started:
-                        yield "\n\n---\n\n"
+            # Run post-processing tasks concurrently
+            tasks = []
 
-                    # Stream directly from target agent
-                    async for new_chunk in target_agent.text(user_id, handoff_query):
-                        yield new_chunk
-                        # Force immediate delivery of each chunk
-                        await asyncio.sleep(0)
-                    return
-                else:
-                    # Only yield content if no handoff has been detected
-                    if not handoff_detected:
-                        response_started = True
-                        yield chunk
-                        await asyncio.sleep(0)  # Force immediate delivery
+            # Add collective memory task if enabled
+            if self.enable_collective_memory:
+                tasks.append(self.extract_and_store_insights(
+                    user_id, conversation))
+
+            # Run all post-processing tasks concurrently
+            if tasks:
+                # Don't block - run asynchronously
+                asyncio.create_task(self._run_post_processing_tasks(tasks))
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _stream_response(
+        self, user_id, user_text, current_agent, timezone=None
+    ) -> AsyncGenerator[str, None]:
+        """Stream response from an agent, handling potential handoffs."""
+        handoff_detected = False
+        response_started = False
+        full_response = ""
+
+        # Get recent feedback for this agent to improve the response
+        agent_name = current_agent.__class__.__name__
+        recent_feedback = []
+
+        if self.enable_critic and hasattr(self, "critic"):
+            try:
+                # Get the most recent feedback for this agent
+                feedback_records = list(
+                    self.critic.feedback_collection.find(
+                        {"agent_name": agent_name})
+                    .sort("timestamp", -1)
+                    .limit(3)
+                )
+
+                if feedback_records:
+                    # Extract specific improvement suggestions
+                    for record in feedback_records:
+                        recent_feedback.append(
+                            f"- Improve {record.get('improvement_area')}: {record.get('recommendation')}"
+                        )
+            except Exception as e:
+                print(f"Error getting recent feedback: {e}")
+
+        # Augment user text with feedback instructions if available
+        augmented_instruction = user_text
+        if recent_feedback:
+            feedback_text = "\n".join(recent_feedback)
+            augmented_instruction = f"""
+            Answer this question: {user_text}
+        
+            IMPORTANT - Apply these specific improvements from previous feedback:
+            {feedback_text}
+            """
+            print(f"Applying feedback to improve response: {feedback_text}")
+
+        async for chunk in current_agent.text(
+            user_id, augmented_instruction, timezone, user_text
+        ):
+            # Accumulate the full response for critic analysis
+            full_response += chunk
+
+            # Check for handoff after each chunk
+            if current_agent._handoff_info and not handoff_detected:
+                handoff_detected = True
+                target_name = current_agent._handoff_info["target"]
+                target_agent = self.agents[target_name]
+                reason = current_agent._handoff_info["reason"]
+
+                # Record handoff without waiting
+                asyncio.create_task(
+                    self._record_handoff(
+                        user_id, current_agent, target_name, reason, user_text
+                    )
+                )
+
+                # Add separator if needed
+                if response_started:
+                    yield "\n\n---\n\n"
+
+                # Pass to target agent with comprehensive instructions
+                handoff_query = f"""
+                Answer this ENTIRE question completely from scratch:
+                {user_text}
+                
+                IMPORTANT INSTRUCTIONS:
+                1. Address ALL aspects of the question comprehensively
+                2. Include both explanations AND implementations as needed
+                3. Do not mention any handoff or that you're continuing from another agent
+                4. Consider any relevant context from previous conversation
+                """
+
+                # Stream from target agent
+                async for new_chunk in target_agent.text(user_id, handoff_query):
+                    yield new_chunk
+                    await asyncio.sleep(0)  # Force immediate delivery
+                return
+
+            # Regular response if no handoff detected
+            if not handoff_detected:
+                response_started = True
+                yield chunk
+                await asyncio.sleep(0)  # Force immediate delivery
+
+        # After full response is delivered, invoke critic (if enabled)
+        if self.enable_critic and hasattr(self, "critic"):
+            # Don't block - run asynchronously
+            asyncio.create_task(
+                self.critic.analyze_interaction(
+                    agent_name=current_agent.__class__.__name__,
+                    user_query=user_text,
+                    response=full_response,
+                )
+            )
+
+    async def _run_post_processing_tasks(self, tasks):
+        """Run multiple post-processing tasks concurrently."""
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            print(f"Error in post-processing tasks: {e}")
 
     async def _get_routing_decision(self, agent, user_text):
         """Get routing decision in parallel to reduce latency."""
@@ -1396,3 +1997,134 @@ class Swarm:
 
         # Fallback to first agent
         return list(self.agents.keys())[0]
+
+
+class Critic:
+    """System that evaluates agent responses and suggests improvements."""
+
+    def __init__(self, swarm, critique_model="gpt-4o-mini"):
+        """Initialize the critic system.
+
+        Args:
+            swarm: The agent swarm to monitor
+            critique_model: Model to use for evaluations
+        """
+        self.swarm = swarm
+        self.critique_model = critique_model
+        self.feedback_collection = swarm.database.db["agent_feedback"]
+
+        # Create index for feedback collection
+        if "agent_feedback" not in swarm.database.db.list_collection_names():
+            swarm.database.db.create_collection("agent_feedback")
+            self.feedback_collection.create_index([("agent_name", 1)])
+            self.feedback_collection.create_index([("improvement_area", 1)])
+
+    async def analyze_interaction(
+        self,
+        agent_name,
+        user_query,
+        response,
+    ):
+        """Analyze an agent interaction and provide improvement feedback."""
+        # Get first agent's client for analysis
+        first_agent = next(iter(self.swarm.agents.values()))
+
+        prompt = f"""
+        Analyze this agent interaction to identify specific improvements.
+        
+        INTERACTION:
+        User query: {user_query}
+        Agent response: {response}
+        
+        Provide feedback on accuracy, completeness, clarity, efficiency, and tone.
+        """
+
+        try:
+            # Parse the response
+            completion = first_agent._client.beta.chat.completions.parse(
+                model=self.critique_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful critic evaluating AI responses.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=CritiqueFeedback,
+                temperature=0.2,
+            )
+
+            # Extract the Pydantic model
+            feedback = completion.choices[0].message.parsed
+
+            # Manual validation - ensure score is between 0 and 1
+            if feedback.overall_score < 0:
+                feedback.overall_score = 0.0
+            elif feedback.overall_score > 1:
+                feedback.overall_score = 1.0
+
+            # Store feedback in database
+            for area in feedback.improvement_areas:
+                self.feedback_collection.insert_one(
+                    {
+                        "agent_name": agent_name,
+                        "user_query": user_query,
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                        "improvement_area": area.area,
+                        "issue": area.issue,
+                        "recommendation": area.recommendation,
+                        "overall_score": feedback.overall_score,
+                        "priority": feedback.priority,
+                    }
+                )
+
+            # If high priority feedback, schedule immediate learning task
+            if feedback.priority == "high" and feedback.improvement_areas:
+                top_issue = feedback.improvement_areas[0]
+                await self.schedule_improvement_task(agent_name, top_issue)
+
+            return feedback
+
+        except Exception as e:
+            print(f"Error in critic analysis: {str(e)}")
+            return None
+
+    async def schedule_improvement_task(self, agent_name, issue):
+        """Execute improvement task immediately."""
+        if agent_name in self.swarm.agents:
+            agent = self.swarm.agents[agent_name]
+
+            # Create topic for improvement
+            topic = (
+                f"How to improve {issue['area'].lower()} in responses: {issue['issue']}"
+            )
+
+            # Execute research directly
+            result = await agent.research_and_learn(topic)
+
+            print(
+                f"📝 Executed improvement task for {agent_name}: {issue['area']}")
+            return result
+
+    def get_agent_feedback(self, agent_name=None, limit=10):
+        """Get recent feedback for an agent or all agents."""
+        query = {"agent_name": agent_name} if agent_name else {}
+        feedback = list(
+            self.feedback_collection.find(query).sort(
+                "timestamp", -1).limit(limit)
+        )
+        return feedback
+
+    def get_improvement_trends(self):
+        """Get trends in improvement areas across all agents."""
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$improvement_area",
+                    "count": {"$sum": 1},
+                    "avg_score": {"$avg": "$overall_score"},
+                }
+            },
+            {"$sort": {"count": -1}},
+        ]
+        return list(self.feedback_collection.aggregate(pipeline))
