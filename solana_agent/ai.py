@@ -227,6 +227,49 @@ class AI:
             self._tools.append(search_internet_tool)
             print("Internet search capability added as default tool")
 
+        # Automatically add knowledge base search tool if Pinecone is configured
+        if pinecone_api_key and pinecone_index_name:
+            search_kb_tool = {
+                "type": "function",
+                "function": {
+                    "name": "search_kb",
+                    "description": "Search the knowledge base using Pinecone",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant documents",
+                            },
+                            "namespace": {
+                                "type": "string",
+                                "description": "Namespace of the Pinecone to search",
+                                "default": "global",
+                            },
+                            "rerank_model": {
+                                "type": "string",
+                                "description": "Rerank model to use",
+                                "enum": ["cohere-rerank-3.5"],
+                                "default": "cohere-rerank-3.5",
+                            },
+                            "inner_limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results to rerank",
+                                "default": 10,
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results to return",
+                                "default": 3,
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            }
+            self._tools.append(search_kb_tool)
+            print("Knowledge base search capability added as default tool")
+
     async def __aenter__(self):
         return self
 
