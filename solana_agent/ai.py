@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import re
 import traceback
 import ntplib
 import json
@@ -225,6 +226,49 @@ class AI:
             }
             self._tools.append(search_internet_tool)
             print("Internet search capability added as default tool")
+
+        # Automatically add knowledge base search tool if Pinecone is configured
+        if pinecone_api_key and pinecone_index_name:
+            search_kb_tool = {
+                "type": "function",
+                "function": {
+                    "name": "search_kb",
+                    "description": "Search the knowledge base using Pinecone",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant documents",
+                            },
+                            "namespace": {
+                                "type": "string",
+                                "description": "Namespace of the Pinecone to search",
+                                "default": "global",
+                            },
+                            "rerank_model": {
+                                "type": "string",
+                                "description": "Rerank model to use",
+                                "enum": ["cohere-rerank-3.5"],
+                                "default": "cohere-rerank-3.5",
+                            },
+                            "inner_limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results to rerank",
+                                "default": 10,
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results to return",
+                                "default": 3,
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                },
+            }
+            self._tools.append(search_kb_tool)
+            print("Knowledge base search capability added as default tool")
 
     async def __aenter__(self):
         return self
@@ -724,14 +768,14 @@ class AI:
         # Add time awareness to instructions with explicit formatting guidance
         time_instructions = f"""
         IMPORTANT: You are time-aware. The current date is {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")}.
-        
+
         TIME RESPONSE RULES:
         1. When asked about the current time, ONLY use the check_time tool and respond with EXACTLY what it returns
         2. NEVER add UTC time when the check_time tool returns local time
         3. NEVER convert between timezones unless explicitly requested
         4. NEVER mention timezone offsets (like "X hours behind UTC") unless explicitly asked
         5. Local time is the ONLY time that should be mentioned in your response
-        
+
         Default timezone: {default_timezone} (use this when user's timezone is unknown)
         """
         self._instructions = self._instructions + "\n\n" + time_instructions
@@ -765,19 +809,20 @@ class AI:
 
             # Extract structured knowledge
             prompt = f"""
-            Based on these search results about "{topic}", extract 3-5 factual insights 
+            Based on these search results about "{topic}", extract 3-5 factual insights
             worth adding to our collective knowledge.
-            
+
             Search results:
             {search_results}
-            
+
             Format each insight as a JSON object with:
             1. "fact": The factual information
             2. "relevance": Short explanation of why this is generally useful
-            
+
             Return ONLY a valid JSON array. Example:
             [
-                {{"fact": "Topic X has property Y", "relevance": "Important for understanding Z"}}
+                {{"fact": "Topic X has property Y",
+                    "relevance": "Important for understanding Z"}}
             ]
             """
 
@@ -1302,6 +1347,161 @@ class AI:
         return func
 
 
+class HumanAgent:
+    """Represents a human operator in the agent swarm."""
+
+    def __init__(
+        self,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler: Callable = None,
+        availability_status: Literal["available",
+                                     "busy", "offline"] = "available",
+    ):
+        """Initialize a human agent.
+
+        Args:
+            agent_id (str): Unique identifier for this human agent
+            name (str): Display name of the human agent
+            specialization (str): Area of expertise description
+            notification_handler (Callable, optional): Function to call when agent receives a handoff
+            availability_status (str): Current availability of the human agent
+        """
+        self.agent_id = agent_id
+        self.name = name
+        self.specialization = specialization
+        self.notification_handler = notification_handler
+        self.availability_status = availability_status
+        self.current_tickets = {}  # Tracks tickets assigned to this human
+
+    async def receive_handoff(
+        self, ticket_id: str, user_id: str, query: str, context: str
+    ) -> bool:
+        """Handle receiving a ticket from an AI agent or another human.
+
+        Args:
+            ticket_id: Unique identifier for this conversation thread
+            user_id: End user identifier
+            query: The user's question or issue
+            context: Conversation context and history
+
+        Returns:
+            bool: Whether the handoff was accepted
+        """
+        if self.availability_status != "available":
+            return False
+
+        # Add to current tickets
+        self.current_tickets[ticket_id] = {
+            "user_id": user_id,
+            "query": query,
+            "context": context,
+            "status": "pending",
+            "received_at": datetime.datetime.now(datetime.timezone.utc),
+        }
+
+        # Notify the human operator through the configured handler
+        if self.notification_handler:
+            await self.notification_handler(
+                agent_id=self.agent_id,
+                ticket_id=ticket_id,
+                user_id=user_id,
+                query=query,
+                context=context,
+            )
+
+        return True
+
+    async def respond(self, ticket_id: str, response: str) -> Dict[str, Any]:
+        """Submit a response to a user query.
+
+        Args:
+            ticket_id: The ticket identifier
+            response: The human agent's response text
+
+        Returns:
+            Dict with response details and status
+        """
+        if ticket_id not in self.current_tickets:
+            return {"status": "error", "message": "Ticket not found"}
+
+        ticket = self.current_tickets[ticket_id]
+        ticket["response"] = response
+        ticket["response_time"] = datetime.datetime.now(datetime.timezone.utc)
+        ticket["status"] = "responded"
+
+        return {
+            "status": "success",
+            "ticket_id": ticket_id,
+            "user_id": ticket["user_id"],
+            "response": response,
+        }
+
+    async def handoff_to(
+        self, ticket_id: str, target_agent_id: str, reason: str
+    ) -> bool:
+        """Hand off a ticket to another agent (AI or human).
+
+        Args:
+            ticket_id: The ticket to hand off
+            target_agent_id: Agent to transfer the ticket to
+            reason: Reason for the handoff
+
+        Returns:
+            bool: Whether handoff was successful
+        """
+        if ticket_id not in self.current_tickets:
+            return False
+
+        # This just marks it for handoff - the actual handoff is handled by the swarm
+        self.current_tickets[ticket_id]["status"] = "handoff_requested"
+        self.current_tickets[ticket_id]["handoff_target"] = target_agent_id
+        self.current_tickets[ticket_id]["handoff_reason"] = reason
+
+        return True
+
+    def update_availability(
+        self, status: Literal["available", "busy", "offline"]
+    ) -> None:
+        """Update the availability status of this human agent."""
+        self.availability_status = status
+
+    async def check_pending_tickets(self) -> str:
+        """Get a summary of pending tickets for this human agent."""
+        if not self.current_tickets:
+            return "You have no pending tickets."
+
+        pending_count = sum(
+            1 for t in self.current_tickets.values() if t["status"] == "pending"
+        )
+        result = [f"You have {pending_count} pending tickets"]
+
+        # Add details for each pending ticket
+        for ticket_id, ticket in self.current_tickets.items():
+            if ticket["status"] == "pending":
+                received_time = ticket.get(
+                    "received_at", datetime.datetime.now(datetime.timezone.utc)
+                )
+                time_diff = datetime.datetime.now(
+                    datetime.timezone.utc) - received_time
+                hours_ago = round(time_diff.total_seconds() / 3600, 1)
+
+                result.append(
+                    f"- Ticket {ticket_id[:8]}... from user {ticket['user_id'][:8]}... ({hours_ago}h ago)"
+                )
+                result.append(
+                    f"  Query: {ticket['query'][:50]}..."
+                    if len(ticket["query"]) > 50
+                    else f"  Query: {ticket['query']}"
+                )
+
+        if pending_count == 0:
+            result.append("No pending tickets requiring your attention.")
+
+        return "\n".join(result)
+
+
 class Swarm:
     """An AI Agent Swarm that coordinates specialized AI agents with handoff capabilities."""
 
@@ -1382,7 +1582,330 @@ class Swarm:
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
 
-        # Update the extract_and_store_insights method in Swarm class
+    def register_human_agent(
+        self,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler: Callable = None,
+    ) -> HumanAgent:
+        """Register a human agent with the swarm.
+
+        Args:
+            agent_id: Unique identifier for this human agent
+            name: Display name of the human agent
+            specialization: Description of expertise
+            notification_handler: Function to call when agent receives handoff
+
+        Returns:
+            The created HumanAgent instance
+        """
+        # Create human agent instance
+        human_agent = HumanAgent(
+            agent_id=agent_id,
+            name=name,
+            specialization=specialization,
+            notification_handler=notification_handler,
+        )
+
+        # Store in humans registry
+        if not hasattr(self, "human_agents"):
+            self.human_agents = {}
+        self.human_agents[agent_id] = human_agent
+
+        # Add human agent to specialization map
+        self.specializations[agent_id] = f"[HUMAN] {specialization}"
+
+        # Create or update the ticket collection
+        if "tickets" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("tickets")
+        self.tickets = self.database.db["tickets"]
+
+        print(
+            f"Registered human agent: {name}, specialization: {specialization[:50]}..."
+        )
+
+        # Update AI agents with human handoff capabilities
+        self._update_all_handoff_capabilities()
+
+        return human_agent
+
+    def _update_all_handoff_capabilities(self):
+        """Update all agents with current handoff capabilities for both AI and human agents."""
+        # Get all AI agent names
+        ai_agent_names = list(self.agents.keys())
+
+        # Get all human agent names
+        human_agent_names = (
+            list(self.human_agents.keys()) if hasattr(
+                self, "human_agents") else []
+        )
+
+        # For each AI agent, update its handoff tools
+        for agent_name, agent in self.agents.items():
+            # Get available target agents (both AI and human)
+            available_ai_targets = [
+                name for name in ai_agent_names if name != agent_name
+            ]
+            available_targets = available_ai_targets + human_agent_names
+
+            # First remove any existing handoff tools
+            agent._tools = [
+                t for t in agent._tools if t["function"]["name"] != "request_handoff"
+            ]
+
+            # Create updated handoff tool with both AI and human targets
+            def create_handoff_tool(current_agent_name, available_targets_list):
+                def request_handoff(target_agent: str, reason: str) -> str:
+                    """Request an immediate handoff to another agent (AI or human).
+                    This is an INTERNAL SYSTEM TOOL. The user will NOT see your reasoning about the handoff.
+                    Use this tool IMMEDIATELY when a query is outside your expertise.
+
+                    Args:
+                        target_agent: Name of agent to transfer to. MUST be one of: {', '.join(available_targets_list)}.
+                          DO NOT INVENT NEW NAMES OR VARIATIONS. Use EXACTLY one of these names.
+                        reason: Brief explanation of why this question requires the specialist
+
+                    Returns:
+                        str: Empty string - the handoff is handled internally
+                    """
+                    # Validate target agent exists (either AI or human)
+                    is_human_target = target_agent in human_agent_names
+                    is_ai_target = target_agent in ai_agent_names
+
+                    if not (is_human_target or is_ai_target):
+                        print(
+                            f"[HANDOFF WARNING] Invalid target '{target_agent}'")
+                        if available_targets_list:
+                            original_target = target_agent
+                            target_agent = available_targets_list[0]
+                            print(
+                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'"
+                            )
+                        else:
+                            print(
+                                "[HANDOFF ERROR] No valid target agents available")
+                            return ""
+
+                    print(
+                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}"
+                    )
+
+                    # Set handoff info - now includes flag for whether target is human
+                    agent._handoff_info = {
+                        "target": target_agent,
+                        "reason": reason,
+                        "is_human_target": is_human_target,
+                    }
+
+                    # Return empty string - the actual handoff happens in the process method
+                    return ""
+
+                return request_handoff
+
+            # Use the factory to create a properly-bound tool function
+            handoff_tool = create_handoff_tool(agent_name, available_targets)
+
+            # Initialize handoff info attribute
+            agent._handoff_info = None
+
+            # Add the updated handoff tool with proper closure
+            agent.add_tool(handoff_tool)
+
+            # Update agent instructions with handoff guidance including human agents
+            ai_handoff_examples = "\n".join(
+                [
+                    f"  - `{name}` (AI: {self.specializations[name][:40]}...)"
+                    for name in available_ai_targets
+                ]
+            )
+            human_handoff_examples = "\n".join(
+                [
+                    f"  - `{name}` (HUMAN: {self.specializations[name].replace('[HUMAN] ', '')[:40]}...)"
+                    for name in human_agent_names
+                ]
+            )
+
+            handoff_instructions = f"""
+            STRICT HANDOFF GUIDANCE:
+            1. You must use ONLY the EXACT agent names listed below for handoffs.
+
+            AI AGENTS (available immediately):
+            {ai_handoff_examples}
+
+            HUMAN AGENTS (might have response delay):
+            {human_handoff_examples}
+
+            2. DO NOT INVENT OR MODIFY AGENT NAMES.
+
+            3. ONLY these EXACT agent names will work for handoffs: {', '.join(available_targets)}
+
+            4. Use human agents ONLY when:
+               - The question truly requires human judgment or expertise
+               - The user explicitly asks for a human agent
+               - The task involves confidential information that AI shouldn't access
+            """
+
+            # Update agent instructions with handoff guidance
+            agent._instructions = (
+                re.sub(
+                    r"STRICT HANDOFF GUIDANCE:.*?(?=\n\n)",
+                    handoff_instructions,
+                    agent._instructions,
+                    flags=re.DOTALL,
+                )
+                if "STRICT HANDOFF GUIDANCE" in agent._instructions
+                else agent._instructions + "\n\n" + handoff_instructions
+            )
+
+        print("Updated handoff capabilities for all agents with AI and human targets")
+
+    async def process_human_response(
+        self,
+        human_agent_id: str,
+        ticket_id: str,
+        response: str,
+        handoff_to: str = None,
+        handoff_reason: str = None,
+    ) -> Dict[str, Any]:
+        """Process a response from a human agent.
+
+        Args:
+            human_agent_id: ID of the human agent responding
+            ticket_id: Ticket identifier
+            response: Human agent's response text
+            handoff_to: Optional target agent for handoff
+            handoff_reason: Optional reason for handoff
+
+        Returns:
+            Dict with status and details
+        """
+        # Verify the human agent exists
+        if not hasattr(self, "human_agents") or human_agent_id not in self.human_agents:
+            return {"status": "error", "message": "Human agent not found"}
+
+        human_agent = self.human_agents[human_agent_id]
+
+        # Get the ticket
+        ticket = self.tickets.find_one({"_id": ticket_id})
+        if not ticket:
+            return {"status": "error", "message": "Ticket not found"}
+
+        # Check if ticket is assigned to this agent
+        if ticket.get("assigned_to") != human_agent_id:
+            return {"status": "error", "message": "Ticket not assigned to this agent"}
+
+        # If handoff requested
+        if handoff_to:
+            # Determine if target is human or AI
+            is_human_target = (
+                hasattr(self, "human_agents") and handoff_to in self.human_agents
+            )
+
+            is_ai_target = handoff_to in self.agents
+
+            if not (is_human_target or is_ai_target):
+                return {"status": "error", "message": "Invalid handoff target"}
+
+            # Record the handoff
+            self.handoffs.insert_one(
+                {
+                    "ticket_id": ticket_id,
+                    "user_id": ticket["user_id"],
+                    "from_agent": human_agent_id,
+                    "to_agent": handoff_to,
+                    "reason": handoff_reason or "Human agent handoff",
+                    "query": ticket["query"],
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                }
+            )
+
+            # Update ticket status
+            self.tickets.update_one(
+                {"_id": ticket_id},
+                {
+                    "$set": {
+                        "assigned_to": handoff_to,
+                        "status": "transferred",
+                        "human_response": response,
+                        "handoff_reason": handoff_reason,
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
+            )
+
+            # Process based on target type
+            if is_human_target:
+                # Human-to-human handoff
+                target_human = self.human_agents[handoff_to]
+
+                # Get updated context including the human's response
+                context = (
+                    ticket.get("context", "")
+                    + f"\n\nHuman agent {human_agent.name}: {response}"
+                )
+
+                # Try to hand off to the human agent
+                accepted = await target_human.receive_handoff(
+                    ticket_id=ticket_id,
+                    user_id=ticket["user_id"],
+                    query=ticket["query"],
+                    context=context,
+                )
+
+                if accepted:
+                    return {
+                        "status": "success",
+                        "message": f"Transferred to human agent {target_human.name}",
+                        "ticket_id": ticket_id,
+                    }
+                else:
+                    return {
+                        "status": "warning",
+                        "message": f"Human agent {target_human.name} is unavailable",
+                    }
+            else:
+                # Human-to-AI handoff
+                target_ai = self.agents[handoff_to]
+
+                # Return details for AI processing
+                return {
+                    "status": "success",
+                    "message": f"Transferred to AI agent {handoff_to}",
+                    "ticket_id": ticket_id,
+                    "ai_agent": target_ai,
+                    "user_id": ticket["user_id"],
+                    "query": ticket["query"],
+                }
+
+        # No handoff - just record the human response
+        self.tickets.update_one(
+            {"_id": ticket_id},
+            {
+                "$set": {
+                    "status": "resolved",
+                    "human_response": response,
+                    "resolved_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+            },
+        )
+
+        # Also record in messages for continuity
+        self.database.save_message(
+            ticket["user_id"],
+            {
+                "message": ticket["query"],
+                "response": response,
+                "human_agent": human_agent_id,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+            },
+        )
+
+        return {
+            "status": "success",
+            "message": "Response recorded",
+            "ticket_id": ticket_id,
+        }
 
     async def extract_and_store_insights(
         self, user_id: str, conversation: dict
@@ -1399,7 +1922,7 @@ class Swarm:
         Review this conversation and extract 0-3 IMPORTANT factual insights worth remembering for future users.
         Only extract FACTUAL information that would be valuable across multiple conversations.
         Do NOT include opinions, personal preferences, or user-specific details.
-        
+
         Conversation:
         User: {conversation.get('message', '')}
         Assistant: {conversation.get('response', '')}
@@ -1737,11 +2260,11 @@ class Swarm:
             STRICT HANDOFF GUIDANCE:
             1. You must use ONLY the EXACT agent names listed below for handoffs:
                {handoff_examples}
-               
+
             2. DO NOT INVENT, MODIFY, OR CREATE NEW AGENT NAMES like "Smart Contract Developer" or "Technical Expert"
-            
+
             3. For technical implementation questions, use "developer" (not variations like "developer expert" or "tech specialist")
-            
+
             4. ONLY these EXACT agent names will work for handoffs: {', '.join(available_targets)}
             """
 
@@ -1763,6 +2286,11 @@ class Swarm:
             timezone (str, optional): User-specific timezone
         """
         try:
+            # Handle special ticket management commands
+            if user_text.lower().startswith("!ticket"):
+                yield await self._process_ticket_commands(user_id, user_text)
+                return
+
             # Handle special commands
             if user_text.strip().lower().startswith("!memory "):
                 query = user_text[8:].strip()
@@ -1818,48 +2346,299 @@ class Swarm:
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
 
+    async def _process_ticket_commands(self, user_id: str, command: str) -> str:
+        """Process ticket management commands directly in chat."""
+        parts = command.strip().split(" ", 2)
+
+        # Check if user is a registered human agent
+        is_human_agent = False
+        human_agent = None
+        if hasattr(self, "human_agents"):
+            for agent_id, agent in self.human_agents.items():
+                if agent_id == user_id:
+                    is_human_agent = True
+                    human_agent = agent
+                    break
+
+        if not is_human_agent:
+            return "⚠️ Only registered human agents can use ticket commands."
+
+        # Process various ticket commands
+        if len(parts) > 1:
+            action = parts[1].lower()
+
+            # List tickets assigned to this human agent
+            if action == "list":
+                tickets = list(
+                    self.tickets.find(
+                        {"assigned_to": user_id, "status": "pending"})
+                )
+
+                if not tickets:
+                    return "📋 You have no pending tickets."
+
+                ticket_list = ["## Your Pending Tickets", ""]
+                for i, ticket in enumerate(tickets, 1):
+                    created = ticket.get(
+                        "created_at", datetime.datetime.now(
+                            datetime.timezone.utc)
+                    )
+                    time_ago = self._format_time_ago(created)
+
+                    ticket_list.append(
+                        f"**{i}. Ticket {ticket['_id'][:8]}...** ({time_ago})"
+                    )
+                    ticket_list.append(
+                        f"Query: {ticket.get('query', 'No query')[:100]}..."
+                    )
+                    ticket_list.append("")
+
+                return "\n".join(ticket_list)
+
+            # View a specific ticket
+            elif action == "view" and len(parts) > 2:
+                ticket_id = parts[2]
+                ticket = self.tickets.find_one(
+                    {"_id": {"$regex": f"^{ticket_id}.*"}, "assigned_to": user_id}
+                )
+
+                if not ticket:
+                    return f"⚠️ No ticket found with ID starting with '{ticket_id}'"
+
+                context = ticket.get("context", "No previous context")
+                query = ticket.get("query", "No query")
+                created = ticket.get(
+                    "created_at", datetime.datetime.now(datetime.timezone.utc)
+                )
+                time_ago = self._format_time_ago(created)
+
+                return f"""## Ticket Details ({ticket['_id']})
+    
+    Status: {ticket.get('status', 'pending')}
+    Created: {time_ago}
+    
+    ### User Query
+    {query}
+    
+    ### Conversation Context
+    {context}
+    """
+
+            # Respond to a ticket
+            elif action == "respond" and len(parts) > 2:
+                # Format: !ticket respond ticket_id response text here
+                response_parts = parts[2].split(" ", 1)
+                if len(response_parts) < 2:
+                    return "⚠️ Format: !ticket respond ticket_id your response text"
+
+                ticket_id = response_parts[0]
+                response_text = response_parts[1]
+
+                # Find the ticket
+                ticket = self.tickets.find_one(
+                    {"_id": {"$regex": f"^{ticket_id}.*"}, "assigned_to": user_id}
+                )
+                if not ticket:
+                    return f"⚠️ No ticket found with ID starting with '{ticket_id}'"
+
+                # Process the response
+                response_result = await human_agent.respond(
+                    ticket["_id"], response_text
+                )
+
+                # Check if response was successful
+                if response_result.get("status") != "success":
+                    return f"⚠️ Failed to respond to ticket: {response_result.get('message', 'Unknown error')}"
+
+                # Update ticket and save response
+                self.tickets.update_one(
+                    {"_id": ticket["_id"]},
+                    {
+                        "$set": {
+                            "status": "resolved",
+                            "human_response": response_text,
+                            "resolved_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    },
+                )
+
+                # Also record in messages for continuity
+                self.database.save_message(
+                    ticket["user_id"],
+                    {
+                        "message": ticket["query"],
+                        "response": response_text,
+                        "human_agent": user_id,
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                    },
+                )
+
+                return f"✅ Response recorded for ticket {ticket_id}. The ticket has been marked as resolved."
+
+            # Transfer a ticket
+            elif action == "transfer" and len(parts) > 2:
+                # Format: !ticket transfer ticket_id target_agent [reason]
+                transfer_parts = parts[2].split(" ", 2)
+                if len(transfer_parts) < 2:
+                    return "⚠️ Format: !ticket transfer ticket_id target_agent [reason]"
+
+                ticket_id = transfer_parts[0]
+                target_agent = transfer_parts[1]
+                reason = (
+                    transfer_parts[2]
+                    if len(transfer_parts) > 2
+                    else "Human agent transfer"
+                )
+
+                # Find the ticket
+                ticket = self.tickets.find_one(
+                    {"_id": {"$regex": f"^{ticket_id}.*"}, "assigned_to": user_id}
+                )
+                if not ticket:
+                    return f"⚠️ No ticket found with ID starting with '{ticket_id}'"
+
+                # Handle transfer logic
+                # Determine if target is human or AI
+                is_human_target = (
+                    hasattr(
+                        self, "human_agents") and target_agent in self.human_agents
+                )
+
+                is_ai_target = target_agent in self.agents
+
+                if not (is_human_target or is_ai_target):
+                    return f"⚠️ Invalid transfer target '{target_agent}'. Must be a valid agent name."
+
+                # Record the handoff
+                self.handoffs.insert_one(
+                    {
+                        "ticket_id": ticket["_id"],
+                        "user_id": ticket["user_id"],
+                        "from_agent": user_id,
+                        "to_agent": target_agent,
+                        "reason": reason,
+                        "query": ticket["query"],
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                )
+
+                # Update ticket status in database
+                self.tickets.update_one(
+                    {"_id": ticket["_id"]},
+                    {
+                        "$set": {
+                            "assigned_to": target_agent,
+                            "status": "transferred",
+                            "handoff_reason": reason,
+                            "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    },
+                )
+
+                # Process based on target type
+                if is_human_target:
+                    # Human-to-human handoff
+                    target_human = self.human_agents[target_agent]
+
+                    # Get updated context including the current human's notes
+                    context = (
+                        ticket.get("context", "")
+                        + f"\n\nHuman agent {human_agent.name}: Transferring with note: {reason}"
+                    )
+
+                    # Try to hand off to the human agent
+                    accepted = await target_human.receive_handoff(
+                        ticket_id=ticket["_id"],
+                        user_id=ticket["user_id"],
+                        query=ticket["query"],
+                        context=context,
+                    )
+
+                    if accepted:
+                        return (
+                            f"✅ Ticket transferred to human agent {target_human.name}"
+                        )
+                    else:
+                        return f"⚠️ Human agent {target_human.name} is unavailable. Ticket is still transferred but pending their acceptance."
+                else:
+                    # Human-to-AI handoff
+                    return f"✅ Ticket transferred to AI agent {target_agent}. The AI will handle this in the user's next interaction."
+
+        # Help command or invalid format
+        help_text = """
+    ## Ticket Commands
+    
+    - `!ticket list` - Show your pending tickets
+    - `!ticket view [ticket_id]` - View details of a specific ticket
+    - `!ticket respond [ticket_id] [response]` - Respond to a ticket
+    - `!ticket transfer [ticket_id] [target_agent] [reason]` - Transfer ticket to another agent
+        """
+        return help_text.strip()
+
+    def _format_time_ago(self, timestamp):
+        """Format a timestamp as a human-readable time ago string."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        diff = now - timestamp
+
+        if diff.days > 0:
+            return f"{diff.days} days ago"
+
+        hours, remainder = divmod(diff.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        if hours > 0:
+            return f"{hours} hours ago"
+        if minutes > 0:
+            return f"{minutes} minutes ago"
+        return "just now"
+
     async def _stream_response(
         self, user_id, user_text, current_agent, timezone=None
     ) -> AsyncGenerator[str, None]:
-        """Stream response from an agent, handling potential handoffs."""
+        """Stream response from an agent, handling potential handoffs to AI or human agents."""
         handoff_detected = False
         response_started = False
         full_response = ""
+        agent_name = None  # For the agent's name
+
+        # Get agent name for recording purposes
+        for name, agent in self.agents.items():
+            if agent == current_agent:
+                agent_name = name
+                break
 
         # Get recent feedback for this agent to improve the response
-        agent_name = current_agent.__class__.__name__
         recent_feedback = []
 
         if self.enable_critic and hasattr(self, "critic"):
-            try:
-                # Get the most recent feedback for this agent
-                feedback_records = list(
-                    self.critic.feedback_collection.find(
-                        {"agent_name": agent_name})
-                    .sort("timestamp", -1)
-                    .limit(3)
-                )
-
-                if feedback_records:
-                    # Extract specific improvement suggestions
-                    for record in feedback_records:
-                        recent_feedback.append(
-                            f"- Improve {record.get('improvement_area')}: {record.get('recommendation')}"
-                        )
-            except Exception as e:
-                print(f"Error getting recent feedback: {e}")
+            # Get recent feedback for this specific agent
+            recent_feedback = self.critic.get_agent_feedback(
+                agent_name, limit=3)
+            print(
+                f"Retrieved {len(recent_feedback)} feedback items for agent {agent_name}"
+            )
 
         # Augment user text with feedback instructions if available
         augmented_instruction = user_text
         if recent_feedback:
-            feedback_text = "\n".join(recent_feedback)
+            # Create targeted improvement instructions based on past feedback
+            feedback_summary = ""
+            for feedback in recent_feedback:
+                area = feedback.get("improvement_area", "Unknown")
+                recommendation = feedback.get(
+                    "recommendation", "No specific recommendation"
+                )
+                feedback_summary += f"- {area}: {recommendation}\n"
+
+            # Add as hidden instructions to the agent
             augmented_instruction = f"""
-            Answer this question: {user_text}
-        
-            IMPORTANT - Apply these specific improvements from previous feedback:
-            {feedback_text}
+            {user_text}
+            
+            [SYSTEM NOTE: Apply these improvements from recent feedback:
+            {feedback_summary}
+            The user will not see these instructions.]
             """
-            print(f"Applying feedback to improve response: {feedback_text}")
+            print("Added feedback-based improvement instructions to prompt")
 
         async for chunk in current_agent.text(
             user_id, augmented_instruction, timezone, user_text
@@ -1871,13 +2650,19 @@ class Swarm:
             if current_agent._handoff_info and not handoff_detected:
                 handoff_detected = True
                 target_name = current_agent._handoff_info["target"]
-                target_agent = self.agents[target_name]
                 reason = current_agent._handoff_info["reason"]
+                is_human_target = current_agent._handoff_info.get(
+                    "is_human_target", False
+                )
 
-                # Record handoff without waiting
+                # Record the handoff without waiting
                 asyncio.create_task(
                     self._record_handoff(
-                        user_id, current_agent, target_name, reason, user_text
+                        user_id,
+                        agent_name or "unknown_agent",
+                        target_name,
+                        reason,
+                        user_text,
                     )
                 )
 
@@ -1885,23 +2670,104 @@ class Swarm:
                 if response_started:
                     yield "\n\n---\n\n"
 
-                # Pass to target agent with comprehensive instructions
-                handoff_query = f"""
-                Answer this ENTIRE question completely from scratch:
-                {user_text}
-                
-                IMPORTANT INSTRUCTIONS:
-                1. Address ALL aspects of the question comprehensively
-                2. Include both explanations AND implementations as needed
-                3. Do not mention any handoff or that you're continuing from another agent
-                4. Consider any relevant context from previous conversation
-                """
+                # Handle differently based on target type (AI vs human)
+                if is_human_target and hasattr(self, "human_agents"):
+                    # Create a ticket in the database
+                    ticket_id = str(uuid.uuid4())
 
-                # Stream from target agent
-                async for new_chunk in target_agent.text(user_id, handoff_query):
-                    yield new_chunk
-                    await asyncio.sleep(0)  # Force immediate delivery
-                return
+                    # Get conversation history
+                    context = ""
+                    if hasattr(current_agent, "get_memory_context"):
+                        context = current_agent.get_memory_context(user_id)
+
+                    # Store ticket in database
+                    self.tickets.insert_one(
+                        {
+                            "_id": ticket_id,
+                            "user_id": user_id,
+                            "query": user_text,
+                            "context": context,
+                            "ai_response_before_handoff": full_response,
+                            "assigned_to": target_name,
+                            "status": "pending",
+                            "created_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    )
+
+                    # Get the human agent
+                    human_agent = self.human_agents.get(target_name)
+
+                    if human_agent:
+                        # Try to hand off to the human agent
+                        accepted = await human_agent.receive_handoff(
+                            ticket_id=ticket_id,
+                            user_id=user_id,
+                            query=user_text,
+                            context=context,
+                        )
+
+                        if accepted:
+                            human_availability = {
+                                "available": "available now",
+                                "busy": "busy but will respond soon",
+                                "offline": "currently offline but will respond when back",
+                            }.get(
+                                human_agent.availability_status,
+                                "will respond when available",
+                            )
+
+                            # Provide a friendly handoff message to the user
+                            handoff_message = f"""
+                            I've transferred your question to {human_agent.name}, who specializes in {human_agent.specialization}.
+                            
+                            A human specialist will provide a more tailored response. They are {human_availability}.
+                            
+                            Your ticket ID is: {ticket_id}
+                            """
+                            yield handoff_message.strip()
+                        else:
+                            # Human agent couldn't accept - fall back to an AI agent
+                            yield "I tried to transfer your question to a human specialist, but they're unavailable at the moment. Let me help you instead.\n\n"
+
+                            # Get the first AI agent
+                            fallback_agent = next(iter(self.agents.values()))
+
+                            # Stream from fallback AI agent
+                            async for new_chunk in fallback_agent.text(
+                                user_id, user_text
+                            ):
+                                yield new_chunk
+                                # Force immediate delivery
+                                await asyncio.sleep(0)
+                    else:
+                        yield "I tried to transfer your question to a human specialist, but there was an error. Let me help you instead.\n\n"
+
+                        # Fallback to first AI agent
+                        fallback_agent = next(iter(self.agents.values()))
+                        async for new_chunk in fallback_agent.text(user_id, user_text):
+                            yield new_chunk
+                            await asyncio.sleep(0)
+                else:
+                    # Standard AI-to-AI handoff
+                    target_agent = self.agents[target_name]
+
+                    # Pass to target agent with comprehensive instructions
+                    handoff_query = f"""
+                    Answer this ENTIRE question completely from scratch:
+                    {user_text}
+                    
+                    IMPORTANT INSTRUCTIONS:
+                    1. Address ALL aspects of the question comprehensively
+                    2. Include both explanations AND implementations as needed
+                    3. Do not mention any handoff or that you're continuing from another agent
+                    4. Consider any relevant context from previous conversation
+                    """
+
+                    # Stream from target agent
+                    async for new_chunk in target_agent.text(user_id, handoff_query):
+                        yield new_chunk
+                        await asyncio.sleep(0)  # Force immediate delivery
+                    return
 
             # Regular response if no handoff detected
             if not handoff_detected:
@@ -1910,15 +2776,16 @@ class Swarm:
                 await asyncio.sleep(0)  # Force immediate delivery
 
         # After full response is delivered, invoke critic (if enabled)
-        if self.enable_critic and hasattr(self, "critic"):
-            # Don't block - run asynchronously
+        if self.enable_critic and hasattr(self, "critic") and agent_name:
+            # Schedule async analysis without blocking
             asyncio.create_task(
                 self.critic.analyze_interaction(
-                    agent_name=current_agent.__class__.__name__,
+                    agent_name=agent_name,
                     user_query=user_text,
                     response=full_response,
                 )
             )
+            print(f"Scheduled critic analysis for {agent_name} response")
 
     async def _run_post_processing_tasks(self, tasks):
         """Run multiple post-processing tasks concurrently."""
@@ -1931,22 +2798,22 @@ class Swarm:
         """Get routing decision in parallel to reduce latency."""
         enhanced_prompt = f"""
         Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
-        
+
         User query: "{user_text}"
-        
+
         Available specialists:
         {json.dumps(self.specializations, indent=2)}
-        
+
         CRITICAL ROUTING INSTRUCTIONS:
         1. For compound questions with multiple aspects spanning different domains,
            choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
-        
+
         2. Choose implementation specialists (technical, development, coding) only when
            the query is PURELY about implementation with no conceptual explanation needed.
-        
+
         3. When a query involves a SEQUENCE (like "explain X and then do Y"),
            prioritize the specialist handling the FIRST part of the sequence.
-        
+
         Return ONLY the name of the single most appropriate specialist.
         """
 
@@ -2031,11 +2898,11 @@ class Critic:
 
         prompt = f"""
         Analyze this agent interaction to identify specific improvements.
-        
+
         INTERACTION:
         User query: {user_query}
         Agent response: {response}
-        
+
         Provide feedback on accuracy, completeness, clarity, efficiency, and tone.
         """
 
