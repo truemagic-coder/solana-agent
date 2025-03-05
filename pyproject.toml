@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "8.0.2"
+version = "8.0.3"
 description = "The first AGI framework"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
