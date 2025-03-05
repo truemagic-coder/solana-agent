@@ -21,7 +21,25 @@ from zep_cloud.types import Message
 from pinecone import Pinecone
 
 
+# Add this to the top of the file with other Pydantic models
+class TicketResolution(BaseModel):
+    status: Literal["resolved", "needs_followup", "cannot_determine"] = Field(
+        ..., description="Resolution status of the ticket"
+    )
+    confidence: float = Field(
+        ..., description="Confidence score for the resolution decision (0.0-1.0)"
+    )
+    reasoning: str = Field(
+        ..., description="Brief explanation for the resolution decision"
+    )
+    suggested_actions: List[str] = Field(
+        default_factory=list, description="Suggested follow-up actions if needed"
+    )
+
+
 # Define Pydantic models for structured output
+
+
 class ImprovementArea(BaseModel):
     area: str = Field(...,
                       description="Area name (e.g., 'Accuracy', 'Completeness')")
@@ -2278,7 +2296,7 @@ class Swarm:
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
     ) -> AsyncGenerator[str, None]:
-        """Process the user request with appropriate agent and handle handoffs.
+        """Process the user request with appropriate agent and handle ticket management.
 
         Args:
             user_id (str): Unique user identifier
@@ -2291,7 +2309,7 @@ class Swarm:
                 yield await self._process_ticket_commands(user_id, user_text)
                 return
 
-            # Handle special commands
+            # Handle special collective memory commands
             if user_text.strip().lower().startswith("!memory "):
                 query = user_text[8:].strip()
                 yield self.search_collective_memory(query)
@@ -2302,11 +2320,96 @@ class Swarm:
                 yield "Error: No agents are registered with the system. Please register at least one agent first."
                 return
 
-            # Get initial routing and agent
-            first_agent = next(iter(self.agents.values()))
-            agent_name = await self._get_routing_decision(first_agent, user_text)
-            current_agent = self.agents[agent_name]
-            print(f"Starting conversation with agent: {agent_name}")
+            # Ensure tickets collection exists
+            if "tickets" not in self.database.db.list_collection_names():
+                self.database.db.create_collection("tickets")
+            self.tickets = self.database.db["tickets"]
+
+            # Check if this is continuing an existing ticket
+            active_ticket = self.tickets.find_one(
+                {
+                    "user_id": user_id,
+                    "status": {"$in": ["pending", "active", "transferred"]},
+                }
+            )
+
+            ticket_id = None
+            current_agent = None
+
+            if active_ticket:
+                # Continue with existing ticket
+                ticket_id = active_ticket["_id"]
+                current_agent_name = active_ticket.get("assigned_to")
+
+                # Update ticket to active status if it was pending/transferred
+                if active_ticket["status"] in ["pending", "transferred"]:
+                    self.tickets.update_one(
+                        {"_id": ticket_id},
+                        {
+                            "$set": {
+                                "status": "active",
+                                "last_activity": datetime.datetime.now(
+                                    datetime.timezone.utc
+                                ),
+                            }
+                        },
+                    )
+
+                # If it was transferred to a specific agent, use that agent
+                if current_agent_name and current_agent_name in self.agents:
+                    current_agent = self.agents[current_agent_name]
+                    print(
+                        f"Continuing ticket {ticket_id} with agent {current_agent_name}"
+                    )
+                else:
+                    # Get routing decision if no specific agent is assigned
+                    first_agent = next(iter(self.agents.values()))
+                    agent_name = await self._get_routing_decision(
+                        first_agent, user_text
+                    )
+                    current_agent = self.agents[agent_name]
+
+                    # Update ticket with selected agent
+                    self.tickets.update_one(
+                        {"_id": ticket_id},
+                        {
+                            "$set": {
+                                "assigned_to": agent_name,
+                                "updated_at": datetime.datetime.now(
+                                    datetime.timezone.utc
+                                ),
+                            }
+                        },
+                    )
+                    print(f"Reassigned ticket {ticket_id} to {agent_name}")
+            else:
+                # Create new ticket for this interaction
+                ticket_id = str(uuid.uuid4())
+
+                # Get initial routing and agent
+                first_agent = next(iter(self.agents.values()))
+                agent_name = await self._get_routing_decision(first_agent, user_text)
+                current_agent = self.agents[agent_name]
+
+                # Get conversation context
+                context = ""
+                if hasattr(current_agent, "get_memory_context"):
+                    context = current_agent.get_memory_context(user_id)
+
+                # Store new ticket in database
+                self.tickets.insert_one(
+                    {
+                        "_id": ticket_id,
+                        "user_id": user_id,
+                        "query": user_text,
+                        "created_at": datetime.datetime.now(datetime.timezone.utc),
+                        "assigned_to": agent_name,
+                        "status": "active",
+                        "context": context,
+                    }
+                )
+                print(
+                    f"Created new ticket {ticket_id}, assigned to {agent_name}")
 
             # Reset handoff info
             current_agent._handoff_info = None
@@ -2314,18 +2417,64 @@ class Swarm:
             # Response tracking
             final_response = ""
 
-            # Process response stream
+            # Process response stream with ticket context
             async for chunk in self._stream_response(
-                user_id, user_text, current_agent, timezone
+                user_id, user_text, current_agent, timezone, ticket_id
             ):
                 yield chunk
                 final_response += chunk
+
+            # Skip ticket resolution check if a handoff occurred during response
+            if not current_agent._handoff_info:
+                # Check if ticket should be resolved based on AI's response
+                resolution = await self._check_ticket_resolution(
+                    user_id, final_response, ticket_id
+                )
+
+                # Update ticket status based on resolution
+                if resolution.status == "resolved" and resolution.confidence >= 0.7:
+                    self.tickets.update_one(
+                        {"_id": ticket_id},
+                        {
+                            "$set": {
+                                "status": "resolved",
+                                "resolution_confidence": resolution.confidence,
+                                "resolution_reasoning": resolution.reasoning,
+                                "resolved_at": datetime.datetime.now(
+                                    datetime.timezone.utc
+                                ),
+                            }
+                        },
+                    )
+                    print(
+                        f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}"
+                    )
+                else:
+                    # Update with pending status
+                    self.tickets.update_one(
+                        {"_id": ticket_id},
+                        {
+                            "$set": {
+                                "status": "pending_confirmation",
+                                "resolution_confidence": resolution.confidence,
+                                "resolution_reasoning": resolution.reasoning,
+                                "suggested_actions": resolution.suggested_actions,
+                                "updated_at": datetime.datetime.now(
+                                    datetime.timezone.utc
+                                ),
+                            }
+                        },
+                    )
+                    print(
+                        f"Ticket {ticket_id} needs followup (confidence: {resolution.confidence})"
+                    )
 
             # Post-processing: learn from conversation
             conversation = {
                 "user_id": user_id,
                 "message": user_text,
                 "response": final_response,
+                "ticket_id": ticket_id,
             }
 
             # Run post-processing tasks concurrently
@@ -2336,15 +2485,72 @@ class Swarm:
                 tasks.append(self.extract_and_store_insights(
                     user_id, conversation))
 
-            # Run all post-processing tasks concurrently
+            # Run all post-processing tasks concurrently without waiting
             if tasks:
-                # Don't block - run asynchronously
                 asyncio.create_task(self._run_post_processing_tasks(tasks))
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _check_ticket_resolution(self, user_id, response, ticket_id):
+        """Determine if a ticket can be resolved based on the AI response using structured output.
+
+        Args:
+            user_id: The user identifier
+            response: The AI agent's response to evaluate
+            ticket_id: The ticket identifier
+
+        Returns:
+            TicketResolution: Structured resolution data with status, confidence and reasoning
+        """
+        # Get first agent to use its client
+        first_agent = next(iter(self.agents.values()))
+
+        # Get ticket details
+        ticket = self.tickets.find_one({"_id": ticket_id})
+        if not ticket:
+            return TicketResolution(
+                status="cannot_determine",
+                confidence=0.0,
+                reasoning="Ticket not found in database",
+            )
+
+        prompt = f"""
+        You are evaluating if a user's question has been fully addressed.
+        
+        Original query: {ticket.get('query', 'Unknown')}
+        
+        Agent response: {response}
+        
+        Analyze how well the response addresses the query and provide a structured assessment.
+        """
+
+        try:
+            # Use structured parsing to get detailed resolution information
+            resolution_response = first_agent._client.beta.chat.completions.parse(
+                model=self.router_model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": "Provide a structured assessment of this response.",
+                    },
+                ],
+                response_format=TicketResolution,
+                temperature=0.1,
+            )
+
+            return resolution_response.choices[0].message.parsed
+
+        except Exception as e:
+            print(f"Error checking ticket resolution: {e}")
+            return TicketResolution(
+                status="cannot_determine",
+                confidence=0.0,
+                reasoning=f"Error processing resolution check: {str(e)}",
+            )
 
     async def _process_ticket_commands(self, user_id: str, command: str) -> str:
         """Process ticket management commands directly in chat."""
@@ -2593,7 +2799,7 @@ class Swarm:
         return "just now"
 
     async def _stream_response(
-        self, user_id, user_text, current_agent, timezone=None
+        self, user_id, user_text, current_agent, timezone=None, ticket_id=None
     ) -> AsyncGenerator[str, None]:
         """Stream response from an agent, handling potential handoffs to AI or human agents."""
         handoff_detected = False
@@ -2750,6 +2956,25 @@ class Swarm:
                 else:
                     # Standard AI-to-AI handoff
                     target_agent = self.agents[target_name]
+
+                    # Update the ticket if we have one
+                    if ticket_id:
+                        self.tickets.update_one(
+                            {"_id": ticket_id},
+                            {
+                                "$set": {
+                                    "assigned_to": target_name,
+                                    "status": "transferred",
+                                    "handoff_reason": reason,
+                                    "updated_at": datetime.datetime.now(
+                                        datetime.timezone.utc
+                                    ),
+                                }
+                            },
+                        )
+                        print(
+                            f"Updated ticket {ticket_id}, transferred to {target_name}"
+                        )
 
                     # Pass to target agent with comprehensive instructions
                     handoff_query = f"""
