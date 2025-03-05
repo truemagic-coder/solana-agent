@@ -8,162 +8,140 @@
 
 ## Why Solana Agent?
 
-### The Enterprise AGI Framework
+Reinventing Organizational Structures Through AI  
+Solana Agent isn't just an AI framework—it's the foundation for reimagining how humans organize, collaborate, and create value together. Build organizations that transcend traditional hierarchies and unlock collective intelligence at scale.
 
-Forget off-the-shelf chatbots. Solana Agent is an AGI framework engineered to transform how your business interacts, learns, and grows—at any scale.
+### The Future of Work Starts Here:
 
-**Five Reasons You’ll Love It:**
+- **Decentralized Decision Making:**  
+    Enable distributed expertise through AI-human collaboration, removing bottlenecks and centralizing only the mission, not the authority.
 
-- **Empower Teams, Slash Costs**  
-   Scale to thousands of inquiries without adding headcount, thanks to human-AI handoffs and automated routing.
+- **Organization as Living Code:**  
+    Define your organization's values, expertise boundaries, and operating principles in code, making structure transparent and adaptable.
 
-- **Smarter Every Day**  
-   Agents learn from each conversation, refining their expertise and successively handling more complex tasks.
+- **Fluid Collaboration Networks:**  
+    Replace rigid hierarchies with dynamic agent networks that form, collaborate, and dissolve based on real-time needs.
 
-- **Seamless Human Collaboration**  
-   When AI hits a limit, it taps a human partner—passing along full context so no user repeats themselves.
+- **Knowledge as Collective Asset:**  
+    Transform individual expertise into organizational intelligence through autonomous knowledge extraction and distribution.
 
-- **Data-Driven Insights**  
-   Extract actionable analytics directly from conversations, fueling business intelligence and better decisions.
+- **Permissionless Value Creation:**  
+    Let agents (both AI and human) contribute and innovate freely within guardrails defined by mission and values, not management layers.
 
-- **Effortless Expansion**  
-   Plug in specialized agents or new data sources at any time—your swarm evolves alongside your business needs.
+## The Future of Work
 
-## Features
+Solana Agent enables a paradigm shift in how work gets done:
 
-### 🗣️ **Advanced Interaction Layer**
-- Streaming text-based conversations with real-time thinking
-- Voice-to-voice conversations with natural cadence
-- Multi-turn context preservation and reasoning
+- **Beyond Human Resource Constraints:**  
+    Scale knowledge work infinitely by combining specialized AI agents with human experts.
+- **Continuous 24/7 Operations:**  
+    Organizational functions that never sleep, never burn out, and continuously learn.
+- **Task-Agent Fit Optimization:**  
+    Matching work to the ideal agent (human or AI) based on real-time expertise mapping.
+- **Ambient Organizational Intelligence:**  
+    Collective knowledge that grows, refines, and distributes itself autonomously.
+- **From Managers to Facilitators:**  
+    Human roles shift from directing work to defining outcomes and improving agent capabilities.
+- **Permissionless Contribution:**  
+    Anyone can interact with and extend the organization through standardized interfaces.
 
-### 🤖 **Multi-Agent Swarm Architecture**
-- Dynamic specialized agent creation and coordination
-- Intelligent routing based on query content and agent expertise
-- Seamless handoffs with comprehensive context passing
-- Parallel processing capabilities for complex multi-part questions
-- Shared memory and collective intelligence across the entire swarm
+## Organization as Code
 
-### 👥 **Human Agent Integration**
-- Hybrid AI-human collaboration system with seamless handoffs
-- Ticket management for complex or sensitive inquiries
-- Multiple handoff patterns (AI↔human, human↔human)
-- In-chat command system for human agents to manage tickets
-- Real-time notification system for ticket assignment
-- Availability status management for human operators
-- Intelligent fallback mechanisms when humans are unavailable
-- Complete conversation context preservation during handoffs
+With Solana Agent, your organizational design becomes explicit, observable, and iteratively improvable:
 
-### 🔍 **Multi-Source Knowledge Integration**
-- Real-time internet search via Perplexity API
-- Social media monitoring via X/Twitter (Grok API)
-- Long-term conversational memory with Zep's graph-based storage
-- Structured data analysis with CSV processing and summarization
-- Vector-based knowledge retrieval with semantic search via Pinecone
-- Hybrid search combining vector similarity and text relevance via MongoDB and Pinecone
+- **Declarative Organizational Structure:**  
+    Define your entire organization's capabilities through agent specializations and interaction patterns.
+- **Version-Controlled Operational Logic:**  
+    Track organizational evolution and performance through code changes.
+- **Mission Function:**  
+    Encode organizational values and goals as executable functions that guide all agent decisions.
+- **Rapid Organizational Experiments:**  
+    Test new structures, policies, and collaborative patterns without disruptive reorganizations.
+- **Transparency by Default:**  
+    Make decision boundaries and expertise domains explicit in code rather than hidden in hierarchy.
+- **Self-Documenting Operations:**  
+    The organization continuously documents its own functions, decisions, and knowledge.
 
-### 🌐 **Collective Swarm Intelligence**
-- Hybrid semantic-keyword search spanning all user interactions
-- Privacy-preserving knowledge extraction from conversations
-- Self-organizing knowledge base with automatic categorization
-- Cross-domain insight discovery and connection building
-- Autonomous knowledge refinement through verification tasks
+## Decentralized Organization
 
-### 🕰️ **Time-Aware Intelligence**
-- User-specific timezone handling for personalized time references
-- Chronologically accurate responses across all conversations
-- Default timezone fallbacks at both agent and swarm levels
-- Seamless timezone preservation during agent handoffs
+Solana Agent provides the infrastructure to build truly decentralized organizations:
 
-### ⚖️ **Self-Critical System**
-- AI critic that evaluates agent responses for quality and accuracy
-- Autonomous identification of improvement areas across all agents
-- Prioritized feedback based on severity and impact
-- System-wide trend analysis to track collective improvement
-- Integrates feedback automatically to improve future answers
+- **Multi-Node Intelligence:**  
+    Distribute cognitive load across specialized agents with no central controller.
+- **Autonomous Coordination:**  
+    Agents self-organize based on capabilities and availability without central dispatching.
+- **Edge Decision Making:**  
+    Push decisions to the agents closest to the information and expertise needed.
+- **Resilient Architecture:**  
+    No single point of failure in organizational knowledge or operational capacity.
+- **Emergent Problem Solving:**  
+    Solutions emerge from collaborative agent interactions rather than top-down directives.
+- **Fractal Scaling:**  
+    Add new domains of expertise by replicating the agent swarm pattern without hierarchical constraints.
 
-### 🎯 **Unified Mission Framework**
-- Define organization-wide values, goals, and operating principles
-- Automatically applied to all agents in the swarm
-- Visually distinct formatting for clarity and emphasis
-- Consistent decision-making aligned with organizational priorities
-- Individual agent specializations work within the directive framework
+## Complete Flat Organization
 
-## Privacy and Collective Memory
+Eliminate management hierarchies while maintaining coordination and alignment:
 
-Solana Agent's collective memory system is designed with privacy in mind:
+- **Mission-Driven Alignment:**  
+    All agents align through shared values and outcomes defined in the unified mission framework.
+- **Peer-to-Peer Handoffs:**  
+    Both AI and human agents coordinate as equals through standardized interfaces.
+- **Expertise-Based Authority:**  
+    Influence derives from demonstrable expertise rather than position.
+- **Universal Access Protocol:**  
+    Consistent interfaces for interacting with any part of the organization.
+- **Transparent Contribution Tracking:**  
+    Meritocratic recognition of value creation across the network.
+- **Adaptive Resource Allocation:**  
+    Direct resources to high-impact areas without bureaucratic approval chains.
 
-- **Selective Knowledge Extraction**: Only factual, non-personal information is extracted
-- **Privacy Filtering**: The AI is instructed to exclude user-specific details, opinions, and sensitive information
-- **Optional Feature**: Easily disable collective memory with the `enable_collective_memory=False` parameter
-- **Transparency**: Extracted insights are accessible and reviewable
-- **Customizable Thresholds**: Adjust what qualifies as a valuable insight worth sharing
+## Technical Features
 
-When collective memory is enabled, the system extracts valuable factual knowledge that can benefit all users, while carefully avoiding personal or sensitive information. For environments with stricter privacy requirements, the feature can be completely disabled.
+- **🗣️ Advanced Interaction Layer:**  
+    Streaming text-based conversations with real-time thinking.  
+    Voice-to-voice conversations with natural cadence.  
+    Multi-turn context preservation and reasoning.
 
-## Time Awareness
+- **🤖 Multi-Agent Swarm Architecture:**  
+    Dynamic specialized agent creation and coordination.  
+    Intelligent routing based on query content and agent expertise.  
+    Seamless handoffs with comprehensive context passing.  
+    Shared memory and collective intelligence across the entire swarm.
 
-Solana Agent's time awareness system ensures your AI assistants always provide chronologically accurate responses based on each user's timezone:
+- **👥 Human-AI Collaboration:**  
+    Hybrid AI-human collaboration system with seamless handoffs.  
+    Ticket management for complex or sensitive inquiries.  
+    Multiple handoff patterns (AI↔human, human↔human).  
+    In-chat command system for human agents to manage tickets.  
+    Availability status management for human operators.
 
-- **User-Based Time Context**: Pass user timezone directly in conversation requests
-- **Global Time Management**: Get precise time in any timezone using NTP synchronization
-- **Timezone Preservation**: Maintains timezone context during agent handoffs
-- **Default Fallbacks**: Configurable defaults at both agent and swarm levels
-- **Contextual Date Awareness**: All agents understand "today," "next week," or "in 3 days" relative to user's timezone
+- **🧠 Distributed Intelligence Capabilities:**  
+    Cross-domain knowledge integration from multiple sources.  
+    Self-organizing information architecture.  
+    Autonomous knowledge extraction and refinement.  
+    Time-aware contextual responses.  
+    Self-critical improvement systems.
 
-## Human-AI Collaboration
+- **🛡️ Governance Framework:**  
+    Define organization-wide values and operating principles in code.  
+    Consistent decision-making aligned with organizational priorities.  
+    Privacy-preserving knowledge sharing with configurable controls.  
+    Transparent insight extraction with review capabilities.  
+    Performance analytics across the agent network.
 
-Solana Agent's human agent integration creates a seamless collaboration between AI systems and human operators:
+## Implementation Technologies
 
-- **Intelligent Handoffs**: AI agents automatically detect when human expertise is needed
-- **Ticket Management**: Comprehensive ticketing system for tracking and prioritizing inquiries
-- **Contextual Awareness**: Full conversation history is preserved during handoffs
-- **In-Chat Commands**: Human agents manage tickets directly through intuitive chat commands
-- **Fallback Intelligence**: System gracefully handles scenarios when humans are unavailable
-- **Privacy Controls**: Configurable limits on what information is shared during handoffs
-- **Notification System**: Customizable alerts when human expertise is requested
-- **Availability Management**: Human agents can set their status to manage workload
+Solana Agent leverages multiple technologies to enable these capabilities:
 
-This hybrid approach combines AI speed and scalability with human judgment and expertise, creating a system that's greater than the sum of its parts.
-
-## Why Choose Solana Agent Over LangChain?
-
-### 🎯 Key Differentiators
-
-#### 💡 **AGI-First Architecture**
-- Designed for autonomous intelligence and self-improvement
-- Framework for agents to improve themselves without human intervention
-
-#### 🧠 **Advanced Memory Architecture**
-- Sophisticated episodic and semantic memory vs. basic memory types
-- Cross-session knowledge retention with importance-based storage
-- Autonomous extraction of insights from conversations
-- Collective memory across users and agents
-
-#### 🤝 **True Multi-Agent Orchestration**
-- First-class swarm intelligence with specialized agent teams
-- Dynamic routing based on expertise and query complexity
-- Seamless context preservation during handoffs
-- Single unified interface for the entire agent ecosystem
-- Unified mission framework for consistent decision making
-
-#### 👥 **Human-AI Collaboration**
-- Hybrid team of AI and human agents working together
-- Dynamic handoffs between humans and AI based on need
-- Integrated ticketing system for complex inquiries
-- In-chat command system for human operators
-- Fallback mechanisms ensuring uninterrupted service
-
-#### 🏢 **Enterprise Production Readiness**
-- Deployment-ready with minimal configuration
-- Comprehensive error handling and recovery mechanisms
-- Scalable architecture supporting high-concurrency environments
-- Privacy-preserving design with configurable controls
-
-#### 🛠️ **Developer Experience**
-- Clean, intuitive API without excessive abstractions
-- Standard Python functions vs complex chaining constructs
-- Minimal boilerplate for common operations
-- ~2000 vs ~500,000 lines of code
+- **Knowledge Integration:**  
+    Perplexity API, X/Twitter (Grok API), Zep memory, Pinecone vector search.
+- **Collaborative Intelligence:**  
+    Multi-agent swarm architecture with specialized expertise domains.
+- **Human-AI Teaming:**  
+    Integrated ticketing, notification systems, and real-time handoffs.
+- **Organization Alignment:**  
+    Unified mission framework, critic system, and collective memory.
 
 ## Installation
 
@@ -172,13 +150,67 @@ You can install Solana Agent using pip:
 `pip install solana-agent`
 
 ## Documentation
-* Each public method has a docstring for real-time IDE hinting
+
+Each public method has a docstring for real-time IDE hinting.
 
 ## Production Apps
-* [CometHeart](https://cometheart.com) - AI Companion and Business Coach on mobile using voice-to-voice conversations
 
-## Example Apps
-* [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app) - See as source of documentation
+- **CometHeart:**  
+    AI Companion and Business Coach on mobile using voice-to-voice conversations.
+
+## Example Setup
+
+```python
+# Create a decentralized organizational structure
+from solana_agent.ai import Swarm, AI, MongoDatabase
+
+# Initialize the organizational database
+db = MongoDatabase(db_url="mongodb://localhost:27017", db_name="organization_brain")
+
+# Define the organization's mission and values
+mission = """Our organization maximizes collective intelligence through 
+transparent collaboration between humans and AI. We value truth, 
+clarity, and continuous improvement in all interactions."""
+
+# Create the organizational swarm
+org = Swarm(
+    database=db,
+    directive=mission,
+)
+
+# Register AI expertise domains
+org.register(
+    name="knowledge_worker",
+    agent=AI(
+        openai_api_key="key",
+        instructions="You are an expert in research and knowledge synthesis...",
+        database=db
+    ),
+    specialization="Research, analysis, and knowledge synthesis"
+)
+
+org.register(
+    name="customer_interface",
+    agent=AI(
+        openai_api_key="key",
+        instructions="You handle customer inquiries with empathy and clarity...",
+        database=db
+    ),
+    specialization="Customer interaction and support"
+)
+
+# Register human expertise domains
+org.register_human_agent(
+    agent_id="human_expert_1",
+    name="Technical Specialist",
+    specialization="Advanced technical problem solving requiring human judgment",
+    notification_handler=email_notification
+)
+
+# Process work through the organization
+async for response in org.process("user123", "How can we optimize our supply chain?"):
+    print(response, end="")
+```
 
 ## License
 
