@@ -162,7 +162,7 @@ Each public method has a docstring for real-time IDE hinting.
 
 ```python
 # Create a decentralized organizational structure
-from solana_agent.ai import Swarm, AI, MongoDatabase
+from solana_agent import Swarm, AI, MongoDatabase
 
 # Initialize the organizational database
 db = MongoDatabase(db_url="mongodb://localhost:27017", db_name="organization_brain")
