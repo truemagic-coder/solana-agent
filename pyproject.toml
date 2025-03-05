@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "7.0.0"
+version = "8.0.0"
 description = "The first AGI framework"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -18,10 +18,10 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
-openai = "^1.65.2"
+openai = "^1.65.3"
 pydantic = "^2.10.6"
-pymongo = "^4.11.1"
-zep-cloud = "^2.4.0"
+pymongo = "^4.11.2"
+zep-cloud = "^2.5.0"
 zep-python = "^2.0.2"
 requests = "^2.32.3"
 pinecone = "^6.0.1"
@@ -29,7 +29,7 @@ pandas = "^2.2.3"
 ntplib = "^0.4.0"
 
 [tool.poetry.dev-dependencies]
-pytest = "^8.3.4"
+pytest = "^8.3.5"
 pytest-cov = "^6.0.0"
 pytest-asyncio = "^0.25.3"
 
