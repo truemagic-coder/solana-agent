@@ -2881,12 +2881,14 @@ class Swarm:
 
         first_agent = next(iter(self.agents.values()))
 
-        # Use a lightweight model for efficiency
+        # Use a lightweight model for efficiency and include context if available
         greeting_response = first_agent._client.chat.completions.create(
             model=self.router_model,
             messages=[
-                {"role": "system", "content": """You are a friendly assistant for the Solana ecosystem.
-                 Respond warmly to this greeting in 1-2 sentences only. Be concise but personable."""},
+                {"role": "system", "content": f"""You are a friendly assistant for the Solana ecosystem.
+                Respond warmly to this greeting in 1-2 sentences only. Be concise but personable.
+                
+                User context (if available): {context}"""},
                 {"role": "user", "content": text}
             ],
             max_tokens=100  # Keep it brief
@@ -2969,7 +2971,7 @@ class Swarm:
             # Handle multi-step plans for complex tickets
             if active_ticket.get("is_parent") and hasattr(self, "planning_agent"):
                 if self._is_plan_continuation_request(user_text):
-                    async for chunk in self._continue_plan_processing(user_id, active_ticket):
+                    async for chunk in self._continue_plan_processing(user_id, active_ticket, timezone):
                         yield chunk
                     return
 
@@ -3250,6 +3252,10 @@ class Swarm:
         # Check resolution status
         resolution = await self._check_ticket_resolution(user_id, response, ticket_id)
 
+        # Get the ticket to access the original user_text
+        ticket = self.tickets.find_one({"_id": ticket_id})
+        user_text = ticket.get("query", "") if ticket else ""
+
         # Update ticket status
         if resolution.status == "resolved" and resolution.confidence >= 0.7:
             self.tickets.update_one(
@@ -3323,6 +3329,22 @@ class Swarm:
         # Generate the plan
         plan = await self.planning_agent.create_plan(parent_id, user_text, complexity)
 
+        # Ensure the plan has subtasks
+        if not plan or "subtasks" not in plan or not plan["subtasks"]:
+            # Create subtasks manually if planning didn't create them
+            subtasks = await self._create_subtasks(parent_id, user_text, complexity, user_id)
+
+            # Update the plan with the created subtasks
+            if plan and subtasks:
+                self.planning_agent.plans_collection.update_one(
+                    {"parent_id": parent_id},
+                    {"$set": {"subtasks": [
+                        {"ticket_id": st["_id"], "title": st["title"],
+                            "description": st["query"]}
+                        for st in subtasks
+                    ]}}
+                )
+
         # Return plan summary and visualization
         yield f"I see this is a complex request that requires careful planning. I've created a detailed plan with {len(plan.get('subtasks', []))} steps.\n\n"
 
@@ -3360,7 +3382,7 @@ class Swarm:
                 # Check if more instructions are needed
                 yield "\n\nI've completed the first step of our plan. To continue with the next steps, please respond with 'continue' or ask any questions you might have."
 
-    async def _continue_plan_processing(self, user_id: str, parent_ticket: Dict) -> AsyncGenerator[str, None]:
+    async def _continue_plan_processing(self, user_id: str, parent_ticket: Dict, timezone: str = None) -> AsyncGenerator[str, None]:
         """Continue processing an existing complex task plan."""
         parent_id = parent_ticket["_id"]
 
@@ -3416,7 +3438,7 @@ class Swarm:
             else:
                 yield "\n\nThere are no available tasks to process right now. Some tasks may be blocked by dependencies."
 
-    async def _create_subtasks(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> List[Dict]:
+    async def _create_subtasks(self, parent_id: str, query: str, complexity: Dict[str, Any], user_id: str) -> List[Dict]:
         """Break a complex task into manageable subtasks."""
         first_agent = next(iter(self.agents.values()))
 
