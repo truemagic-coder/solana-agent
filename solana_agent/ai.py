@@ -5,7 +5,7 @@ import re
 import traceback
 import ntplib
 import json
-from typing import AsyncGenerator, List, Literal, Dict, Any, Callable
+from typing import AsyncGenerator, List, Literal, Dict, Any, Callable, Optional
 import uuid
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -22,7 +22,6 @@ from zep_cloud.types import Message
 from pinecone import Pinecone
 
 
-# Add this to the top of the file with other Pydantic models
 class TicketResolution(BaseModel):
     status: Literal["resolved", "needs_followup", "cannot_determine"] = Field(
         ..., description="Resolution status of the ticket"
@@ -38,7 +37,15 @@ class TicketResolution(BaseModel):
     )
 
 
-# Define Pydantic models for structured output
+class EscalationRequirements(BaseModel):
+    has_sufficient_info: bool = Field(
+        ..., description="Whether enough information has been collected for escalation"
+    )
+    missing_fields: List[str] = Field(
+        default_factory=list, description="Required fields that are missing"
+    )
+    recommendation: str = Field(...,
+                                description="Recommendation for next steps")
 
 
 class ImprovementArea(BaseModel):
@@ -298,6 +305,20 @@ class AI:
 
     async def __aenter__(self):
         return self
+
+    def _truncate_for_zep(self, text, limit=2500):
+        """Truncate text to be within limits for ZEP memory."""
+        if len(text) <= limit:
+            return text
+
+        # Try to truncate at a sentence boundary
+        truncated = text[:limit]
+        last_period = truncated.rfind(".")
+        if (
+            last_period > limit * 0.8
+        ):  # Only use period if it's reasonably close to the end
+            return truncated[: last_period + 1]
+        return truncated + "..."
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # Perform any cleanup actions here
@@ -968,7 +989,7 @@ class AI:
                 Message(
                     role="user",
                     role_type="user",
-                    content=user_text,
+                    content=self._truncate_for_zep(user_text, 2500),
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1109,7 +1130,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=final_response,
+                    content=self._truncate_for_zep(final_response, 2500),
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1171,7 +1192,7 @@ class AI:
                 Message(
                     role="user",
                     role_type="user",
-                    content=transcript,
+                    content=self._truncate_for_zep(transcript, 2500),
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1307,7 +1328,7 @@ class AI:
                 Message(
                     role="assistant",
                     role_type="assistant",
-                    content=final_response,
+                    content=self._truncate_for_zep(final_response, 2500),
                 ),
             ]
             await self._zep.memory.add(session_id=user_id, messages=messages)
@@ -1570,6 +1591,7 @@ class Swarm:
         insight_model: str = "gpt-4o-mini",
         enable_collective_memory: bool = True,
         enable_critic: bool = True,
+        enable_planning: bool = True,
         default_timezone: str = "UTC",
     ):
         """Initialize the multi-agent system with a shared database.
@@ -1613,6 +1635,11 @@ class Swarm:
             {self.swarm_directive}
             └─────────────────────────────────────────────┘
         """
+
+        # Initialize planning agent if enabled
+        if enable_planning:
+            self.planning_agent = PlanningAgent(self)
+            print("Planning system initialized")
 
         # Initialize critic if enabled
         if enable_critic:
@@ -1949,39 +1976,64 @@ class Swarm:
                     Returns:
                         str: Empty string - the handoff is handled internally
                     """
-                    # Validate target agent exists (either AI or human)
-                    is_human_target = target_agent in human_agent_names
-                    is_ai_target = target_agent in ai_agent_names
+                    # Check if target is a human agent
+                    is_human_target = target_agent in human_agent_names if hasattr(
+                        self, "human_agents") else False
 
-                    if not (is_human_target or is_ai_target):
-                        print(
-                            f"[HANDOFF WARNING] Invalid target '{target_agent}'")
-                        if available_targets_list:
-                            original_target = target_agent
-                            target_agent = available_targets_list[0]
-                            print(
-                                f"[HANDOFF CORRECTION] Redirecting from '{original_target}' to '{target_agent}'"
+                    # Information collection enforcement for human handoffs
+                    if is_human_target:
+                        # Get conversation context for validation
+                        memory_context = ""
+                        if hasattr(agent, "get_memory_context"):
+                            memory_context = agent.get_memory_context(
+                                self._current_user_id)
+
+                        # Use structured validation through OpenAI function calling
+                        validation_prompt = f"""
+                        Validate if the conversation has collected enough information for human escalation.
+                        
+                        Current conversation context:
+                        {memory_context}
+                        
+                        MINIMUM REQUIREMENTS FOR HUMAN ESCALATION:
+                        1. Clear problem statement/question
+                        2. User background information (experience level, purpose)
+                        3. At least 2 specific contextual details (what they've tried, desired outcome, etc.)
+                        
+                        Determine if we have sufficient information to escalate to a human, what's missing if not,
+                        and provide a recommendation.
+                        """
+
+                        try:
+                            # Use structured output parsing to determine if requirements are met
+                            validation = target_agent._client.beta.chat.completions.parse(
+                                model=self.router_model,
+                                messages=[
+                                    {"role": "system", "content": validation_prompt},
+                                    {"role": "user", "content": "Validate this conversation for human escalation."}
+                                ],
+                                response_format=EscalationRequirements,
+                                temperature=0.1,
                             )
-                        else:
-                            print(
-                                "[HANDOFF ERROR] No valid target agents available")
-                            return ""
 
-                    print(
-                        f"[HANDOFF TOOL CALLED] {current_agent_name} -> {target_agent}: {reason}"
-                    )
+                            requirements = validation.choices[0].message.parsed
 
-                    # Set handoff info - now includes flag for whether target is human
+                            # If insufficient information, return guidance to collect more
+                            if not requirements.has_sufficient_info:
+                                return "COLLECT_MORE_INFO"
+                        except Exception as e:
+                            print(f"Error in escalation validation: {e}")
+                            # Default to information collection if validation fails
+                            return "COLLECT_MORE_INFO"
+
+                    # Rest of the existing handoff code...
                     agent._handoff_info = {
                         "target": target_agent,
                         "reason": reason,
                         "is_human_target": is_human_target,
                     }
 
-                    # Return empty string - the actual handoff happens in the process method
                     return ""
-
-                return request_handoff
 
             # Use the factory to create a properly-bound tool function
             handoff_tool = create_handoff_tool(agent_name, available_targets)
@@ -2771,234 +2823,695 @@ class Swarm:
             timezone (str, optional): User-specific timezone
         """
         try:
-            # First, check if sender is a human agent
-            is_human_agent = False
-            if hasattr(self, "human_agents") and user_id in self.human_agents:
-                is_human_agent = True
-
             # Handle human agent messages differently (no ticket creation)
-            if is_human_agent:
-                # Handle specific human agent commands
-                if user_text.lower() == "!agents":
-                    yield await self._process_agent_directory_command(user_id)
-                    return
-
-                # Parse for target agent specification if available
-                target_agent = None
-                message = user_text
-
-                # Check if message starts with @agent_name to target specific agent
-                if user_text.startswith("@"):
-                    parts = user_text.split(" ", 1)
-                    potential_target = parts[0][1:]  # Remove the @ symbol
-                    if potential_target in self.agents:
-                        target_agent = potential_target
-                        message = parts[1] if len(parts) > 1 else ""
-
-                # Process as human agent message (no ticket creation)
-                async for chunk in self.process_human_message(
-                    user_id, message, target_agent
-                ):
+            if await self._is_human_agent(user_id):
+                async for chunk in self._process_human_agent_message(user_id, user_text):
                     yield chunk
                 return
 
-            # Standard user commands handling (for regular users)
-            # Handle NPS survey responses
-            if user_text.lower().startswith("!rate "):
-                yield await self._process_nps_command(user_id, user_text)
+            # Handle simple greetings without full agent routing
+            if await self._is_simple_greeting(user_text):
+                greeting_response = await self._generate_greeting_response(user_id, user_text)
+                yield greeting_response
                 return
 
-            # Handle special ticket management commands
-            if user_text.lower().startswith("!ticket"):
-                yield await self._process_ticket_commands(user_id, user_text)
+            # Handle system commands
+            command_response = await self._process_system_commands(user_id, user_text)
+            if command_response is not None:
+                yield command_response
                 return
 
-            # Handle special collective memory commands
-            if user_text.strip().lower().startswith("!memory "):
-                query = user_text[8:].strip()
-                yield self.search_collective_memory(query)
-                return
-
-            # Check for registered agents
-            if not self.agents:
-                yield "Error: No agents are registered with the system. Please register at least one agent first."
-                return
-
-            # Ensure tickets collection exists
-            if "tickets" not in self.database.db.list_collection_names():
-                self.database.db.create_collection("tickets")
-            self.tickets = self.database.db["tickets"]
-
-            # Check if this is continuing an existing ticket
-            active_ticket = self.tickets.find_one(
-                {
-                    "user_id": user_id,
-                    "status": {"$in": ["pending", "active", "transferred"]},
-                }
-            )
-
-            ticket_id = None
-            current_agent = None
-
-            if active_ticket:
-                # Continue with existing ticket
-                ticket_id = active_ticket["_id"]
-                current_agent_name = active_ticket.get("assigned_to")
-
-                # Update ticket to active status if it was pending/transferred
-                if active_ticket["status"] in ["pending", "transferred"]:
-                    self.tickets.update_one(
-                        {"_id": ticket_id},
-                        {
-                            "$set": {
-                                "status": "active",
-                                "last_activity": datetime.datetime.now(
-                                    datetime.timezone.utc
-                                ),
-                            }
-                        },
-                    )
-
-                # If it was transferred to a specific agent, use that agent
-                if current_agent_name and current_agent_name in self.agents:
-                    current_agent = self.agents[current_agent_name]
-                    print(
-                        f"Continuing ticket {ticket_id} with agent {current_agent_name}"
-                    )
-                else:
-                    # Get routing decision if no specific agent is assigned
-                    first_agent = next(iter(self.agents.values()))
-                    agent_name = await self._get_routing_decision(
-                        first_agent, user_text
-                    )
-                    current_agent = self.agents[agent_name]
-
-                    # Update ticket with selected agent
-                    self.tickets.update_one(
-                        {"_id": ticket_id},
-                        {
-                            "$set": {
-                                "assigned_to": agent_name,
-                                "updated_at": datetime.datetime.now(
-                                    datetime.timezone.utc
-                                ),
-                            }
-                        },
-                    )
-                    print(f"Reassigned ticket {ticket_id} to {agent_name}")
-            else:
-                # Create new ticket for this interaction
-                ticket_id = str(uuid.uuid4())
-
-                # Get initial routing and agent
-                first_agent = next(iter(self.agents.values()))
-                agent_name = await self._get_routing_decision(first_agent, user_text)
-                current_agent = self.agents[agent_name]
-
-                # Get conversation context
-                context = ""
-                if hasattr(current_agent, "get_memory_context"):
-                    context = current_agent.get_memory_context(user_id)
-
-                # Store new ticket in database
-                self.tickets.insert_one(
-                    {
-                        "_id": ticket_id,
-                        "user_id": user_id,
-                        "query": user_text,
-                        "created_at": datetime.datetime.now(datetime.timezone.utc),
-                        "assigned_to": agent_name,
-                        "status": "active",
-                        "context": context,
-                    }
-                )
-                print(
-                    f"Created new ticket {ticket_id}, assigned to {agent_name}")
-
-            # Reset handoff info
-            current_agent._handoff_info = None
-
-            # Response tracking
-            final_response = ""
-
-            # Process response stream with ticket context
-            async for chunk in self._stream_response(
-                user_id, user_text, current_agent, timezone, ticket_id
-            ):
+            # Main processing for regular user requests
+            async for chunk in self._process_user_request(user_id, user_text, timezone):
                 yield chunk
-                final_response += chunk
-
-            # Skip ticket resolution check if a handoff occurred during response
-            if not current_agent._handoff_info:
-                # Check if ticket should be resolved based on AI's response
-                resolution = await self._check_ticket_resolution(
-                    user_id, final_response, ticket_id
-                )
-
-                # Update ticket status based on resolution
-                if resolution.status == "resolved" and resolution.confidence >= 0.7:
-                    self.tickets.update_one(
-                        {"_id": ticket_id},
-                        {
-                            "$set": {
-                                "status": "resolved",
-                                "resolution_confidence": resolution.confidence,
-                                "resolution_reasoning": resolution.reasoning,
-                                "resolved_at": datetime.datetime.now(
-                                    datetime.timezone.utc
-                                ),
-                            }
-                        },
-                    )
-                    print(
-                        f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}"
-                    )
-                    # Send NPS survey after resolution
-                    await self._send_nps_survey(user_id, ticket_id, agent_name)
-                else:
-                    # Update with pending status
-                    self.tickets.update_one(
-                        {"_id": ticket_id},
-                        {
-                            "$set": {
-                                "status": "pending_confirmation",
-                                "resolution_confidence": resolution.confidence,
-                                "resolution_reasoning": resolution.reasoning,
-                                "suggested_actions": resolution.suggested_actions,
-                                "updated_at": datetime.datetime.now(
-                                    datetime.timezone.utc
-                                ),
-                            }
-                        },
-                    )
-                    print(
-                        f"Ticket {ticket_id} needs followup (confidence: {resolution.confidence})"
-                    )
-
-            # Post-processing: learn from conversation
-            conversation = {
-                "user_id": user_id,
-                "message": user_text,
-                "response": final_response,
-                "ticket_id": ticket_id,
-            }
-
-            # Run post-processing tasks concurrently
-            tasks = []
-
-            # Add collective memory task if enabled
-            if self.enable_collective_memory:
-                tasks.append(self.extract_and_store_insights(
-                    user_id, conversation))
-
-            # Run all post-processing tasks concurrently without waiting
-            if tasks:
-                asyncio.create_task(self._run_post_processing_tasks(tasks))
 
         except Exception as e:
             print(f"Error in multi-agent processing: {str(e)}")
             print(traceback.format_exc())
             yield "\n\nI apologize for the technical difficulty.\n\n"
+
+    async def _is_human_agent(self, user_id: str) -> bool:
+        """Check if the user is a registered human agent."""
+        return hasattr(self, "human_agents") and user_id in self.human_agents
+
+    async def _is_simple_greeting(self, text: str) -> bool:
+        """Determine if the user message is a simple greeting."""
+        text_lower = text.lower().strip()
+
+        # Common greetings list
+        simple_greetings = [
+            "hello", "hi", "hey", "greetings", "good morning", "good afternoon",
+            "good evening", "what's up", "how are you", "how's it going"
+        ]
+
+        # Check if text starts with a greeting and is relatively short
+        is_greeting = any(text_lower.startswith(greeting)
+                          for greeting in simple_greetings)
+        # Arbitrary threshold for "simple" messages
+        is_short = len(text.split()) < 7
+
+        return is_greeting and is_short
+
+    async def _generate_greeting_response(self, user_id: str, text: str) -> str:
+        """Generate a friendly response to a simple greeting."""
+        # Get user context if available
+        context = ""
+        if hasattr(self, "_get_user_context"):
+            context = await self._get_user_context(user_id)
+
+        first_agent = next(iter(self.agents.values()))
+
+        # Use a lightweight model for efficiency
+        greeting_response = first_agent._client.chat.completions.create(
+            model=self.router_model,
+            messages=[
+                {"role": "system", "content": """You are a friendly assistant for the Solana ecosystem.
+                 Respond warmly to this greeting in 1-2 sentences only. Be concise but personable."""},
+                {"role": "user", "content": text}
+            ],
+            max_tokens=100  # Keep it brief
+        )
+
+        response = greeting_response.choices[0].message.content
+
+        # Store in database for continuity
+        self.database.save_message(
+            user_id,
+            {
+                "message": text,
+                "response": self._truncate_for_zep(response, 2500),
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+            },
+        )
+
+        return response
+
+    async def _process_human_agent_message(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+        """Process messages from human agents."""
+        # Handle specific human agent commands
+        if user_text.lower() == "!agents":
+            yield await self._process_agent_directory_command(user_id)
+            return
+
+        # Parse for target agent specification if available
+        target_agent = None
+        message = user_text
+
+        # Check if message starts with @agent_name to target specific agent
+        if user_text.startswith('@'):
+            parts = user_text.split(" ", 1)
+            potential_target = parts[0][1:]  # Remove the @ symbol
+            if potential_target in self.agents:
+                target_agent = potential_target
+                message = parts[1] if len(parts) > 1 else ""
+
+        # Process as human agent message (no ticket creation)
+        async for chunk in self.process_human_message(user_id, message, target_agent):
+            yield chunk
+
+    async def _process_system_commands(self, user_id: str, user_text: str) -> Optional[str]:
+        """Process system commands and return response if command was handled."""
+        # Handle NPS survey responses
+        if user_text.lower().startswith("!rate "):
+            return await self._process_nps_command(user_id, user_text)
+
+        # Handle special ticket management commands
+        if user_text.lower().startswith("!ticket"):
+            return await self._process_ticket_commands(user_id, user_text)
+
+        # Handle special collective memory commands
+        if user_text.strip().lower().startswith("!memory "):
+            query = user_text[8:].strip()
+            return self.search_collective_memory(query)
+
+        # Not a system command
+        return None
+
+    async def _process_user_request(
+        self, user_id: str, user_text: str, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
+        """Process regular user requests with AI-first routing."""
+        # Check for registered agents
+        if not self.agents:
+            yield "Error: No agents are registered with the system. Please register at least one agent first."
+            return
+
+        # Ensure tickets collection exists
+        if "tickets" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("tickets")
+        self.tickets = self.database.db["tickets"]
+
+        # Check if this is continuing an existing ticket
+        active_ticket = await self._get_active_ticket(user_id)
+
+        # Handle ticket processing based on whether it exists and its type
+        if active_ticket:
+            # Handle multi-step plans for complex tickets
+            if active_ticket.get("is_parent") and hasattr(self, "planning_agent"):
+                if self._is_plan_continuation_request(user_text):
+                    async for chunk in self._continue_plan_processing(user_id, active_ticket):
+                        yield chunk
+                    return
+
+                if user_text.lower().strip() in ["status", "plan status", "progress"]:
+                    status = await self.planning_agent.get_plan_status(active_ticket["_id"])
+                    yield status["visualization"]
+                    yield f"\n\nEstimated completion time: {status['estimated_completion']}"
+                    return
+
+            # Regular active ticket processing
+            async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                yield chunk
+        else:
+            # Create new ticket
+            complexity = await self._assess_task_complexity(user_text)
+
+            # For complex tasks requiring planning
+            if self._needs_planning(complexity) and hasattr(self, "planning_agent"):
+                async for chunk in self._process_complex_task(user_id, user_text, complexity, timezone):
+                    yield chunk
+                return
+
+            # Process regular new ticket
+            async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                yield chunk
+
+    def _truncate_for_zep(self, text, limit=2500):
+        """Truncate text to be within limits for ZEP memory."""
+        if len(text) <= limit:
+            return text
+
+        # Try to truncate at a sentence boundary
+        truncated = text[:limit]
+        last_period = truncated.rfind('.')
+        if last_period > limit * 0.8:  # Only use period if it's reasonably close to the end
+            return truncated[:last_period+1]
+        return truncated + "..."
+
+    async def _get_active_ticket(self, user_id: str):
+        """Get user's active ticket if it exists."""
+        return self.tickets.find_one(
+            {
+                "user_id": user_id,
+                "status": {"$in": ["pending", "active", "transferred"]},
+            }
+        )
+
+    def _is_plan_continuation_request(self, user_text: str) -> bool:
+        """Check if the message is a request to continue with a plan."""
+        text = user_text.lower().strip()
+        continuation_phrases = ["continue", "next",
+                                "next step", "proceed", "go ahead"]
+        return any(phrase == text for phrase in continuation_phrases)
+
+    def _needs_planning(self, complexity: Dict) -> bool:
+        """Determine if a task needs planning based on complexity."""
+        return (complexity.get("story_points", 0) > 8 or
+                complexity.get("t_shirt_size") in ["XL", "XXL"])
+
+    async def _process_existing_ticket(
+        self, user_id: str, user_text: str, ticket: Dict, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
+        """Process a message for an existing ticket."""
+        ticket_id = ticket["_id"]
+
+        # Get the assigned agent or re-route if needed
+        current_agent = await self._get_assigned_agent(ticket, user_text)
+
+        # Update ticket status
+        self.tickets.update_one(
+            {"_id": ticket_id},
+            {
+                "$set": {
+                    "status": "active",
+                    "last_activity": datetime.datetime.now(datetime.timezone.utc),
+                }
+            },
+        )
+
+        # Reset handoff info
+        current_agent._handoff_info = None
+
+        # Process response with the selected agent
+        final_response = ""
+        async for chunk in self._stream_response(user_id, user_text, current_agent, timezone, ticket_id):
+            yield chunk
+            final_response += chunk
+
+        # Skip resolution check if handoff occurred
+        if not current_agent._handoff_info:
+            await self._check_and_update_resolution(user_id, final_response, ticket_id, current_agent)
+
+    async def _process_new_ticket(
+        self, user_id: str, user_text: str, complexity: Dict, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
+        """Process a message creating a new ticket."""
+        # Create new ticket
+        ticket_id = str(uuid.uuid4())
+
+        # Get AI agent - never route directly to a human for new tickets
+        agent_name = await self._get_ai_agent_for_routing(user_text)
+        current_agent = self.agents[agent_name]
+
+        # Get conversation context
+        context = self._get_user_context(user_id, current_agent)
+
+        # Create ticket in database
+        self.tickets.insert_one({
+            "_id": ticket_id,
+            "user_id": user_id,
+            "query": user_text,
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+            "assigned_to": agent_name,
+            "status": "active",
+            "context": context,
+            "complexity": complexity,
+        })
+
+        print(f"Created new ticket {ticket_id}, assigned to {agent_name}")
+
+        # Process with the selected agent
+        final_response = ""
+        async for chunk in self._stream_response(user_id, user_text, current_agent, timezone, ticket_id):
+            yield chunk
+            final_response += chunk
+
+        # Skip resolution check if handoff occurred
+        if not current_agent._handoff_info:
+            await self._check_and_update_resolution(user_id, final_response, ticket_id, current_agent)
+
+    async def _get_assigned_agent(self, ticket: Dict, user_text: str):
+        """Get the agent assigned to a ticket, or reassign if needed."""
+        current_agent_name = ticket.get("assigned_to")
+
+        # If it's assigned to a specific agent, use that agent
+        if current_agent_name and current_agent_name in self.agents:
+            return self.agents[current_agent_name]
+
+        # Re-route to an AI agent
+        agent_name = await self._get_ai_agent_for_routing(user_text)
+
+        # Update ticket with selected agent
+        self.tickets.update_one(
+            {"_id": ticket["_id"]},
+            {
+                "$set": {
+                    "assigned_to": agent_name,
+                    "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+            },
+        )
+
+        return self.agents[agent_name]
+
+    async def _get_ai_agent_for_routing(self, user_text: str) -> str:
+        """Get an AI agent for routing - never returns human agents."""
+        # Get first agent for routing
+        first_agent = next(iter(self.agents.values()))
+
+        # Get AI-only specializations
+        ai_specialists = {k: v for k, v in self.specializations.items()
+                          if not hasattr(self, "human_agents") or k not in self.human_agents}
+
+        # Create routing prompt that explicitly requires AI agents
+        enhanced_prompt = f"""
+        Analyze this user query and return the MOST APPROPRIATE AI specialist.
+        
+        User query: "{user_text}"
+        
+        Available AI specialists:
+        {json.dumps(ai_specialists, indent=2)}
+        
+        CRITICAL INSTRUCTIONS:
+        1. You must ONLY suggest AI specialists, NEVER human agents.
+        2. Choose specialists based on domain expertise match.
+        3. Return EXACTLY ONE specialist name.
+        """
+
+        # Get routing decision
+        router_response = first_agent._client.chat.completions.create(
+            model=self.router_model,
+            messages=[
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.2,
+        )
+
+        raw_response = router_response.choices[0].message.content.strip()
+
+        # Validate the response is an actual AI agent
+        agent_name = self._match_ai_agent_name(raw_response)
+
+        # Apply NPS weighting for selection
+        return await self._apply_nps_weighting(agent_name, user_text)
+
+    def _match_ai_agent_name(self, raw_response: str) -> str:
+        """Match router response to an actual AI agent name (not human)."""
+        # Get AI agent names only
+        ai_agent_names = [name for name in self.agents.keys()
+                          if not hasattr(self, "human_agents") or name not in self.human_agents]
+
+        # Exact match (priority)
+        if raw_response in ai_agent_names:
+            return raw_response
+
+        # Case-insensitive match
+        for name in ai_agent_names:
+            if name.lower() == raw_response.lower():
+                return name
+
+        # Partial match
+        for name in ai_agent_names:
+            if name.lower() in raw_response.lower():
+                return name
+
+        # Fallback to first AI agent
+        return ai_agent_names[0]
+
+    async def _apply_nps_weighting(self, agent_name: str, user_text: str) -> str:
+        """Apply NPS performance weighting to agent selection."""
+        # Get NPS metrics for this agent
+        metrics = self.get_nps_metrics(agent_name)
+
+        # If sufficient data and score below threshold, try finding a better agent
+        if metrics["total_responses"] > 5 and metrics["avg_score"] < 6.0:
+            better_agent = await self._find_better_performing_agent(agent_name, user_text)
+            if better_agent:
+                print(
+                    f"Rerouting from {agent_name} to {better_agent} based on NPS performance")
+                return better_agent
+
+        return agent_name
+
+    async def _find_better_performing_agent(self, current_agent: str, user_text: str) -> Optional[str]:
+        """Find a better performing agent with similar expertise."""
+        # Get all AI agents
+        ai_agents = [name for name in self.agents.keys()
+                     if not hasattr(self, "human_agents") or name not in self.human_agents]
+
+        best_score = 0
+        best_agent = None
+
+        for agent in ai_agents:
+            if agent == current_agent:
+                continue
+
+            # Get this agent's NPS metrics
+            metrics = self.get_nps_metrics(agent)
+            if metrics["total_responses"] < 5:
+                continue
+
+            # Calculate a score based on NPS and query match
+            nps_score = metrics["avg_score"] / 10.0  # Normalize to 0-1
+
+            if nps_score > best_score:
+                best_score = nps_score
+                best_agent = agent
+
+        # Only return if significantly better
+        return best_agent if best_score > 0.7 else None
+
+    def _get_user_context(self, user_id: str, agent) -> str:
+        """Get conversation context for a user."""
+        if hasattr(agent, "get_memory_context"):
+            return agent.get_memory_context(user_id)
+        return ""
+
+    async def _check_and_update_resolution(self, user_id: str, response: str, ticket_id: str, agent):
+        """Check if ticket should be resolved and update status."""
+        # Get agent name
+        agent_name = None
+        for name, registered_agent in self.agents.items():
+            if registered_agent == agent:
+                agent_name = name
+                break
+
+        # Check resolution status
+        resolution = await self._check_ticket_resolution(user_id, response, ticket_id)
+
+        # Update ticket status
+        if resolution.status == "resolved" and resolution.confidence >= 0.7:
+            self.tickets.update_one(
+                {"_id": ticket_id},
+                {
+                    "$set": {
+                        "status": "resolved",
+                        "resolution_confidence": resolution.confidence,
+                        "resolution_reasoning": resolution.reasoning,
+                        "resolved_at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
+            )
+
+            print(
+                f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}")
+
+            # Send NPS survey
+            if agent_name:
+                await self._send_nps_survey(user_id, ticket_id, agent_name)
+        else:
+            # Update with pending status
+            self.tickets.update_one(
+                {"_id": ticket_id},
+                {
+                    "$set": {
+                        "status": "pending_confirmation",
+                        "resolution_confidence": resolution.confidence,
+                        "resolution_reasoning": resolution.reasoning,
+                        "suggested_actions": resolution.suggested_actions,
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
+            )
+
+        # Run post-processing (collective memory, critic)
+        conversation = {
+            "user_id": user_id,
+            "message": user_text,
+            "response": self._truncate_for_zep(response, 2500),
+            "ticket_id": ticket_id,
+        }
+
+        # Schedule post-processing tasks
+        tasks = []
+        if self.enable_collective_memory:
+            tasks.append(self.extract_and_store_insights(
+                user_id, conversation))
+
+        if tasks:
+            asyncio.create_task(self._run_post_processing_tasks(tasks))
+
+    async def _process_complex_task(
+        self, user_id: str, user_text: str, complexity: Dict, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
+        """Process a complex task using the planning system."""
+        # Create parent ticket
+        parent_id = str(uuid.uuid4())
+
+        # Create basic parent ticket
+        self.tickets.insert_one({
+            "_id": parent_id,
+            "user_id": user_id,
+            "query": user_text,
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+            "status": "planning",
+            "complexity": complexity,
+            "is_parent": True,
+        })
+
+        # Generate the plan
+        plan = await self.planning_agent.create_plan(parent_id, user_text, complexity)
+
+        # Return plan summary and visualization
+        yield f"I see this is a complex request that requires careful planning. I've created a detailed plan with {len(plan.get('subtasks', []))} steps.\n\n"
+
+        status = await self.planning_agent.get_plan_status(parent_id)
+        yield status["visualization"]
+
+        # Start processing the first subtask
+        next_task = await self.planning_agent.get_next_subtask(parent_id)
+        if next_task:
+            yield "\n\nLet's start with the first step:\n\n"
+            yield f"## {next_task.get('title')}\n\n"
+
+            # Process this subtask
+            agent_name = next_task.get('assigned_to')
+            if agent_name in self.agents:
+                current_agent = self.agents[agent_name]
+                subtask_query = next_task.get(
+                    'description', next_task.get('query', ''))
+
+                # Mark subtask as active
+                self.tickets.update_one(
+                    {"_id": next_task["_id"]},
+                    {"$set": {"status": "active"}}
+                )
+
+                # Process subtask with appropriate agent
+                async for chunk in self._stream_response(
+                    user_id, subtask_query, current_agent, timezone, next_task["_id"]
+                ):
+                    yield chunk
+
+                # Mark subtask as completed
+                await self.planning_agent.update_subtask_status(next_task["_id"], "completed")
+
+                # Check if more instructions are needed
+                yield "\n\nI've completed the first step of our plan. To continue with the next steps, please respond with 'continue' or ask any questions you might have."
+
+    async def _continue_plan_processing(self, user_id: str, parent_ticket: Dict) -> AsyncGenerator[str, None]:
+        """Continue processing an existing complex task plan."""
+        parent_id = parent_ticket["_id"]
+
+        # Get next pending subtask
+        next_task = await self.planning_agent.get_next_subtask(parent_id)
+        if next_task:
+            yield f"## Continuing with: {next_task.get('title')}\n\n"
+
+            # Process this subtask
+            agent_name = next_task.get('assigned_to')
+            if agent_name in self.agents:
+                current_agent = self.agents[agent_name]
+                subtask_query = next_task.get(
+                    'description', next_task.get('query', ''))
+
+                # Mark subtask as active
+                self.tickets.update_one(
+                    {"_id": next_task["_id"]},
+                    {"$set": {"status": "active"}}
+                )
+
+                # Process subtask
+                async for chunk in self._stream_response(
+                    user_id, subtask_query, current_agent, timezone, next_task["_id"]
+                ):
+                    yield chunk
+
+                # Mark subtask as completed
+                await self.planning_agent.update_subtask_status(next_task["_id"], "completed")
+
+                # Check plan status
+                status = await self.planning_agent.get_plan_status(parent_id)
+
+                if status["progress"] == 100:
+                    yield "\n\n## Plan Completed ✅\n\nWe've successfully completed all steps in the plan."
+
+                    # Update parent ticket
+                    self.tickets.update_one(
+                        {"_id": parent_id},
+                        {"$set": {"status": "resolved"}}
+                    )
+                else:
+                    # More steps remain
+                    yield f"\n\nCompleted step {next_task.get('sequence')} of {status['subtask_count']}. Overall progress: {status['progress']}%\n\n"
+                    yield "To continue with the next step, please respond with 'continue'."
+        else:
+            # No more tasks or all are blocked
+            status = await self.planning_agent.get_plan_status(parent_id)
+            yield status["visualization"]
+
+            if status["status"] == "completed":
+                yield "\n\n## Plan Completed ✅\n\nWe've successfully completed all steps in the plan."
+            else:
+                yield "\n\nThere are no available tasks to process right now. Some tasks may be blocked by dependencies."
+
+    async def _create_subtasks(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> List[Dict]:
+        """Break a complex task into manageable subtasks."""
+        first_agent = next(iter(self.agents.values()))
+
+        prompt = f"""
+        This task is complex ({complexity.get('t_shirt_size', 'L')} / {complexity.get('story_points', 8)} story points).
+        Break it down into 2-5 sequential subtasks that would be easiest to complete in order.
+        
+        COMPLEX TASK: {query}
+        
+        For each subtask, provide:
+        1. A clear title (max 10 words)
+        2. A detailed description
+        3. The ideal agent type to handle it
+        
+        Format as a valid JSON array of subtask objects.
+        """
+
+        response = first_agent._client.chat.completions.create(
+            model=self.insight_model,
+            messages=[
+                {"role": "system", "content": "Break complex tasks into logical subtasks"},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2
+        )
+
+        subtasks_data = json.loads(
+            response.choices[0].message.content).get("subtasks", [])
+
+        # Create actual subtask tickets
+        created_subtasks = []
+        for i, data in enumerate(subtasks_data):
+            subtask_id = str(uuid.uuid4())
+
+            # Determine best agent for this subtask
+            agent_name = await self._get_routing_decision(first_agent, data["description"])
+
+            subtask = {
+                "_id": subtask_id,
+                "parent_id": parent_id,
+                "sequence": i + 1,
+                "title": data["title"],
+                "query": data["description"],
+                "user_id": user_id,  # From parent context
+                "created_at": datetime.datetime.now(datetime.timezone.utc),
+                "assigned_to": agent_name,
+                "status": "pending" if i > 0 else "active",  # Only first is active
+                "is_subtask": True
+            }
+
+            self.tickets.insert_one(subtask)
+            created_subtasks.append(subtask)
+
+        return created_subtasks
+
+    async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
+        """Assess the complexity of a task using standardized metrics."""
+        first_agent = next(iter(self.agents.values()))
+
+        prompt = f"""
+        Analyze this task and provide standardized complexity metrics:
+        
+        TASK: {query}
+        
+        Assess on these dimensions:
+        1. T-shirt size (XS, S, M, L, XL, XXL)
+        2. Story points (1, 2, 3, 5, 8, 13, 21)
+        3. Estimated resolution time in minutes/hours
+        4. Technical complexity (1-10)
+        5. Domain knowledge required (1-10)
+        """
+
+        try:
+            response = first_agent._client.chat.completions.create(
+                model=self.router_model,
+                messages=[
+                    {"role": "system", "content": "Assess task complexity objectively"},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2
+            )
+
+            complexity_data = json.loads(response.choices[0].message.content)
+            return complexity_data
+        except Exception as e:
+            print(f"Error assessing complexity: {e}")
+            return {
+                "t_shirt_size": "M",
+                "story_points": 3,
+                "estimated_minutes": 30,
+                "technical_complexity": 5,
+                "domain_knowledge": 5
+            }
 
     async def _check_ticket_resolution(self, user_id, response, ticket_id):
         """Determine if a ticket can be resolved based on the AI response using structured output.
@@ -3057,6 +3570,102 @@ class Swarm:
                 confidence=0.0,
                 reasoning=f"Error processing resolution check: {str(e)}",
             )
+
+    def get_ticket_performance_metrics(self, agent_name=None, start_date=None, end_date=None):
+        """Get detailed ticket resolution metrics."""
+
+        # Build query for resolved tickets
+        query = {"status": "resolved"}
+        if agent_name:
+            query["assigned_to"] = agent_name
+        if start_date or end_date:
+            query["resolved_at"] = {}
+            if start_date:
+                query["resolved_at"]["$gte"] = start_date
+            if end_date:
+                query["resolved_at"]["$lte"] = end_date
+
+        # Get all matching tickets
+        tickets = list(self.tickets.find(query))
+
+        if not tickets:
+            return {"total_tickets": 0}
+
+        # Calculate metrics
+        resolution_times = []
+        complexity_buckets = {"XS": [], "S": [],
+                              "M": [], "L": [], "XL": [], "XXL": []}
+
+        for ticket in tickets:
+            created = ticket.get("created_at")
+            resolved = ticket.get("resolved_at")
+
+            if created and resolved:
+                resolution_time = (
+                    resolved - created).total_seconds() / 60  # in minutes
+                resolution_times.append(resolution_time)
+
+                # Group by complexity
+                t_shirt = ticket.get("complexity", {}).get("t_shirt_size", "M")
+                if t_shirt in complexity_buckets:
+                    complexity_buckets[t_shirt].append(resolution_time)
+
+        # Calculate statistics
+        avg_resolution_time = sum(resolution_times) / \
+            len(resolution_times) if resolution_times else 0
+
+        # Calculate per-complexity metrics
+        complexity_metrics = {}
+        for size, times in complexity_buckets.items():
+            if times:
+                complexity_metrics[size] = {
+                    "count": len(times),
+                    "avg_minutes": sum(times) / len(times),
+                    "min_minutes": min(times),
+                    "max_minutes": max(times)
+                }
+
+        return {
+            "total_tickets": len(tickets),
+            "avg_resolution_minutes": round(avg_resolution_time, 2),
+            "median_resolution_minutes": round(sorted(resolution_times)[len(resolution_times)//2], 2) if resolution_times else 0,
+            "fastest_resolution_minutes": round(min(resolution_times), 2) if resolution_times else 0,
+            "slowest_resolution_minutes": round(max(resolution_times), 2) if resolution_times else 0,
+            "by_complexity": complexity_metrics,
+            "nps_correlation": self._calculate_nps_resolution_correlation(tickets) if resolution_times else None
+        }
+
+    def _calculate_nps_resolution_correlation(self, tickets):
+        """Calculate correlation between resolution time and NPS scores."""
+        data = []
+
+        for ticket in tickets:
+            # Find corresponding NPS survey
+            survey = self.nps_surveys.find_one(
+                {"ticket_id": ticket["_id"], "status": "completed"})
+            if survey and "resolved_at" in ticket and "created_at" in ticket:
+                resolution_time = (
+                    ticket["resolved_at"] - ticket["created_at"]).total_seconds() / 60
+                data.append((resolution_time, survey.get("score", 0)))
+
+        if len(data) < 5:
+            return {"status": "insufficient_data"}
+
+        # Calculate correlation
+        times, scores = zip(*data)
+        correlation = round(pd.Series(times).corr(pd.Series(scores)), 2)
+
+        return {
+            "correlation": correlation,
+            "samples": len(data),
+            "interpretation": "Strong negative" if correlation <= -0.7 else
+            "Moderate negative" if correlation <= -0.3 else
+            "Weak negative" if correlation < 0 else
+            "No correlation" if correlation == 0 else
+            "Weak positive" if correlation < 0.3 else
+            "Moderate positive" if correlation < 0.7 else
+            "Strong positive"
+        }
 
     async def _process_ticket_commands(self, user_id: str, command: str) -> str:
         """Process ticket management commands directly in chat."""
@@ -3366,6 +3975,43 @@ class Swarm:
                 is_human_target = current_agent._handoff_info.get(
                     "is_human_target", False
                 )
+                if reason == "COLLECT_MORE_INFO":
+                    # Create a structured response for information collection
+                    info_collection_prompt = f"""
+                    Generate a structured request for more information before human escalation.
+                    
+                    For context, the user's query was: "{user_text}"
+                    
+                    Create a professional message explaining:
+                    1. That their request needs human assistance 
+                    2. That we need specific additional details before escalation
+                    3. 3-4 specific questions tailored to their issue that would help the human agent
+                    
+                    Keep the response friendly but professional.
+                    """
+
+                    try:
+                        info_response = current_agent._client.chat.completions.create(
+                            model=self.insight_model,
+                            messages=[
+                                {"role": "system", "content": info_collection_prompt}
+                            ],
+                            temperature=0.7,
+                        )
+
+                        collection_message = info_response.choices[0].message.content
+                        yield f"\n\n{collection_message}"
+                    except Exception:
+                        # Fallback to standard message if structured generation fails
+                        yield "\n\nBefore I can connect you with a human agent, I need to collect a bit more information:\n\n"
+                        yield "1. Could you describe your issue in more detail?\n"
+                        yield "2. What have you already tried or researched?\n"
+                        yield "3. Any specific context or requirements I should know about?\n\n"
+                        yield "This helps our human agents assist you more effectively."
+
+                    # Reset handoff info to prevent actual handoff
+                    current_agent._handoff_info = None
+                    return
 
                 # Record the handoff without waiting
                 asyncio.create_task(
@@ -3765,3 +4411,590 @@ class Critic:
             {"$sort": {"count": -1}},
         ]
         return list(self.feedback_collection.aggregate(pipeline))
+
+
+class PlanningAgent:
+    """Dedicated agent for decomposing complex tasks, mapping dependencies, and coordination."""
+
+    def __init__(
+        self,
+        swarm,
+        model: str = "o3-mini",
+    ):
+        """Initialize the planning agent with the swarm context.
+
+        Args:
+            swarm: Parent swarm instance
+            model: Model to use for planning (should be higher capability)
+        """
+        self.swarm = swarm
+        self.model = model
+        self.plans = {}  # Store active plans by parent_id
+
+        # Get first agent's client for making requests
+        first_agent = next(iter(self.swarm.agents.values()))
+        self.client = first_agent._client
+
+        # Create plans collection in database if needed
+        if "plans" not in self.swarm.database.db.list_collection_names():
+            self.swarm.database.db.create_collection("plans")
+
+        self.plans_collection = self.swarm.database.db["plans"]
+
+        # Create indexes
+        try:
+            self.plans_collection.create_index([("parent_id", 1)])
+            self.plans_collection.create_index([("status", 1)])
+        except Exception as e:
+            print(f"Warning: Index creation for plans might have failed: {e}")
+
+    async def create_plan(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> Dict:
+        """Create a detailed execution plan for a complex task.
+
+        Args:
+            parent_id: ID of the parent ticket
+            query: Original user query
+            complexity: Complexity assessment metrics
+
+        Returns:
+            Plan details including subtasks, dependencies, and estimated timeline
+        """
+        # Create a plan ID
+        plan_id = str(uuid.uuid4())
+
+        # Generate detailed plan with dependencies
+        prompt = f"""
+        You are a senior project manager creating an execution plan for this complex task:
+        
+        TASK: {query}
+        
+        COMPLEXITY: {json.dumps(complexity)}
+        
+        First, determine if this task should be broken down into multiple steps or requires a deeper 
+        planning process. Then create a comprehensive execution plan following these guidelines:
+        
+        1. Break down into 2-8 sequential subtasks with clear dependencies
+        2. Specify which agent type should handle each subtask
+        3. Estimate completion time for each step
+        4. Identify critical path components
+        5. Map dependencies between subtasks (which tasks block others)
+        6. Create a dashboard-ready status report structure
+        7. Include key milestones and decision points
+        8. Identify potential risks and fallback approaches
+        
+        Return a structured JSON object with all these components organized logically.
+        """
+
+        try:
+            plan_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system",
+                        "content": "Create detailed execution plans for complex tasks."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2
+            )
+
+            plan_data = json.loads(plan_response.choices[0].message.content)
+
+            # Add metadata to the plan
+            plan_data["plan_id"] = plan_id
+            plan_data["parent_id"] = parent_id
+            plan_data["original_query"] = query
+            plan_data["complexity"] = complexity
+            plan_data["created_at"] = datetime.datetime.now(
+                datetime.timezone.utc).isoformat()
+            plan_data["status"] = "active"
+            plan_data["progress"] = 0
+
+            # Store the plan
+            self.plans_collection.insert_one(plan_data)
+            self.plans[parent_id] = plan_data
+
+            # Create subtask tickets
+            await self._create_subtask_tickets(plan_data)
+
+            return plan_data
+
+        except Exception as e:
+            print(f"Error creating plan: {e}")
+            # Fallback to simpler planning approach
+            return await self._fallback_planning(parent_id, query, complexity)
+
+    async def _create_subtask_tickets(self, plan: Dict[str, Any]):
+        """Create tickets for all subtasks in the plan with proper dependencies."""
+        subtasks = plan.get("subtasks", [])
+        parent_id = plan["parent_id"]
+
+        # First pass: create all subtask tickets
+        created_subtasks = []
+        for i, subtask in enumerate(subtasks):
+            subtask_id = str(uuid.uuid4())
+
+            # Determine best agent for this subtask based on plan recommendation
+            recommended_agent = subtask.get("recommended_agent", "").lower()
+            agent_name = None
+
+            # Find matching agent by name or specialization
+            for name, agent_spec in self.swarm.specializations.items():
+                if (recommended_agent in name.lower() or
+                        recommended_agent in agent_spec.lower()):
+                    agent_name = name
+                    break
+
+            # Default to first agent if no match
+            if not agent_name and self.swarm.agents:
+                agent_name = next(iter(self.swarm.agents.keys()))
+
+            # Determine initial status based on dependencies
+            has_dependencies = bool(subtask.get("depends_on", []))
+            initial_status = "pending" if has_dependencies else "ready"
+            if i == 0 and not has_dependencies:
+                initial_status = "active"  # First task with no dependencies starts active
+
+            ticket_data = {
+                "_id": subtask_id,
+                "parent_id": parent_id,
+                "plan_id": plan["plan_id"],
+                "sequence": i + 1,
+                "title": subtask.get("title", f"Subtask {i+1}"),
+                "description": subtask.get("description", ""),
+                "query": subtask.get("description", ""),
+                "estimated_minutes": subtask.get("estimated_minutes", 30),
+                "user_id": plan.get("user_id", ""),
+                "created_at": datetime.datetime.now(datetime.timezone.utc),
+                "assigned_to": agent_name,
+                "status": initial_status,
+                "is_subtask": True,
+                "depends_on": subtask.get("depends_on", []),
+                "subtask_id": subtask.get("id", str(i)),
+                "is_critical_path": subtask.get("is_critical_path", False),
+            }
+
+            # Store in database
+            self.swarm.tickets.insert_one(ticket_data)
+            created_subtasks.append(ticket_data)
+
+            # Update the plan with created ticket IDs
+            subtask["ticket_id"] = subtask_id
+
+        # Update plan with created ticket information
+        self.plans_collection.update_one(
+            {"plan_id": plan["plan_id"]},
+            {"$set": {"subtasks": subtasks}}
+        )
+
+        return created_subtasks
+
+    async def _fallback_planning(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> Dict:
+        """Simple fallback planning when advanced planning fails."""
+        # A simpler implementation similar to the current _create_subtasks
+        first_agent = next(iter(self.swarm.agents.values()))
+
+        prompt = f"""
+        Break this complex task into 3-5 sequential steps:
+        
+        TASK: {query}
+        
+        For each step provide:
+        1. A clear title
+        2. A detailed description
+        3. The best agent type to handle it
+        """
+
+        response = first_agent._client.chat.completions.create(
+            model="gpt-4o-mini",  # Use lighter model for fallback
+            messages=[
+                {"role": "system", "content": "Create a simple task breakdown."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2
+        )
+
+        try:
+            subtasks_data = json.loads(
+                response.choices[0].message.content).get("subtasks", [])
+
+            plan = {
+                "plan_id": str(uuid.uuid4()),
+                "parent_id": parent_id,
+                "original_query": query,
+                "complexity": complexity,
+                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "status": "active",
+                "progress": 0,
+                "subtasks": subtasks_data,
+                "is_fallback_plan": True
+            }
+
+            # Store the plan
+            self.plans_collection.insert_one(plan)
+            self.plans[parent_id] = plan
+
+            # Create subtask tickets
+            await self._create_subtask_tickets(plan)
+
+            return plan
+
+        except Exception as e:
+            print(f"Error in fallback planning: {e}")
+            return {"error": "Planning failed", "parent_id": parent_id}
+
+    async def get_next_subtask(self, parent_id: str) -> Dict[str, Any]:
+        """Get the next subtask that should be processed for a plan."""
+        plan = self.plans.get(parent_id) or self.plans_collection.find_one(
+            {"parent_id": parent_id})
+
+        if not plan:
+            return None
+
+        # Find subtasks that are ready to process
+        ready_subtasks = self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "status": "ready",
+            "is_subtask": True
+        }).sort("sequence", 1)
+
+        # If any are ready, pick the first one
+        ready = list(ready_subtasks)
+        if ready:
+            return ready[0]
+
+        # Check if any active subtasks
+        active = list(self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "status": "active",
+            "is_subtask": True
+        }))
+
+        if active:
+            return None  # Still working on an active subtask
+
+        # Check for blocked subtasks
+        blocked = list(self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "status": "pending",
+            "is_subtask": True
+        }))
+
+        if not blocked:
+            # No more subtasks - plan complete
+            self.plans_collection.update_one(
+                {"parent_id": parent_id},
+                {"$set": {"status": "completed", "progress": 100}}
+            )
+            return None
+
+        # Process dependencies to see if any blocked subtasks can be unblocked
+        for subtask in blocked:
+            dependencies = subtask.get("depends_on", [])
+
+            # If no dependencies, make it ready
+            if not dependencies:
+                self.swarm.tickets.update_one(
+                    {"_id": subtask["_id"]},
+                    {"$set": {"status": "ready"}}
+                )
+                return subtask
+
+            # Check if all dependencies are completed
+            all_done = True
+            for dep_id in dependencies:
+                # Find the dependency by subtask_id
+                dep = self.swarm.tickets.find_one({
+                    "parent_id": parent_id,
+                    "subtask_id": dep_id,
+                    "is_subtask": True
+                })
+
+                if not dep or dep.get("status") != "completed":
+                    all_done = False
+                    break
+
+            # If all dependencies satisfied, make it ready
+            if all_done:
+                self.swarm.tickets.update_one(
+                    {"_id": subtask["_id"]},
+                    {"$set": {"status": "ready"}}
+                )
+                return subtask
+
+        return None  # All remaining subtasks are still blocked
+
+    async def update_subtask_status(self, subtask_id: str, status: str, result: str = None) -> Dict:
+        """Update the status of a subtask and manage dependencies."""
+        subtask = self.swarm.tickets.find_one({"_id": subtask_id})
+        if not subtask:
+            return {"error": "Subtask not found"}
+
+        # Update the subtask
+        update_data = {"status": status}
+        if result:
+            update_data["result"] = result
+
+        if status == "completed":
+            update_data["completed_at"] = datetime.datetime.now(
+                datetime.timezone.utc)
+
+        self.swarm.tickets.update_one(
+            {"_id": subtask_id},
+            {"$set": update_data}
+        )
+
+        # Update overall plan progress
+        await self._update_plan_progress(subtask["parent_id"])
+
+        # If completed, check if any dependent tasks can now be started
+        if status == "completed":
+            self._unblock_dependent_tasks(subtask)
+
+        # Get next task if any
+        next_task = await self.get_next_subtask(subtask["parent_id"])
+        if next_task:
+            # Activate the next task
+            self.swarm.tickets.update_one(
+                {"_id": next_task["_id"]},
+                {"$set": {"status": "active"}}
+            )
+
+        return {
+            "status": "success",
+            "subtask_id": subtask_id,
+            "next_task": next_task
+        }
+
+    def _unblock_dependent_tasks(self, completed_subtask: Dict):
+        """Check and unblock tasks that depend on the completed subtask."""
+        parent_id = completed_subtask["parent_id"]
+        subtask_id = completed_subtask.get(
+            "subtask_id") or completed_subtask["_id"]
+
+        # Find all subtasks that depend on this one
+        dependent_tasks = self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "depends_on": subtask_id,
+            "is_subtask": True
+        })
+
+        for task in dependent_tasks:
+            # Check if all other dependencies are also complete
+            dependencies = task.get("depends_on", [])
+            all_complete = True
+
+            for dep_id in dependencies:
+                if dep_id == subtask_id:
+                    continue  # Skip the one we just completed
+
+                # Find the dependency by subtask_id
+                dep = self.swarm.tickets.find_one({
+                    "parent_id": parent_id,
+                    "subtask_id": dep_id,
+                    "is_subtask": True
+                })
+
+                if not dep or dep.get("status") != "completed":
+                    all_complete = False
+                    break
+
+            if all_complete:
+                # All dependencies satisfied, mark as ready
+                self.swarm.tickets.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {"status": "ready"}}
+                )
+
+    async def _update_plan_progress(self, parent_id: str) -> int:
+        """Update and return the progress percentage of a plan."""
+        # Get all subtasks for this plan
+        subtasks = list(self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "is_subtask": True
+        }))
+
+        if not subtasks:
+            return 0
+
+        # Calculate progress
+        completed = sum(1 for t in subtasks if t.get("status") == "completed")
+        progress = int((completed / len(subtasks)) * 100)
+
+        # Update the plan
+        self.plans_collection.update_one(
+            {"parent_id": parent_id},
+            {"$set": {"progress": progress}}
+        )
+
+        # If all complete, mark plan as completed
+        if progress == 100:
+            self.plans_collection.update_one(
+                {"parent_id": parent_id},
+                {"$set": {"status": "completed"}}
+            )
+
+        return progress
+
+    async def get_plan_status(self, parent_id: str) -> Dict:
+        """Get the detailed status of a plan including progress and visualization."""
+        plan = self.plans.get(parent_id) or self.plans_collection.find_one(
+            {"parent_id": parent_id})
+        if not plan:
+            return {"error": "Plan not found"}
+
+        # Get all subtasks
+        subtasks = list(self.swarm.tickets.find({
+            "parent_id": parent_id,
+            "is_subtask": True
+        }))
+
+        # Create a status summary
+        status_counts = {
+            "active": 0,
+            "completed": 0,
+            "pending": 0,
+            "ready": 0,
+            "failed": 0
+        }
+
+        for task in subtasks:
+            status = task.get("status")
+            if status in status_counts:
+                status_counts[status] += 1
+
+        # Calculate time metrics
+        completed_tasks = [
+            t for t in subtasks if t.get("status") == "completed"]
+        avg_completion_time = 0
+        if completed_tasks:
+            times = []
+            for task in completed_tasks:
+                if "created_at" in task and "completed_at" in task:
+                    delta = (task["completed_at"] -
+                             task["created_at"]).total_seconds() / 60
+                    times.append(delta)
+
+            if times:
+                avg_completion_time = sum(times) / len(times)
+
+        # Generate a plan visualization (ASCII/Markdown format)
+        visualization = await self._generate_plan_visualization(plan, subtasks)
+
+        # Final summary
+        return {
+            "plan_id": plan.get("plan_id"),
+            "parent_id": parent_id,
+            "progress": plan.get("progress", 0),
+            "status": plan.get("status", "unknown"),
+            "subtask_count": len(subtasks),
+            "status_counts": status_counts,
+            "avg_completion_time_minutes": round(avg_completion_time, 1),
+            "visualization": visualization,
+            "estimated_completion": self._estimate_completion_time(plan, subtasks),
+            "critical_path_status": self._get_critical_path_status(subtasks)
+        }
+
+    async def _generate_plan_visualization(self, plan: Dict, subtasks: List[Dict]) -> str:
+        """Generate a text/markdown visualization of the plan status."""
+        # Basic visualization as a task list with status
+        lines = ["# Plan Status", ""]
+
+        # Sort by sequence
+        sorted_tasks = sorted(subtasks, key=lambda x: x.get("sequence", 999))
+
+        for task in sorted_tasks:
+            status_emoji = {
+                "active": "🟢",
+                "completed": "✅",
+                "pending": "⏳",
+                "ready": "🟡",
+                "failed": "❌"
+            }.get(task.get("status"), "⚪")
+
+            is_critical = task.get("is_critical_path", False)
+            critical_marker = "🔴 " if is_critical else ""
+
+            lines.append(
+                f"{status_emoji} {critical_marker}**{task.get('title')}**")
+
+            # Show dependencies if any
+            deps = task.get("depends_on", [])
+            if deps:
+                dep_names = []
+                for dep_id in deps:
+                    for t in subtasks:
+                        if t.get("subtask_id") == dep_id:
+                            dep_names.append(t.get("title", f"Task {dep_id}"))
+                            break
+
+                if dep_names:
+                    lines.append(f"   ↳ Depends on: {', '.join(dep_names)}")
+
+            # Show status
+            status_text = task.get("status", "unknown")
+            if status_text == "completed" and "completed_at" in task:
+                completed_time = task["completed_at"].strftime(
+                    "%Y-%m-%d %H:%M")
+                lines.append(
+                    f"   ↳ {status_text.capitalize()} at {completed_time}")
+            else:
+                lines.append(f"   ↳ {status_text.capitalize()}")
+
+        lines.append("")
+        lines.append(f"**Overall Progress: {plan.get('progress', 0)}%**")
+
+        return "\n".join(lines)
+
+    def _estimate_completion_time(self, plan: Dict, subtasks: List[Dict]) -> str:
+        """Estimate completion time based on progress and average completion time."""
+        completed = [t for t in subtasks if t.get("status") == "completed"]
+        if not completed:
+            return "Unable to estimate"
+
+        # Calculate average task time
+        times = []
+        for task in completed:
+            if "created_at" in task and "completed_at" in task:
+                delta = (task["completed_at"] -
+                         task["created_at"]).total_seconds() / 60
+                times.append(delta)
+
+        if not times:
+            return "Unable to estimate"
+
+        avg_time = sum(times) / len(times)
+        remaining_tasks = len(subtasks) - len(completed)
+
+        # Need to account for parallelism and dependencies
+        # This is a simple estimate that could be improved
+        estimated_minutes = avg_time * remaining_tasks * 0.7  # Assuming some parallelism
+
+        if estimated_minutes < 60:
+            return f"Approximately {int(estimated_minutes)} minutes"
+        else:
+            hours = estimated_minutes / 60
+            return f"Approximately {round(hours, 1)} hours"
+
+    def _get_critical_path_status(self, subtasks: List[Dict]) -> Dict:
+        """Get status of tasks on the critical path."""
+        critical_path = [t for t in subtasks if t.get(
+            "is_critical_path", False)]
+
+        if not critical_path:
+            return {"on_track": True, "message": "No critical path defined"}
+
+        completed_critical = sum(
+            1 for t in critical_path if t.get("status") == "completed")
+        progress = int((completed_critical / len(critical_path)) * 100)
+
+        # Check if any critical tasks are failed
+        failed = any(t.get("status") == "failed" for t in critical_path)
+
+        return {
+            "on_track": not failed,
+            "progress": progress,
+            "total_tasks": len(critical_path),
+            "completed_tasks": completed_critical,
+            "has_failures": failed
+        }
