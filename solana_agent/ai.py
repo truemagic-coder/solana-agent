@@ -1669,23 +1669,29 @@ class Swarm:
 
         return human_agent
 
-    async def _send_nps_survey(self, user_id: str, ticket_id: str, agent_name: str) -> str:
+    async def _send_nps_survey(
+        self, user_id: str, ticket_id: str, agent_name: str
+    ) -> str:
         """Send NPS survey to user when a ticket is resolved."""
         # Create a simple numeric survey ID instead of complex UUID
         survey_id = str(uuid.uuid4().int)[:6]  # Just use a short 6-digit ID
 
         # Store pending survey in database
-        self.nps_surveys.insert_one({
-            "survey_id": survey_id,
-            "user_id": user_id,
-            "ticket_id": ticket_id,
-            "agent_name": agent_name,
-            "status": "pending",
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-        })
+        self.nps_surveys.insert_one(
+            {
+                "survey_id": survey_id,
+                "user_id": user_id,
+                "ticket_id": ticket_id,
+                "agent_name": agent_name,
+                "status": "pending",
+                "created_at": datetime.datetime.now(datetime.timezone.utc),
+            }
+        )
 
         # Create simple survey message
-        survey_message = f"""How was your experience? Rate 0-10: !rate {survey_id} [0-10]"""
+        survey_message = (
+            f"""How was your experience? Rate 0-10: !rate {survey_id} [0-10]"""
+        )
 
         # Save as separate system message in the database with ALL fields required by the interface
         message_id = str(uuid.uuid4())
@@ -1700,8 +1706,8 @@ class Swarm:
                 "survey_id": survey_id,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc),
                 "is_system_message": True,
-                "rating_submitted": False  # Explicitly set to false initially
-            }
+                "rating_submitted": False,  # Explicitly set to false initially
+            },
         )
 
         # Return empty string since we don't need to append to agent response
@@ -1806,7 +1812,8 @@ class Swarm:
 
             # Find the survey
             survey = self.nps_surveys.find_one(
-                {"survey_id": survey_id, "status": "pending"})
+                {"survey_id": survey_id, "status": "pending"}
+            )
             if not survey:
                 return "⚠️ Invalid or expired rating ID."
 
@@ -1823,12 +1830,14 @@ class Swarm:
             # Update survey with response
             self.nps_surveys.update_one(
                 {"survey_id": survey_id},
-                {"$set": {
-                    "score": score,
-                    "feedback": feedback,
-                    "status": "completed",
-                    "completed_at": datetime.datetime.now(datetime.timezone.utc)
-                }}
+                {
+                    "$set": {
+                        "score": score,
+                        "feedback": feedback,
+                        "status": "completed",
+                        "completed_at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
             )
 
             return "✅ Thank you for your feedback! Your rating has been recorded."
@@ -2478,6 +2487,86 @@ class Swarm:
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
             )
 
+    async def process_human_message(self, human_agent_id: str, message: str, target_agent: str = None) -> AsyncGenerator[str, None]:
+        """Process a message initiated by a human agent without creating a ticket.
+
+        This is used for human agent questions to the AI, not for user support tickets.
+        """
+        # Verify the human agent exists
+        if not hasattr(self, "human_agents") or human_agent_id not in self.human_agents:
+            yield "Error: Human agent not found."
+            return
+
+        human_agent = self.human_agents[human_agent_id]
+
+        # Create a special prefix to mark this as a human agent message
+        prefixed_message = f"[INTERNAL TEAM MESSAGE FROM HUMAN AGENT {human_agent.name}]: {message}"
+
+        # Determine which agent should handle this
+        if target_agent and target_agent in self.agents:
+            ai_agent = self.agents[target_agent]
+        else:
+            # Use the router to find the best agent
+            first_agent = next(iter(self.agents.values()))
+            best_agent_name = await self._get_routing_decision(first_agent, message)
+            ai_agent = self.agents[best_agent_name]
+
+        # Generate response from the AI agent
+        async for chunk in ai_agent.text(human_agent_id, prefixed_message):
+            yield chunk
+
+        # Store in a separate collection with is_human_agent_message flag
+        self.database.save_message(
+            human_agent_id,
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": human_agent_id,
+                "message": message,
+                "is_human_agent_message": True,  # Flag to distinguish from regular messages
+                "target_agent": target_agent or ai_agent.__class__.__name__,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+            }
+        )
+
+    async def _process_human_agent_commands(self, user_id: str, command: str) -> AsyncGenerator[str, None]:
+        """Process commands from human agents."""
+
+        # Check if user is a registered human agent
+        is_human_agent = False
+        if hasattr(self, "human_agents"):
+            for agent_id, agent in self.human_agents.items():
+                if agent_id == user_id:
+                    is_human_agent = True
+                    break
+
+        if not is_human_agent:
+            yield "⚠️ Only registered human agents can use these commands."
+            return
+
+        # Handle !ask command
+        if command.startswith("!ask "):
+            parts = command.strip().split(" ", 2)
+            if len(parts) < 2:
+                yield "⚠️ Format: !ask [agent_name or 'any'] your question here"
+                return
+
+            target = None
+            message = parts[1]
+
+            # Check if a specific agent is targeted
+            if len(parts) > 2:
+                potential_target = parts[1]
+                if potential_target.lower() != "any" and potential_target in self.agents:
+                    target = potential_target
+                    message = parts[2]
+                else:
+                    message = " ".join(parts[1:])
+
+            # Use process_human_message which doesn't create tickets
+            async for chunk in self.process_human_message(user_id, message, target):
+                yield chunk
+            return
+
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
     ) -> AsyncGenerator[str, None]:
@@ -2489,6 +2578,31 @@ class Swarm:
             timezone (str, optional): User-specific timezone
         """
         try:
+            # First, check if sender is a human agent
+            is_human_agent = False
+            if hasattr(self, "human_agents") and user_id in self.human_agents:
+                is_human_agent = True
+
+            # Handle human agent messages differently (no ticket creation)
+            if is_human_agent:
+                # Parse for target agent specification if available
+                target_agent = None
+                message = user_text
+
+                # Check if message starts with @agent_name to target specific agent
+                if user_text.startswith('@'):
+                    parts = user_text.split(' ', 1)
+                    potential_target = parts[0][1:]  # Remove the @ symbol
+                    if potential_target in self.agents:
+                        target_agent = potential_target
+                        message = parts[1] if len(parts) > 1 else ""
+
+                # Process as human agent message (no ticket creation)
+                async for chunk in self.process_human_message(user_id, message, target_agent):
+                    yield chunk
+                return
+
+            # Standard user commands handling (for regular users)
             # Handle NPS survey responses
             if user_text.lower().startswith("!rate "):
                 yield await self._process_nps_command(user_id, user_text)
@@ -2640,9 +2754,7 @@ class Swarm:
                         f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}"
                     )
                     # Send NPS survey after resolution
-                    await self._send_nps_survey(
-                        user_id, ticket_id, agent_name
-                    )
+                    await self._send_nps_survey(user_id, ticket_id, agent_name)
                 else:
                     # Update with pending status
                     self.tickets.update_one(
