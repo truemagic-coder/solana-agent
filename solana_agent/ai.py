@@ -1376,7 +1376,8 @@ class QueryProcessor:
                 return
 
             # Check for active ticket
-            active_ticket = self.ticket_service.get_active_for_user(user_id)
+            active_ticket = self.ticket_service.ticket_repository.get_active_for_user(
+                user_id)
 
             if active_ticket:
                 # Process existing ticket
