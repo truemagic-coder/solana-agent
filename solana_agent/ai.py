@@ -69,6 +69,13 @@ class MemoryInsight(BaseModel):
     )
 
 
+class NPSResponse(BaseModel):
+    score: int = Field(..., ge=0, le=10, description="NPS score (0-10)")
+    feedback: str = Field("", description="Optional feedback comment")
+    improvement_suggestions: str = Field(
+        "", description="Suggestions for improvement")
+
+
 class CollectiveMemoryResponse(BaseModel):
     insights: List[MemoryInsight] = Field(
         default_factory=list,
@@ -1575,6 +1582,20 @@ class Swarm:
                 critique_model=insight_model,
             )
 
+        # Create NPS survey collection
+        if "nps_surveys" not in self.database.db.list_collection_names():
+            self.database.db.create_collection("nps_surveys")
+        self.nps_surveys = self.database.db["nps_surveys"]
+
+        try:
+            # Create index for NPS analytics
+            self.nps_surveys.create_index([("agent_name", 1)])
+            self.nps_surveys.create_index([("score", 1)])
+            self.nps_surveys.create_index([("timestamp", 1)])
+            print("Created indexes for NPS analytics")
+        except Exception as e:
+            print(f"Warning: NPS index creation might have failed: {e}")
+
         # Ensure handoffs collection exists
         if "handoffs" not in self.database.db.list_collection_names():
             self.database.db.create_collection("handoffs")
@@ -1647,6 +1668,170 @@ class Swarm:
         self._update_all_handoff_capabilities()
 
         return human_agent
+
+    async def _send_nps_survey(self, user_id: str, ticket_id: str, agent_name: str) -> str:
+        """Send NPS survey to user when a ticket is resolved."""
+        # Create a simple numeric survey ID instead of complex UUID
+        survey_id = str(uuid.uuid4().int)[:6]  # Just use a short 6-digit ID
+
+        # Store pending survey in database
+        self.nps_surveys.insert_one({
+            "survey_id": survey_id,
+            "user_id": user_id,
+            "ticket_id": ticket_id,
+            "agent_name": agent_name,
+            "status": "pending",
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+        })
+
+        # Create simple survey message
+        survey_message = f"""How was your experience? Rate 0-10: !rate {survey_id} [0-10]"""
+
+        # Save as separate system message in the database with ALL fields required by the interface
+        message_id = str(uuid.uuid4())
+        self.database.save_message(
+            user_id,
+            {
+                "id": message_id,  # Add explicit ID field
+                "user_id": user_id,
+                "message": "rate_request",
+                "response": survey_message,
+                "agent_name": agent_name,
+                "survey_id": survey_id,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "is_system_message": True,
+                "rating_submitted": False  # Explicitly set to false initially
+            }
+        )
+
+        # Return empty string since we don't need to append to agent response
+        return ""
+
+    def get_nps_metrics(
+        self,
+        agent_name: str = None,
+        start_date: datetime.datetime = None,
+        end_date: datetime.datetime = None,
+    ) -> dict:
+        """Calculate NPS metrics overall or for a specific agent.
+
+        Args:
+            agent_name: Optional agent name to filter by
+            start_date: Optional start date for date range
+            end_date: Optional end date for date range
+
+        Returns:
+            Dictionary with NPS metrics
+        """
+        # Build query
+        query = {"status": "completed"}
+
+        if agent_name:
+            query["agent_name"] = agent_name
+
+        if start_date or end_date:
+            query["completed_at"] = {}
+            if start_date:
+                query["completed_at"]["$gte"] = start_date
+            if end_date:
+                query["completed_at"]["$lte"] = end_date
+
+        # Get all responses matching criteria
+        responses = list(self.nps_surveys.find(query))
+
+        if not responses:
+            return {
+                "nps_score": 0,
+                "promoters": 0,
+                "passives": 0,
+                "detractors": 0,
+                "total_responses": 0,
+                "avg_score": 0,
+            }
+
+        # Count each category
+        promoters = sum(1 for r in responses if r.get("score", 0) >= 9)
+        passives = sum(1 for r in responses if 7 <= r.get("score", 0) <= 8)
+        detractors = sum(1 for r in responses if r.get("score", 0) <= 6)
+
+        total = len(responses)
+
+        # Calculate NPS (percentage of promoters minus percentage of detractors)
+        nps_score = int(((promoters - detractors) / total) * 100)
+
+        # Calculate average score
+        avg_score = sum(r.get("score", 0) for r in responses) / total
+
+        # If agent_name was not specified, also get per-agent breakdown
+        agent_breakdown = None
+        if not agent_name:
+            agent_breakdown = {}
+            # Group by agent name
+            pipeline = [
+                {"$match": {"status": "completed"}},
+                {
+                    "$group": {
+                        "_id": "$agent_name",
+                        "avg_score": {"$avg": "$score"},
+                        "count": {"$sum": 1},
+                    }
+                },
+            ]
+            for result in self.nps_surveys.aggregate(pipeline):
+                agent_breakdown[result["_id"]] = {
+                    "avg_score": round(result["avg_score"], 2),
+                    "count": result["count"],
+                }
+
+        return {
+            "nps_score": nps_score,
+            "promoters": promoters,
+            "promoters_pct": round((promoters / total) * 100, 1),
+            "passives": passives,
+            "passives_pct": round((passives / total) * 100, 1),
+            "detractors": detractors,
+            "detractors_pct": round((detractors / total) * 100, 1),
+            "total_responses": total,
+            "avg_score": round(avg_score, 2),
+            "agent_breakdown": agent_breakdown,
+        }
+
+    async def _process_nps_command(self, user_id: str, command: str) -> str:
+        """Process NPS survey responses with simplified format."""
+        parts = command.strip().split(" ")
+
+        # Handle simplified !rate command
+        if command.startswith("!rate ") and len(parts) >= 3:
+            survey_id = parts[1]
+
+            # Find the survey
+            survey = self.nps_surveys.find_one(
+                {"survey_id": survey_id, "status": "pending"})
+            if not survey:
+                return "⚠️ Invalid or expired rating ID."
+
+            try:
+                score = int(parts[2])
+                if not 0 <= score <= 10:
+                    raise ValueError()
+            except ValueError:
+                return "⚠️ Please provide a valid rating between 0-10."
+
+            # Get feedback if provided
+            feedback = " ".join(parts[3:]) if len(parts) > 3 else ""
+
+            # Update survey with response
+            self.nps_surveys.update_one(
+                {"survey_id": survey_id},
+                {"$set": {
+                    "score": score,
+                    "feedback": feedback,
+                    "status": "completed",
+                    "completed_at": datetime.datetime.now(datetime.timezone.utc)
+                }}
+            )
+
+            return "✅ Thank you for your feedback! Your rating has been recorded."
 
     def _update_all_handoff_capabilities(self):
         """Update all agents with current handoff capabilities for both AI and human agents."""
@@ -2304,6 +2489,11 @@ class Swarm:
             timezone (str, optional): User-specific timezone
         """
         try:
+            # Handle NPS survey responses
+            if user_text.lower().startswith("!rate "):
+                yield await self._process_nps_command(user_id, user_text)
+                return
+
             # Handle special ticket management commands
             if user_text.lower().startswith("!ticket"):
                 yield await self._process_ticket_commands(user_id, user_text)
@@ -2448,6 +2638,10 @@ class Swarm:
                     )
                     print(
                         f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}"
+                    )
+                    # Send NPS survey after resolution
+                    await self._send_nps_survey(
+                        user_id, ticket_id, agent_name
                     )
                 else:
                     # Update with pending status
