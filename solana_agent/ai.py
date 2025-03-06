@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import math
 import random
 import re
 import traceback
@@ -1648,6 +1649,12 @@ class Swarm:
                 critique_model=insight_model,
             )
 
+        # Initialize human capacity planning system
+        self.capacity_manager = HumanAgentCapacity(self)
+
+        # Start capacity monitoring background task
+        asyncio.create_task(self._monitor_human_capacity())
+
         # Create NPS survey collection
         if "nps_surveys" not in self.database.db.list_collection_names():
             self.database.db.create_collection("nps_surveys")
@@ -1687,7 +1694,352 @@ class Swarm:
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
 
-    def get_agent_score(self, agent_name: str, start_date=None, end_date=None) -> Dict[str, Any]:
+    async def _monitor_human_capacity(self):
+        """Background task to monitor human capacity and rebalance workload as needed"""
+        while not self._shutdown_event.is_set():
+            try:
+                # Check if human agents are overloaded
+                if hasattr(self, "human_agents") and self.human_agents:
+                    report = await self.generate_human_capacity_report()
+
+                    # If overall utilization is high, consider rebalancing
+                    if report["overall_metrics"].get("overall_utilization", 0) > 70:
+                        await self.rebalance_human_agent_workload()
+
+                    # Store capacity report for historical tracking
+                    if (
+                        "capacity_reports"
+                        not in self.database.db.list_collection_names()
+                    ):
+                        self.database.db.create_collection("capacity_reports")
+
+                    self.database.db.capacity_reports.insert_one(report)
+
+            except Exception as e:
+                print(f"Error in human capacity monitoring: {e}")
+
+            # Run every 15 minutes
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=900)
+            except asyncio.TimeoutError:
+                pass
+
+    async def generate_human_capacity_report(self) -> Dict:
+        """Generate a comprehensive report on human agent capacity and workload"""
+        if not hasattr(self, "human_agents"):
+            return {"status": "No human agents registered"}
+
+        report = {
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "overall_metrics": {},
+            "agents": {},
+        }
+
+        total_pending = 0
+        total_capacity = 0
+
+        # Calculate capacity per agent
+        for agent_id, agent in self.human_agents.items():
+            # Get pending tickets
+            pending_tickets = list(
+                self.tickets.find(
+                    {"assigned_to": agent_id, "status": {
+                        "$in": ["pending", "active"]}}
+                )
+            )
+
+            # Calculate metrics
+            max_capacity = (
+                getattr(self, "capacity_manager", {})
+                .get("max_concurrent_tickets", {})
+                .get(agent_id, 5)
+            )
+            utilization = len(pending_tickets) / \
+                max_capacity if max_capacity > 0 else 0
+
+            # Calculate average response time
+            response_times = []
+            completed = list(
+                self.tickets.find(
+                    {
+                        "assigned_to": agent_id,
+                        "status": "resolved",
+                        "resolved_at": {"$exists": True},
+                        "created_at": {"$exists": True},
+                    }
+                )
+            )
+
+            for ticket in completed:
+                if "created_at" in ticket and "resolved_at" in ticket:
+                    delta = (
+                        ticket["resolved_at"] - ticket["created_at"]
+                    ).total_seconds() / 60
+                    response_times.append(delta)
+
+            avg_response = (
+                sum(response_times) /
+                len(response_times) if response_times else 0
+            )
+
+            # Store agent metrics
+            report["agents"][agent_id] = {
+                "name": agent.name,
+                "status": agent.availability_status,
+                "pending_tickets": len(pending_tickets),
+                "max_capacity": max_capacity,
+                "utilization": round(utilization * 100, 1),
+                "avg_response_minutes": round(avg_response, 1),
+                "oldest_ticket_minutes": self._get_oldest_ticket_age(pending_tickets),
+            }
+
+            total_pending += len(pending_tickets)
+            total_capacity += max_capacity
+
+        # Overall metrics
+        report["overall_metrics"] = {
+            "total_human_agents": len(self.human_agents),
+            "active_human_agents": sum(
+                1
+                for a in self.human_agents.values()
+                if a.availability_status == "available"
+            ),
+            "total_pending_tickets": total_pending,
+            "total_capacity": total_capacity,
+            "overall_utilization": round((total_pending / total_capacity) * 100, 1)
+            if total_capacity > 0
+            else 0,
+            "agent_distribution": self._calculate_agent_distribution(),
+        }
+
+        return report
+
+    async def rebalance_human_agent_workload(self):
+        """Redistribute tickets to balance workload among human agents"""
+        if not hasattr(self, "human_agents"):
+            return {"status": "No human agents registered"}
+
+        # Identify agents with high and low utilization
+        utilization = {}
+        for agent_id, agent in self.human_agents.items():
+            if agent.availability_status != "available":
+                continue
+
+            # Count current tickets
+            ticket_count = self.tickets.count_documents(
+                {"assigned_to": agent_id, "status": {
+                    "$in": ["pending", "active"]}}
+            )
+
+            # Get max capacity
+            max_capacity = (
+                getattr(self, "capacity_manager", {})
+                .get("max_concurrent_tickets", {})
+                .get(agent_id, 5)
+            )
+
+            # Calculate utilization
+            if max_capacity > 0:
+                utilization[agent_id] = ticket_count / max_capacity
+
+        # Find overloaded and underloaded agents
+        overloaded = [
+            (agent_id, util) for agent_id, util in utilization.items() if util > 0.8
+        ]
+        underloaded = [
+            (agent_id, util) for agent_id, util in utilization.items() if util < 0.3
+        ]
+
+        rebalanced_count = 0
+
+        # Rebalance from most overloaded to most underloaded
+        for over_agent, _ in sorted(overloaded, key=lambda x: x[1], reverse=True):
+            # Get tickets that could be redistributed
+            tickets = list(
+                self.tickets.find(
+                    {
+                        "assigned_to": over_agent,
+                        "status": "pending",  # Only move pending tickets, not active ones
+                    }
+                ).sort("created_at", 1)
+            )  # Start with oldest
+
+            for ticket in tickets:
+                # Find best underloaded agent
+                if not underloaded:
+                    break
+
+                # Sort underloaded by utilization (ascending)
+                underloaded.sort(key=lambda x: x[1])
+                target_agent = underloaded[0][0]
+
+                # Transfer the ticket
+                self.tickets.update_one(
+                    {"_id": ticket["_id"]},
+                    {
+                        "$set": {
+                            "assigned_to": target_agent,
+                            "status": "transferred",
+                            "rebalanced": True,
+                            "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    },
+                )
+
+                # Record handoff
+                self.handoffs.insert_one(
+                    {
+                        "ticket_id": ticket["_id"],
+                        "user_id": ticket["user_id"],
+                        "from_agent": over_agent,
+                        "to_agent": target_agent,
+                        "reason": "Automatic workload balancing",
+                        "query": ticket["query"],
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                        "automatic": True,
+                    }
+                )
+
+                # Update utilization counts
+                over_util = utilization[over_agent]
+                under_util = utilization[target_agent]
+
+                # Recalculate utilization
+                over_max = (
+                    getattr(self, "capacity_manager", {})
+                    .get("max_concurrent_tickets", {})
+                    .get(over_agent, 5)
+                )
+                under_max = (
+                    getattr(self, "capacity_manager", {})
+                    .get("max_concurrent_tickets", {})
+                    .get(target_agent, 5)
+                )
+
+                utilization[over_agent] = over_util - (1 / over_max)
+                utilization[target_agent] = under_util + (1 / under_max)
+
+                # Check if the target agent is still underloaded
+                if utilization[target_agent] > 0.3:
+                    underloaded = [(a, u)
+                                   for a, u in underloaded if a != target_agent]
+
+                rebalanced_count += 1
+
+                # Notify human agents about the transfer
+                # (implement notification logic)
+
+        return {"rebalanced_tickets": rebalanced_count}
+
+    async def forecast_human_capacity_needs(self, days_ahead: int = 7) -> Dict:
+        """Forecast human agent capacity needs based on historical patterns"""
+        if not hasattr(self, "human_agents"):
+            return {"status": "No human agents registered"}
+
+        # Calculate tickets per day for the past 30 days
+        end_date = datetime.datetime.now(datetime.timezone.utc)
+        start_date = end_date - datetime.timedelta(days=30)
+
+        # Group tickets by day and count
+        pipeline = [
+            {"$match": {"created_at": {"$gte": start_date, "$lte": end_date}}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id": 1}},
+        ]
+
+        daily_counts = list(self.tickets.aggregate(pipeline))
+
+        # Calculate average tickets per day
+        if not daily_counts:
+            return {"status": "Insufficient data for forecasting"}
+
+        avg_tickets_per_day = sum(doc["count"] for doc in daily_counts) / len(
+            daily_counts
+        )
+
+        # Calculate average tickets requiring human intervention
+        human_tickets = self.tickets.count_documents(
+            {
+                "created_at": {"$gte": start_date, "$lte": end_date},
+                "assigned_to": {"$in": list(self.human_agents.keys())},
+            }
+        )
+
+        human_percentage = (
+            human_tickets / sum(doc["count"] for doc in daily_counts)
+            if daily_counts
+            else 0
+        )
+
+        # Calculate average handling time for human agents
+        handling_times = []
+        resolved_tickets = self.tickets.find(
+            {
+                "assigned_to": {"$in": list(self.human_agents.keys())},
+                "status": "resolved",
+                "created_at": {"$exists": True},
+                "resolved_at": {"$exists": True},
+            }
+        )
+
+        for ticket in resolved_tickets:
+            if "created_at" in ticket and "resolved_at" in ticket:
+                delta = (
+                    ticket["resolved_at"] - ticket["created_at"]
+                ).total_seconds() / 3600  # hours
+                handling_times.append(delta)
+
+        avg_handling_time = (
+            sum(handling_times) / len(handling_times) if handling_times else 2
+        )  # default to 2 hours
+
+        # Calculate capacity forecasts
+        forecast = []
+        for day in range(1, days_ahead + 1):
+            forecast_date = (end_date + datetime.timedelta(days=day)).strftime(
+                "%Y-%m-%d"
+            )
+            # Estimate tickets requiring human handling
+            estimated_tickets = avg_tickets_per_day * human_percentage
+            # Estimate human-hours needed (tickets × handling time)
+            estimated_hours = estimated_tickets * avg_handling_time
+            # Estimate agents needed (hours ÷ hours per agent per day)
+            # Assuming 6 productive hours per agent
+            agents_needed = math.ceil(estimated_hours / 6)
+
+            forecast.append(
+                {
+                    "date": forecast_date,
+                    "estimated_tickets": round(estimated_tickets, 1),
+                    "estimated_hours": round(estimated_hours, 1),
+                    "recommended_agents": agents_needed,
+                }
+            )
+
+        return {
+            "current_avg_tickets_per_day": round(avg_tickets_per_day, 1),
+            "human_intervention_rate": round(human_percentage * 100, 1),
+            "avg_handling_time_hours": round(avg_handling_time, 1),
+            "forecast": forecast,
+            "current_agent_count": len(
+                [
+                    a
+                    for a in self.human_agents.values()
+                    if a.availability_status == "available"
+                ]
+            ),
+        }
+
+    def get_agent_score(
+        self, agent_name: str, start_date=None, end_date=None
+    ) -> Dict[str, Any]:
         """Calculate a comprehensive performance score for an agent.
 
         The Agent Score combines NPS ratings, resolution metrics, complexity handling,
@@ -1706,7 +2058,8 @@ class Swarm:
 
         # 2. Get resolution metrics
         resolution_metrics = self.get_ticket_performance_metrics(
-            agent_name, start_date, end_date)
+            agent_name, start_date, end_date
+        )
 
         # 3. Get critic feedback
         critic_data = []
@@ -1733,8 +2086,14 @@ class Swarm:
         # Complexity handling component (0-100)
         complexity_score = 0
         complexity_counts = 0
-        complexity_weights = {"XS": 0.5, "S": 0.75,
-                              "M": 1.0, "L": 1.25, "XL": 1.5, "XXL": 2.0}
+        complexity_weights = {
+            "XS": 0.5,
+            "S": 0.75,
+            "M": 1.0,
+            "L": 1.25,
+            "XL": 1.5,
+            "XXL": 2.0,
+        }
 
         for size, metrics in resolution_metrics.get("by_complexity", {}).items():
             if size in complexity_weights and metrics.get("count", 0) > 0:
@@ -1745,8 +2104,11 @@ class Swarm:
                 expected_minutes = 30 * weight
 
                 actual_minutes = metrics.get("avg_minutes", expected_minutes)
-                efficiency = min(1.5, expected_minutes /
-                                 actual_minutes) if actual_minutes > 0 else 0
+                efficiency = (
+                    min(1.5, expected_minutes / actual_minutes)
+                    if actual_minutes > 0
+                    else 0
+                )
                 weighted_score = efficiency * 100 * metrics.get("count", 0)
 
                 complexity_score += weighted_score
@@ -1761,8 +2123,11 @@ class Swarm:
         critic_score = 0
         if critic_data:
             # Average the overall_score from critic feedback (already 0-1 scale)
-            scores = [feedback.get("overall_score", 0.5)
-                      for feedback in critic_data if "overall_score" in feedback]
+            scores = [
+                feedback.get("overall_score", 0.5)
+                for feedback in critic_data
+                if "overall_score" in feedback
+            ]
             if scores:
                 critic_score = sum(scores) / len(scores) * 100
             else:
@@ -1775,11 +2140,13 @@ class Swarm:
         handoff_score = 0
         total_tickets = resolution_metrics.get("total_tickets", 0)
         if total_tickets > 0:
-            handoff_count = self.handoffs.count_documents({
-                "from_agent": agent_name,
-                **({"timestamp": {"$gte": start_date}} if start_date else {}),
-                **({"timestamp": {"$lte": end_date}} if end_date else {})
-            })
+            handoff_count = self.handoffs.count_documents(
+                {
+                    "from_agent": agent_name,
+                    **({"timestamp": {"$gte": start_date}} if start_date else {}),
+                    **({"timestamp": {"$lte": end_date}} if end_date else {}),
+                }
+            )
 
             handoff_rate = handoff_count / total_tickets
             # Invert: 100% for no handoffs, 0% for 50%+ handoff rate
@@ -1790,19 +2157,19 @@ class Swarm:
         # Calculate weighted overall score
         # Weights should sum to 1.0
         weights = {
-            "nps": 0.30,          # Customer satisfaction is most important
-            "speed": 0.20,        # Resolution speed is important
-            "complexity": 0.20,   # Handling complex queries well
-            "critic": 0.15,       # Quality of responses
-            "handoff": 0.15       # Self-sufficiency
+            "nps": 0.30,  # Customer satisfaction is most important
+            "speed": 0.20,  # Resolution speed is important
+            "complexity": 0.20,  # Handling complex queries well
+            "critic": 0.15,  # Quality of responses
+            "handoff": 0.15,  # Self-sufficiency
         }
 
         overall_score = (
-            nps_score * weights["nps"] +
-            speed_score * weights["speed"] +
-            complexity_score * weights["complexity"] +
-            critic_score * weights["critic"] +
-            handoff_score * weights["handoff"]
+            nps_score * weights["nps"]
+            + speed_score * weights["speed"]
+            + complexity_score * weights["complexity"]
+            + critic_score * weights["critic"]
+            + handoff_score * weights["handoff"]
         )
 
         # Round scores for readability
@@ -1815,18 +2182,22 @@ class Swarm:
                 "speed": round(speed_score, 1),
                 "complexity": round(complexity_score, 1),
                 "critic": round(critic_score, 1),
-                "handoff": round(handoff_score, 1)
+                "handoff": round(handoff_score, 1),
             },
             "metrics": {
                 "total_tickets": resolution_metrics.get("total_tickets", 0),
-                "avg_resolution_minutes": resolution_metrics.get("avg_resolution_minutes", 0),
+                "avg_resolution_minutes": resolution_metrics.get(
+                    "avg_resolution_minutes", 0
+                ),
                 "nps_responses": nps_metrics.get("total_responses", 0),
-                "handoff_rate": f"{(100 - handoff_score/2):.1f}%" if handoff_score != 50 else "No data"
+                "handoff_rate": f"{(100 - handoff_score/2):.1f}%"
+                if handoff_score != 50
+                else "No data",
             },
             "period": {
                 "start": start_date.isoformat() if start_date else "All time",
-                "end": end_date.isoformat() if end_date else "Present"
-            }
+                "end": end_date.isoformat() if end_date else "Present",
+            },
         }
 
     def _get_score_rating(self, score: float) -> str:
@@ -1848,7 +2219,9 @@ class Swarm:
         else:
             return "Needs Improvement"
 
-    def get_all_agent_scores(self, start_date=None, end_date=None) -> List[Dict[str, Any]]:
+    def get_all_agent_scores(
+        self, start_date=None, end_date=None
+    ) -> List[Dict[str, Any]]:
         """Get performance scores for all agents for comparison.
 
         Args:
@@ -1861,8 +2234,11 @@ class Swarm:
         scores = []
 
         # Only include AI agents, not human agents
-        ai_agents = [name for name in self.agents.keys()
-                     if not hasattr(self, "human_agents") or name not in self.human_agents]
+        ai_agents = [
+            name
+            for name in self.agents.keys()
+            if not hasattr(self, "human_agents") or name not in self.human_agents
+        ]
 
         for agent_name in ai_agents:
             agent_score = self.get_agent_score(
@@ -2162,8 +2538,11 @@ class Swarm:
                         str: Empty string - the handoff is handled internally
                     """
                     # Check if target is a human agent
-                    is_human_target = target_agent in human_agent_names if hasattr(
-                        self, "human_agents") else False
+                    is_human_target = (
+                        target_agent in human_agent_names
+                        if hasattr(self, "human_agents")
+                        else False
+                    )
 
                     # Information collection enforcement for human handoffs
                     if is_human_target:
@@ -2171,7 +2550,8 @@ class Swarm:
                         memory_context = ""
                         if hasattr(agent, "get_memory_context"):
                             memory_context = agent.get_memory_context(
-                                self._current_user_id)
+                                self._current_user_id
+                            )
 
                         # Use structured validation through OpenAI function calling
                         validation_prompt = f"""
@@ -2195,7 +2575,10 @@ class Swarm:
                                 model=self.router_model,
                                 messages=[
                                     {"role": "system", "content": validation_prompt},
-                                    {"role": "user", "content": "Validate this conversation for human escalation."}
+                                    {
+                                        "role": "user",
+                                        "content": "Validate this conversation for human escalation.",
+                                    },
                                 ],
                                 response_format=EscalationRequirements,
                                 temperature=0.1,
@@ -3010,13 +3393,17 @@ class Swarm:
         try:
             # Handle human agent messages differently (no ticket creation)
             if await self._is_human_agent(user_id):
-                async for chunk in self._process_human_agent_message(user_id, user_text):
+                async for chunk in self._process_human_agent_message(
+                    user_id, user_text
+                ):
                     yield chunk
                 return
 
             # Handle simple greetings without full agent routing
             if await self._is_simple_greeting(user_text):
-                greeting_response = await self._generate_greeting_response(user_id, user_text)
+                greeting_response = await self._generate_greeting_response(
+                    user_id, user_text
+                )
                 yield greeting_response
                 return
 
@@ -3045,13 +3432,22 @@ class Swarm:
 
         # Common greetings list
         simple_greetings = [
-            "hello", "hi", "hey", "greetings", "good morning", "good afternoon",
-            "good evening", "what's up", "how are you", "how's it going"
+            "hello",
+            "hi",
+            "hey",
+            "greetings",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "what's up",
+            "how are you",
+            "how's it going",
         ]
 
         # Check if text starts with a greeting and is relatively short
-        is_greeting = any(text_lower.startswith(greeting)
-                          for greeting in simple_greetings)
+        is_greeting = any(
+            text_lower.startswith(greeting) for greeting in simple_greetings
+        )
         # Arbitrary threshold for "simple" messages
         is_short = len(text.split()) < 7
 
@@ -3070,13 +3466,16 @@ class Swarm:
         greeting_response = first_agent._client.chat.completions.create(
             model=self.router_model,
             messages=[
-                {"role": "system", "content": f"""You are a friendly assistant for the Solana ecosystem.
+                {
+                    "role": "system",
+                    "content": f"""You are a friendly assistant for the Solana ecosystem.
                 Respond warmly to this greeting in 1-2 sentences only. Be concise but personable.
                 
-                User context (if available): {context}"""},
-                {"role": "user", "content": text}
+                User context (if available): {context}""",
+                },
+                {"role": "user", "content": text},
             ],
-            max_tokens=100  # Keep it brief
+            max_tokens=100,  # Keep it brief
         )
 
         response = greeting_response.choices[0].message.content
@@ -3093,7 +3492,9 @@ class Swarm:
 
         return response
 
-    async def _process_human_agent_message(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+    async def _process_human_agent_message(
+        self, user_id: str, user_text: str
+    ) -> AsyncGenerator[str, None]:
         """Process messages from human agents."""
         # Handle specific human agent commands
         if user_text.lower() == "!agents":
@@ -3105,7 +3506,7 @@ class Swarm:
         message = user_text
 
         # Check if message starts with @agent_name to target specific agent
-        if user_text.startswith('@'):
+        if user_text.startswith("@"):
             parts = user_text.split(" ", 1)
             potential_target = parts[0][1:]  # Remove the @ symbol
             if potential_target in self.agents:
@@ -3116,7 +3517,9 @@ class Swarm:
         async for chunk in self.process_human_message(user_id, message, target_agent):
             yield chunk
 
-    async def _process_system_commands(self, user_id: str, user_text: str) -> Optional[str]:
+    async def _process_system_commands(
+        self, user_id: str, user_text: str
+    ) -> Optional[str]:
         """Process system commands and return response if command was handled."""
         # Handle NPS survey responses
         if user_text.lower().startswith("!rate "):
@@ -3156,18 +3559,24 @@ class Swarm:
             # Handle multi-step plans for complex tickets
             if active_ticket.get("is_parent") and hasattr(self, "planning_agent"):
                 if self._is_plan_continuation_request(user_text):
-                    async for chunk in self._continue_plan_processing(user_id, active_ticket, timezone):
+                    async for chunk in self._continue_plan_processing(
+                        user_id, active_ticket, timezone
+                    ):
                         yield chunk
                     return
 
                 if user_text.lower().strip() in ["status", "plan status", "progress"]:
-                    status = await self.planning_agent.get_plan_status(active_ticket["_id"])
+                    status = await self.planning_agent.get_plan_status(
+                        active_ticket["_id"]
+                    )
                     yield status["visualization"]
                     yield f"\n\nEstimated completion time: {status['estimated_completion']}"
                     return
 
             # Regular active ticket processing
-            async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+            async for chunk in self._process_existing_ticket(
+                user_id, user_text, active_ticket, timezone
+            ):
                 yield chunk
         else:
             # Create new ticket
@@ -3175,12 +3584,16 @@ class Swarm:
 
             # For complex tasks requiring planning
             if self._needs_planning(complexity) and hasattr(self, "planning_agent"):
-                async for chunk in self._process_complex_task(user_id, user_text, complexity, timezone):
+                async for chunk in self._process_complex_task(
+                    user_id, user_text, complexity, timezone
+                ):
                     yield chunk
                 return
 
             # Process regular new ticket
-            async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+            async for chunk in self._process_new_ticket(
+                user_id, user_text, complexity, timezone
+            ):
                 yield chunk
 
     def _truncate_for_zep(self, text, limit=2500):
@@ -3190,9 +3603,11 @@ class Swarm:
 
         # Try to truncate at a sentence boundary
         truncated = text[:limit]
-        last_period = truncated.rfind('.')
-        if last_period > limit * 0.8:  # Only use period if it's reasonably close to the end
-            return truncated[:last_period+1]
+        last_period = truncated.rfind(".")
+        if (
+            last_period > limit * 0.8
+        ):  # Only use period if it's reasonably close to the end
+            return truncated[: last_period + 1]
         return truncated + "..."
 
     async def _get_active_ticket(self, user_id: str):
@@ -3213,8 +3628,9 @@ class Swarm:
 
     def _needs_planning(self, complexity: Dict) -> bool:
         """Determine if a task needs planning based on complexity."""
-        return (complexity.get("story_points", 0) > 8 or
-                complexity.get("t_shirt_size") in ["XL", "XXL"])
+        return complexity.get("story_points", 0) > 8 or complexity.get(
+            "t_shirt_size"
+        ) in ["XL", "XXL"]
 
     async def _process_existing_ticket(
         self, user_id: str, user_text: str, ticket: Dict, timezone: str = None
@@ -3241,13 +3657,17 @@ class Swarm:
 
         # Process response with the selected agent
         final_response = ""
-        async for chunk in self._stream_response(user_id, user_text, current_agent, timezone, ticket_id):
+        async for chunk in self._stream_response(
+            user_id, user_text, current_agent, timezone, ticket_id
+        ):
             yield chunk
             final_response += chunk
 
         # Skip resolution check if handoff occurred
         if not current_agent._handoff_info:
-            await self._check_and_update_resolution(user_id, final_response, ticket_id, current_agent)
+            await self._check_and_update_resolution(
+                user_id, final_response, ticket_id, current_agent
+            )
 
     async def _process_new_ticket(
         self, user_id: str, user_text: str, complexity: Dict, timezone: str = None
@@ -3264,28 +3684,34 @@ class Swarm:
         context = self._get_user_context(user_id, current_agent)
 
         # Create ticket in database
-        self.tickets.insert_one({
-            "_id": ticket_id,
-            "user_id": user_id,
-            "query": user_text,
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "assigned_to": agent_name,
-            "status": "active",
-            "context": context,
-            "complexity": complexity,
-        })
+        self.tickets.insert_one(
+            {
+                "_id": ticket_id,
+                "user_id": user_id,
+                "query": user_text,
+                "created_at": datetime.datetime.now(datetime.timezone.utc),
+                "assigned_to": agent_name,
+                "status": "active",
+                "context": context,
+                "complexity": complexity,
+            }
+        )
 
         print(f"Created new ticket {ticket_id}, assigned to {agent_name}")
 
         # Process with the selected agent
         final_response = ""
-        async for chunk in self._stream_response(user_id, user_text, current_agent, timezone, ticket_id):
+        async for chunk in self._stream_response(
+            user_id, user_text, current_agent, timezone, ticket_id
+        ):
             yield chunk
             final_response += chunk
 
         # Skip resolution check if handoff occurred
         if not current_agent._handoff_info:
-            await self._check_and_update_resolution(user_id, final_response, ticket_id, current_agent)
+            await self._check_and_update_resolution(
+                user_id, final_response, ticket_id, current_agent
+            )
 
     async def _get_assigned_agent(self, ticket: Dict, user_text: str):
         """Get the agent assigned to a ticket, or reassign if needed."""
@@ -3317,8 +3743,11 @@ class Swarm:
         first_agent = next(iter(self.agents.values()))
 
         # Get AI-only specializations
-        ai_specialists = {k: v for k, v in self.specializations.items()
-                          if not hasattr(self, "human_agents") or k not in self.human_agents}
+        ai_specialists = {
+            k: v
+            for k, v in self.specializations.items()
+            if not hasattr(self, "human_agents") or k not in self.human_agents
+        }
 
         # Create routing prompt that explicitly requires AI agents
         enhanced_prompt = f"""
@@ -3356,8 +3785,11 @@ class Swarm:
     def _match_ai_agent_name(self, raw_response: str) -> str:
         """Match router response to an actual AI agent name (not human)."""
         # Get AI agent names only
-        ai_agent_names = [name for name in self.agents.keys()
-                          if not hasattr(self, "human_agents") or name not in self.human_agents]
+        ai_agent_names = [
+            name
+            for name in self.agents.keys()
+            if not hasattr(self, "human_agents") or name not in self.human_agents
+        ]
 
         # Exact match (priority)
         if raw_response in ai_agent_names:
@@ -3383,19 +3815,27 @@ class Swarm:
 
         # If sufficient data and score below threshold, try finding a better agent
         if metrics["total_responses"] > 5 and metrics["avg_score"] < 6.0:
-            better_agent = await self._find_better_performing_agent(agent_name, user_text)
+            better_agent = await self._find_better_performing_agent(
+                agent_name, user_text
+            )
             if better_agent:
                 print(
-                    f"Rerouting from {agent_name} to {better_agent} based on NPS performance")
+                    f"Rerouting from {agent_name} to {better_agent} based on NPS performance"
+                )
                 return better_agent
 
         return agent_name
 
-    async def _find_better_performing_agent(self, current_agent: str, user_text: str) -> Optional[str]:
+    async def _find_better_performing_agent(
+        self, current_agent: str, user_text: str
+    ) -> Optional[str]:
         """Find a better performing agent with similar expertise."""
         # Get all AI agents
-        ai_agents = [name for name in self.agents.keys()
-                     if not hasattr(self, "human_agents") or name not in self.human_agents]
+        ai_agents = [
+            name
+            for name in self.agents.keys()
+            if not hasattr(self, "human_agents") or name not in self.human_agents
+        ]
 
         best_score = 0
         best_agent = None
@@ -3425,7 +3865,9 @@ class Swarm:
             return agent.get_memory_context(user_id)
         return ""
 
-    async def _check_and_update_resolution(self, user_id: str, response: str, ticket_id: str, agent):
+    async def _check_and_update_resolution(
+        self, user_id: str, response: str, ticket_id: str, agent
+    ):
         """Check if ticket should be resolved and update status."""
         # Get agent name
         agent_name = None
@@ -3456,7 +3898,8 @@ class Swarm:
             )
 
             print(
-                f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}")
+                f"Ticket {ticket_id} marked as resolved with confidence {resolution.confidence}"
+            )
 
             # Send NPS survey
             if agent_name:
@@ -3501,15 +3944,17 @@ class Swarm:
         parent_id = str(uuid.uuid4())
 
         # Create basic parent ticket
-        self.tickets.insert_one({
-            "_id": parent_id,
-            "user_id": user_id,
-            "query": user_text,
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "status": "planning",
-            "complexity": complexity,
-            "is_parent": True,
-        })
+        self.tickets.insert_one(
+            {
+                "_id": parent_id,
+                "user_id": user_id,
+                "query": user_text,
+                "created_at": datetime.datetime.now(datetime.timezone.utc),
+                "status": "planning",
+                "complexity": complexity,
+                "is_parent": True,
+            }
+        )
 
         # Generate the plan
         plan = await self.planning_agent.create_plan(parent_id, user_text, complexity)
@@ -3517,17 +3962,26 @@ class Swarm:
         # Ensure the plan has subtasks
         if not plan or "subtasks" not in plan or not plan["subtasks"]:
             # Create subtasks manually if planning didn't create them
-            subtasks = await self._create_subtasks(parent_id, user_text, complexity, user_id)
+            subtasks = await self._create_subtasks(
+                parent_id, user_text, complexity, user_id
+            )
 
             # Update the plan with the created subtasks
             if plan and subtasks:
                 self.planning_agent.plans_collection.update_one(
                     {"parent_id": parent_id},
-                    {"$set": {"subtasks": [
-                        {"ticket_id": st["_id"], "title": st["title"],
-                            "description": st["query"]}
-                        for st in subtasks
-                    ]}}
+                    {
+                        "$set": {
+                            "subtasks": [
+                                {
+                                    "ticket_id": st["_id"],
+                                    "title": st["title"],
+                                    "description": st["query"],
+                                }
+                                for st in subtasks
+                            ]
+                        }
+                    },
                 )
 
         # Return plan summary and visualization
@@ -3543,16 +3997,15 @@ class Swarm:
             yield f"## {next_task.get('title')}\n\n"
 
             # Process this subtask
-            agent_name = next_task.get('assigned_to')
+            agent_name = next_task.get("assigned_to")
             if agent_name in self.agents:
                 current_agent = self.agents[agent_name]
                 subtask_query = next_task.get(
-                    'description', next_task.get('query', ''))
+                    "description", next_task.get("query", ""))
 
                 # Mark subtask as active
                 self.tickets.update_one(
-                    {"_id": next_task["_id"]},
-                    {"$set": {"status": "active"}}
+                    {"_id": next_task["_id"]}, {"$set": {"status": "active"}}
                 )
 
                 # Process subtask with appropriate agent
@@ -3562,12 +4015,16 @@ class Swarm:
                     yield chunk
 
                 # Mark subtask as completed
-                await self.planning_agent.update_subtask_status(next_task["_id"], "completed")
+                await self.planning_agent.update_subtask_status(
+                    next_task["_id"], "completed"
+                )
 
                 # Check if more instructions are needed
                 yield "\n\nI've completed the first step of our plan. To continue with the next steps, please respond with 'continue' or ask any questions you might have."
 
-    async def _continue_plan_processing(self, user_id: str, parent_ticket: Dict, timezone: str = None) -> AsyncGenerator[str, None]:
+    async def _continue_plan_processing(
+        self, user_id: str, parent_ticket: Dict, timezone: str = None
+    ) -> AsyncGenerator[str, None]:
         """Continue processing an existing complex task plan."""
         parent_id = parent_ticket["_id"]
 
@@ -3577,16 +4034,15 @@ class Swarm:
             yield f"## Continuing with: {next_task.get('title')}\n\n"
 
             # Process this subtask
-            agent_name = next_task.get('assigned_to')
+            agent_name = next_task.get("assigned_to")
             if agent_name in self.agents:
                 current_agent = self.agents[agent_name]
                 subtask_query = next_task.get(
-                    'description', next_task.get('query', ''))
+                    "description", next_task.get("query", ""))
 
                 # Mark subtask as active
                 self.tickets.update_one(
-                    {"_id": next_task["_id"]},
-                    {"$set": {"status": "active"}}
+                    {"_id": next_task["_id"]}, {"$set": {"status": "active"}}
                 )
 
                 # Process subtask
@@ -3596,7 +4052,9 @@ class Swarm:
                     yield chunk
 
                 # Mark subtask as completed
-                await self.planning_agent.update_subtask_status(next_task["_id"], "completed")
+                await self.planning_agent.update_subtask_status(
+                    next_task["_id"], "completed"
+                )
 
                 # Check plan status
                 status = await self.planning_agent.get_plan_status(parent_id)
@@ -3606,8 +4064,7 @@ class Swarm:
 
                     # Update parent ticket
                     self.tickets.update_one(
-                        {"_id": parent_id},
-                        {"$set": {"status": "resolved"}}
+                        {"_id": parent_id}, {"$set": {"status": "resolved"}}
                     )
                 else:
                     # More steps remain
@@ -3623,7 +4080,9 @@ class Swarm:
             else:
                 yield "\n\nThere are no available tasks to process right now. Some tasks may be blocked by dependencies."
 
-    async def _create_subtasks(self, parent_id: str, query: str, complexity: Dict[str, Any], user_id: str) -> List[Dict]:
+    async def _create_subtasks(
+        self, parent_id: str, query: str, complexity: Dict[str, Any], user_id: str
+    ) -> List[Dict]:
         """Break a complex task into manageable subtasks."""
         first_agent = next(iter(self.agents.values()))
 
@@ -3644,15 +4103,19 @@ class Swarm:
         response = first_agent._client.chat.completions.create(
             model=self.insight_model,
             messages=[
-                {"role": "system", "content": "Break complex tasks into logical subtasks"},
-                {"role": "user", "content": prompt}
+                {
+                    "role": "system",
+                    "content": "Break complex tasks into logical subtasks",
+                },
+                {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.2
+            temperature=0.2,
         )
 
-        subtasks_data = json.loads(
-            response.choices[0].message.content).get("subtasks", [])
+        subtasks_data = json.loads(response.choices[0].message.content).get(
+            "subtasks", []
+        )
 
         # Create actual subtask tickets
         created_subtasks = []
@@ -3660,7 +4123,9 @@ class Swarm:
             subtask_id = str(uuid.uuid4())
 
             # Determine best agent for this subtask
-            agent_name = await self._get_routing_decision(first_agent, data["description"])
+            agent_name = await self._get_routing_decision(
+                first_agent, data["description"]
+            )
 
             subtask = {
                 "_id": subtask_id,
@@ -3672,7 +4137,7 @@ class Swarm:
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
                 "assigned_to": agent_name,
                 "status": "pending" if i > 0 else "active",  # Only first is active
-                "is_subtask": True
+                "is_subtask": True,
             }
 
             self.tickets.insert_one(subtask)
@@ -3702,10 +4167,10 @@ class Swarm:
                 model=self.router_model,
                 messages=[
                     {"role": "system", "content": "Assess task complexity objectively"},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.2
+                temperature=0.2,
             )
 
             complexity_data = json.loads(response.choices[0].message.content)
@@ -3717,7 +4182,7 @@ class Swarm:
                 "story_points": 3,
                 "estimated_minutes": 30,
                 "technical_complexity": 5,
-                "domain_knowledge": 5
+                "domain_knowledge": 5,
             }
 
     async def _check_ticket_resolution(self, user_id, response, ticket_id):
@@ -3778,7 +4243,9 @@ class Swarm:
                 reasoning=f"Error processing resolution check: {str(e)}",
             )
 
-    def get_ticket_performance_metrics(self, agent_name=None, start_date=None, end_date=None):
+    def get_ticket_performance_metrics(
+        self, agent_name=None, start_date=None, end_date=None
+    ):
         """Get detailed ticket resolution metrics."""
 
         # Build query for resolved tickets
@@ -3809,7 +4276,8 @@ class Swarm:
 
             if created and resolved:
                 resolution_time = (
-                    resolved - created).total_seconds() / 60  # in minutes
+                    resolved - created
+                ).total_seconds() / 60  # in minutes
                 resolution_times.append(resolution_time)
 
                 # Group by complexity
@@ -3818,8 +4286,10 @@ class Swarm:
                     complexity_buckets[t_shirt].append(resolution_time)
 
         # Calculate statistics
-        avg_resolution_time = sum(resolution_times) / \
+        avg_resolution_time = (
+            sum(resolution_times) /
             len(resolution_times) if resolution_times else 0
+        )
 
         # Calculate per-complexity metrics
         complexity_metrics = {}
@@ -3829,17 +4299,27 @@ class Swarm:
                     "count": len(times),
                     "avg_minutes": sum(times) / len(times),
                     "min_minutes": min(times),
-                    "max_minutes": max(times)
+                    "max_minutes": max(times),
                 }
 
         return {
             "total_tickets": len(tickets),
             "avg_resolution_minutes": round(avg_resolution_time, 2),
-            "median_resolution_minutes": round(sorted(resolution_times)[len(resolution_times)//2], 2) if resolution_times else 0,
-            "fastest_resolution_minutes": round(min(resolution_times), 2) if resolution_times else 0,
-            "slowest_resolution_minutes": round(max(resolution_times), 2) if resolution_times else 0,
+            "median_resolution_minutes": round(
+                sorted(resolution_times)[len(resolution_times) // 2], 2
+            )
+            if resolution_times
+            else 0,
+            "fastest_resolution_minutes": round(min(resolution_times), 2)
+            if resolution_times
+            else 0,
+            "slowest_resolution_minutes": round(max(resolution_times), 2)
+            if resolution_times
+            else 0,
             "by_complexity": complexity_metrics,
-            "nps_correlation": self._calculate_nps_resolution_correlation(tickets) if resolution_times else None
+            "nps_correlation": self._calculate_nps_resolution_correlation(tickets)
+            if resolution_times
+            else None,
         }
 
     def _calculate_nps_resolution_correlation(self, tickets):
@@ -3849,10 +4329,12 @@ class Swarm:
         for ticket in tickets:
             # Find corresponding NPS survey
             survey = self.nps_surveys.find_one(
-                {"ticket_id": ticket["_id"], "status": "completed"})
+                {"ticket_id": ticket["_id"], "status": "completed"}
+            )
             if survey and "resolved_at" in ticket and "created_at" in ticket:
                 resolution_time = (
-                    ticket["resolved_at"] - ticket["created_at"]).total_seconds() / 60
+                    ticket["resolved_at"] - ticket["created_at"]
+                ).total_seconds() / 60
                 data.append((resolution_time, survey.get("score", 0)))
 
         if len(data) < 5:
@@ -3865,13 +4347,19 @@ class Swarm:
         return {
             "correlation": correlation,
             "samples": len(data),
-            "interpretation": "Strong negative" if correlation <= -0.7 else
-            "Moderate negative" if correlation <= -0.3 else
-            "Weak negative" if correlation < 0 else
-            "No correlation" if correlation == 0 else
-            "Weak positive" if correlation < 0.3 else
-            "Moderate positive" if correlation < 0.7 else
-            "Strong positive"
+            "interpretation": "Strong negative"
+            if correlation <= -0.7
+            else "Moderate negative"
+            if correlation <= -0.3
+            else "Weak negative"
+            if correlation < 0
+            else "No correlation"
+            if correlation == 0
+            else "Weak positive"
+            if correlation < 0.3
+            else "Moderate positive"
+            if correlation < 0.7
+            else "Strong positive",
         }
 
     async def _process_ticket_commands(self, user_id: str, command: str) -> str:
@@ -4655,7 +5143,9 @@ class PlanningAgent:
         except Exception as e:
             print(f"Warning: Index creation for plans might have failed: {e}")
 
-    async def create_plan(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> Dict:
+    async def create_plan(
+        self, parent_id: str, query: str, complexity: Dict[str, Any]
+    ) -> Dict:
         """Create a detailed execution plan for a complex task.
 
         Args:
@@ -4696,12 +5186,14 @@ class PlanningAgent:
             plan_response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system",
-                        "content": "Create detailed execution plans for complex tasks."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "Create detailed execution plans for complex tasks.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.2
+                temperature=0.2,
             )
 
             plan_data = json.loads(plan_response.choices[0].message.content)
@@ -4712,7 +5204,8 @@ class PlanningAgent:
             plan_data["original_query"] = query
             plan_data["complexity"] = complexity
             plan_data["created_at"] = datetime.datetime.now(
-                datetime.timezone.utc).isoformat()
+                datetime.timezone.utc
+            ).isoformat()
             plan_data["status"] = "active"
             plan_data["progress"] = 0
 
@@ -4746,8 +5239,10 @@ class PlanningAgent:
 
             # Find matching agent by name or specialization
             for name, agent_spec in self.swarm.specializations.items():
-                if (recommended_agent in name.lower() or
-                        recommended_agent in agent_spec.lower()):
+                if (
+                    recommended_agent in name.lower()
+                    or recommended_agent in agent_spec.lower()
+                ):
                     agent_name = name
                     break
 
@@ -4759,7 +5254,9 @@ class PlanningAgent:
             has_dependencies = bool(subtask.get("depends_on", []))
             initial_status = "pending" if has_dependencies else "ready"
             if i == 0 and not has_dependencies:
-                initial_status = "active"  # First task with no dependencies starts active
+                initial_status = (
+                    "active"  # First task with no dependencies starts active
+                )
 
             ticket_data = {
                 "_id": subtask_id,
@@ -4789,13 +5286,14 @@ class PlanningAgent:
 
         # Update plan with created ticket information
         self.plans_collection.update_one(
-            {"plan_id": plan["plan_id"]},
-            {"$set": {"subtasks": subtasks}}
+            {"plan_id": plan["plan_id"]}, {"$set": {"subtasks": subtasks}}
         )
 
         return created_subtasks
 
-    async def _fallback_planning(self, parent_id: str, query: str, complexity: Dict[str, Any]) -> Dict:
+    async def _fallback_planning(
+        self, parent_id: str, query: str, complexity: Dict[str, Any]
+    ) -> Dict:
         """Simple fallback planning when advanced planning fails."""
         # A simpler implementation similar to the current _create_subtasks
         first_agent = next(iter(self.swarm.agents.values()))
@@ -4815,15 +5313,16 @@ class PlanningAgent:
             model="gpt-4o-mini",  # Use lighter model for fallback
             messages=[
                 {"role": "system", "content": "Create a simple task breakdown."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.2
+            temperature=0.2,
         )
 
         try:
-            subtasks_data = json.loads(
-                response.choices[0].message.content).get("subtasks", [])
+            subtasks_data = json.loads(response.choices[0].message.content).get(
+                "subtasks", []
+            )
 
             plan = {
                 "plan_id": str(uuid.uuid4()),
@@ -4834,7 +5333,7 @@ class PlanningAgent:
                 "status": "active",
                 "progress": 0,
                 "subtasks": subtasks_data,
-                "is_fallback_plan": True
+                "is_fallback_plan": True,
             }
 
             # Store the plan
@@ -4853,17 +5352,16 @@ class PlanningAgent:
     async def get_next_subtask(self, parent_id: str) -> Dict[str, Any]:
         """Get the next subtask that should be processed for a plan."""
         plan = self.plans.get(parent_id) or self.plans_collection.find_one(
-            {"parent_id": parent_id})
+            {"parent_id": parent_id}
+        )
 
         if not plan:
             return None
 
         # Find subtasks that are ready to process
-        ready_subtasks = self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "status": "ready",
-            "is_subtask": True
-        }).sort("sequence", 1)
+        ready_subtasks = self.swarm.tickets.find(
+            {"parent_id": parent_id, "status": "ready", "is_subtask": True}
+        ).sort("sequence", 1)
 
         # If any are ready, pick the first one
         ready = list(ready_subtasks)
@@ -4871,27 +5369,27 @@ class PlanningAgent:
             return ready[0]
 
         # Check if any active subtasks
-        active = list(self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "status": "active",
-            "is_subtask": True
-        }))
+        active = list(
+            self.swarm.tickets.find(
+                {"parent_id": parent_id, "status": "active", "is_subtask": True}
+            )
+        )
 
         if active:
             return None  # Still working on an active subtask
 
         # Check for blocked subtasks
-        blocked = list(self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "status": "pending",
-            "is_subtask": True
-        }))
+        blocked = list(
+            self.swarm.tickets.find(
+                {"parent_id": parent_id, "status": "pending", "is_subtask": True}
+            )
+        )
 
         if not blocked:
             # No more subtasks - plan complete
             self.plans_collection.update_one(
                 {"parent_id": parent_id},
-                {"$set": {"status": "completed", "progress": 100}}
+                {"$set": {"status": "completed", "progress": 100}},
             )
             return None
 
@@ -4902,8 +5400,7 @@ class PlanningAgent:
             # If no dependencies, make it ready
             if not dependencies:
                 self.swarm.tickets.update_one(
-                    {"_id": subtask["_id"]},
-                    {"$set": {"status": "ready"}}
+                    {"_id": subtask["_id"]}, {"$set": {"status": "ready"}}
                 )
                 return subtask
 
@@ -4911,11 +5408,9 @@ class PlanningAgent:
             all_done = True
             for dep_id in dependencies:
                 # Find the dependency by subtask_id
-                dep = self.swarm.tickets.find_one({
-                    "parent_id": parent_id,
-                    "subtask_id": dep_id,
-                    "is_subtask": True
-                })
+                dep = self.swarm.tickets.find_one(
+                    {"parent_id": parent_id, "subtask_id": dep_id, "is_subtask": True}
+                )
 
                 if not dep or dep.get("status") != "completed":
                     all_done = False
@@ -4924,14 +5419,15 @@ class PlanningAgent:
             # If all dependencies satisfied, make it ready
             if all_done:
                 self.swarm.tickets.update_one(
-                    {"_id": subtask["_id"]},
-                    {"$set": {"status": "ready"}}
+                    {"_id": subtask["_id"]}, {"$set": {"status": "ready"}}
                 )
                 return subtask
 
         return None  # All remaining subtasks are still blocked
 
-    async def update_subtask_status(self, subtask_id: str, status: str, result: str = None) -> Dict:
+    async def update_subtask_status(
+        self, subtask_id: str, status: str, result: str = None
+    ) -> Dict:
         """Update the status of a subtask and manage dependencies."""
         subtask = self.swarm.tickets.find_one({"_id": subtask_id})
         if not subtask:
@@ -4947,9 +5443,7 @@ class PlanningAgent:
                 datetime.timezone.utc)
 
         self.swarm.tickets.update_one(
-            {"_id": subtask_id},
-            {"$set": update_data}
-        )
+            {"_id": subtask_id}, {"$set": update_data})
 
         # Update overall plan progress
         await self._update_plan_progress(subtask["parent_id"])
@@ -4963,15 +5457,10 @@ class PlanningAgent:
         if next_task:
             # Activate the next task
             self.swarm.tickets.update_one(
-                {"_id": next_task["_id"]},
-                {"$set": {"status": "active"}}
+                {"_id": next_task["_id"]}, {"$set": {"status": "active"}}
             )
 
-        return {
-            "status": "success",
-            "subtask_id": subtask_id,
-            "next_task": next_task
-        }
+        return {"status": "success", "subtask_id": subtask_id, "next_task": next_task}
 
     def _unblock_dependent_tasks(self, completed_subtask: Dict):
         """Check and unblock tasks that depend on the completed subtask."""
@@ -4980,11 +5469,9 @@ class PlanningAgent:
             "subtask_id") or completed_subtask["_id"]
 
         # Find all subtasks that depend on this one
-        dependent_tasks = self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "depends_on": subtask_id,
-            "is_subtask": True
-        })
+        dependent_tasks = self.swarm.tickets.find(
+            {"parent_id": parent_id, "depends_on": subtask_id, "is_subtask": True}
+        )
 
         for task in dependent_tasks:
             # Check if all other dependencies are also complete
@@ -4996,11 +5483,9 @@ class PlanningAgent:
                     continue  # Skip the one we just completed
 
                 # Find the dependency by subtask_id
-                dep = self.swarm.tickets.find_one({
-                    "parent_id": parent_id,
-                    "subtask_id": dep_id,
-                    "is_subtask": True
-                })
+                dep = self.swarm.tickets.find_one(
+                    {"parent_id": parent_id, "subtask_id": dep_id, "is_subtask": True}
+                )
 
                 if not dep or dep.get("status") != "completed":
                     all_complete = False
@@ -5009,17 +5494,16 @@ class PlanningAgent:
             if all_complete:
                 # All dependencies satisfied, mark as ready
                 self.swarm.tickets.update_one(
-                    {"_id": task["_id"]},
-                    {"$set": {"status": "ready"}}
+                    {"_id": task["_id"]}, {"$set": {"status": "ready"}}
                 )
 
     async def _update_plan_progress(self, parent_id: str) -> int:
         """Update and return the progress percentage of a plan."""
         # Get all subtasks for this plan
-        subtasks = list(self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "is_subtask": True
-        }))
+        subtasks = list(
+            self.swarm.tickets.find(
+                {"parent_id": parent_id, "is_subtask": True})
+        )
 
         if not subtasks:
             return 0
@@ -5030,15 +5514,13 @@ class PlanningAgent:
 
         # Update the plan
         self.plans_collection.update_one(
-            {"parent_id": parent_id},
-            {"$set": {"progress": progress}}
+            {"parent_id": parent_id}, {"$set": {"progress": progress}}
         )
 
         # If all complete, mark plan as completed
         if progress == 100:
             self.plans_collection.update_one(
-                {"parent_id": parent_id},
-                {"$set": {"status": "completed"}}
+                {"parent_id": parent_id}, {"$set": {"status": "completed"}}
             )
 
         return progress
@@ -5046,15 +5528,16 @@ class PlanningAgent:
     async def get_plan_status(self, parent_id: str) -> Dict:
         """Get the detailed status of a plan including progress and visualization."""
         plan = self.plans.get(parent_id) or self.plans_collection.find_one(
-            {"parent_id": parent_id})
+            {"parent_id": parent_id}
+        )
         if not plan:
             return {"error": "Plan not found"}
 
         # Get all subtasks
-        subtasks = list(self.swarm.tickets.find({
-            "parent_id": parent_id,
-            "is_subtask": True
-        }))
+        subtasks = list(
+            self.swarm.tickets.find(
+                {"parent_id": parent_id, "is_subtask": True})
+        )
 
         # Create a status summary
         status_counts = {
@@ -5062,7 +5545,7 @@ class PlanningAgent:
             "completed": 0,
             "pending": 0,
             "ready": 0,
-            "failed": 0
+            "failed": 0,
         }
 
         for task in subtasks:
@@ -5078,8 +5561,9 @@ class PlanningAgent:
             times = []
             for task in completed_tasks:
                 if "created_at" in task and "completed_at" in task:
-                    delta = (task["completed_at"] -
-                             task["created_at"]).total_seconds() / 60
+                    delta = (
+                        task["completed_at"] - task["created_at"]
+                    ).total_seconds() / 60
                     times.append(delta)
 
             if times:
@@ -5099,10 +5583,12 @@ class PlanningAgent:
             "avg_completion_time_minutes": round(avg_completion_time, 1),
             "visualization": visualization,
             "estimated_completion": self._estimate_completion_time(plan, subtasks),
-            "critical_path_status": self._get_critical_path_status(subtasks)
+            "critical_path_status": self._get_critical_path_status(subtasks),
         }
 
-    async def _generate_plan_visualization(self, plan: Dict, subtasks: List[Dict]) -> str:
+    async def _generate_plan_visualization(
+        self, plan: Dict, subtasks: List[Dict]
+    ) -> str:
         """Generate a text/markdown visualization of the plan status."""
         # Basic visualization as a task list with status
         lines = ["# Plan Status", ""]
@@ -5116,7 +5602,7 @@ class PlanningAgent:
                 "completed": "✅",
                 "pending": "⏳",
                 "ready": "🟡",
-                "failed": "❌"
+                "failed": "❌",
             }.get(task.get("status"), "⚪")
 
             is_critical = task.get("is_critical_path", False)
@@ -5175,7 +5661,9 @@ class PlanningAgent:
 
         # Need to account for parallelism and dependencies
         # This is a simple estimate that could be improved
-        estimated_minutes = avg_time * remaining_tasks * 0.7  # Assuming some parallelism
+        estimated_minutes = (
+            avg_time * remaining_tasks * 0.7
+        )  # Assuming some parallelism
 
         if estimated_minutes < 60:
             return f"Approximately {int(estimated_minutes)} minutes"
@@ -5192,7 +5680,8 @@ class PlanningAgent:
             return {"on_track": True, "message": "No critical path defined"}
 
         completed_critical = sum(
-            1 for t in critical_path if t.get("status") == "completed")
+            1 for t in critical_path if t.get("status") == "completed"
+        )
         progress = int((completed_critical / len(critical_path)) * 100)
 
         # Check if any critical tasks are failed
@@ -5203,5 +5692,101 @@ class PlanningAgent:
             "progress": progress,
             "total_tasks": len(critical_path),
             "completed_tasks": completed_critical,
-            "has_failures": failed
+            "has_failures": failed,
         }
+
+
+class HumanAgentCapacity:
+    """Manage human agent capacity and workload"""
+
+    def __init__(self, swarm):
+        self.swarm = swarm
+        self.max_concurrent_tickets = {}  # agent_id -> max concurrent tickets
+        self.average_resolution_times = {}  # agent_id -> minutes per ticket type
+        self.specialization_weights = {}  # specialization -> effort multiplier
+
+    def configure_agent_capacity(
+        self, agent_id: str, max_tickets: int, specializations: Dict[str, float] = None
+    ):
+        """Configure capacity settings for a human agent
+
+        Args:
+            agent_id: The human agent identifier
+            max_tickets: Maximum number of concurrent tickets
+            specializations: Dict mapping specialization areas to effort multipliers
+        """
+        self.max_concurrent_tickets[agent_id] = max_tickets
+        if specializations:
+            self.specialization_weights[agent_id] = specializations
+
+    async def can_accept_ticket(self, agent_id: str, ticket_data: Dict) -> bool:
+        """Determine if an agent can accept another ticket based on current workload"""
+        if agent_id not in self.swarm.human_agents:
+            return False
+
+        # Get current ticket count for this agent
+        current_load = self.swarm.tickets.count_documents(
+            {"assigned_to": agent_id, "status": {"$in": ["pending", "active"]}}
+        )
+
+        # Get max capacity (default 5 if not configured)
+        max_capacity = self.max_concurrent_tickets.get(agent_id, 5)
+
+        # Adjust for ticket complexity if available
+        if "complexity" in ticket_data:
+            complexity_factor = self._get_complexity_factor(
+                ticket_data["complexity"])
+            # Convert to effective ticket count (complex tickets count as multiple)
+            current_load_adjusted = current_load * complexity_factor
+        else:
+            current_load_adjusted = current_load
+
+        return current_load_adjusted < max_capacity
+
+    def _get_complexity_factor(self, complexity: Dict) -> float:
+        """Calculate a complexity multiplier based on t-shirt size"""
+        size_factors = {"XS": 0.5, "S": 0.75,
+                        "M": 1.0, "L": 1.5, "XL": 2.0, "XXL": 3.0}
+        return size_factors.get(complexity.get("t_shirt_size", "M"), 1.0)
+
+    async def get_optimal_human_agent(self, ticket_data: Dict) -> Optional[str]:
+        """Find the most appropriate available human agent for a ticket"""
+        if not hasattr(self.swarm, "human_agents") or not self.swarm.human_agents:
+            return None
+
+        # Extract topic/domain from ticket
+        topic = await self._extract_ticket_topic(ticket_data)
+
+        # Score human agents based on specialization match and availability
+        scored_agents = []
+        for agent_id, agent in self.swarm.human_agents.items():
+            if agent.availability_status != "available":
+                continue
+
+            # Calculate specialization match score
+            spec_score = self._calculate_specialization_match(
+                agent.specialization, topic
+            )
+
+            # Check current workload
+            can_accept = await self.can_accept_ticket(agent_id, ticket_data)
+            if not can_accept:
+                continue
+
+            # Get current workload percentage
+            current_load = self.swarm.tickets.count_documents(
+                {"assigned_to": agent_id, "status": {
+                    "$in": ["pending", "active"]}}
+            )
+            max_load = self.max_concurrent_tickets.get(agent_id, 5)
+            load_percentage = current_load / max_load
+
+            # Final score combines specialization match and inverse of current load
+            # This balances expertise with workload distribution
+            final_score = (spec_score * 0.7) + ((1 - load_percentage) * 0.3)
+            scored_agents.append((agent_id, final_score))
+
+        # Return highest scoring agent, or None if no eligible agents
+        if scored_agents:
+            return max(scored_agents, key=lambda x: x[1])[0]
+        return None
