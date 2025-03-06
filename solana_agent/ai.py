@@ -1132,7 +1132,7 @@ class RoutingService:
 
         # Create routing prompt
         prompt = f"""
-        Analyze this user query and return the MOST APPROPRIATE AI specialist.
+        Analyze this user query and determine the MOST APPROPRIATE AI specialist.
         
         User query: "{query}"
         
@@ -1141,10 +1141,11 @@ class RoutingService:
         
         CRITICAL INSTRUCTIONS:
         1. Choose specialists based on domain expertise match.
-        2. Return EXACTLY ONE specialist name.
+        2. Return EXACTLY ONE specialist name from the available list.
+        3. Do not invent new specialist names.
         """
 
-        # Generate routing decision
+        # Generate routing decision using structured output
         response = ""
         async for chunk in self.llm_provider.generate_text(
             "router",
@@ -1153,15 +1154,27 @@ class RoutingService:
             stream=False,
             model=self.router_model,
             temperature=0.2,
+            response_format={"type": "json_object"},
         ):
             response += chunk
 
-        # Match to an actual agent name
-        agent_name = self._match_agent_name(
-            response.strip(), list(ai_specialists.keys())
-        )
+        try:
+            data = json.loads(response)
+            selected_agent = data.get("selected_agent", "")
 
-        return agent_name
+            # Fallback to matching if needed
+            if selected_agent not in ai_specialists:
+                agent_name = self._match_agent_name(
+                    selected_agent, list(ai_specialists.keys())
+                )
+            else:
+                agent_name = selected_agent
+
+            return agent_name
+        except Exception as e:
+            print(f"Error parsing routing decision: {e}")
+            # Fallback to the old matching method
+            return self._match_agent_name(response.strip(), list(ai_specialists.keys()))
 
     def _match_agent_name(self, response: str, agent_names: List[str]) -> str:
         """Match router response to an actual AI agent name."""
@@ -1540,7 +1553,15 @@ class AgentService:
         self, name: str, instructions: str, specialization: str, model: str = "gpt-4o"
     ) -> None:
         """Register an AI agent with its specialization."""
-        self.ai_agents[name] = {"instructions": instructions, "model": model}
+        # Add handoff instruction to all agents
+        handoff_instruction = """
+        If you need to hand off to another agent, return a JSON object with this structure:
+        {"handoff": {"target_agent": "agent_name", "reason": "detailed reason for handoff"}}
+        """
+        full_instructions = f"{instructions}\n\n{handoff_instruction}"
+
+        self.ai_agents[name] = {
+            "instructions": full_instructions, "model": model}
         self.specializations[name] = specialization
 
     def register_human_agent(
@@ -2264,14 +2285,29 @@ class QueryProcessor:
             yield chunk
             full_response += chunk
 
-            # Detect handoff requests (simplified - you'd need to implement this detection)
-            if "HANDOFF:" in chunk and not handoff_info:
-                handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
-                match = re.search(handoff_pattern, full_response)
-                if match:
-                    target_agent = match.group(1)
-                    reason = match.group(2)
-                    handoff_info = {"target": target_agent, "reason": reason}
+        # Check for handoff in structured format
+        try:
+            # Look for JSON handoff object in the response
+            handoff_match = re.search(r'{"handoff":\s*{.*?}}', full_response)
+            if handoff_match:
+                handoff_data = json.loads(handoff_match.group(0))
+                if "handoff" in handoff_data:
+                    target_agent = handoff_data["handoff"].get("target_agent")
+                    reason = handoff_data["handoff"].get("reason")
+                    if target_agent and reason:
+                        handoff_info = {
+                            "target": target_agent, "reason": reason}
+        except Exception as e:
+            print(f"Error parsing handoff data: {e}")
+
+        # Fall back to old method if structured parsing fails
+        if "HANDOFF:" in chunk and not handoff_info:
+            handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
+            match = re.search(handoff_pattern, full_response)
+            if match:
+                target_agent = match.group(1)
+                reason = match.group(2)
+                handoff_info = {"target": target_agent, "reason": reason}
 
         # Store conversation in memory if available
         if self.memory_provider:
@@ -2396,7 +2432,24 @@ class QueryProcessor:
             yield chunk
             full_response += chunk
 
-            # Detect handoff requests (simplified)
+            # Check for handoff in structured format
+            try:
+                # Look for JSON handoff object in the response
+                handoff_match = re.search(
+                    r'{"handoff":\s*{.*?}}', full_response)
+                if handoff_match:
+                    handoff_data = json.loads(handoff_match.group(0))
+                    if "handoff" in handoff_data:
+                        target_agent = handoff_data["handoff"].get(
+                            "target_agent")
+                        reason = handoff_data["handoff"].get("reason")
+                        if target_agent and reason:
+                            handoff_info = {
+                                "target": target_agent, "reason": reason}
+            except Exception as e:
+                print(f"Error parsing handoff data: {e}")
+
+            # Fall back to old method if structured parsing fails
             if "HANDOFF:" in chunk and not handoff_info:
                 handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
                 match = re.search(handoff_pattern, full_response)
