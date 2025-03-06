@@ -1,4 +1,3 @@
-
 import datetime
 import json
 import pytest
@@ -7,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from solana_agent.ai import (
     # Domain Models
+    MongoHumanAgentRegistry,
     TicketStatus,
     AgentType,
     Ticket,
@@ -305,9 +305,174 @@ def parent_ticket():
     )
 
 
+@pytest.fixture
+def mock_human_agent_registry(mock_mongodb_adapter):
+    """Create a mocked human agent registry."""
+    registry = MongoHumanAgentRegistry(mock_mongodb_adapter)
+
+    # Pre-register some agents for testing
+    registry.register_human_agent(
+        agent_id="human1", name="Human Agent 1", specialization="General support"
+    )
+
+    registry.register_human_agent(
+        agent_id="human2", name="Human Agent 2", specialization="Technical support"
+    )
+
+    return registry
+
+
 #############################################
 # TESTS
 #############################################
+
+
+class TestMongoHumanAgentRegistry:
+    """Tests for the MongoDB-backed human agent registry."""
+
+    def test_initialization(self, mock_mongodb_adapter):
+        """Test initialization creates the right collection and indexes."""
+        MongoHumanAgentRegistry(mock_mongodb_adapter)
+
+        # Verify collection was created
+        mock_mongodb_adapter.create_collection.assert_called_once()
+
+        # Verify indexes were created
+        mock_mongodb_adapter.create_index.assert_any_call(
+            "human_agents", [("agent_id", 1)]
+        )
+        mock_mongodb_adapter.create_index.assert_any_call(
+            "human_agents", [("name", 1)])
+
+    def test_register_human_agent(
+        self, mock_human_agent_registry, mock_mongodb_adapter
+    ):
+        """Test registering a new human agent."""
+        # Register a new agent
+        mock_human_agent_registry.register_human_agent(
+            agent_id="new_agent", name="New Agent", specialization="Customer complaints"
+        )
+
+        # Verify database was updated
+        mock_mongodb_adapter.update_one.assert_called()
+
+        # Verify agent was added to cache
+        agent = mock_human_agent_registry.get_human_agent("new_agent")
+        assert agent is not None
+        assert agent["name"] == "New Agent"
+        assert agent["specialization"] == "Customer complaints"
+        assert agent["availability_status"] == "available"
+
+        # Verify specialization was registered
+        assert (
+            mock_human_agent_registry.specializations_cache["new_agent"]
+            == "Customer complaints"
+        )
+
+    def test_get_human_agent(self, mock_human_agent_registry):
+        """Test retrieving a human agent."""
+        # Get an existing agent
+        agent = mock_human_agent_registry.get_human_agent("human1")
+        assert agent is not None
+        assert agent["name"] == "Human Agent 1"
+
+        # Try to get a non-existent agent
+        agent = mock_human_agent_registry.get_human_agent("nonexistent")
+        assert agent is None
+
+    def test_get_all_human_agents(self, mock_human_agent_registry):
+        """Test retrieving all human agents."""
+        agents = mock_human_agent_registry.get_all_human_agents()
+        assert len(agents) == 2
+        assert "human1" in agents
+        assert "human2" in agents
+
+    def test_get_specializations(self, mock_human_agent_registry):
+        """Test retrieving all specializations."""
+        specializations = mock_human_agent_registry.get_specializations()
+        assert len(specializations) == 2
+        assert specializations["human1"] == "General support"
+        assert specializations["human2"] == "Technical support"
+
+    def test_update_agent_status(self, mock_human_agent_registry, mock_mongodb_adapter):
+        """Test updating agent status."""
+        # Update an existing agent
+        result = mock_human_agent_registry.update_agent_status(
+            "human1", "busy")
+        assert result is True
+
+        # Verify database was updated
+        mock_mongodb_adapter.update_one.assert_called()
+
+        # Verify cache was updated
+        agent = mock_human_agent_registry.get_human_agent("human1")
+        assert agent["availability_status"] == "busy"
+
+        # Test updating a non-existent agent
+        result = mock_human_agent_registry.update_agent_status(
+            "nonexistent", "busy")
+        assert result is False
+
+    def test_delete_agent(self, mock_human_agent_registry, mock_mongodb_adapter):
+        """Test deleting a human agent."""
+        # Delete an existing agent
+        result = mock_human_agent_registry.delete_agent("human1")
+        assert result is True
+
+        # Verify database deletion was called
+        mock_mongodb_adapter.delete_one.assert_called_once()
+
+        # Verify agent was removed from cache
+        assert mock_human_agent_registry.get_human_agent("human1") is None
+        assert "human1" not in mock_human_agent_registry.specializations_cache
+
+        # Test deleting a non-existent agent
+        result = mock_human_agent_registry.delete_agent("nonexistent")
+        assert result is False
+
+
+class TestAgentServiceWithRegistry:
+    """Tests for AgentService with MongoHumanAgentRegistry integration."""
+
+    def test_agent_service_with_registry(
+        self, mock_llm_provider, mock_human_agent_registry
+    ):
+        """Test AgentService using the human agent registry."""
+        # Create agent service with registry
+        service = AgentService(mock_llm_provider, mock_human_agent_registry)
+
+        # Register an AI agent normally
+        service.register_ai_agent(
+            "test_ai", "You are a test AI agent.", "Testing", "gpt-4o-mini"
+        )
+
+        # Register a human agent through the service
+        service.register_human_agent(
+            "human3", "Human Agent 3", "Data analysis")
+
+        # Verify AI agent was registered
+        ai_agents = service.get_all_ai_agents()
+        assert "test_ai" in ai_agents
+
+        # Verify human agent was registered via registry
+        human_agents = service.get_all_human_agents()
+        assert "human1" in human_agents  # Pre-registered in registry
+        assert "human2" in human_agents  # Pre-registered in registry
+        assert "human3" in human_agents  # Newly registered
+
+        # Verify specializations include both AI and human agents
+        specializations = service.get_specializations()
+        assert specializations["test_ai"] == "Testing"
+        assert specializations["human1"] == "General support"
+        assert specializations["human3"] == "Data analysis"
+
+        # Test updating human agent status
+        result = service.update_human_agent_status("human1", "away")
+        assert result is True
+
+        # Verify status was updated in registry
+        agent = mock_human_agent_registry.get_human_agent("human1")
+        assert agent["availability_status"] == "away"
 
 
 class TestAgentService:
@@ -884,14 +1049,16 @@ class TestTaskPlanningService:
         assert "human_agent1" in available_agents
 
     @pytest.mark.asyncio
-    async def test_assess_task_complexity(self, task_planning_service, mock_llm_provider):
+    async def test_assess_task_complexity(
+        self, task_planning_service, mock_llm_provider
+    ):
         """Test assessing task complexity."""
         # Create a mock JSON response for complexity
         mock_json = {
             "t_shirt_size": "L",
             "story_points": 8,
             "estimated_minutes": 45,
-            "technical_complexity": 7
+            "technical_complexity": 7,
         }
 
         # Reset the mock and set a proper return value
@@ -1098,7 +1265,7 @@ class TestQueryProcessor:
                 estimated_minutes=30,
                 dependencies=[],
                 parent_id="complex_task",
-                sequence=1
+                sequence=1,
             ),
             SubtaskModel(
                 title="Subtask 2",
@@ -1106,7 +1273,7 @@ class TestQueryProcessor:
                 estimated_minutes=45,
                 dependencies=["Subtask 1"],
                 parent_id="complex_task",
-                sequence=2
+                sequence=2,
             ),
         ]
         query_processor.task_planning_service.generate_subtasks = AsyncMock(

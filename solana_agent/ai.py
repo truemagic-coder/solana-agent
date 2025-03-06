@@ -9,6 +9,7 @@ This module implements a clean architecture approach with:
 - Adapters for external integrations
 - Use cases for orchestrating application flows
 """
+
 import asyncio
 import datetime
 import json
@@ -16,8 +17,17 @@ import re
 import traceback
 import uuid
 from enum import Enum
-from typing import (AsyncGenerator, Callable, Dict, List, Literal, Optional,
-                    Protocol, Tuple, Any)
+from typing import (
+    AsyncGenerator,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Tuple,
+    Any,
+)
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from openai import OpenAI
@@ -31,8 +41,10 @@ from pinecone import Pinecone
 # DOMAIN MODELS
 #############################################
 
+
 class TicketStatus(str, Enum):
     """Represents possible states of a support ticket."""
+
     NEW = "new"
     ACTIVE = "active"
     PENDING = "pending"
@@ -43,12 +55,14 @@ class TicketStatus(str, Enum):
 
 class AgentType(str, Enum):
     """Type of agent (AI or Human)."""
+
     AI = "ai"
     HUMAN = "human"
 
 
 class Ticket(BaseModel):
     """Represents a user support ticket."""
+
     id: str
     user_id: str
     query: str
@@ -67,6 +81,7 @@ class Ticket(BaseModel):
 
 class Handoff(BaseModel):
     """Represents a ticket handoff between agents."""
+
     ticket_id: str
     user_id: str
     from_agent: str
@@ -79,6 +94,7 @@ class Handoff(BaseModel):
 
 class NPSSurvey(BaseModel):
     """Represents an NPS survey for a resolved ticket."""
+
     survey_id: str
     user_id: str
     ticket_id: str
@@ -92,37 +108,47 @@ class NPSSurvey(BaseModel):
 
 class MemoryInsight(BaseModel):
     """Factual insight extracted from user conversations."""
+
     fact: str = Field(...,
                       description="The factual information worth remembering")
-    relevance: str = Field(...,
-                           description="Short explanation of why this fact is generally useful")
+    relevance: str = Field(
+        ..., description="Short explanation of why this fact is generally useful"
+    )
 
 
 class TicketResolution(BaseModel):
     """Information about ticket resolution status."""
+
     status: Literal["resolved", "needs_followup", "cannot_determine"] = Field(
         ..., description="Resolution status of the ticket"
     )
     confidence: float = Field(
-        ..., description="Confidence score for the resolution decision (0.0-1.0)")
-    reasoning: str = Field(...,
-                           description="Brief explanation for the resolution decision")
+        ..., description="Confidence score for the resolution decision (0.0-1.0)"
+    )
+    reasoning: str = Field(
+        ..., description="Brief explanation for the resolution decision"
+    )
     suggested_actions: List[str] = Field(
-        default_factory=list, description="Suggested follow-up actions if needed")
+        default_factory=list, description="Suggested follow-up actions if needed"
+    )
 
 
 class EscalationRequirements(BaseModel):
     """Information about requirements for escalation to human agents."""
+
     has_sufficient_info: bool = Field(
-        ..., description="Whether enough information has been collected for escalation")
+        ..., description="Whether enough information has been collected for escalation"
+    )
     missing_fields: List[str] = Field(
-        default_factory=list, description="Required fields that are missing")
+        default_factory=list, description="Required fields that are missing"
+    )
     recommendation: str = Field(...,
                                 description="Recommendation for next steps")
 
 
 class ImprovementArea(BaseModel):
     """Area for improvement identified by the critic."""
+
     area: str = Field(...,
                       description="Area name (e.g., 'Accuracy', 'Completeness')")
     issue: str = Field(..., description="Specific issue identified")
@@ -132,17 +158,22 @@ class ImprovementArea(BaseModel):
 
 class CritiqueFeedback(BaseModel):
     """Comprehensive feedback from critic review."""
+
     strengths: List[str] = Field(
-        default_factory=list, description="List of strengths in the response")
+        default_factory=list, description="List of strengths in the response"
+    )
     improvement_areas: List[ImprovementArea] = Field(
-        default_factory=list, description="Areas needing improvement")
+        default_factory=list, description="Areas needing improvement"
+    )
     overall_score: float = Field(..., description="Score between 0.0 and 1.0")
-    priority: Literal["low", "medium",
-                      "high"] = Field(..., description="Priority level for improvements")
+    priority: Literal["low", "medium", "high"] = Field(
+        ..., description="Priority level for improvements"
+    )
 
 
 class NPSResponse(BaseModel):
     """User response to an NPS survey."""
+
     score: int = Field(..., ge=0, le=10, description="NPS score (0-10)")
     feedback: str = Field("", description="Optional feedback comment")
     improvement_suggestions: str = Field(
@@ -151,18 +182,22 @@ class NPSResponse(BaseModel):
 
 class CollectiveMemoryResponse(BaseModel):
     """Response format for collective memory extraction."""
+
     insights: List[MemoryInsight] = Field(
-        default_factory=list, description="List of factual insights extracted")
+        default_factory=list, description="List of factual insights extracted"
+    )
 
 
 class DocumentModel(BaseModel):
     """Document for knowledge base storage."""
+
     id: str
     text: str
 
 
 class AgentScore(BaseModel):
     """Comprehensive performance score for an agent."""
+
     agent_name: str
     overall_score: float
     rating: str
@@ -173,6 +208,7 @@ class AgentScore(BaseModel):
 
 class PlanStatus(BaseModel):
     """Status information for a complex task plan."""
+
     visualization: str
     progress: int
     status: str
@@ -182,6 +218,7 @@ class PlanStatus(BaseModel):
 
 class SubtaskModel(BaseModel):
     """Represents a subtask breakdown of a complex task."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     parent_id: str
     title: str
@@ -195,6 +232,7 @@ class SubtaskModel(BaseModel):
 
 class WorkCapacity(BaseModel):
     """Represents an agent's work capacity and current load."""
+
     agent_id: str
     agent_type: AgentType
     max_concurrent_tasks: int
@@ -202,7 +240,9 @@ class WorkCapacity(BaseModel):
     specializations: List[str] = Field(default_factory=list)
     availability_status: str = "available"
     last_updated: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
 
 #############################################
 # INTERFACES
@@ -213,11 +253,7 @@ class LLMProvider(Protocol):
     """Interface for language model providers."""
 
     async def generate_text(
-        self,
-        user_id: str,
-        prompt: str,
-        stream: bool = True,
-        **kwargs
+        self, user_id: str, prompt: str, stream: bool = True, **kwargs
     ) -> AsyncGenerator[str, None]: ...
 
     def generate_embedding(self, text: str) -> List[float]: ...
@@ -240,7 +276,8 @@ class VectorStoreProvider(Protocol):
     def store_vectors(self, vectors: List[Dict], namespace: str) -> None: ...
 
     def search_vectors(
-        self, query_vector: List[float], namespace: str, limit: int = 5) -> List[Dict]: ...
+        self, query_vector: List[float], namespace: str, limit: int = 5
+    ) -> List[Dict]: ...
 
     def delete_vector(self, id: str, namespace: str) -> None: ...
 
@@ -256,8 +293,13 @@ class DataStorageProvider(Protocol):
 
     def find_one(self, collection: str, query: Dict) -> Optional[Dict]: ...
 
-    def find(self, collection: str, query: Dict,
-             sort: Optional[List[Tuple]] = None, limit: int = 0) -> List[Dict]: ...
+    def find(
+        self,
+        collection: str,
+        query: Dict,
+        sort: Optional[List[Tuple]] = None,
+        limit: int = 0,
+    ) -> List[Dict]: ...
 
     def update_one(self, collection: str, query: Dict,
                    update: Dict) -> bool: ...
@@ -282,8 +324,9 @@ class TicketRepository(Protocol):
 
     def get_active_for_user(self, user_id: str) -> Optional[Ticket]: ...
 
-    def find(self, query: Dict,
-             sort_by: Optional[str] = None, limit: int = 0) -> List[Ticket]: ...
+    def find(
+        self, query: Dict, sort_by: Optional[str] = None, limit: int = 0
+    ) -> List[Ticket]: ...
 
     def update(self, ticket_id: str, updates: Dict[str, Any]) -> bool: ...
 
@@ -295,11 +338,19 @@ class HandoffRepository(Protocol):
 
     def record(self, handoff: Handoff) -> str: ...
 
-    def find_for_agent(self, agent_name: str, start_date: Optional[datetime.datetime] = None,
-                       end_date: Optional[datetime.datetime] = None) -> List[Handoff]: ...
+    def find_for_agent(
+        self,
+        agent_name: str,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+    ) -> List[Handoff]: ...
 
-    def count_for_agent(self, agent_name: str, start_date: Optional[datetime.datetime] = None,
-                        end_date: Optional[datetime.datetime] = None) -> int: ...
+    def count_for_agent(
+        self,
+        agent_name: str,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+    ) -> int: ...
 
 
 class NPSSurveyRepository(Protocol):
@@ -309,11 +360,16 @@ class NPSSurveyRepository(Protocol):
 
     def get_by_id(self, survey_id: str) -> Optional[NPSSurvey]: ...
 
-    def update_response(self, survey_id: str, score: int,
-                        feedback: Optional[str] = None) -> bool: ...
+    def update_response(
+        self, survey_id: str, score: int, feedback: Optional[str] = None
+    ) -> bool: ...
 
-    def get_metrics(self, agent_name: Optional[str] = None, start_date: Optional[datetime.datetime] = None,
-                    end_date: Optional[datetime.datetime] = None) -> Dict[str, Any]: ...
+    def get_metrics(
+        self,
+        agent_name: Optional[str] = None,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+    ) -> Dict[str, Any]: ...
 
 
 class MemoryRepository(Protocol):
@@ -330,8 +386,13 @@ class AgentRegistry(Protocol):
     def register_ai_agent(self, name: str, agent: Any,
                           specialization: str) -> None: ...
 
-    def register_human_agent(self, agent_id: str, name: str, specialization: str,
-                             notification_handler: Optional[Callable] = None) -> Any: ...
+    def register_human_agent(
+        self,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler: Optional[Callable] = None,
+    ) -> Any: ...
 
     def get_ai_agent(self, name: str) -> Optional[Any]: ...
 
@@ -347,6 +408,7 @@ class AgentRegistry(Protocol):
 #############################################
 # IMPLEMENTATIONS - ADAPTERS
 #############################################
+
 
 class MongoDBAdapter:
     """MongoDB implementation of DataStorageProvider."""
@@ -371,7 +433,13 @@ class MongoDBAdapter:
     def find_one(self, collection: str, query: Dict) -> Optional[Dict]:
         return self.db[collection].find_one(query)
 
-    def find(self, collection: str, query: Dict, sort: Optional[List[Tuple]] = None, limit: int = 0) -> List[Dict]:
+    def find(
+        self,
+        collection: str,
+        query: Dict,
+        sort: Optional[List[Tuple]] = None,
+        limit: int = 0,
+    ) -> List[Dict]:
         cursor = self.db[collection].find(query)
         if sort:
             cursor = cursor.sort(sort)
@@ -410,7 +478,7 @@ class OpenAIAdapter:
         prompt: str,
         system_prompt: str = "",
         stream: bool = True,
-        **kwargs
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
         """Generate text from OpenAI models with streaming."""
         messages = []
@@ -438,8 +506,7 @@ class OpenAIAdapter:
     def generate_embedding(self, text: str) -> List[float]:
         """Generate embeddings for text."""
         response = self.client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text
+            model="text-embedding-3-small", input=text
         )
         return response.data[0].embedding
 
@@ -480,7 +547,11 @@ class ZepMemoryAdapter:
             context = f"Summary: {summary.summary}\n\n"
 
             # Add most relevant facts if available
-            if hasattr(memory, "metadata") and memory.metadata and "facts" in memory.metadata:
+            if (
+                hasattr(memory, "metadata")
+                and memory.metadata
+                and "facts" in memory.metadata
+            ):
                 facts = memory.metadata["facts"]
                 if facts:
                     context += "Key facts:\n"
@@ -507,8 +578,10 @@ class ZepMemoryAdapter:
         # Try to truncate at a sentence boundary
         truncated = text[:limit]
         last_period = truncated.rfind(".")
-        if last_period > limit * 0.8:  # Only use period if it's reasonably close to the end
-            return truncated[:last_period + 1]
+        if (
+            last_period > limit * 0.8
+        ):  # Only use period if it's reasonably close to the end
+            return truncated[: last_period + 1]
 
         return truncated + "..."
 
@@ -516,7 +589,12 @@ class ZepMemoryAdapter:
 class PineconeAdapter:
     """Pinecone implementation of VectorStoreProvider."""
 
-    def __init__(self, api_key: str, index_name: str, embedding_model: str = "llama-text-embed-v2"):
+    def __init__(
+        self,
+        api_key: str,
+        index_name: str,
+        embedding_model: str = "llama-text-embed-v2",
+    ):
         self.client = Pinecone(api_key=api_key)
         self.index = self.client.Index(index_name)
         self.embedding_model = embedding_model
@@ -525,13 +603,12 @@ class PineconeAdapter:
         """Store vectors in Pinecone."""
         self.index.upsert(vectors=vectors, namespace=namespace)
 
-    def search_vectors(self, query_vector: List[float], namespace: str, limit: int = 5) -> List[Dict]:
+    def search_vectors(
+        self, query_vector: List[float], namespace: str, limit: int = 5
+    ) -> List[Dict]:
         """Search for similar vectors."""
         results = self.index.query(
-            vector=query_vector,
-            top_k=limit,
-            include_metadata=True,
-            namespace=namespace
+            vector=query_vector, top_k=limit, include_metadata=True, namespace=namespace
         )
 
         # Format results
@@ -539,11 +616,13 @@ class PineconeAdapter:
         if hasattr(results, "matches"):
             for match in results.matches:
                 if hasattr(match, "metadata") and match.metadata:
-                    output.append({
-                        "id": match.id,
-                        "score": match.score,
-                        "metadata": match.metadata
-                    })
+                    output.append(
+                        {
+                            "id": match.id,
+                            "score": match.score,
+                            "metadata": match.metadata,
+                        }
+                    )
 
         return output
 
@@ -555,6 +634,114 @@ class PineconeAdapter:
 #############################################
 # IMPLEMENTATIONS - REPOSITORIES
 #############################################
+
+
+class MongoHumanAgentRegistry:
+    """MongoDB implementation for human agent management."""
+
+    def __init__(self, db_provider: DataStorageProvider):
+        self.db = db_provider
+        self.collection = "human_agents"
+        self.human_agents_cache = {}
+        self.specializations_cache = {}
+
+        # Ensure collection exists
+        self.db.create_collection(self.collection)
+
+        # Create indexes
+        self.db.create_index(self.collection, [("agent_id", 1)])
+        self.db.create_index(self.collection, [("name", 1)])
+
+        # Load existing agents into cache on startup
+        self._load_agents_from_db()
+
+    def _load_agents_from_db(self):
+        """Load all human agents from database into memory cache."""
+        agents = self.db.find(self.collection, {})
+        for agent in agents:
+            self.human_agents_cache[agent["agent_id"]] = {
+                "name": agent["name"],
+                "specialization": agent["specialization"],
+                "notification_handler": None,  # Can't store functions in DB
+                "availability_status": agent.get("availability_status", "available"),
+            }
+            self.specializations_cache[agent["agent_id"]
+                                       ] = agent["specialization"]
+
+    def register_human_agent(
+        self,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler: Optional[Callable] = None,
+    ) -> None:
+        """Register a human agent with persistence."""
+        # Store in database
+        self.db.update_one(
+            self.collection,
+            {"agent_id": agent_id},
+            {
+                "$set": {
+                    "agent_id": agent_id,
+                    "name": name,
+                    "specialization": specialization,
+                    "availability_status": "available",
+                    "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+            },
+            upsert=True,
+        )
+
+        # Update cache
+        self.human_agents_cache[agent_id] = {
+            "name": name,
+            "specialization": specialization,
+            "notification_handler": notification_handler,
+            "availability_status": "available",
+        }
+        self.specializations_cache[agent_id] = specialization
+
+    def get_human_agent(self, agent_id: str) -> Optional[Any]:
+        """Get human agent configuration."""
+        return self.human_agents_cache.get(agent_id)
+
+    def get_all_human_agents(self) -> Dict[str, Any]:
+        """Get all registered human agents."""
+        return self.human_agents_cache
+
+    def get_specializations(self) -> Dict[str, str]:
+        """Get specializations of all human agents."""
+        return self.specializations_cache
+
+    def update_agent_status(self, agent_id: str, status: str) -> bool:
+        """Update a human agent's availability status."""
+        if agent_id in self.human_agents_cache:
+            # Update database
+            self.db.update_one(
+                self.collection,
+                {"agent_id": agent_id},
+                {"$set": {"availability_status": status}},
+            )
+
+            # Update cache
+            self.human_agents_cache[agent_id]["availability_status"] = status
+            return True
+        return False
+
+    def delete_agent(self, agent_id: str) -> bool:
+        """Delete an agent by ID."""
+        if agent_id not in self.human_agents_cache:
+            return False
+
+        # Remove from cache
+        del self.human_agents_cache[agent_id]
+        if agent_id in self.specializations_cache:
+            del self.specializations_cache[agent_id]
+
+        # Remove from database
+        self.db.delete_one(self.collection, {"agent_id": agent_id})
+        return True  # Return boolean instead of the result object
+
 
 class MongoTicketRepository:
     """MongoDB implementation of TicketRepository."""
@@ -586,12 +773,14 @@ class MongoTicketRepository:
             self.collection,
             {
                 "user_id": user_id,
-                "status": {"$in": ["new", "active", "pending", "transferred"]}
-            }
+                "status": {"$in": ["new", "active", "pending", "transferred"]},
+            },
         )
         return Ticket(**data) if data else None
 
-    def find(self, query: Dict, sort_by: Optional[str] = None, limit: int = 0) -> List[Ticket]:
+    def find(
+        self, query: Dict, sort_by: Optional[str] = None, limit: int = 0
+    ) -> List[Ticket]:
         """Find tickets matching query."""
         sort_params = [(sort_by, 1)] if sort_by else [("created_at", -1)]
         data = self.db.find(self.collection, query, sort_params, limit)
@@ -600,9 +789,7 @@ class MongoTicketRepository:
     def update(self, ticket_id: str, updates: Dict[str, Any]) -> bool:
         """Update a ticket."""
         return self.db.update_one(
-            self.collection,
-            {"_id": ticket_id},
-            {"$set": updates}
+            self.collection, {"_id": ticket_id}, {"$set": updates}
         )
 
     def count(self, query: Dict) -> int:
@@ -633,7 +820,7 @@ class MongoHandoffRepository:
         self,
         agent_name: str,
         start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None
+        end_date: Optional[datetime.datetime] = None,
     ) -> List[Handoff]:
         """Find handoffs for an agent."""
         query = {"from_agent": agent_name}
@@ -652,7 +839,7 @@ class MongoHandoffRepository:
         self,
         agent_name: str,
         start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None
+        end_date: Optional[datetime.datetime] = None,
     ) -> int:
         """Count handoffs for an agent."""
         query = {"from_agent": agent_name}
@@ -691,28 +878,28 @@ class MongoNPSSurveyRepository:
         data = self.db.find_one(self.collection, {"survey_id": survey_id})
         return NPSSurvey(**data) if data else None
 
-    def update_response(self, survey_id: str, score: int, feedback: Optional[str] = None) -> bool:
+    def update_response(
+        self, survey_id: str, score: int, feedback: Optional[str] = None
+    ) -> bool:
         """Update a survey with user response."""
         updates = {
             "score": score,
             "status": "completed",
-            "completed_at": datetime.datetime.now(datetime.timezone.utc)
+            "completed_at": datetime.datetime.now(datetime.timezone.utc),
         }
 
         if feedback:
             updates["feedback"] = feedback
 
         return self.db.update_one(
-            self.collection,
-            {"survey_id": survey_id},
-            {"$set": updates}
+            self.collection, {"survey_id": survey_id}, {"$set": updates}
         )
 
     def get_metrics(
         self,
         agent_name: Optional[str] = None,
         start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None
+        end_date: Optional[datetime.datetime] = None,
     ) -> Dict[str, Any]:
         """Get NPS metrics."""
         # Build query
@@ -792,7 +979,11 @@ class MongoNPSSurveyRepository:
 class MongoMemoryRepository:
     """MongoDB implementation of MemoryRepository."""
 
-    def __init__(self, db_provider: DataStorageProvider, vector_provider: Optional[VectorStoreProvider] = None):
+    def __init__(
+        self,
+        db_provider: DataStorageProvider,
+        vector_provider: Optional[VectorStoreProvider] = None,
+    ):
         self.db = db_provider
         self.vector_db = vector_provider
         self.collection = "collective_memory"
@@ -803,8 +994,7 @@ class MongoMemoryRepository:
         # Create indexes for text search
         try:
             self.db.create_index(
-                self.collection,
-                [("fact", "text"), ("relevance", "text")]
+                self.collection, [("fact", "text"), ("relevance", "text")]
             )
         except Exception as e:
             print(f"Warning: Text index creation might have failed: {e}")
@@ -836,7 +1026,9 @@ class MongoMemoryRepository:
                         "metadata": {
                             "fact": insight.fact,
                             "relevance": insight.relevance,
-                            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "timestamp": datetime.datetime.now(
+                                datetime.timezone.utc
+                            ).isoformat(),
                             "source_user_id": user_id,
                         },
                     }
@@ -859,12 +1051,14 @@ class MongoMemoryRepository:
                         embedding, namespace="memory", limit=limit
                     )
                     for result in vector_results:
-                        results.append({
-                            "id": result["id"],
-                            "fact": result["metadata"]["fact"],
-                            "relevance": result["metadata"]["relevance"],
-                            "similarity": result["score"]
-                        })
+                        results.append(
+                            {
+                                "id": result["id"],
+                                "fact": result["metadata"]["fact"],
+                                "relevance": result["metadata"]["relevance"],
+                                "similarity": result["score"],
+                            }
+                        )
                     return results
             except Exception as e:
                 print(f"Error in vector search: {e}")
@@ -873,20 +1067,21 @@ class MongoMemoryRepository:
         try:
             query_dict = {"$text": {"$search": query}}
             mongo_results = self.db.find(
-                self.collection,
-                query_dict,
-                [("score", {"$meta": "textScore"})],
-                limit
+                self.collection, query_dict, [
+                    ("score", {"$meta": "textScore"})], limit
             )
 
             for doc in mongo_results:
-                results.append({
-                    "id": doc["_id"],
-                    "fact": doc["fact"],
-                    "relevance": doc["relevance"],
-                    "timestamp": doc["timestamp"].isoformat() if isinstance(
-                        doc["timestamp"], datetime.datetime) else doc["timestamp"]
-                })
+                results.append(
+                    {
+                        "id": doc["_id"],
+                        "fact": doc["fact"],
+                        "relevance": doc["relevance"],
+                        "timestamp": doc["timestamp"].isoformat()
+                        if isinstance(doc["timestamp"], datetime.datetime)
+                        else doc["timestamp"],
+                    }
+                )
             return results
         except Exception as e:
             print(f"Error in text search: {e}")
@@ -896,10 +1091,10 @@ class MongoMemoryRepository:
         """Generate embedding for text using OpenAI."""
         try:
             from openai import OpenAI
+
             client = OpenAI()
             response = client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text
+                model="text-embedding-3-small", input=text
             )
             return response.data[0].embedding
         except Exception as e:
@@ -911,10 +1106,16 @@ class MongoMemoryRepository:
 # SERVICES
 #############################################
 
+
 class RoutingService:
     """Service for routing queries to appropriate agents."""
 
-    def __init__(self, llm_provider: LLMProvider, agent_registry: AgentRegistry, router_model: str = "gpt-4o-mini"):
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        agent_registry: AgentRegistry,
+        router_model: str = "gpt-4o-mini",
+    ):
         self.llm_provider = llm_provider
         self.agent_registry = agent_registry
         self.router_model = router_model
@@ -923,8 +1124,11 @@ class RoutingService:
         """Route query to the most appropriate AI agent."""
         specializations = self.agent_registry.get_specializations()
         # Get AI-only specializations
-        ai_specialists = {k: v for k, v in specializations.items()
-                          if k in self.agent_registry.get_all_ai_agents()}
+        ai_specialists = {
+            k: v
+            for k, v in specializations.items()
+            if k in self.agent_registry.get_all_ai_agents()
+        }
 
         # Create routing prompt
         prompt = f"""
@@ -948,13 +1152,14 @@ class RoutingService:
             system_prompt="You are a routing system that matches queries to the best specialist.",
             stream=False,
             model=self.router_model,
-            temperature=0.2
+            temperature=0.2,
         ):
             response += chunk
 
         # Match to an actual agent name
         agent_name = self._match_agent_name(
-            response.strip(), list(ai_specialists.keys()))
+            response.strip(), list(ai_specialists.keys())
+        )
 
         return agent_name
 
@@ -984,7 +1189,9 @@ class TicketService:
     def __init__(self, ticket_repository: TicketRepository):
         self.ticket_repository = ticket_repository
 
-    async def get_or_create_ticket(self, user_id: str, query: str, complexity: Optional[Dict[str, Any]] = None) -> Ticket:
+    async def get_or_create_ticket(
+        self, user_id: str, query: str, complexity: Optional[Dict[str, Any]] = None
+    ) -> Ticket:
         """Get active ticket for user or create a new one."""
         # Check for active ticket
         ticket = self.ticket_repository.get_active_for_user(user_id)
@@ -999,29 +1206,35 @@ class TicketService:
             status=TicketStatus.NEW,
             assigned_to="",  # Will be assigned later
             created_at=datetime.datetime.now(datetime.timezone.utc),
-            complexity=complexity
+            complexity=complexity,
         )
 
         ticket_id = self.ticket_repository.create(new_ticket)
         new_ticket.id = ticket_id
         return new_ticket
 
-    def update_ticket_status(self, ticket_id: str, status: TicketStatus, **additional_updates) -> bool:
+    def update_ticket_status(
+        self, ticket_id: str, status: TicketStatus, **additional_updates
+    ) -> bool:
         """Update ticket status and additional fields."""
-        updates = {"status": status,
-                   "updated_at": datetime.datetime.now(datetime.timezone.utc)}
+        updates = {
+            "status": status,
+            "updated_at": datetime.datetime.now(datetime.timezone.utc),
+        }
         updates.update(additional_updates)
 
         return self.ticket_repository.update(ticket_id, updates)
 
-    def mark_ticket_resolved(self, ticket_id: str, resolution_data: Dict[str, Any]) -> bool:
+    def mark_ticket_resolved(
+        self, ticket_id: str, resolution_data: Dict[str, Any]
+    ) -> bool:
         """Mark a ticket as resolved with resolution information."""
         updates = {
             "status": TicketStatus.RESOLVED,
             "resolved_at": datetime.datetime.now(datetime.timezone.utc),
             "resolution_confidence": resolution_data.get("confidence", 0.0),
             "resolution_reasoning": resolution_data.get("reasoning", ""),
-            "updated_at": datetime.datetime.now(datetime.timezone.utc)
+            "updated_at": datetime.datetime.now(datetime.timezone.utc),
         }
 
         return self.ticket_repository.update(ticket_id, updates)
@@ -1030,19 +1243,19 @@ class TicketService:
 class HandoffService:
     """Service for managing handoffs between agents."""
 
-    def __init__(self,
-                 handoff_repository: HandoffRepository,
-                 ticket_repository: TicketRepository,
-                 agent_registry: AgentRegistry):
+    def __init__(
+        self,
+        handoff_repository: HandoffRepository,
+        ticket_repository: TicketRepository,
+        agent_registry: AgentRegistry,
+    ):
         self.handoff_repository = handoff_repository
         self.ticket_repository = ticket_repository
         self.agent_registry = agent_registry
 
-    async def process_handoff(self,
-                              ticket_id: str,
-                              from_agent: str,
-                              to_agent: str,
-                              reason: str) -> str:
+    async def process_handoff(
+        self, ticket_id: str, from_agent: str, to_agent: str, reason: str
+    ) -> str:
         """Process a handoff between agents."""
         # Get ticket information
         ticket = self.ticket_repository.get_by_id(ticket_id)
@@ -1050,9 +1263,10 @@ class HandoffService:
             raise ValueError(f"Ticket {ticket_id} not found")
 
         # Check if target agent exists
-        if to_agent not in self.agent_registry.get_all_ai_agents() and \
-            (not hasattr(self.agent_registry, "get_all_human_agents") or
-             to_agent not in self.agent_registry.get_all_human_agents()):
+        if to_agent not in self.agent_registry.get_all_ai_agents() and (
+            not hasattr(self.agent_registry, "get_all_human_agents")
+            or to_agent not in self.agent_registry.get_all_human_agents()
+        ):
             raise ValueError(f"Target agent {to_agent} not found")
 
         # Record the handoff
@@ -1063,7 +1277,7 @@ class HandoffService:
             to_agent=to_agent,
             reason=reason,
             query=ticket.query,
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
         )
 
         self.handoff_repository.record(handoff)
@@ -1075,8 +1289,8 @@ class HandoffService:
                 "assigned_to": to_agent,
                 "status": TicketStatus.TRANSFERRED,
                 "handoff_reason": reason,
-                "updated_at": datetime.datetime.now(datetime.timezone.utc)
-            }
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            },
         )
 
         return to_agent
@@ -1085,7 +1299,9 @@ class HandoffService:
 class NPSService:
     """Service for managing NPS surveys and ratings."""
 
-    def __init__(self, nps_repository: NPSSurveyRepository, ticket_repository: TicketRepository):
+    def __init__(
+        self, nps_repository: NPSSurveyRepository, ticket_repository: TicketRepository
+    ):
         self.nps_repository = nps_repository
         self.ticket_repository = ticket_repository
 
@@ -1097,16 +1313,20 @@ class NPSService:
             ticket_id=ticket_id,
             agent_name=agent_name,
             status="pending",
-            created_at=datetime.datetime.now(datetime.timezone.utc)
+            created_at=datetime.datetime.now(datetime.timezone.utc),
         )
 
         return self.nps_repository.create(survey)
 
-    def process_response(self, survey_id: str, score: int, feedback: Optional[str] = None) -> bool:
+    def process_response(
+        self, survey_id: str, score: int, feedback: Optional[str] = None
+    ) -> bool:
         """Process user response to NPS survey."""
         return self.nps_repository.update_response(survey_id, score, feedback)
 
-    def get_agent_score(self, agent_name: str, start_date=None, end_date=None) -> Dict[str, Any]:
+    def get_agent_score(
+        self, agent_name: str, start_date=None, end_date=None
+    ) -> Dict[str, Any]:
         """Calculate a comprehensive agent score."""
         # Get NPS metrics
         nps_metrics = self.nps_repository.get_metrics(
@@ -1132,8 +1352,8 @@ class NPSService:
             },
             "period": {
                 "start": start_date.isoformat() if start_date else "All time",
-                "end": end_date.isoformat() if end_date else "Present"
-            }
+                "end": end_date.isoformat() if end_date else "Present",
+            },
         }
 
     def _get_score_rating(self, score: float) -> str:
@@ -1163,7 +1383,9 @@ class MemoryService:
         self.memory_repository = memory_repository
         self.llm_provider = llm_provider
 
-    async def extract_insights(self, user_id: str, conversation: Dict[str, str]) -> List[MemoryInsight]:
+    async def extract_insights(
+        self, user_id: str, conversation: Dict[str, str]
+    ) -> List[MemoryInsight]:
         """Extract insights from a conversation."""
         prompt = f"""
         Extract factual, generalizable insights from this conversation that would be valuable to remember.
@@ -1186,7 +1408,7 @@ class MemoryService:
             stream=False,
             model="gpt-4o-mini",
             temperature=0.2,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         ):
             response += chunk
 
@@ -1216,7 +1438,9 @@ class CriticService:
         self.llm_provider = llm_provider
         self.feedback_collection = []
 
-    async def critique_response(self, user_query: str, agent_response: str, agent_name: str) -> CritiqueFeedback:
+    async def critique_response(
+        self, user_query: str, agent_response: str, agent_name: str
+    ) -> CritiqueFeedback:
         """Analyze and critique an agent's response."""
         prompt = f"""
         Analyze this agent's response to the user query and provide detailed feedback:
@@ -1242,7 +1466,7 @@ class CriticService:
             stream=False,
             model="gpt-4o",
             temperature=0.2,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         ):
             response += chunk
 
@@ -1251,14 +1475,18 @@ class CriticService:
             feedback = CritiqueFeedback(**data)
 
             # Store feedback for analytics
-            self.feedback_collection.append({
-                "agent_name": agent_name,
-                "strengths_count": len(feedback.strengths),
-                "issues_count": len(feedback.improvement_areas),
-                "overall_score": feedback.overall_score,
-                "priority": feedback.priority,
-                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            })
+            self.feedback_collection.append(
+                {
+                    "agent_name": agent_name,
+                    "strengths_count": len(feedback.strengths),
+                    "issues_count": len(feedback.improvement_areas),
+                    "overall_score": feedback.overall_score,
+                    "priority": feedback.priority,
+                    "timestamp": datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                }
+            )
 
             return feedback
         except Exception as e:
@@ -1267,42 +1495,102 @@ class CriticService:
                 strengths=["Unable to analyze response"],
                 improvement_areas=[],
                 overall_score=0.5,
-                priority="medium"
+                priority="medium",
             )
 
     def get_agent_feedback(self, agent_name: str, limit: int = 50) -> List[Dict]:
         """Get historical feedback for a specific agent."""
-        return [fb for fb in self.feedback_collection if fb["agent_name"] == agent_name][-limit:]
+        return [
+            fb for fb in self.feedback_collection if fb["agent_name"] == agent_name
+        ][-limit:]
 
 
 class AgentService:
     """Service for managing AI and human agents."""
 
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        human_agent_registry: Optional[MongoHumanAgentRegistry] = None,
+    ):
         self.llm_provider = llm_provider
         self.ai_agents = {}
-        self.human_agents = {}
+        self.human_agent_registry = human_agent_registry
         self.specializations = {}
 
-    def register_ai_agent(self, name: str, instructions: str, specialization: str, model: str = "gpt-4o") -> None:
+        # If human agent registry is provided, initialize specializations from it
+        if self.human_agent_registry:
+            self.specializations.update(
+                self.human_agent_registry.get_specializations())
+
+        # If no human agent registry is provided, use in-memory cache
+        if not self.human_agent_registry:
+            self.human_agents = {}
+
+    def get_specializations(self) -> Dict[str, str]:
+        """Get specializations of all agents."""
+        if self.human_agent_registry:
+            # Create a merged copy with both AI agents and human agents from registry
+            merged = self.specializations.copy()
+            merged.update(self.human_agent_registry.get_specializations())
+            return merged
+        return self.specializations
+
+    def register_ai_agent(
+        self, name: str, instructions: str, specialization: str, model: str = "gpt-4o"
+    ) -> None:
         """Register an AI agent with its specialization."""
-        self.ai_agents[name] = {
-            "instructions": instructions,
-            "model": model
-        }
+        self.ai_agents[name] = {"instructions": instructions, "model": model}
         self.specializations[name] = specialization
 
-    def register_human_agent(self, agent_id: str, name: str, specialization: str, notification_handler: Optional[Callable] = None) -> None:
+    def register_human_agent(
+        self,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler: Optional[Callable] = None,
+    ) -> None:
         """Register a human agent."""
-        self.human_agents[agent_id] = {
-            "name": name,
-            "specialization": specialization,
-            "notification_handler": notification_handler,
-            "availability_status": "available"
-        }
-        self.specializations[agent_id] = specialization
+        if self.human_agent_registry:
+            # Use the MongoDB registry if available
+            self.human_agent_registry.register_human_agent(
+                agent_id, name, specialization, notification_handler
+            )
+            self.specializations[agent_id] = specialization
+        else:
+            # Fall back to in-memory storage
+            self.human_agents[agent_id] = {
+                "name": name,
+                "specialization": specialization,
+                "notification_handler": notification_handler,
+                "availability_status": "available",
+            }
+            self.specializations[agent_id] = specialization
 
-    async def generate_response(self, agent_name: str, user_id: str, query: str, memory_context: str = "", **kwargs) -> AsyncGenerator[str, None]:
+    def get_all_human_agents(self) -> Dict[str, Any]:
+        """Get all registered human agents."""
+        if self.human_agent_registry:
+            return self.human_agent_registry.get_all_human_agents()
+        return self.human_agents
+
+    def update_human_agent_status(self, agent_id: str, status: str) -> bool:
+        """Update a human agent's availability status."""
+        if self.human_agent_registry:
+            return self.human_agent_registry.update_agent_status(agent_id, status)
+
+        if agent_id in self.human_agents:
+            self.human_agents[agent_id]["availability_status"] = status
+            return True
+        return False
+
+    async def generate_response(
+        self,
+        agent_name: str,
+        user_id: str,
+        query: str,
+        memory_context: str = "",
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
         """Generate response from an AI agent."""
         if agent_name not in self.ai_agents:
             yield "Error: Agent not found"
@@ -1321,28 +1609,13 @@ class AgentService:
             prompt=query,
             system_prompt=instructions,
             model=agent_config["model"],
-            **kwargs
+            **kwargs,
         ):
             yield chunk
 
     def get_all_ai_agents(self) -> Dict[str, Any]:
         """Get all registered AI agents."""
         return self.ai_agents
-
-    def get_all_human_agents(self) -> Dict[str, Any]:
-        """Get all registered human agents."""
-        return self.human_agents
-
-    def get_specializations(self) -> Dict[str, str]:
-        """Get specializations of all agents."""
-        return self.specializations
-
-    def update_human_agent_status(self, agent_id: str, status: str) -> bool:
-        """Update a human agent's availability status."""
-        if agent_id in self.human_agents:
-            self.human_agents[agent_id]["availability_status"] = status
-            return True
-        return False
 
 
 class TaskPlanningService:
@@ -1352,21 +1625,27 @@ class TaskPlanningService:
         self,
         ticket_repository: TicketRepository,
         llm_provider: LLMProvider,
-        agent_service: AgentService
+        agent_service: AgentService,
     ):
         self.ticket_repository = ticket_repository
         self.llm_provider = llm_provider
         self.agent_service = agent_service
         self.capacity_registry = {}  # agent_id -> WorkCapacity
 
-    def register_agent_capacity(self, agent_id: str, agent_type: AgentType, max_tasks: int, specializations: List[str]) -> None:
+    def register_agent_capacity(
+        self,
+        agent_id: str,
+        agent_type: AgentType,
+        max_tasks: int,
+        specializations: List[str],
+    ) -> None:
         """Register an agent's work capacity."""
         self.capacity_registry[agent_id] = WorkCapacity(
             agent_id=agent_id,
             agent_type=agent_type,
             max_concurrent_tasks=max_tasks,
             active_tasks=0,
-            specializations=specializations
+            specializations=specializations,
         )
 
     def update_agent_availability(self, agent_id: str, status: str) -> bool:
@@ -1374,7 +1653,8 @@ class TaskPlanningService:
         if agent_id in self.capacity_registry:
             self.capacity_registry[agent_id].availability_status = status
             self.capacity_registry[agent_id].last_updated = datetime.datetime.now(
-                datetime.timezone.utc)
+                datetime.timezone.utc
+            )
             return True
         return False
 
@@ -1411,16 +1691,18 @@ class TaskPlanningService:
         estimated_minutes = complexity.get("estimated_minutes", 30)
 
         needs_breakdown = (
-            story_points >= 8 or
-            t_shirt_size in ["L", "XL", "XXL"] or
-            estimated_minutes >= 60
+            story_points >= 8
+            or t_shirt_size in ["L", "XL", "XXL"]
+            or estimated_minutes >= 60
         )
 
         reasoning = f"Task complexity: {t_shirt_size}, {story_points} story points, {estimated_minutes} minutes estimated"
 
         return (needs_breakdown, reasoning)
 
-    async def generate_subtasks(self, ticket_id: str, task_description: str) -> List[SubtaskModel]:
+    async def generate_subtasks(
+        self, ticket_id: str, task_description: str
+    ) -> List[SubtaskModel]:
         """Generate subtasks for a complex task."""
         # Fetch ticket to verify it exists
         ticket = self.ticket_repository.get_by_id(ticket_id)
@@ -1429,11 +1711,7 @@ class TaskPlanningService:
 
         # Mark parent ticket as a parent
         self.ticket_repository.update(
-            ticket_id,
-            {
-                "is_parent": True,
-                "status": TicketStatus.PLANNING
-            }
+            ticket_id, {"is_parent": True, "status": TicketStatus.PLANNING}
         )
 
         # Generate subtasks using LLM
@@ -1469,7 +1747,7 @@ class TaskPlanningService:
             stream=False,
             model=model,  # Use the agent's configured model
             temperature=0.2,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         ):
             response_text += chunk
 
@@ -1484,9 +1762,9 @@ class TaskPlanningService:
                     parent_id=ticket_id,
                     title=task_data["title"],
                     description=task_data["description"],
-                    sequence=i+1,
+                    sequence=i + 1,
                     estimated_minutes=task_data.get("estimated_minutes", 30),
-                    dependencies=[]
+                    dependencies=[],
                 )
                 subtasks.append(subtask)
 
@@ -1513,8 +1791,8 @@ class TaskPlanningService:
                     parent_id=ticket_id,
                     complexity={
                         "estimated_minutes": subtask.estimated_minutes,
-                        "sequence": subtask.sequence
-                    }
+                        "sequence": subtask.sequence,
+                    },
                 )
                 self.ticket_repository.create(new_ticket)
 
@@ -1527,11 +1805,13 @@ class TaskPlanningService:
     async def assign_subtasks(self, parent_ticket_id: str) -> Dict[str, List[str]]:
         """Assign subtasks to available agents based on capacity."""
         # Get all subtasks for the parent
-        subtasks = self.ticket_repository.find({
-            "parent_id": parent_ticket_id,
-            "is_subtask": True,
-            "status": TicketStatus.PLANNING
-        })
+        subtasks = self.ticket_repository.find(
+            {
+                "parent_id": parent_ticket_id,
+                "is_subtask": True,
+                "status": TicketStatus.PLANNING,
+            }
+        )
 
         if not subtasks:
             return {}
@@ -1551,11 +1831,8 @@ class TaskPlanningService:
 
             # Update subtask with assignment
             self.ticket_repository.update(
-                subtask.id,
-                {
-                    "assigned_to": agent_id,
-                    "status": TicketStatus.ACTIVE
-                }
+                subtask.id, {"assigned_to": agent_id,
+                             "status": TicketStatus.ACTIVE}
             )
 
             # Update agent capacity
@@ -1573,13 +1850,13 @@ class TaskPlanningService:
         parent = self.ticket_repository.get_by_id(parent_ticket_id)
         if not parent or not parent.is_parent:
             raise ValueError(
-                f"Parent ticket {parent_ticket_id} not found or is not a parent")
+                f"Parent ticket {parent_ticket_id} not found or is not a parent"
+            )
 
         # Get all subtasks
-        subtasks = self.ticket_repository.find({
-            "parent_id": parent_ticket_id,
-            "is_subtask": True
-        })
+        subtasks = self.ticket_repository.find(
+            {"parent_id": parent_ticket_id, "is_subtask": True}
+        )
 
         subtask_count = len(subtasks)
         if subtask_count == 0:
@@ -1588,7 +1865,7 @@ class TaskPlanningService:
                 progress=0,
                 status="unknown",
                 estimated_completion="unknown",
-                subtask_count=0
+                subtask_count=0,
             )
 
         # Count completed tasks
@@ -1621,11 +1898,13 @@ class TaskPlanningService:
             if progress > 0:
                 first_subtask = min(subtasks, key=lambda t: t.created_at)
                 start_time = first_subtask.created_at
-                time_elapsed = (datetime.datetime.now(
-                    datetime.timezone.utc) - start_time).total_seconds()
+                time_elapsed = (
+                    datetime.datetime.now(datetime.timezone.utc) - start_time
+                ).total_seconds()
                 time_remaining = (time_elapsed / progress) * (100 - progress)
                 completion_time = datetime.datetime.now(
-                    datetime.timezone.utc) + datetime.timedelta(seconds=time_remaining)
+                    datetime.timezone.utc
+                ) + datetime.timedelta(seconds=time_remaining)
                 estimated_completion = completion_time.strftime(
                     "%Y-%m-%d %H:%M")
             else:
@@ -1636,7 +1915,7 @@ class TaskPlanningService:
             progress=progress,
             status=status,
             estimated_completion=estimated_completion,
-            subtask_count=subtask_count
+            subtask_count=subtask_count,
         )
 
     async def _assess_task_complexity(self, task_description: str) -> Dict[str, Any]:
@@ -1669,7 +1948,7 @@ class TaskPlanningService:
                 stream=False,
                 model=model,
                 temperature=0.2,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             ):
                 response_text += chunk
 
@@ -1682,8 +1961,9 @@ class TaskPlanningService:
                 "story_points": 3,
                 "estimated_minutes": 30,
                 "technical_complexity": 5,
-                "domain_knowledge": 5
+                "domain_knowledge": 5,
             }
+
 
 #############################################
 # MAIN AGENT PROCESSOR
@@ -1705,7 +1985,7 @@ class QueryProcessor:
         memory_provider: Optional[MemoryProvider] = None,
         enable_critic: bool = True,
         router_model: str = "gpt-4o-mini",
-        task_planning_service: Optional["TaskPlanningService"] = None
+        task_planning_service: Optional["TaskPlanningService"] = None,
     ):
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -1727,13 +2007,17 @@ class QueryProcessor:
         try:
             # Handle human agent messages differently
             if await self._is_human_agent(user_id):
-                async for chunk in self._process_human_agent_message(user_id, user_text):
+                async for chunk in self._process_human_agent_message(
+                    user_id, user_text
+                ):
                     yield chunk
                 return
 
             # Handle simple greetings without full agent routing
             if await self._is_simple_greeting(user_text):
-                greeting_response = await self._generate_greeting_response(user_id, user_text)
+                greeting_response = await self._generate_greeting_response(
+                    user_id, user_text
+                )
                 yield greeting_response
                 return
 
@@ -1745,18 +2029,23 @@ class QueryProcessor:
 
             # Check for active ticket
             active_ticket = self.ticket_service.ticket_repository.get_active_for_user(
-                user_id)
+                user_id
+            )
 
             if active_ticket:
                 # Process existing ticket
-                async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                async for chunk in self._process_existing_ticket(
+                    user_id, user_text, active_ticket, timezone
+                ):
                     yield chunk
             else:
                 # Create new ticket
                 complexity = await self._assess_task_complexity(user_text)
 
                 # Process as new ticket
-                async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                async for chunk in self._process_new_ticket(
+                    user_id, user_text, complexity, timezone
+                ):
                     yield chunk
 
         except Exception as e:
@@ -1774,13 +2063,22 @@ class QueryProcessor:
 
         # Common greetings list
         simple_greetings = [
-            "hello", "hi", "hey", "greetings", "good morning", "good afternoon",
-            "good evening", "what's up", "how are you", "how's it going"
+            "hello",
+            "hi",
+            "hey",
+            "greetings",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "what's up",
+            "how are you",
+            "how's it going",
         ]
 
         # Check if text starts with a greeting and is relatively short
-        is_greeting = any(text_lower.startswith(greeting)
-                          for greeting in simple_greetings)
+        is_greeting = any(
+            text_lower.startswith(greeting) for greeting in simple_greetings
+        )
         # Arbitrary threshold for "simple" messages
         is_short = len(text.split()) < 7
 
@@ -1804,7 +2102,7 @@ class QueryProcessor:
             text,
             context,
             temperature=0.7,
-            max_tokens=100  # Keep it brief
+            max_tokens=100,  # Keep it brief
         ):
             response += chunk
 
@@ -1815,13 +2113,15 @@ class QueryProcessor:
                 [
                     {"role": "user", "content": text},
                     {"role": "assistant",
-                        "content": self._truncate(response, 2500)}
-                ]
+                        "content": self._truncate(response, 2500)},
+                ],
             )
 
         return response
 
-    async def _process_system_commands(self, user_id: str, user_text: str) -> Optional[str]:
+    async def _process_system_commands(
+        self, user_id: str, user_text: str
+    ) -> Optional[str]:
         """Process system commands and return response if command was handled."""
         # Simple command system
         if user_text.startswith("!"):
@@ -1852,13 +2152,13 @@ class QueryProcessor:
 
                 # Create a parent ticket
                 ticket = await self.ticket_service.get_or_create_ticket(
-                    user_id,
-                    args,
-                    complexity
+                    user_id, args, complexity
                 )
 
                 # Generate subtasks
-                subtasks = await self.task_planning_service.generate_subtasks(ticket.id, args)
+                subtasks = await self.task_planning_service.generate_subtasks(
+                    ticket.id, args
+                )
 
                 if not subtasks:
                     return "Failed to create task plan."
@@ -1870,9 +2170,13 @@ class QueryProcessor:
                 for i, subtask in enumerate(subtasks, 1):
                     response += f"{i}. **{subtask.title}**\n"
                     response += f"   - Description: {subtask.description}\n"
-                    response += f"   - Estimated time: {subtask.estimated_minutes} minutes\n"
+                    response += (
+                        f"   - Estimated time: {subtask.estimated_minutes} minutes\n"
+                    )
                     if subtask.dependencies:
-                        response += f"   - Dependencies: {len(subtask.dependencies)} subtasks\n"
+                        response += (
+                            f"   - Dependencies: {len(subtask.dependencies)} subtasks\n"
+                        )
                     response += "\n"
 
                 return response
@@ -1912,10 +2216,13 @@ class QueryProcessor:
                         agent_name = agent_id
                         if agent_id in self.agent_service.get_all_human_agents():
                             agent_info = self.agent_service.get_all_human_agents()[
-                                agent_id]
+                                agent_id
+                            ]
                             agent_name = agent_info.get("name", agent_id)
 
-                        response += f"**{agent_name}**: {len(task_ids)} subtasks assigned\n"
+                        response += (
+                            f"**{agent_name}**: {len(task_ids)} subtasks assigned\n"
+                        )
 
                     return response
                 except ValueError as e:
@@ -1935,16 +2242,12 @@ class QueryProcessor:
             agent_name = await self.routing_service.route_query(user_text)
             # Update ticket with new assignment
             self.ticket_service.update_ticket_status(
-                ticket.id,
-                TicketStatus.ACTIVE,
-                assigned_to=agent_name
+                ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
             )
 
         # Update ticket status
         self.ticket_service.update_ticket_status(
-            ticket.id,
-            TicketStatus.ACTIVE
-        )
+            ticket.id, TicketStatus.ACTIVE)
 
         # Get memory context if available
         memory_context = ""
@@ -1956,11 +2259,7 @@ class QueryProcessor:
         handoff_info = None
 
         async for chunk in self.agent_service.generate_response(
-            agent_name,
-            user_id,
-            user_text,
-            memory_context,
-            temperature=0.7
+            agent_name, user_id, user_text, memory_context, temperature=0.7
         ):
             yield chunk
             full_response += chunk
@@ -1980,9 +2279,11 @@ class QueryProcessor:
                 user_id,
                 [
                     {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": self._truncate(
-                        full_response, 2500)}
-                ]
+                    {
+                        "role": "assistant",
+                        "content": self._truncate(full_response, 2500),
+                    },
+                ],
             )
 
         # Process handoff if detected
@@ -1992,7 +2293,7 @@ class QueryProcessor:
                     ticket.id,
                     agent_name,
                     handoff_info["target"],
-                    handoff_info["reason"]
+                    handoff_info["reason"],
                 )
             except ValueError as e:
                 # If handoff fails, just continue with current agent
@@ -2000,15 +2301,17 @@ class QueryProcessor:
 
         # Check if ticket can be considered resolved
         if not handoff_info:
-            resolution = await self._check_ticket_resolution(user_id, full_response, user_text)
+            resolution = await self._check_ticket_resolution(
+                user_id, full_response, user_text
+            )
 
             if resolution.status == "resolved" and resolution.confidence >= 0.7:
                 self.ticket_service.mark_ticket_resolved(
                     ticket.id,
                     {
                         "confidence": resolution.confidence,
-                        "reasoning": resolution.reasoning
-                    }
+                        "reasoning": resolution.reasoning,
+                    },
                 )
 
                 # Create NPS survey
@@ -2018,35 +2321,40 @@ class QueryProcessor:
         if full_response:
             asyncio.create_task(
                 self._extract_and_store_insights(
-                    user_id,
-                    {"message": user_text, "response": full_response}
+                    user_id, {"message": user_text, "response": full_response}
                 )
             )
 
     async def _process_new_ticket(
-        self, user_id: str, user_text: str, complexity: Dict[str, Any], timezone: str = None
+        self,
+        user_id: str,
+        user_text: str,
+        complexity: Dict[str, Any],
+        timezone: str = None,
     ) -> AsyncGenerator[str, None]:
         """Process a message creating a new ticket."""
         # Check if this should be broken down into subtasks
         if self.task_planning_service:
-            needs_breakdown, reasoning = await self.task_planning_service.needs_breakdown(user_text)
+            (
+                needs_breakdown,
+                reasoning,
+            ) = await self.task_planning_service.needs_breakdown(user_text)
 
             if needs_breakdown:
                 # Create ticket with planning status
                 ticket = await self.ticket_service.get_or_create_ticket(
-                    user_id,
-                    user_text,
-                    complexity
+                    user_id, user_text, complexity
                 )
 
                 # Mark as planning
                 self.ticket_service.update_ticket_status(
-                    ticket.id,
-                    TicketStatus.PLANNING
+                    ticket.id, TicketStatus.PLANNING
                 )
 
                 # Generate subtasks
-                subtasks = await self.task_planning_service.generate_subtasks(ticket.id, user_text)
+                subtasks = await self.task_planning_service.generate_subtasks(
+                    ticket.id, user_text
+                )
 
                 # Generate response about the plan
                 yield "I've analyzed your request and determined it's a complex task that should be broken down.\n\n"
@@ -2070,16 +2378,12 @@ class QueryProcessor:
 
         # Create ticket
         ticket = await self.ticket_service.get_or_create_ticket(
-            user_id,
-            user_text,
-            complexity
+            user_id, user_text, complexity
         )
 
         # Update with routing decision
         self.ticket_service.update_ticket_status(
-            ticket.id,
-            TicketStatus.ACTIVE,
-            assigned_to=agent_name
+            ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
         )
 
         # Generate response with streaming
@@ -2087,11 +2391,7 @@ class QueryProcessor:
         handoff_info = None
 
         async for chunk in self.agent_service.generate_response(
-            agent_name,
-            user_id,
-            user_text,
-            memory_context,
-            temperature=0.7
+            agent_name, user_id, user_text, memory_context, temperature=0.7
         ):
             yield chunk
             full_response += chunk
@@ -2111,9 +2411,11 @@ class QueryProcessor:
                 user_id,
                 [
                     {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": self._truncate(
-                        full_response, 2500)}
-                ]
+                    {
+                        "role": "assistant",
+                        "content": self._truncate(full_response, 2500),
+                    },
+                ],
             )
 
         # Process handoff if detected
@@ -2123,7 +2425,7 @@ class QueryProcessor:
                     ticket.id,
                     agent_name,
                     handoff_info["target"],
-                    handoff_info["reason"]
+                    handoff_info["reason"],
                 )
             except ValueError as e:
                 print(f"Handoff failed: {e}")
@@ -2135,22 +2437,24 @@ class QueryProcessor:
                             ticket.id,
                             agent_name,
                             handoff_info["target"],
-                            handoff_info["reason"]
+                            handoff_info["reason"],
                         )
                     except ValueError as e:
                         print(f"Handoff failed: {e}")
 
                 # Check if ticket can be considered resolved
                 if not handoff_info:
-                    resolution = await self._check_ticket_resolution(user_id, full_response, user_text)
+                    resolution = await self._check_ticket_resolution(
+                        user_id, full_response, user_text
+                    )
 
                     if resolution.status == "resolved" and resolution.confidence >= 0.7:
                         self.ticket_service.mark_ticket_resolved(
                             ticket.id,
                             {
                                 "confidence": resolution.confidence,
-                                "reasoning": resolution.reasoning
-                            }
+                                "reasoning": resolution.reasoning,
+                            },
                         )
 
                         # Create NPS survey
@@ -2161,19 +2465,21 @@ class QueryProcessor:
                 if full_response:
                     asyncio.create_task(
                         self._extract_and_store_insights(
-                            user_id,
-                            {"message": user_text, "response": full_response}
+                            user_id, {"message": user_text,
+                                      "response": full_response}
                         )
                     )
 
-    async def _process_human_agent_message(self, user_id: str, user_text: str) -> AsyncGenerator[str, None]:
+    async def _process_human_agent_message(
+        self, user_id: str, user_text: str
+    ) -> AsyncGenerator[str, None]:
         """Process messages from human agents."""
         # Parse for target agent specification if available
         target_agent = None
         message = user_text
 
         # Check if message starts with @agent_name to target specific agent
-        if user_text.startswith('@'):
+        if user_text.startswith("@"):
             parts = user_text.split(" ", 1)
             potential_target = parts[0][1:]  # Remove the @ symbol
             if potential_target in self.agent_service.get_all_ai_agents():
@@ -2203,11 +2509,7 @@ class QueryProcessor:
                 memory_context = await self.memory_provider.retrieve(target_agent)
 
             async for chunk in self.agent_service.generate_response(
-                target_agent,
-                user_id,
-                message,
-                memory_context,
-                temperature=0.7
+                target_agent, user_id, message, memory_context, temperature=0.7
             ):
                 yield chunk
 
@@ -2222,7 +2524,9 @@ class QueryProcessor:
         # AI Agents
         result += "## AI Agents\n\n"
         for name in ai_agents:
-            result += f"- **{name}**: {specializations.get(name, 'No specialization')}\n"
+            result += (
+                f"- **{name}**: {specializations.get(name, 'No specialization')}\n"
+            )
 
         # Human Agents
         if human_agents:
@@ -2239,17 +2543,24 @@ class QueryProcessor:
         """Get system status summary."""
         # Get ticket metrics
         open_tickets = self.ticket_service.ticket_repository.count(
-            {"status": {"$ne": TicketStatus.RESOLVED}})
-        resolved_today = self.ticket_service.ticket_repository.count({
-            "status": TicketStatus.RESOLVED,
-            "resolved_at": {"$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)}
-        })
+            {"status": {"$ne": TicketStatus.RESOLVED}}
+        )
+        resolved_today = self.ticket_service.ticket_repository.count(
+            {
+                "status": TicketStatus.RESOLVED,
+                "resolved_at": {
+                    "$gte": datetime.datetime.now(datetime.timezone.utc)
+                    - datetime.timedelta(days=1)
+                },
+            }
+        )
 
         # Get memory metrics
         memory_count = 0
         try:
             memory_count = self.memory_service.memory_repository.db.count_documents(
-                "collective_memory", {})
+                "collective_memory", {}
+            )
         except Exception:
             pass
 
@@ -2260,11 +2571,12 @@ class QueryProcessor:
 
         return result
 
-    async def _check_ticket_resolution(self, user_id: str, response: str, query: str) -> TicketResolution:
+    async def _check_ticket_resolution(
+        self, user_id: str, response: str, query: str
+    ) -> TicketResolution:
         """Determine if a ticket can be considered resolved based on the response."""
         # Get first AI agent for analysis
-        first_agent = next(
-            iter(self.agent_service.get_all_ai_agents().keys()))
+        first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
 
         prompt = f"""
         Analyze this conversation and determine if the user query has been fully resolved.
@@ -2294,7 +2606,7 @@ class QueryProcessor:
             "",  # No memory context needed
             stream=False,
             temperature=0.2,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         ):
             resolution_text += chunk
 
@@ -2306,14 +2618,13 @@ class QueryProcessor:
             return TicketResolution(
                 status="cannot_determine",
                 confidence=0.2,
-                reasoning="Failed to analyze resolution status"
+                reasoning="Failed to analyze resolution status",
             )
 
     async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
         """Assess the complexity of a task using standardized metrics."""
         # Get first AI agent for analysis
-        first_agent = next(
-            iter(self.agent_service.get_all_ai_agents().keys()))
+        first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
 
         prompt = f"""
         Analyze this task and provide standardized complexity metrics:
@@ -2337,7 +2648,7 @@ class QueryProcessor:
                 "",  # No memory context needed
                 stream=False,
                 temperature=0.2,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             ):
                 response_text += chunk
 
@@ -2350,10 +2661,12 @@ class QueryProcessor:
                 "story_points": 3,
                 "estimated_minutes": 30,
                 "technical_complexity": 5,
-                "domain_knowledge": 5
+                "domain_knowledge": 5,
             }
 
-    async def _extract_and_store_insights(self, user_id: str, conversation: Dict[str, str]) -> None:
+    async def _extract_and_store_insights(
+        self, user_id: str, conversation: Dict[str, str]
+    ) -> None:
         """Extract insights from conversation and store in collective memory."""
         try:
             # Extract insights
@@ -2375,9 +2688,11 @@ class QueryProcessor:
 
         # Try to truncate at a sentence boundary
         truncated = text[:limit]
-        last_period = truncated.rfind('.')
-        if last_period > limit * 0.8:  # Only use period if it's reasonably close to the end
-            return truncated[:last_period + 1]
+        last_period = truncated.rfind(".")
+        if (
+            last_period > limit * 0.8
+        ):  # Only use period if it's reasonably close to the end
+            return truncated[: last_period + 1]
 
         return truncated + "..."
 
@@ -2385,6 +2700,7 @@ class QueryProcessor:
 #############################################
 # FACTORY AND DEPENDENCY INJECTION
 #############################################
+
 
 class SolanaAgentFactory:
     """Factory for creating and wiring components of the Solana Agent system."""
@@ -2395,12 +2711,12 @@ class SolanaAgentFactory:
         # Create adapters
         db_adapter = MongoDBAdapter(
             connection_string=config["mongo"]["connection_string"],
-            database_name=config["mongo"]["database"]
+            database_name=config["mongo"]["database"],
         )
 
         llm_adapter = OpenAIAdapter(
             api_key=config["openai"]["api_key"],
-            model=config.get("openai", {}).get("default_model", "gpt-4o")
+            model=config.get("openai", {}).get("default_model", "gpt-4o"),
         )
 
         # Create memory providers if configured
@@ -2408,7 +2724,7 @@ class SolanaAgentFactory:
         if "zep" in config:
             memory_provider = ZepMemoryAdapter(
                 api_key=config["zep"].get("api_key"),
-                base_url=config["zep"].get("base_url")
+                base_url=config["zep"].get("base_url"),
             )
 
         # Create vector store provider if configured
@@ -2418,7 +2734,8 @@ class SolanaAgentFactory:
                 api_key=config["pinecone"]["api_key"],
                 index_name=config["pinecone"]["index"],
                 embedding_model=config["pinecone"].get(
-                    "embedding_model", "text-embedding-3-small")
+                    "embedding_model", "text-embedding-3-small"
+                ),
             )
 
         # Create repositories
@@ -2426,13 +2743,14 @@ class SolanaAgentFactory:
         handoff_repo = MongoHandoffRepository(db_adapter)
         nps_repo = MongoNPSSurveyRepository(db_adapter)
         memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
+        human_agent_repo = MongoHumanAgentRegistry(db_adapter)
 
         # Create services
-        agent_service = AgentService(llm_adapter)
+        agent_service = AgentService(llm_adapter, human_agent_repo)
         routing_service = RoutingService(
             llm_adapter,
             agent_service,
-            router_model=config.get("router_model", "gpt-4o-mini")
+            router_model=config.get("router_model", "gpt-4o-mini"),
         )
         ticket_service = TicketService(ticket_repo)
         handoff_service = HandoffService(
@@ -2447,7 +2765,8 @@ class SolanaAgentFactory:
 
         # Create task planning service
         task_planning_service = TaskPlanningService(
-            ticket_repo, llm_adapter, agent_service)
+            ticket_repo, llm_adapter, agent_service
+        )
 
         # Create main processor
         query_processor = QueryProcessor(
@@ -2461,7 +2780,7 @@ class SolanaAgentFactory:
             memory_provider=memory_provider,
             enable_critic=config.get("enable_critic", True),
             router_model=config.get("router_model", "gpt-4o-mini"),
-            task_planning_service=task_planning_service
+            task_planning_service=task_planning_service,
         )
 
         # Register predefined agents if any
@@ -2470,7 +2789,7 @@ class SolanaAgentFactory:
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
                 specialization=agent_config["specialization"],
-                model=agent_config.get("model", "gpt-4o")
+                model=agent_config.get("model", "gpt-4o"),
             )
 
         return query_processor
@@ -2479,6 +2798,7 @@ class SolanaAgentFactory:
 #############################################
 # SIMPLIFIED CLIENT INTERFACE
 #############################################
+
 
 class SolanaAgent:
     """Simplified client interface for interacting with the agent system."""
@@ -2489,12 +2809,13 @@ class SolanaAgent:
             raise ValueError("Either config or config_path must be provided")
 
         if config_path:
-            with open(config_path, 'r') as f:
-                if config_path.endswith('.json'):
+            with open(config_path, "r") as f:
+                if config_path.endswith(".json"):
                     config = json.load(f)
                 else:
                     # Assume it's a Python file
                     import importlib.util
+
                     spec = importlib.util.spec_from_file_location(
                         "config", config_path)
                     config_module = importlib.util.module_from_spec(spec)
@@ -2508,20 +2829,24 @@ class SolanaAgent:
         async for chunk in self.processor.process(user_id, message):
             yield chunk
 
-    def register_agent(self, name: str, instructions: str, specialization: str, model: str = "gpt-4o") -> None:
+    def register_agent(
+        self, name: str, instructions: str, specialization: str, model: str = "gpt-4o"
+    ) -> None:
         """Register a new AI agent."""
         self.processor.agent_service.register_ai_agent(
             name=name,
             instructions=instructions,
             specialization=specialization,
-            model=model
+            model=model,
         )
 
-    def register_human_agent(self, agent_id: str, name: str, specialization: str, notification_handler=None) -> None:
+    def register_human_agent(
+        self, agent_id: str, name: str, specialization: str, notification_handler=None
+    ) -> None:
         """Register a human agent."""
         self.processor.agent_service.register_human_agent(
             agent_id=agent_id,
             name=name,
             specialization=specialization,
-            notification_handler=notification_handler
-        )                    #
+            notification_handler=notification_handler,
+        )  #
