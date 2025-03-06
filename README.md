@@ -3,6 +3,8 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-orange.svg)](https://www.python.org/downloads/)
+[![codecov](https://img.shields.io/codecov/c/github/truemagic-coder/solana-agent/main.svg)](https://codecov.io/gh/truemagic-coder/solana-agent)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/test.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/test.yml)
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
@@ -123,7 +125,6 @@ Solana Agent transforms organizations into living systems that continuously lear
 
 - **🗣️ Advanced Interaction Layer:**  
     Streaming text-based conversations with real-time thinking.  
-    Voice-to-voice conversations with natural cadence.  
     Multi-turn context preservation and reasoning.
 
 - **🤖 Multi-Agent Swarm Architecture:**  
@@ -166,6 +167,13 @@ Solana Agent transforms organizations into living systems that continuously lear
     Simple rating submission for users with optional feedback.
     Agent performance analytics and trend identification.
 
+- **📋 Task Planning System:**  
+    Automated complexity assessment for incoming tasks.  
+    Task decomposition into subtasks with dependencies.  
+    Intelligent workload distribution based on agent capacity.  
+    Visual progress tracking with completion estimates.  
+    Prioritization based on urgency, importance, and dependencies.
+
 - **🛡️ Governance Framework:**  
     Define organization-wide values and operating principles in code.  
     Consistent decision-making aligned with organizational priorities.  
@@ -196,62 +204,65 @@ You can install Solana Agent using pip:
 
 Each public method has a docstring for real-time IDE hinting.
 
-## Production Apps
-
-- **CometHeart:**  
-    AI Companion and Business Coach on mobile using voice-to-voice conversations.
-
 ## Example Setup
 
 ```python
-# Create a decentralized organizational structure
-from solana_agent import Swarm, AI, MongoDatabase
+# Create a Solana Agent system
+from solana_agent import SolanaAgent, MongoDBAdapter, OpenAIAdapter, PineconeAdapter, ZepMemoryAdapter
+from solana_agent import AgentService, RoutingService, TicketService, HandoffService
+from solana_agent import MongoTicketRepository, MongoHumanAgentRegistry, MongoMemoryRepository
 
-# Initialize the organizational database
-db = MongoDatabase(db_url="mongodb://localhost:27017", db_name="organization_brain")
+# Initialize infrastructure 
+db_adapter = MongoDBAdapter(connection_string="mongodb://localhost:27017", db_name="solana_agent")
+llm_adapter = OpenAIAdapter(api_key="your-openai-key")
+vector_adapter = PineconeAdapter(api_key="your-pinecone-key")
+memory_adapter = ZepMemoryAdapter(api_key="your-zep-memory-key")
 
-# Define the organization's mission and values
-mission = """Our organization maximizes collective intelligence through 
-transparent collaboration between humans and AI. We value truth, 
-clarity, and continuous improvement in all interactions."""
+# Initialize repositories
+ticket_repo = MongoTicketRepository(db_adapter)
+memory_repo = MongoMemoryRepository(db_adapter, vector_adapter)
+human_registry = MongoHumanAgentRegistry(db_adapter)
 
-# Create the organizational swarm
-org = Swarm(
-    database=db,
-    directive=mission,
+# Create the agent service with human registry
+agent_service = AgentService(llm_adapter, human_registry)
+
+# Define AI agents directly in code
+agent_service.register_ai_agent(
+    name="research_specialist",
+    instructions="You are an expert researcher who synthesizes complex information clearly.",
+    specialization="Research and knowledge synthesis",
+    model="gpt-4o"
 )
 
-# Register AI expertise domains
-org.register(
-    name="knowledge_worker",
-    agent=AI(
-        openai_api_key="key",
-        instructions="You are an expert in research and knowledge synthesis...",
-        database=db
-    ),
-    specialization="Research, analysis, and knowledge synthesis"
+agent_service.register_ai_agent(
+    name="customer_support",
+    instructions="You provide friendly, helpful customer support responses.",
+    specialization="Customer inquiries",
+    model="gpt-4o-mini"
 )
 
-org.register(
-    name="customer_interface",
-    agent=AI(
-        openai_api_key="key",
-        instructions="You handle customer inquiries with empathy and clarity...",
-        database=db
-    ),
-    specialization="Customer interaction and support"
+# Register human agents in MongoDB registry
+human_registry.register_human_agent(
+    agent_id="expert_dev",
+    name="Senior Developer", 
+    specialization="Complex technical issues"
 )
 
-# Register human expertise domains
-org.register_human_agent(
-    agent_id="human_expert_1",
-    name="Technical Specialist",
-    specialization="Advanced technical problem solving requiring human judgment",
-    notification_handler=email_notification
+# Initialize services
+routing_service = RoutingService(llm_adapter, agent_service)
+ticket_service = TicketService(ticket_repo)
+handoff_service = HandoffService(handoff_repo, ticket_repo, agent_service)
+
+# Create the Solana Agent interface
+solana_agent = SolanaAgent(
+    agent_service=agent_service,
+    routing_service=routing_service,
+    ticket_service=ticket_service,
+    handoff_service=handoff_service
 )
 
-# Process work through the organization
-async for response in org.process("user123", "How can we optimize our supply chain?"):
+# Process a user query through the system
+async for response in solana_agent.process("user123", "How do I optimize my React application?"):
     print(response, end="")
 ```
 
