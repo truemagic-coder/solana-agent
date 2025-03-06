@@ -114,6 +114,10 @@ Solana Agent transforms organizations into living systems that continuously lear
     Identify trends invisible to individual actors through network-wide analysis.
 - **Failure-Embracing Architecture:**  
     Convert mistakes into learning opportunities through systematic analysis.
+- **Performance-Based Optimization:**  
+    Route tasks to agents with highest satisfaction scores through NPS feedback integration.
+- **Continuous Quality Assessment:**  
+    Monitor interaction quality through automated satisfaction surveys and impact metrics.
 
 ## Technical Features
 
@@ -124,7 +128,7 @@ Solana Agent transforms organizations into living systems that continuously lear
 
 - **🤖 Multi-Agent Swarm Architecture:**  
     Dynamic specialized agent creation and coordination.  
-    Intelligent routing based on query content and agent expertise.  
+    Intelligent routing based on query content, agent expertise, and performance metrics.  
     Seamless handoffs with comprehensive context passing.  
     Shared memory and collective intelligence across the entire swarm.
 
@@ -133,7 +137,8 @@ Solana Agent transforms organizations into living systems that continuously lear
     Ticket management for complex or sensitive inquiries.  
     Multiple handoff patterns (AI↔human, human↔human).  
     In-chat command system for human agents to manage tickets.  
-    Availability status management for human operators.
+    Availability status management with automatic timeout detection.
+    Direct agent-to-agent communication for real-time consultation.
 
 - **🧠 Distributed Intelligence Capabilities:**  
     Cross-domain knowledge integration from multiple sources.  
@@ -149,6 +154,17 @@ Solana Agent transforms organizations into living systems that continuously lear
     Intelligent handoffs maintaining ticket context across agents.  
     Command-line interface for human ticket management.  
     Metrics and analytics on resolution quality and time.
+    Proactive reminders for pending human-assigned tickets.
+    Auto-reassignment system for stalled tickets.
+    Human agent activity tracking and status management.
+
+- **📊 Performance Optimization Framework:**  
+    Integrated Net Promoter Score (NPS) system for interaction quality measurement.
+    Automatic satisfaction surveys after ticket resolution.
+    Performance-weighted agent routing based on satisfaction scores.
+    Continuous quality monitoring and feedback loops.
+    Simple rating submission for users with optional feedback.
+    Agent performance analytics and trend identification.
 
 - **🛡️ Governance Framework:**  
     Define organization-wide values and operating principles in code.  

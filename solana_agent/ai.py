@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import random
 import re
 import traceback
 import ntplib
@@ -1400,43 +1401,74 @@ class HumanAgent:
         self.availability_status = availability_status
         self.current_tickets = {}  # Tracks tickets assigned to this human
 
-    async def receive_handoff(
-        self, ticket_id: str, user_id: str, query: str, context: str
-    ) -> bool:
-        """Handle receiving a ticket from an AI agent or another human.
+    async def set_inactive_if_idle(self, idle_threshold_minutes=30):
+        """Automatically set agent to offline if they've been idle for too long."""
+        last_active = getattr(self, "last_active_time", None)
 
-        Args:
-            ticket_id: Unique identifier for this conversation thread
-            user_id: End user identifier
-            query: The user's question or issue
-            context: Conversation context and history
+        if not last_active:
+            return
 
-        Returns:
-            bool: Whether the handoff was accepted
-        """
-        if self.availability_status != "available":
-            return False
+        idle_time = datetime.datetime.now(datetime.timezone.utc) - last_active
+        if idle_time > datetime.timedelta(minutes=idle_threshold_minutes):
+            self.availability_status = "offline"
+            return True
+        return False
 
-        # Add to current tickets
-        self.current_tickets[ticket_id] = {
-            "user_id": user_id,
-            "query": query,
-            "context": context,
-            "status": "pending",
-            "received_at": datetime.datetime.now(datetime.timezone.utc),
-        }
+    async def record_activity(self):
+        """Record when this human agent was last active."""
+        self.last_active_time = datetime.datetime.now(datetime.timezone.utc)
 
-        # Notify the human operator through the configured handler
-        if self.notification_handler:
-            await self.notification_handler(
-                agent_id=self.agent_id,
-                ticket_id=ticket_id,
-                user_id=user_id,
-                query=query,
-                context=context,
-            )
+        async def receive_handoff(
+            self, ticket_id: str, user_id: str, query: str, context: str
+        ) -> bool:
+            """Handle receiving a ticket from an AI agent or another human."""
+            if self.availability_status != "available":
+                return False
 
-        return True
+            # Add to current tickets
+            self.current_tickets[ticket_id] = {
+                "user_id": user_id,
+                "query": query,
+                "context": context,
+                "status": "pending",
+                "received_at": datetime.datetime.now(datetime.timezone.utc),
+            }
+
+            # Record this activity
+            await self.record_activity()
+
+            # Notify the human operator through the configured handler
+            if self.notification_handler:
+                await self.notification_handler(
+                    agent_id=self.agent_id,
+                    ticket_id=ticket_id,
+                    user_id=user_id,
+                    query=query,
+                    context=context,
+                )
+
+            # Set a reminder notification after 15 minutes if not handled
+            asyncio.create_task(self._set_reminder(ticket_id, 15))
+
+            return True
+
+    async def _set_reminder(self, ticket_id: str, minutes: int):
+        """Set a reminder for an unhandled ticket."""
+        await asyncio.sleep(minutes * 60)  # Convert to seconds
+
+        # Check if ticket still exists and is pending
+        if (
+            ticket_id in self.current_tickets
+            and self.current_tickets[ticket_id].get("status") == "pending"
+        ):
+            # Send reminder notification
+            if self.notification_handler:
+                await self.notification_handler(
+                    agent_id=self.agent_id,
+                    ticket_id=ticket_id,
+                    reminder=True,
+                    minutes=minutes,
+                )
 
     async def respond(self, ticket_id: str, response: str) -> Dict[str, Any]:
         """Submit a response to a user query.
@@ -1560,6 +1592,13 @@ class Swarm:
         self.default_timezone = default_timezone
         self.enable_critic = enable_critic
 
+        # Initialize background tasks
+        self._background_tasks = []
+        self._shutdown_event = asyncio.Event()
+
+        # Start ticket monitoring task
+        self._start_background_tasks()
+
         # Store swarm directive
         self.swarm_directive = (
             directive
@@ -1669,49 +1708,78 @@ class Swarm:
 
         return human_agent
 
-    async def _send_nps_survey(
-        self, user_id: str, ticket_id: str, agent_name: str
-    ) -> str:
-        """Send NPS survey to user when a ticket is resolved."""
-        # Create a simple numeric survey ID instead of complex UUID
-        survey_id = str(uuid.uuid4().int)[:6]  # Just use a short 6-digit ID
+    def _start_background_tasks(self):
+        """Start background maintenance tasks."""
+        # Create a task to periodically check ticket timeouts
+        task = asyncio.create_task(self._run_ticket_timeout_checker())
+        self._background_tasks.append(task)
 
-        # Store pending survey in database
-        self.nps_surveys.insert_one(
-            {
-                "survey_id": survey_id,
-                "user_id": user_id,
-                "ticket_id": ticket_id,
-                "agent_name": agent_name,
-                "status": "pending",
-                "created_at": datetime.datetime.now(datetime.timezone.utc),
-            }
-        )
+    async def _run_ticket_timeout_checker(self):
+        """Background task to check for ticket timeouts."""
+        while not self._shutdown_event.is_set():
+            try:
+                await self.check_ticket_timeouts()
+            except Exception as e:
+                print(f"Error checking ticket timeouts: {e}")
 
-        # Create simple survey message
-        survey_message = (
-            f"""How was your experience? Rate 0-10: !rate {survey_id} [0-10]"""
-        )
+            # Check every 5 minutes
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass  # Continue the loop
 
-        # Save as separate system message in the database with ALL fields required by the interface
-        message_id = str(uuid.uuid4())
-        self.database.save_message(
-            user_id,
-            {
-                "id": message_id,  # Add explicit ID field
-                "user_id": user_id,
-                "message": "rate_request",
-                "response": survey_message,
-                "agent_name": agent_name,
-                "survey_id": survey_id,
-                "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                "is_system_message": True,
-                "rating_submitted": False,  # Explicitly set to false initially
-            },
-        )
+    # Add shutdown method for clean task termination
+    async def shutdown(self):
+        """Gracefully shut down the swarm and its background tasks."""
+        self._shutdown_event.set()
 
-        # Return empty string since we don't need to append to agent response
-        return ""
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+        async def _send_nps_survey(
+            self, user_id: str, ticket_id: str, agent_name: str
+        ) -> str:
+            """Send NPS survey to user when a ticket is resolved."""
+            # Create a simple numeric survey ID instead of complex UUID
+            # Just use a short 6-digit ID
+            survey_id = str(uuid.uuid4().int)[:6]
+
+            # Store pending survey in database
+            self.nps_surveys.insert_one(
+                {
+                    "survey_id": survey_id,
+                    "user_id": user_id,
+                    "ticket_id": ticket_id,
+                    "agent_name": agent_name,
+                    "status": "pending",
+                    "created_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+            )
+
+            # Create simple survey message
+            survey_message = (
+                f"""How was your experience? Rate 0-10: !rate {survey_id} [0-10]"""
+            )
+
+            # Save as separate system message in the database with ALL fields required by the interface
+            message_id = str(uuid.uuid4())
+            self.database.save_message(
+                user_id,
+                {
+                    "id": message_id,  # Add explicit ID field
+                    "user_id": user_id,
+                    "message": "rate_request",
+                    "response": survey_message,
+                    "agent_name": agent_name,
+                    "survey_id": survey_id,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                    "is_system_message": True,
+                    "rating_submitted": False,  # Explicitly set to false initially
+                },
+            )
+
+            # Return empty string since we don't need to append to agent response
+            return ""
 
     def get_nps_metrics(
         self,
@@ -1997,6 +2065,9 @@ class Swarm:
             return {"status": "error", "message": "Human agent not found"}
 
         human_agent = self.human_agents[human_agent_id]
+
+        # Record human agent activity
+        await human_agent.record_activity()
 
         # Get the ticket
         ticket = self.tickets.find_one({"_id": ticket_id})
@@ -2487,7 +2558,9 @@ class Swarm:
                 f"Updated handoff capabilities for {agent_name} with targets: {available_targets}"
             )
 
-    async def process_human_message(self, human_agent_id: str, message: str, target_agent: str = None) -> AsyncGenerator[str, None]:
+    async def process_human_message(
+        self, human_agent_id: str, message: str, target_agent: str = None
+    ) -> AsyncGenerator[str, None]:
         """Process a message initiated by a human agent without creating a ticket.
 
         This is used for human agent questions to the AI, not for user support tickets.
@@ -2500,7 +2573,9 @@ class Swarm:
         human_agent = self.human_agents[human_agent_id]
 
         # Create a special prefix to mark this as a human agent message
-        prefixed_message = f"[INTERNAL TEAM MESSAGE FROM HUMAN AGENT {human_agent.name}]: {message}"
+        prefixed_message = (
+            f"[INTERNAL TEAM MESSAGE FROM HUMAN AGENT {human_agent.name}]: {message}"
+        )
 
         # Determine which agent should handle this
         if target_agent and target_agent in self.agents:
@@ -2525,10 +2600,12 @@ class Swarm:
                 "is_human_agent_message": True,  # Flag to distinguish from regular messages
                 "target_agent": target_agent or ai_agent.__class__.__name__,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc),
-            }
+            },
         )
 
-    async def _process_human_agent_commands(self, user_id: str, command: str) -> AsyncGenerator[str, None]:
+    async def _process_human_agent_commands(
+        self, user_id: str, command: str
+    ) -> AsyncGenerator[str, None]:
         """Process commands from human agents."""
 
         # Check if user is a registered human agent
@@ -2556,7 +2633,10 @@ class Swarm:
             # Check if a specific agent is targeted
             if len(parts) > 2:
                 potential_target = parts[1]
-                if potential_target.lower() != "any" and potential_target in self.agents:
+                if (
+                    potential_target.lower() != "any"
+                    and potential_target in self.agents
+                ):
                     target = potential_target
                     message = parts[2]
                 else:
@@ -2566,6 +2646,119 @@ class Swarm:
             async for chunk in self.process_human_message(user_id, message, target):
                 yield chunk
             return
+
+    async def check_ticket_timeouts(self):
+        """Periodically check for and handle stalled human agent tickets."""
+        # Find tickets assigned to human agents that have been pending too long
+        cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            hours=1
+        )
+
+        stalled_tickets = self.tickets.find(
+            {
+                "assigned_to": {"$in": list(self.human_agents.keys())},
+                "status": "pending",
+                "updated_at": {"$lt": cutoff_time},
+            }
+        )
+
+        for ticket in stalled_tickets:
+            human_agent_id = ticket["assigned_to"]
+            human_agent = self.human_agents.get(human_agent_id)
+
+            if not human_agent or human_agent.availability_status != "available":
+                # Find a suitable AI agent to reassign to
+                first_agent = next(iter(self.agents.values()))
+                agent_name = await self._get_routing_decision(
+                    first_agent, ticket["query"]
+                )
+
+                # Update ticket with selected agent
+                self.tickets.update_one(
+                    {"_id": ticket["_id"]},
+                    {
+                        "$set": {
+                            "assigned_to": agent_name,
+                            "status": "transferred",
+                            "handoff_reason": "Auto-reassigned due to human agent unavailability",
+                            "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                    },
+                )
+
+                # Log the auto-reassignment
+                self.handoffs.insert_one(
+                    {
+                        "ticket_id": ticket["_id"],
+                        "user_id": ticket["user_id"],
+                        "from_agent": human_agent_id,
+                        "to_agent": agent_name,
+                        "reason": "Auto-reassigned due to human agent unavailability",
+                        "query": ticket["query"],
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                        "automatic": True,
+                    }
+                )
+
+                print(
+                    f"Auto-reassigned ticket {ticket['_id']} from {human_agent_id} to {agent_name}"
+                )
+
+    async def _process_agent_directory_command(self, user_id: str) -> str:
+        """Provide a directory of available AI agents for human agents."""
+        # Check if user is a registered human agent
+        is_human_agent = False
+        if hasattr(self, "human_agents") and user_id in self.human_agents:
+            is_human_agent = True
+
+        if not is_human_agent:
+            return "⚠️ Only registered human agents can access the agent directory."
+
+        # Format AI agents directory
+        directory = ["## 🤖 AI Agent Directory", ""]
+        directory.append("### Available AI Agents")
+        directory.append("")
+
+        # List all AI agents with their specializations
+        for agent_name, specialization in self.specializations.items():
+            # Skip human agents in this section
+            if hasattr(self, "human_agents") and agent_name in self.human_agents:
+                continue
+
+            directory.append(f"**@{agent_name}** - {specialization}")
+
+        # Add section for human agents if any exist
+        if hasattr(self, "human_agents") and self.human_agents:
+            directory.append("")
+            directory.append("### 👤 Human Agents")
+            directory.append("")
+
+            for agent_id, agent in self.human_agents.items():
+                status_emoji = {"available": "🟢", "busy": "🟠", "offline": "⚫"}.get(
+                    agent.availability_status, "⚫"
+                )
+
+                directory.append(
+                    f"**@{agent_id}** - {status_emoji} {agent.name}: {agent.specialization}"
+                )
+
+        # Add usage instructions
+        directory.append("")
+        directory.append("### How to Use")
+        directory.append("")
+        directory.append("**Direct messaging to AI agents:**")
+        directory.append(
+            "- Type `@agent_name your message` to send a direct message to a specific agent"
+        )
+        directory.append(
+            "- Example: `@developer How do I implement a Solana program?`")
+        directory.append("")
+        directory.append("**Human agents can also:**")
+        directory.append(
+            "- Use the ticket system: `!ticket list`, `!ticket view`, etc."
+        )
+
+        return "\n".join(directory)
 
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
@@ -2585,20 +2778,27 @@ class Swarm:
 
             # Handle human agent messages differently (no ticket creation)
             if is_human_agent:
+                # Handle specific human agent commands
+                if user_text.lower() == "!agents":
+                    yield await self._process_agent_directory_command(user_id)
+                    return
+
                 # Parse for target agent specification if available
                 target_agent = None
                 message = user_text
 
                 # Check if message starts with @agent_name to target specific agent
-                if user_text.startswith('@'):
-                    parts = user_text.split(' ', 1)
+                if user_text.startswith("@"):
+                    parts = user_text.split(" ", 1)
                     potential_target = parts[0][1:]  # Remove the @ symbol
                     if potential_target in self.agents:
                         target_agent = potential_target
                         message = parts[1] if len(parts) > 1 else ""
 
                 # Process as human agent message (no ticket creation)
-                async for chunk in self.process_human_message(user_id, message, target_agent):
+                async for chunk in self.process_human_message(
+                    user_id, message, target_agent
+                ):
                     yield chunk
                 return
 
@@ -3326,29 +3526,28 @@ class Swarm:
             print(f"Error in post-processing tasks: {e}")
 
     async def _get_routing_decision(self, agent, user_text):
-        """Get routing decision in parallel to reduce latency."""
+        """Get routing decision with NPS performance weighting."""
+
+        # First, get candidate agents based on specialization
         enhanced_prompt = f"""
-        Analyze this user query carefully to determine the MOST APPROPRIATE specialist.
-
+        Analyze this user query and return the TOP 2 MOST APPROPRIATE specialists.
+        
         User query: "{user_text}"
-
+        
         Available specialists:
         {json.dumps(self.specializations, indent=2)}
-
+        
         CRITICAL ROUTING INSTRUCTIONS:
         1. For compound questions with multiple aspects spanning different domains,
-           choose the specialist who should address the CONCEPTUAL or EDUCATIONAL aspects first.
-
-        2. Choose implementation specialists (technical, development, coding) only when
-           the query is PURELY about implementation with no conceptual explanation needed.
-
-        3. When a query involves a SEQUENCE (like "explain X and then do Y"),
-           prioritize the specialist handling the FIRST part of the sequence.
-
-        Return ONLY the name of the single most appropriate specialist.
+           choose specialists who should address the CONCEPTUAL or EDUCATIONAL aspects first.
+        
+        2. Choose implementation specialists only when the query is PURELY about implementation.
+        
+        3. Return EXACTLY two specialist names in order of relevance, comma-separated.
+           Format: "specialist1, specialist2"
         """
 
-        # Route to appropriate agent
+        # Get top candidates based on specialization match
         router_response = agent._client.chat.completions.create(
             model=self.router_model,
             messages=[
@@ -3358,11 +3557,51 @@ class Swarm:
             temperature=0.2,
         )
 
-        # Extract the selected agent
         raw_response = router_response.choices[0].message.content.strip()
-        print(f"Router model raw response: '{raw_response}'")
+        candidates = [name.strip() for name in raw_response.split(",")][:2]
+        validated_candidates = [
+            self._match_agent_name(name) for name in candidates]
 
-        return self._match_agent_name(raw_response)
+        # If only one candidate or all candidates are the same, return that
+        if len(set(validated_candidates)) == 1:
+            return validated_candidates[0]
+
+        # Apply NPS weighting for final selection
+        weights = {}
+        for candidate in validated_candidates:
+            # Get NPS metrics for this agent
+            metrics = self.get_nps_metrics(candidate)
+
+            # Base score from NPS - default to 0.5 if no data
+            if (
+                metrics["total_responses"] > 5
+            ):  # Require minimum responses for reliability
+                nps_score = metrics["avg_score"] / \
+                    10.0  # Normalize to 0-1 range
+            else:
+                nps_score = 0.5  # Default for agents with insufficient data
+
+            # Weight by position in candidate list (first candidate gets priority)
+            position_weight = 0.7 if candidate == validated_candidates[0] else 0.3
+
+            # Final weighting
+            weights[candidate] = (position_weight * 0.7) + (nps_score * 0.3)
+
+        # Select probabilistically based on weights
+        agents = list(weights.keys())
+        weight_values = list(weights.values())
+
+        # Normalize weights
+        total = sum(weight_values)
+        if total > 0:
+            normalized_weights = [w / total for w in weight_values]
+            selected = random.choices(
+                agents, weights=normalized_weights, k=1)[0]
+        else:
+            selected = validated_candidates[0]
+
+        print(f"Selected {selected} with weights: {weights}")
+        return selected
 
     async def _record_handoff(self, user_id, from_agent, to_agent, reason, query):
         """Record handoff in database without blocking the main flow."""
