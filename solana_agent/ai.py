@@ -1687,6 +1687,191 @@ class Swarm:
         print(
             f"MultiAgentSystem initialized with router model: {router_model}")
 
+    def get_agent_score(self, agent_name: str, start_date=None, end_date=None) -> Dict[str, Any]:
+        """Calculate a comprehensive performance score for an agent.
+
+        The Agent Score combines NPS ratings, resolution metrics, complexity handling,
+        and critic feedback into a single normalized score (0-100).
+
+        Args:
+            agent_name: Name of the agent to score
+            start_date: Optional start date for metrics window
+            end_date: Optional end date for metrics window
+
+        Returns:
+            Dictionary with overall score and component scores
+        """
+        # 1. Get NPS metrics
+        nps_metrics = self.get_nps_metrics(agent_name, start_date, end_date)
+
+        # 2. Get resolution metrics
+        resolution_metrics = self.get_ticket_performance_metrics(
+            agent_name, start_date, end_date)
+
+        # 3. Get critic feedback
+        critic_data = []
+        if self.enable_critic and hasattr(self, "critic"):
+            critic_data = self.critic.get_agent_feedback(agent_name, limit=50)
+
+        # Calculate component scores (normalized to 0-100)
+
+        # NPS component (0-100)
+        nps_score = nps_metrics.get(
+            "avg_score", 0) * 10  # Convert 0-10 to 0-100
+
+        # Resolution speed component (0-100)
+        # Lower times are better, so we need to invert the scale
+        avg_resolution = resolution_metrics.get("avg_resolution_minutes", 0)
+        if avg_resolution > 0:
+            # Cap at reasonable maximum (3 hours = 180 minutes)
+            capped_time = min(avg_resolution, 180)
+            # Invert: 100% for instant, 0% for 3+ hours
+            speed_score = max(0, 100 - (capped_time / 180) * 100)
+        else:
+            speed_score = 0  # No resolution data
+
+        # Complexity handling component (0-100)
+        complexity_score = 0
+        complexity_counts = 0
+        complexity_weights = {"XS": 0.5, "S": 0.75,
+                              "M": 1.0, "L": 1.25, "XL": 1.5, "XXL": 2.0}
+
+        for size, metrics in resolution_metrics.get("by_complexity", {}).items():
+            if size in complexity_weights and metrics.get("count", 0) > 0:
+                # Calculate score based on normalized resolution time for each complexity
+                # Lower times are better for the given complexity level
+                weight = complexity_weights[size]
+                # Expected minutes based on complexity (XS=5, S=15, M=30, L=60, XL=120, XXL=240)
+                expected_minutes = 30 * weight
+
+                actual_minutes = metrics.get("avg_minutes", expected_minutes)
+                efficiency = min(1.5, expected_minutes /
+                                 actual_minutes) if actual_minutes > 0 else 0
+                weighted_score = efficiency * 100 * metrics.get("count", 0)
+
+                complexity_score += weighted_score
+                complexity_counts += metrics.get("count", 0)
+
+        if complexity_counts > 0:
+            complexity_score = complexity_score / complexity_counts
+        else:
+            complexity_score = 50  # Default middle score with no data
+
+        # Critic feedback component (0-100)
+        critic_score = 0
+        if critic_data:
+            # Average the overall_score from critic feedback (already 0-1 scale)
+            scores = [feedback.get("overall_score", 0.5)
+                      for feedback in critic_data if "overall_score" in feedback]
+            if scores:
+                critic_score = sum(scores) / len(scores) * 100
+            else:
+                critic_score = 50  # Default with no data
+        else:
+            critic_score = 50  # Default with no critic data
+
+        # Handoff rate component (0-100)
+        # Lower handoff rates are generally better (means agent can handle more)
+        handoff_score = 0
+        total_tickets = resolution_metrics.get("total_tickets", 0)
+        if total_tickets > 0:
+            handoff_count = self.handoffs.count_documents({
+                "from_agent": agent_name,
+                **({"timestamp": {"$gte": start_date}} if start_date else {}),
+                **({"timestamp": {"$lte": end_date}} if end_date else {})
+            })
+
+            handoff_rate = handoff_count / total_tickets
+            # Invert: 100% for no handoffs, 0% for 50%+ handoff rate
+            handoff_score = max(0, 100 - (handoff_rate * 200))
+        else:
+            handoff_score = 50  # Default with no data
+
+        # Calculate weighted overall score
+        # Weights should sum to 1.0
+        weights = {
+            "nps": 0.30,          # Customer satisfaction is most important
+            "speed": 0.20,        # Resolution speed is important
+            "complexity": 0.20,   # Handling complex queries well
+            "critic": 0.15,       # Quality of responses
+            "handoff": 0.15       # Self-sufficiency
+        }
+
+        overall_score = (
+            nps_score * weights["nps"] +
+            speed_score * weights["speed"] +
+            complexity_score * weights["complexity"] +
+            critic_score * weights["critic"] +
+            handoff_score * weights["handoff"]
+        )
+
+        # Round scores for readability
+        return {
+            "agent_name": agent_name,
+            "overall_score": round(overall_score, 1),
+            "rating": self._get_score_rating(overall_score),
+            "components": {
+                "nps": round(nps_score, 1),
+                "speed": round(speed_score, 1),
+                "complexity": round(complexity_score, 1),
+                "critic": round(critic_score, 1),
+                "handoff": round(handoff_score, 1)
+            },
+            "metrics": {
+                "total_tickets": resolution_metrics.get("total_tickets", 0),
+                "avg_resolution_minutes": resolution_metrics.get("avg_resolution_minutes", 0),
+                "nps_responses": nps_metrics.get("total_responses", 0),
+                "handoff_rate": f"{(100 - handoff_score/2):.1f}%" if handoff_score != 50 else "No data"
+            },
+            "period": {
+                "start": start_date.isoformat() if start_date else "All time",
+                "end": end_date.isoformat() if end_date else "Present"
+            }
+        }
+
+    def _get_score_rating(self, score: float) -> str:
+        """Convert numerical score to descriptive rating."""
+        if score >= 90:
+            return "Outstanding"
+        elif score >= 80:
+            return "Excellent"
+        elif score >= 70:
+            return "Very Good"
+        elif score >= 60:
+            return "Good"
+        elif score >= 50:
+            return "Average"
+        elif score >= 40:
+            return "Below Average"
+        elif score >= 30:
+            return "Poor"
+        else:
+            return "Needs Improvement"
+
+    def get_all_agent_scores(self, start_date=None, end_date=None) -> List[Dict[str, Any]]:
+        """Get performance scores for all agents for comparison.
+
+        Args:
+            start_date: Optional start date for metrics window
+            end_date: Optional end date for metrics window
+
+        Returns:
+            List of agent score dictionaries, sorted by overall score
+        """
+        scores = []
+
+        # Only include AI agents, not human agents
+        ai_agents = [name for name in self.agents.keys()
+                     if not hasattr(self, "human_agents") or name not in self.human_agents]
+
+        for agent_name in ai_agents:
+            agent_score = self.get_agent_score(
+                agent_name, start_date, end_date)
+            scores.append(agent_score)
+
+        # Sort by overall score (descending)
+        return sorted(scores, key=lambda x: x["overall_score"], reverse=True)
+
     def register_human_agent(
         self,
         agent_id: str,
