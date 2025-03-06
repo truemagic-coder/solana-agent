@@ -1,35 +1,50 @@
+
 import datetime
+import json
 import pytest
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 from solana_agent.ai import (
     # Domain Models
-    TicketStatus, Ticket, MemoryInsight, TicketResolution,
-
+    TicketStatus,
+    AgentType,
+    Ticket,
+    MemoryInsight,
+    TicketResolution,
+    SubtaskModel,
+    PlanStatus,
     # Service classes
-    AgentService, RoutingService, TicketService, HandoffService, NPSService,
-    MemoryService, CriticService, QueryProcessor,
-
+    AgentService,
+    RoutingService,
+    TicketService,
+    HandoffService,
+    NPSService,
+    MemoryService,
+    CriticService,
+    QueryProcessor,
+    TaskPlanningService,
     # Repository implementations
-    MongoTicketRepository, MongoHandoffRepository, MongoNPSSurveyRepository,
+    MongoTicketRepository,
+    MongoHandoffRepository,
+    MongoNPSSurveyRepository,
     MongoMemoryRepository,
-
     # Adapters
-    MongoDBAdapter, OpenAIAdapter, ZepMemoryAdapter, PineconeAdapter,
-
+    MongoDBAdapter,
+    OpenAIAdapter,
+    ZepMemoryAdapter,
+    PineconeAdapter,
     # Factory
     SolanaAgentFactory,
-
     # Client interface
-    SolanaAgent
+    SolanaAgent,
 )
 
 
 #############################################
 # FIXTURES
 #############################################
+
 
 @pytest.fixture
 def mock_mongodb_adapter():
@@ -116,14 +131,16 @@ def mock_nps_repository(mock_mongodb_adapter):
     repo.create = MagicMock(return_value=str(uuid.uuid4()))
     repo.get_by_id = MagicMock(return_value=None)
     repo.update_response = MagicMock(return_value=True)
-    repo.get_metrics = MagicMock(return_value={
-        "nps_score": 75,
-        "promoters": 8,
-        "passives": 2,
-        "detractors": 0,
-        "total_responses": 10,
-        "avg_score": 8.5
-    })
+    repo.get_metrics = MagicMock(
+        return_value={
+            "nps_score": 75,
+            "promoters": 8,
+            "passives": 2,
+            "detractors": 0,
+            "total_responses": 10,
+            "avg_score": 8.5,
+        }
+    )
 
     return repo
 
@@ -135,14 +152,16 @@ def mock_memory_repository(mock_mongodb_adapter, mock_vector_store):
 
     # Override methods for testing
     repo.store_insight = MagicMock(return_value=str(uuid.uuid4()))
-    repo.search = MagicMock(return_value=[
-        {
-            "id": "123",
-            "fact": "Test fact",
-            "relevance": "Test relevance",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-    ])
+    repo.search = MagicMock(
+        return_value=[
+            {
+                "id": "123",
+                "fact": "Test fact",
+                "relevance": "Test relevance",
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        ]
+    )
 
     return repo
 
@@ -154,24 +173,21 @@ def agent_service(mock_llm_provider):
 
     # Register test agents
     service.register_ai_agent(
-        "test_agent",
-        "You are a test agent.",
-        "General testing",
-        "gpt-4o-mini"
+        "test_agent", "You are a test agent.", "General testing", "gpt-4o-mini"
     )
 
     service.register_ai_agent(
         "solana_specialist",
         "You are a Solana blockchain specialist.",
         "Solana blockchain",
-        "gpt-4o"
+        "gpt-4o",
     )
 
     service.register_human_agent(
         "human1",
         "Human Agent",
         "Complex issues",
-        None  # No notification handler for testing
+        None,  # No notification handler for testing
     )
 
     return service
@@ -192,7 +208,9 @@ def ticket_service(mock_ticket_repository):
 @pytest.fixture
 def handoff_service(mock_handoff_repository, mock_ticket_repository, agent_service):
     """Create a handoff service for testing."""
-    return HandoffService(mock_handoff_repository, mock_ticket_repository, agent_service)
+    return HandoffService(
+        mock_handoff_repository, mock_ticket_repository, agent_service
+    )
 
 
 @pytest.fixture
@@ -214,6 +232,24 @@ def critic_service(mock_llm_provider):
 
 
 @pytest.fixture
+def task_planning_service(mock_ticket_repository, mock_llm_provider, agent_service):
+    """Create a task planning service for testing."""
+    service = TaskPlanningService(
+        ticket_repository=mock_ticket_repository,
+        llm_provider=mock_llm_provider,
+        agent_service=agent_service,
+    )
+
+    # Register test agents for capacity testing
+    service.register_agent_capacity(
+        "ai_agent1", AgentType.AI, 3, ["general", "coding"])
+    service.register_agent_capacity(
+        "human_agent1", AgentType.HUMAN, 2, ["specialized"])
+
+    return service
+
+
+@pytest.fixture
 def query_processor(
     agent_service,
     routing_service,
@@ -222,7 +258,8 @@ def query_processor(
     memory_service,
     nps_service,
     critic_service,
-    mock_memory_provider
+    mock_memory_provider,
+    task_planning_service,
 ):
     """Create a query processor for testing."""
     return QueryProcessor(
@@ -235,7 +272,8 @@ def query_processor(
         critic_service=critic_service,
         memory_provider=mock_memory_provider,
         enable_critic=True,
-        router_model="gpt-4o-mini"
+        router_model="gpt-4o-mini",
+        task_planning_service=task_planning_service,
     )
 
 
@@ -252,9 +290,25 @@ def sample_ticket():
     )
 
 
+@pytest.fixture
+def parent_ticket():
+    """Create a sample parent ticket for testing."""
+    return Ticket(
+        id="parent1",
+        user_id="user1",
+        query="Complex task requiring breakdown",
+        status=TicketStatus.PLANNING,
+        assigned_to="",
+        created_at=datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(hours=1),
+        is_parent=True,
+    )
+
+
 #############################################
 # TESTS
 #############################################
+
 
 class TestAgentService:
     """Tests for the AgentService."""
@@ -284,7 +338,9 @@ class TestAgentService:
         """Test generating a response from an AI agent."""
         # Test with a non-existent agent
         response = ""
-        async for chunk in agent_service.generate_response("nonexistent_agent", "user1", "Hi"):
+        async for chunk in agent_service.generate_response(
+            "nonexistent_agent", "user1", "Hi"
+        ):
             response += chunk
 
         assert response == "Error: Agent not found"
@@ -305,7 +361,9 @@ class TestRoutingService:
         """Test routing a query to the appropriate agent."""
         # Mocking the LLM response is challenging in this test
         # We'll assume the actual logic works and test the method structure
-        agent_name = await routing_service.route_query("Tell me about Solana blockchain")
+        agent_name = await routing_service.route_query(
+            "Tell me about Solana blockchain"
+        )
 
         # Since our mock doesn't actually make decisions, we just check the return type
         assert isinstance(agent_name, str)
@@ -315,27 +373,39 @@ class TestRoutingService:
         agent_names = ["test_agent", "solana_specialist"]
 
         # Exact match
-        assert routing_service._match_agent_name(
-            "test_agent", agent_names) == "test_agent"
+        assert (
+            routing_service._match_agent_name(
+                "test_agent", agent_names) == "test_agent"
+        )
 
         # Case insensitive match
-        assert routing_service._match_agent_name(
-            "TEST_AGENT", agent_names) == "test_agent"
+        assert (
+            routing_service._match_agent_name(
+                "TEST_AGENT", agent_names) == "test_agent"
+        )
 
         # Partial match
-        assert routing_service._match_agent_name(
-            "something with solana_specialist in it", agent_names) == "solana_specialist"
+        assert (
+            routing_service._match_agent_name(
+                "something with solana_specialist in it", agent_names
+            )
+            == "solana_specialist"
+        )
 
         # No match should default to first agent
-        assert routing_service._match_agent_name(
-            "no match", agent_names) == "test_agent"
+        assert (
+            routing_service._match_agent_name(
+                "no match", agent_names) == "test_agent"
+        )
 
 
 class TestTicketService:
     """Tests for the TicketService."""
 
     @pytest.mark.asyncio
-    async def test_get_or_create_ticket_new(self, ticket_service, mock_ticket_repository):
+    async def test_get_or_create_ticket_new(
+        self, ticket_service, mock_ticket_repository
+    ):
         """Test creating a new ticket when none exists."""
         # Configure mock to return no active ticket
         mock_ticket_repository.get_active_for_user.return_value = None
@@ -354,7 +424,9 @@ class TestTicketService:
         mock_ticket_repository.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_or_create_ticket_existing(self, ticket_service, mock_ticket_repository, sample_ticket):
+    async def test_get_or_create_ticket_existing(
+        self, ticket_service, mock_ticket_repository, sample_ticket
+    ):
         """Test getting an existing active ticket."""
         # Configure mock to return an active ticket
         mock_ticket_repository.get_active_for_user.return_value = sample_ticket
@@ -372,7 +444,8 @@ class TestTicketService:
     def test_update_ticket_status(self, ticket_service, mock_ticket_repository):
         """Test updating a ticket's status."""
         ticket_service.update_ticket_status(
-            "123", TicketStatus.ACTIVE, assigned_to="test_agent")
+            "123", TicketStatus.ACTIVE, assigned_to="test_agent"
+        )
 
         # Verify the repository was called with correct parameters
         mock_ticket_repository.update.assert_called_once()
@@ -384,10 +457,8 @@ class TestTicketService:
 
     def test_mark_ticket_resolved(self, ticket_service, mock_ticket_repository):
         """Test marking a ticket as resolved."""
-        resolution_data = {
-            "confidence": 0.9,
-            "reasoning": "Issue was fully addressed"
-        }
+        resolution_data = {"confidence": 0.9,
+                           "reasoning": "Issue was fully addressed"}
 
         ticket_service.mark_ticket_resolved("123", resolution_data)
 
@@ -406,13 +477,21 @@ class TestHandoffService:
     """Tests for the HandoffService."""
 
     @pytest.mark.asyncio
-    async def test_process_handoff(self, handoff_service, mock_handoff_repository, mock_ticket_repository, sample_ticket):
+    async def test_process_handoff(
+        self,
+        handoff_service,
+        mock_handoff_repository,
+        mock_ticket_repository,
+        sample_ticket,
+    ):
         """Test processing a handoff between agents."""
         # Configure mocks
         mock_ticket_repository.get_by_id.return_value = sample_ticket
 
         # Test handoff process
-        result = await handoff_service.process_handoff("123", "test_agent", "solana_specialist", "Needs blockchain expertise")
+        result = await handoff_service.process_handoff(
+            "123", "test_agent", "solana_specialist", "Needs blockchain expertise"
+        )
 
         assert result == "solana_specialist"
 
@@ -429,24 +508,32 @@ class TestHandoffService:
         assert args[1]["handoff_reason"] == "Needs blockchain expertise"
 
     @pytest.mark.asyncio
-    async def test_process_handoff_ticket_not_found(self, handoff_service, mock_ticket_repository):
+    async def test_process_handoff_ticket_not_found(
+        self, handoff_service, mock_ticket_repository
+    ):
         """Test handling a handoff when the ticket doesn't exist."""
         # Configure mock to return no ticket
         mock_ticket_repository.get_by_id.return_value = None
 
         # Test that ValueError is raised
         with pytest.raises(ValueError, match="Ticket .* not found"):
-            await handoff_service.process_handoff("123", "test_agent", "solana_specialist", "Needs blockchain expertise")
+            await handoff_service.process_handoff(
+                "123", "test_agent", "solana_specialist", "Needs blockchain expertise"
+            )
 
     @pytest.mark.asyncio
-    async def test_process_handoff_invalid_agent(self, handoff_service, mock_ticket_repository, sample_ticket):
+    async def test_process_handoff_invalid_agent(
+        self, handoff_service, mock_ticket_repository, sample_ticket
+    ):
         """Test handling a handoff when the target agent doesn't exist."""
         # Configure mock to return a ticket
         mock_ticket_repository.get_by_id.return_value = sample_ticket
 
         # Test that ValueError is raised
         with pytest.raises(ValueError, match="Target agent .* not found"):
-            await handoff_service.process_handoff("123", "test_agent", "nonexistent_agent", "Needs expertise")
+            await handoff_service.process_handoff(
+                "123", "test_agent", "nonexistent_agent", "Needs expertise"
+            )
 
 
 class TestNPSService:
@@ -476,7 +563,8 @@ class TestNPSService:
 
         # Verify repository was called
         mock_nps_repository.update_response.assert_called_once_with(
-            "survey123", 9, "Great service!")
+            "survey123", 9, "Great service!"
+        )
 
     def test_get_agent_score(self, nps_service, mock_nps_repository):
         """Test getting an agent's performance score."""
@@ -499,7 +587,9 @@ class TestMemoryService:
     async def test_extract_insights(self, memory_service, mock_llm_provider):
         """Test extracting insights from a conversation."""
         # Setup mock to return a JSON response
-        mock_response = '{"insights": [{"fact": "Test fact", "relevance": "Test relevance"}]}'
+        mock_response = (
+            '{"insights": [{"fact": "Test fact", "relevance": "Test relevance"}]}'
+        )
 
         # We need to patch the generate_text method to return our mock JSON
         async def mock_generate_text(*args, **kwargs):
@@ -508,7 +598,9 @@ class TestMemoryService:
         mock_llm_provider.generate_text = mock_generate_text
 
         # Test insight extraction
-        insights = await memory_service.extract_insights("user1", {"message": "Hi", "response": "Hello"})
+        insights = await memory_service.extract_insights(
+            "user1", {"message": "Hi", "response": "Hello"}
+        )
 
         assert len(insights) == 1
         assert insights[0].fact == "Test fact"
@@ -519,7 +611,7 @@ class TestMemoryService:
         """Test storing insights in memory."""
         insights = [
             MemoryInsight(fact="Test fact 1", relevance="Test relevance 1"),
-            MemoryInsight(fact="Test fact 2", relevance="Test relevance 2")
+            MemoryInsight(fact="Test fact 2", relevance="Test relevance 2"),
         ]
 
         await memory_service.store_insights("user1", insights)
@@ -536,6 +628,278 @@ class TestMemoryService:
 
         # Verify repository was called
         mock_memory_repository.search.assert_called_once_with("test query", 5)
+
+
+class TestTaskPlanningService:
+    """Tests for the TaskPlanningService."""
+
+    @pytest.mark.asyncio
+    async def test_needs_breakdown(self, task_planning_service):
+        """Test determining if a task needs to be broken down."""
+        # Mock the _assess_task_complexity method
+        task_planning_service._assess_task_complexity = AsyncMock(
+            return_value={
+                "story_points": 13,
+                "t_shirt_size": "XL",
+                "estimated_minutes": 120,
+            }
+        )
+
+        # Test with a complex task
+        needs_breakdown, reason = await task_planning_service.needs_breakdown(
+            "Build a complex application"
+        )
+
+        assert needs_breakdown is True
+        assert "complexity" in reason.lower()
+
+        # Change to a simple task
+        task_planning_service._assess_task_complexity = AsyncMock(
+            return_value={
+                "story_points": 3,
+                "t_shirt_size": "S",
+                "estimated_minutes": 20,
+            }
+        )
+
+        needs_breakdown, reason = await task_planning_service.needs_breakdown(
+            "Simple task"
+        )
+
+        assert needs_breakdown is False
+
+    @pytest.mark.asyncio
+    async def test_generate_subtasks(
+        self, task_planning_service, mock_ticket_repository, parent_ticket
+    ):
+        """Test generating subtasks for a complex task."""
+        # Configure mocks
+        mock_ticket_repository.get_by_id.return_value = parent_ticket
+
+        # Setup mock LLM response
+        mock_json = {
+            "subtasks": [
+                {
+                    "title": "Subtask 1",
+                    "description": "Do the first part",
+                    "estimated_minutes": 30,
+                    "dependencies": [],
+                },
+                {
+                    "title": "Subtask 2",
+                    "description": "Do the second part",
+                    "estimated_minutes": 45,
+                    "dependencies": ["Subtask 1"],
+                },
+            ]
+        }
+
+        async def mock_generate_text(*args, **kwargs):
+            yield json.dumps(mock_json)
+
+        task_planning_service.llm_provider.generate_text = mock_generate_text
+
+        # Test generating subtasks
+        subtasks = await task_planning_service.generate_subtasks(
+            "parent1", "Complex task"
+        )
+
+        # Verify results
+        assert len(subtasks) == 2
+        assert subtasks[0].title == "Subtask 1"
+        assert subtasks[1].title == "Subtask 2"
+        assert subtasks[1].dependencies  # Should contain the ID of Subtask 1
+
+        # Verify ticket repository was called
+        mock_ticket_repository.get_by_id.assert_called_once()
+        assert mock_ticket_repository.update.called
+        assert mock_ticket_repository.create.call_count == 2  # Once per subtask
+
+    @pytest.mark.asyncio
+    async def test_assign_subtasks(self, task_planning_service, mock_ticket_repository):
+        """Test assigning subtasks to agents."""
+        # Configure mock to return sample subtasks
+        subtasks = [
+            Ticket(
+                id="subtask1",
+                user_id="user1",
+                query="Subtask 1",
+                status=TicketStatus.PLANNING,
+                assigned_to="",
+                created_at=datetime.datetime.now(datetime.timezone.utc),
+                is_subtask=True,
+                parent_id="parent1",
+            ),
+            Ticket(
+                id="subtask2",
+                user_id="user1",
+                query="Subtask 2",
+                status=TicketStatus.PLANNING,
+                assigned_to="",
+                created_at=datetime.datetime.now(datetime.timezone.utc),
+                is_subtask=True,
+                parent_id="parent1",
+            ),
+        ]
+        mock_ticket_repository.find.return_value = subtasks
+
+        # Test assigning subtasks
+        assignments = await task_planning_service.assign_subtasks("parent1")
+
+        # Verify assignments were made
+        assert len(assignments) > 0
+        assert mock_ticket_repository.update.call_count == 2  # One update per subtask
+
+        # Verify agent capacity was updated
+        for agent_id in assignments:
+            if agent_id in task_planning_service.capacity_registry:
+                assert (
+                    task_planning_service.capacity_registry[agent_id].active_tasks > 0
+                )
+
+    @pytest.mark.asyncio
+    async def test_get_plan_status(
+        self, task_planning_service, mock_ticket_repository, parent_ticket
+    ):
+        """Test getting the status of a task plan."""
+        # Configure mocks
+        mock_ticket_repository.get_by_id.return_value = parent_ticket
+
+        # Configure mock to return sample subtasks in various states
+        subtasks = [
+            Ticket(
+                id="subtask1",
+                user_id="user1",
+                query="Subtask 1",
+                status=TicketStatus.RESOLVED,  # Completed
+                assigned_to="agent1",
+                created_at=datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(minutes=60),
+                is_subtask=True,
+                parent_id="parent1",
+            ),
+            Ticket(
+                id="subtask2",
+                user_id="user1",
+                query="Subtask 2",
+                status=TicketStatus.ACTIVE,  # In progress
+                assigned_to="agent2",
+                created_at=datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(minutes=45),
+                is_subtask=True,
+                parent_id="parent1",
+            ),
+            Ticket(
+                id="subtask3",
+                user_id="user1",
+                query="Subtask 3",
+                status=TicketStatus.NEW,  # Not started
+                assigned_to="agent1",
+                created_at=datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(minutes=30),
+                is_subtask=True,
+                parent_id="parent1",
+            ),
+        ]
+
+        # Configure mock to return the sample subtasks
+        mock_ticket_repository.find.return_value = subtasks
+
+        # Test getting plan status
+        status = await task_planning_service.get_plan_status("parent1")
+
+        # Verify the status was calculated correctly
+        assert isinstance(status, PlanStatus)
+        assert status.progress == 33  # 1/3 complete = 33%
+        assert status.status == "in progress"
+        assert status.subtask_count == 3
+        assert "█" in status.visualization  # Should contain progress bars
+
+    def test_register_agent_capacity(self, task_planning_service):
+        """Test registering agent work capacity."""
+        # Register a new agent
+        task_planning_service.register_agent_capacity(
+            "new_agent", AgentType.AI, 5, ["coding", "design"]
+        )
+
+        # Check if the agent was registered correctly
+        capacity = task_planning_service.get_agent_capacity("new_agent")
+        assert capacity is not None
+        assert capacity.agent_id == "new_agent"
+        assert capacity.agent_type == AgentType.AI
+        assert capacity.max_concurrent_tasks == 5
+        assert capacity.active_tasks == 0
+        assert "coding" in capacity.specializations
+        assert "design" in capacity.specializations
+
+    def test_update_agent_availability(self, task_planning_service):
+        """Test updating agent availability status."""
+        # Update existing agent
+        result = task_planning_service.update_agent_availability(
+            "ai_agent1", "busy")
+
+        # Verify the update worked
+        assert result is True
+        capacity = task_planning_service.get_agent_capacity("ai_agent1")
+        assert capacity.availability_status == "busy"
+
+        # Test with non-existent agent
+        result = task_planning_service.update_agent_availability(
+            "nonexistent_agent", "available"
+        )
+        assert result is False
+
+    def test_get_available_agents(self, task_planning_service):
+        """Test getting available agents with and without specialization filters."""
+        # All agents should be available initially
+        available_agents = task_planning_service.get_available_agents()
+        assert len(available_agents) == 2
+        assert "ai_agent1" in available_agents
+        assert "human_agent1" in available_agents
+
+        # Set one agent as busy
+        task_planning_service.update_agent_availability("ai_agent1", "busy")
+        available_agents = task_planning_service.get_available_agents()
+        assert len(available_agents) == 1
+        assert "human_agent1" in available_agents
+
+        # Filter by specialization
+        available_agents = task_planning_service.get_available_agents(
+            "specialized")
+        assert len(available_agents) == 1
+        assert "human_agent1" in available_agents
+
+        # Filter by non-matching specialization
+        available_agents = task_planning_service.get_available_agents(
+            "unknown")
+        assert len(available_agents) == 0
+
+        # Set agent back to available but with full capacity
+        task_planning_service.update_agent_availability(
+            "ai_agent1", "available")
+        # Max capacity
+        task_planning_service.capacity_registry["ai_agent1"].active_tasks = 3
+        available_agents = task_planning_service.get_available_agents()
+        assert len(available_agents) == 1
+        assert "human_agent1" in available_agents
+
+    @pytest.mark.asyncio
+    async def test_assess_task_complexity(
+        self, task_planning_service, mock_llm_provider
+    ):
+        """Test assessing task complexity."""
+        # This is testing a private method, so we need to access it directly
+        complexity = await task_planning_service._assess_task_complexity(
+            "Build a complex application"
+        )
+
+        # Since we're using a mock, we should get a default complexity object
+        assert "t_shirt_size" in complexity
+        assert "story_points" in complexity
+        assert "estimated_minutes" in complexity
+
+        # Verify the LLM was called
+        mock_llm_provider.generate_text.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -564,7 +928,8 @@ class TestQueryProcessor:
         """Test processing a system command."""
         # Setup _process_system_commands to return a value
         query_processor._process_system_commands = AsyncMock(
-            return_value="System command result")
+            return_value="System command result"
+        )
 
         # Test processing a system command
         response = ""
@@ -574,21 +939,26 @@ class TestQueryProcessor:
         assert response == "System command result"
         query_processor._process_system_commands.assert_called_once()
 
-    async def test_process_new_ticket(self, query_processor, mock_ticket_repository, agent_service):
+    async def test_process_new_ticket(
+        self, query_processor, mock_ticket_repository, agent_service
+    ):
         """Test processing a message creating a new ticket."""
         # Setup required mocks
         query_processor._is_human_agent = AsyncMock(return_value=False)
         query_processor._is_simple_greeting = AsyncMock(return_value=False)
         query_processor._process_system_commands = AsyncMock(return_value=None)
         query_processor.routing_service.route_query = AsyncMock(
-            return_value="test_agent")
+            return_value="test_agent"
+        )
         query_processor._assess_task_complexity = AsyncMock(
-            return_value={"t_shirt_size": "M"})
+            return_value={"t_shirt_size": "M"}
+        )
         mock_ticket_repository.get_active_for_user.return_value = None
 
         # Mock the ticket service methods directly
         query_processor.ticket_service.update_ticket_status = MagicMock(
-            return_value=True)
+            return_value=True
+        )
 
         # Mock the ticket
         new_ticket = Ticket(
@@ -597,10 +967,11 @@ class TestQueryProcessor:
             query="Help me",
             status=TicketStatus.NEW,
             assigned_to="",
-            created_at=datetime.datetime.now(datetime.timezone.utc)
+            created_at=datetime.datetime.now(datetime.timezone.utc),
         )
         query_processor.ticket_service.get_or_create_ticket = AsyncMock(
-            return_value=new_ticket)
+            return_value=new_ticket
+        )
 
         # Test processing a new ticket
         response = ""
@@ -616,30 +987,31 @@ class TestQueryProcessor:
         query_processor.routing_service.route_query.assert_called_once()
         query_processor._assess_task_complexity.assert_called_once()
         query_processor.ticket_service.get_or_create_ticket.assert_called_once()
-        # Changed to assert syntax
         assert query_processor.ticket_service.update_ticket_status.called
 
-    async def test_process_existing_ticket(self, query_processor, mock_ticket_repository, sample_ticket):
+    async def test_process_existing_ticket(
+        self, query_processor, mock_ticket_repository, sample_ticket
+    ):
         """Test processing a message for an existing ticket."""
         # Setup required mocks
         query_processor._is_human_agent = AsyncMock(return_value=False)
         query_processor._is_simple_greeting = AsyncMock(return_value=False)
         query_processor._process_system_commands = AsyncMock(return_value=None)
         query_processor.routing_service.route_query = AsyncMock(
-            return_value="test_agent")
+            return_value="test_agent"
+        )
         mock_ticket_repository.get_active_for_user.return_value = sample_ticket
 
         # Mock service methods
         query_processor.ticket_service.update_ticket_status = MagicMock(
-            return_value=True)
+            return_value=True
+        )
         query_processor.nps_service.create_survey = MagicMock(
             return_value="survey123")
 
         # Mock ticket resolution check
         resolution = TicketResolution(
-            status="resolved",
-            confidence=0.8,
-            reasoning="Issue was resolved"
+            status="resolved", confidence=0.8, reasoning="Issue was resolved"
         )
         query_processor._check_ticket_resolution = AsyncMock(
             return_value=resolution)
@@ -656,7 +1028,7 @@ class TestQueryProcessor:
         query_processor._is_simple_greeting.assert_called_once()
         query_processor._process_system_commands.assert_called_once()
         query_processor._check_ticket_resolution.assert_called_once()
-        assert query_processor.nps_service.create_survey.called  # Changed to assert syntax
+        assert query_processor.nps_service.create_survey.called
 
     async def test_process_human_agent_message(self, query_processor):
         """Test processing a message from a human agent."""
@@ -676,6 +1048,76 @@ class TestQueryProcessor:
         query_processor._is_human_agent.assert_called_once()
         query_processor._get_agent_directory.assert_called_once()
 
+    async def test_process_complex_task(
+        self, query_processor, mock_ticket_repository, task_planning_service
+    ):
+        """Test processing a complex task that needs breakdown."""
+        # Setup required mocks
+        query_processor._is_human_agent = AsyncMock(return_value=False)
+        query_processor._is_simple_greeting = AsyncMock(return_value=False)
+        query_processor._process_system_commands = AsyncMock(return_value=None)
+        mock_ticket_repository.get_active_for_user.return_value = None
+
+        # Setup task complexity assessment and breakdown
+        query_processor._assess_task_complexity = AsyncMock(
+            return_value={"t_shirt_size": "XL", "story_points": 13}
+        )
+        query_processor.task_planning_service.needs_breakdown = AsyncMock(
+            return_value=(True, "Task is complex")
+        )
+
+        # Mock the ticket
+        new_ticket = Ticket(
+            id="complex_task",
+            user_id="user1",
+            query="Build a complex system",
+            status=TicketStatus.NEW,
+            assigned_to="",
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        query_processor.ticket_service.get_or_create_ticket = AsyncMock(
+            return_value=new_ticket
+        )
+        query_processor.ticket_service.update_ticket_status = MagicMock()
+
+        # Mock subtask generation
+        subtasks = [
+            SubtaskModel(
+                title="Subtask 1",
+                description="Part 1",
+                estimated_minutes=30,
+                dependencies=[],
+            ),
+            SubtaskModel(
+                title="Subtask 2",
+                description="Part 2",
+                estimated_minutes=45,
+                dependencies=["Subtask 1"],
+            ),
+        ]
+        query_processor.task_planning_service.generate_subtasks = AsyncMock(
+            return_value=subtasks
+        )
+        query_processor.task_planning_service.assign_subtasks = AsyncMock(
+            return_value={"ai_agent1": ["subtask1"]}
+        )
+
+        # Test processing a complex task
+        response = ""
+        async for chunk in query_processor.process(
+            "user1", "Build a complex system with many parts"
+        ):
+            response += chunk
+
+        # Verify the planning flow was triggered
+        assert query_processor.task_planning_service.needs_breakdown.called
+        assert query_processor.ticket_service.update_ticket_status.called
+        # The ticket status should be updated to PLANNING
+        args, kwargs = (
+            query_processor.ticket_service.update_ticket_status.call_args_list[0]
+        )
+        assert args[1] == TicketStatus.PLANNING
+
 
 class TestPlatformIntegration:
     """Integration tests for the entire platform."""
@@ -687,27 +1129,24 @@ class TestPlatformIntegration:
         config = {
             "mongo": {
                 "connection_string": "mongodb://localhost:27017",
-                "database": "test_db"
+                "database": "test_db",
             },
-            "openai": {
-                "api_key": "test_key",
-                "default_model": "gpt-4o-mini"
-            },
+            "openai": {"api_key": "test_key", "default_model": "gpt-4o-mini"},
             "enable_critic": True,
             "router_model": "gpt-4o-mini",
             "agents": [
                 {
                     "name": "general",
                     "instructions": "You are a helpful assistant.",
-                    "specialization": "General assistance"
+                    "specialization": "General assistance",
                 }
-            ]
+            ],
         }
 
         # Mock the adapters
-        with patch("solana_agent.ai.MongoDBAdapter") as mock_mongo, \
-                patch("solana_agent.ai.OpenAIAdapter") as mock_openai:
-
+        with patch("solana_agent.ai.MongoDBAdapter") as mock_mongo, patch(
+            "solana_agent.ai.OpenAIAdapter"
+        ) as mock_openai:
             # Mock MongoDB adapter instance
             mock_mongo.return_value = MagicMock(spec=MongoDBAdapter)
 
@@ -716,6 +1155,7 @@ class TestPlatformIntegration:
 
             async def mock_generate_text(*args, **kwargs):
                 yield "Test response"
+
             mock_llm.generate_text = mock_generate_text
             mock_openai.return_value = mock_llm
 
@@ -733,13 +1173,10 @@ class TestPlatformIntegration:
         config = {
             "mongo": {
                 "connection_string": "mongodb://localhost:27017",
-                "database": "test_db"
+                "database": "test_db",
             },
-            "openai": {
-                "api_key": "test_key",
-                "default_model": "gpt-4o-mini"
-            },
-            "agents": []
+            "openai": {"api_key": "test_key", "default_model": "gpt-4o-mini"},
+            "agents": [],
         }
 
         # Mock the factory and processor
@@ -749,6 +1186,7 @@ class TestPlatformIntegration:
 
             async def mock_process(*args, **kwargs):
                 yield "Client interface test response"
+
             mock_processor.process = mock_process
             mock_factory.create_from_config.return_value = mock_processor
 

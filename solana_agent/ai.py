@@ -180,9 +180,34 @@ class PlanStatus(BaseModel):
     subtask_count: int
 
 
+class SubtaskModel(BaseModel):
+    """Represents a subtask breakdown of a complex task."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    parent_id: str
+    title: str
+    description: str
+    assignee: Optional[str] = None
+    status: TicketStatus = TicketStatus.PLANNING
+    sequence: int
+    dependencies: List[str] = Field(default_factory=list)
+    estimated_minutes: int = 30
+
+
+class WorkCapacity(BaseModel):
+    """Represents an agent's work capacity and current load."""
+    agent_id: str
+    agent_type: AgentType
+    max_concurrent_tasks: int
+    active_tasks: int
+    specializations: List[str] = Field(default_factory=list)
+    availability_status: str = "available"
+    last_updated: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+
 #############################################
 # INTERFACES
 #############################################
+
 
 class LLMProvider(Protocol):
     """Interface for language model providers."""
@@ -1319,6 +1344,347 @@ class AgentService:
             return True
         return False
 
+
+class TaskPlanningService:
+    """Service for managing complex task planning and breakdown."""
+
+    def __init__(
+        self,
+        ticket_repository: TicketRepository,
+        llm_provider: LLMProvider,
+        agent_service: AgentService
+    ):
+        self.ticket_repository = ticket_repository
+        self.llm_provider = llm_provider
+        self.agent_service = agent_service
+        self.capacity_registry = {}  # agent_id -> WorkCapacity
+
+    def register_agent_capacity(self, agent_id: str, agent_type: AgentType, max_tasks: int, specializations: List[str]) -> None:
+        """Register an agent's work capacity."""
+        self.capacity_registry[agent_id] = WorkCapacity(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            max_concurrent_tasks=max_tasks,
+            active_tasks=0,
+            specializations=specializations
+        )
+
+    def update_agent_availability(self, agent_id: str, status: str) -> bool:
+        """Update an agent's availability status."""
+        if agent_id in self.capacity_registry:
+            self.capacity_registry[agent_id].availability_status = status
+            self.capacity_registry[agent_id].last_updated = datetime.datetime.now(
+                datetime.timezone.utc)
+            return True
+        return False
+
+    def get_agent_capacity(self, agent_id: str) -> Optional[WorkCapacity]:
+        """Get an agent's capacity information."""
+        return self.capacity_registry.get(agent_id)
+
+    def get_available_agents(self, specialization: Optional[str] = None) -> List[str]:
+        """Get list of available agents, optionally filtered by specialization."""
+        agents = []
+
+        for agent_id, capacity in self.capacity_registry.items():
+            if capacity.availability_status != "available":
+                continue
+
+            if capacity.active_tasks >= capacity.max_concurrent_tasks:
+                continue
+
+            if specialization and specialization not in capacity.specializations:
+                continue
+
+            agents.append(agent_id)
+
+        return agents
+
+    async def needs_breakdown(self, task_description: str) -> Tuple[bool, str]:
+        """Determine if a task needs to be broken down into subtasks."""
+        complexity = await self._assess_task_complexity(task_description)
+
+        # Tasks with high story points, large t-shirt sizes, or long estimated
+        # resolution times are candidates for breakdown
+        story_points = complexity.get("story_points", 3)
+        t_shirt_size = complexity.get("t_shirt_size", "M")
+        estimated_minutes = complexity.get("estimated_minutes", 30)
+
+        needs_breakdown = (
+            story_points >= 8 or
+            t_shirt_size in ["L", "XL", "XXL"] or
+            estimated_minutes >= 60
+        )
+
+        reasoning = f"Task complexity: {t_shirt_size}, {story_points} story points, {estimated_minutes} minutes estimated"
+
+        return (needs_breakdown, reasoning)
+
+    async def generate_subtasks(self, ticket_id: str, task_description: str) -> List[SubtaskModel]:
+        """Generate subtasks for a complex task."""
+        # Fetch ticket to verify it exists
+        ticket = self.ticket_repository.get_by_id(ticket_id)
+        if not ticket:
+            raise ValueError(f"Ticket {ticket_id} not found")
+
+        # Mark parent ticket as a parent
+        self.ticket_repository.update(
+            ticket_id,
+            {
+                "is_parent": True,
+                "status": TicketStatus.PLANNING
+            }
+        )
+
+        # Generate subtasks using LLM
+        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
+        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
+        model = agent_config.get("model", "gpt-4o")
+
+        prompt = f"""
+        Break down the following complex task into logical subtasks:
+        
+        TASK: {task_description}
+        
+        For each subtask, provide:
+        1. A brief title
+        2. A clear description of what needs to be done
+        3. An estimate of time required in minutes
+        4. Any dependencies (which subtasks must be completed first)
+        
+        Format as a JSON array of objects with these fields:
+        - title: string
+        - description: string
+        - estimated_minutes: number
+        - dependencies: array of previous subtask titles that must be completed first
+        
+        The subtasks should be in a logical sequence. Keep dependencies minimal and avoid circular dependencies.
+        """
+
+        response_text = ""
+        async for chunk in self.llm_provider.generate_text(
+            ticket.user_id,
+            prompt,
+            system_prompt="You are an expert project planner who breaks down complex tasks efficiently.",
+            stream=False,
+            model=model,  # Use the agent's configured model
+            temperature=0.2,
+            response_format={"type": "json_object"}
+        ):
+            response_text += chunk
+
+        try:
+            data = json.loads(response_text)
+            subtasks_data = data.get("subtasks", [])
+
+            # Create subtask objects
+            subtasks = []
+            for i, task_data in enumerate(subtasks_data):
+                subtask = SubtaskModel(
+                    parent_id=ticket_id,
+                    title=task_data["title"],
+                    description=task_data["description"],
+                    sequence=i+1,
+                    estimated_minutes=task_data.get("estimated_minutes", 30),
+                    dependencies=[]
+                )
+                subtasks.append(subtask)
+
+            # Process dependencies (convert title references to IDs)
+            title_to_id = {task.title: task.id for task in subtasks}
+
+            for i, task_data in enumerate(subtasks_data):
+                if "dependencies" in task_data:
+                    for dep_title in task_data["dependencies"]:
+                        if dep_title in title_to_id:
+                            subtasks[i].dependencies.append(
+                                title_to_id[dep_title])
+
+            # Store subtasks in database
+            for subtask in subtasks:
+                new_ticket = Ticket(
+                    id=subtask.id,
+                    user_id=ticket.user_id,
+                    query=subtask.description,
+                    status=TicketStatus.PLANNING,
+                    assigned_to="",
+                    created_at=datetime.datetime.now(datetime.timezone.utc),
+                    is_subtask=True,
+                    parent_id=ticket_id,
+                    complexity={
+                        "estimated_minutes": subtask.estimated_minutes,
+                        "sequence": subtask.sequence
+                    }
+                )
+                self.ticket_repository.create(new_ticket)
+
+            return subtasks
+
+        except Exception as e:
+            print(f"Error generating subtasks: {e}")
+            return []
+
+    async def assign_subtasks(self, parent_ticket_id: str) -> Dict[str, List[str]]:
+        """Assign subtasks to available agents based on capacity."""
+        # Get all subtasks for the parent
+        subtasks = self.ticket_repository.find({
+            "parent_id": parent_ticket_id,
+            "is_subtask": True,
+            "status": TicketStatus.PLANNING
+        })
+
+        if not subtasks:
+            return {}
+
+        # Find available agents
+        available_agents = self.get_available_agents()
+        if not available_agents:
+            return {}
+
+        # Simple round-robin assignment
+        assignments = {agent_id: [] for agent_id in available_agents}
+        agent_idx = 0
+
+        for subtask in subtasks:
+            agent_id = available_agents[agent_idx]
+            assignments[agent_id].append(subtask.id)
+
+            # Update subtask with assignment
+            self.ticket_repository.update(
+                subtask.id,
+                {
+                    "assigned_to": agent_id,
+                    "status": TicketStatus.ACTIVE
+                }
+            )
+
+            # Update agent capacity
+            if agent_id in self.capacity_registry:
+                self.capacity_registry[agent_id].active_tasks += 1
+
+            # Move to next agent in round-robin
+            agent_idx = (agent_idx + 1) % len(available_agents)
+
+        return assignments
+
+    async def get_plan_status(self, parent_ticket_id: str) -> PlanStatus:
+        """Get the status of a task plan."""
+        # Get parent ticket
+        parent = self.ticket_repository.get_by_id(parent_ticket_id)
+        if not parent or not parent.is_parent:
+            raise ValueError(
+                f"Parent ticket {parent_ticket_id} not found or is not a parent")
+
+        # Get all subtasks
+        subtasks = self.ticket_repository.find({
+            "parent_id": parent_ticket_id,
+            "is_subtask": True
+        })
+
+        subtask_count = len(subtasks)
+        if subtask_count == 0:
+            return PlanStatus(
+                visualization="No subtasks found",
+                progress=0,
+                status="unknown",
+                estimated_completion="unknown",
+                subtask_count=0
+            )
+
+        # Count completed tasks
+        completed = sum(1 for task in subtasks if task.status ==
+                        TicketStatus.RESOLVED)
+
+        # Calculate progress percentage
+        progress = int((completed / subtask_count) *
+                       100) if subtask_count > 0 else 0
+
+        # Determine status
+        if progress == 100:
+            status = "completed"
+        elif progress == 0:
+            status = "not started"
+        else:
+            status = "in progress"
+
+        # Create visualization
+        bars = "█" * (progress // 10) + "░" * (10 - (progress // 10))
+        visualization = f"Progress: {progress}% [{bars}] ({completed}/{subtask_count} subtasks complete)"
+
+        # Estimate completion time
+        if status == "completed":
+            estimated_completion = "Completed"
+        elif status == "not started":
+            estimated_completion = "Not started"
+        else:
+            # Simple linear projection based on progress
+            if progress > 0:
+                first_subtask = min(subtasks, key=lambda t: t.created_at)
+                start_time = first_subtask.created_at
+                time_elapsed = (datetime.datetime.now(
+                    datetime.timezone.utc) - start_time).total_seconds()
+                time_remaining = (time_elapsed / progress) * (100 - progress)
+                completion_time = datetime.datetime.now(
+                    datetime.timezone.utc) + datetime.timedelta(seconds=time_remaining)
+                estimated_completion = completion_time.strftime(
+                    "%Y-%m-%d %H:%M")
+            else:
+                estimated_completion = "Unknown"
+
+        return PlanStatus(
+            visualization=visualization,
+            progress=progress,
+            status=status,
+            estimated_completion=estimated_completion,
+            subtask_count=subtask_count
+        )
+
+    async def _assess_task_complexity(self, task_description: str) -> Dict[str, Any]:
+        """Assess the complexity of a task."""
+        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
+        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
+        model = agent_config.get("model", "gpt-4o")
+
+        prompt = f"""
+        Analyze this task and provide standardized complexity metrics:
+        
+        TASK: {task_description}
+        
+        Assess on these dimensions:
+        1. T-shirt size (XS, S, M, L, XL, XXL)
+        2. Story points (1, 2, 3, 5, 8, 13, 21)
+        3. Estimated resolution time in minutes/hours
+        4. Technical complexity (1-10)
+        5. Domain knowledge required (1-10)
+        
+        Return a JSON object with these fields.
+        """
+
+        try:
+            response_text = ""
+            async for chunk in self.llm_provider.generate_text(
+                "complexity_assessor",
+                prompt,
+                system_prompt="You are an expert at estimating task complexity.",
+                stream=False,
+                model=model,
+                temperature=0.2,
+                response_format={"type": "json_object"}
+            ):
+                response_text += chunk
+
+            complexity_data = json.loads(response_text)
+            return complexity_data
+        except Exception as e:
+            print(f"Error assessing complexity: {e}")
+            return {
+                "t_shirt_size": "M",
+                "story_points": 3,
+                "estimated_minutes": 30,
+                "technical_complexity": 5,
+                "domain_knowledge": 5
+            }
+
 #############################################
 # MAIN AGENT PROCESSOR
 #############################################
@@ -1338,7 +1704,8 @@ class QueryProcessor:
         critic_service: Optional[CriticService] = None,
         memory_provider: Optional[MemoryProvider] = None,
         enable_critic: bool = True,
-        router_model: str = "gpt-4o-mini"
+        router_model: str = "gpt-4o-mini",
+        task_planning_service: Optional["TaskPlanningService"] = None
     ):
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -1350,6 +1717,7 @@ class QueryProcessor:
         self.memory_provider = memory_provider
         self.enable_critic = enable_critic
         self.router_model = router_model
+        self.task_planning_service = task_planning_service
         self._shutdown_event = asyncio.Event()
 
     async def process(
@@ -1475,7 +1843,83 @@ class QueryProcessor:
 
                 return response
 
-            # Add more commands as needed
+            elif command == "!plan" and args:
+                # Create a new plan from the task description
+                if not self.task_planning_service:
+                    return "Task planning service is not available."
+
+                complexity = await self._assess_task_complexity(args)
+
+                # Create a parent ticket
+                ticket = await self.ticket_service.get_or_create_ticket(
+                    user_id,
+                    args,
+                    complexity
+                )
+
+                # Generate subtasks
+                subtasks = await self.task_planning_service.generate_subtasks(ticket.id, args)
+
+                if not subtasks:
+                    return "Failed to create task plan."
+
+                # Create a response with subtask details
+                response = f"# Task Plan Created\n\nParent task: **{args}**\n\n"
+                response += f"Created {len(subtasks)} subtasks:\n\n"
+
+                for i, subtask in enumerate(subtasks, 1):
+                    response += f"{i}. **{subtask.title}**\n"
+                    response += f"   - Description: {subtask.description}\n"
+                    response += f"   - Estimated time: {subtask.estimated_minutes} minutes\n"
+                    if subtask.dependencies:
+                        response += f"   - Dependencies: {len(subtask.dependencies)} subtasks\n"
+                    response += "\n"
+
+                return response
+
+            elif command == "!status" and args:
+                # Show status of a specific plan
+                if not self.task_planning_service:
+                    return "Task planning service is not available."
+
+                try:
+                    status = await self.task_planning_service.get_plan_status(args)
+
+                    response = "# Plan Status\n\n"
+                    response += f"{status.visualization}\n\n"
+                    response += f"Status: {status.status}\n"
+                    response += f"Subtasks: {status.subtask_count}\n"
+                    response += f"Estimated completion: {status.estimated_completion}\n"
+
+                    return response
+                except ValueError as e:
+                    return f"Error: {str(e)}"
+
+            elif command == "!assign" and args:
+                # Assign subtasks to agents
+                if not self.task_planning_service:
+                    return "Task planning service is not available."
+
+                try:
+                    assignments = await self.task_planning_service.assign_subtasks(args)
+
+                    if not assignments:
+                        return "No subtasks to assign or no agents available."
+
+                    response = "# Subtask Assignments\n\n"
+
+                    for agent_id, task_ids in assignments.items():
+                        agent_name = agent_id
+                        if agent_id in self.agent_service.get_all_human_agents():
+                            agent_info = self.agent_service.get_all_human_agents()[
+                                agent_id]
+                            agent_name = agent_info.get("name", agent_id)
+
+                        response += f"**{agent_name}**: {len(task_ids)} subtasks assigned\n"
+
+                    return response
+                except ValueError as e:
+                    return f"Error: {str(e)}"
 
         return None
 
@@ -1583,6 +2027,39 @@ class QueryProcessor:
         self, user_id: str, user_text: str, complexity: Dict[str, Any], timezone: str = None
     ) -> AsyncGenerator[str, None]:
         """Process a message creating a new ticket."""
+        # Check if this should be broken down into subtasks
+        if self.task_planning_service:
+            needs_breakdown, reasoning = await self.task_planning_service.needs_breakdown(user_text)
+
+            if needs_breakdown:
+                # Create ticket with planning status
+                ticket = await self.ticket_service.get_or_create_ticket(
+                    user_id,
+                    user_text,
+                    complexity
+                )
+
+                # Mark as planning
+                self.ticket_service.update_ticket_status(
+                    ticket.id,
+                    TicketStatus.PLANNING
+                )
+
+                # Generate subtasks
+                subtasks = await self.task_planning_service.generate_subtasks(ticket.id, user_text)
+
+                # Generate response about the plan
+                yield "I've analyzed your request and determined it's a complex task that should be broken down.\n\n"
+                yield f"Task complexity assessment: {reasoning}\n\n"
+                yield f"I've created a plan with {len(subtasks)} subtasks:\n\n"
+
+                for i, subtask in enumerate(subtasks, 1):
+                    yield f"{i}. {subtask.title}: {subtask.description}\n"
+
+                yield f"\nEstimated total time: {sum(s.estimated_minutes for s in subtasks)} minutes\n"
+                yield f"\nYou can check the plan status with !status {ticket.id}"
+                return
+
         # Route query to appropriate agent
         agent_name = await self.routing_service.route_query(user_text)
 
@@ -1968,6 +2445,10 @@ class SolanaAgentFactory:
         if config.get("enable_critic", True):
             critic_service = CriticService(llm_adapter)
 
+        # Create task planning service
+        task_planning_service = TaskPlanningService(
+            ticket_repo, llm_adapter, agent_service)
+
         # Create main processor
         query_processor = QueryProcessor(
             agent_service=agent_service,
@@ -1979,7 +2460,8 @@ class SolanaAgentFactory:
             critic_service=critic_service,
             memory_provider=memory_provider,
             enable_critic=config.get("enable_critic", True),
-            router_model=config.get("router_model", "gpt-4o-mini")
+            router_model=config.get("router_model", "gpt-4o-mini"),
+            task_planning_service=task_planning_service
         )
 
         # Register predefined agents if any
