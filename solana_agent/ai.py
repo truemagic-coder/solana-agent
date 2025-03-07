@@ -2707,7 +2707,6 @@ class ProjectSimulationService:
         feasibility_score = feasibility.get(
             "feasibility_score", feasibility.get("coverage_score", 50)
         )
-        is_feasible = feasibility.get("feasible", feasibility_score > 70)
         missing_specializations = feasibility.get(
             "missing_specializations", [])
 
