@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from solana_agent.ai import (
     # Domain Models
     MongoHumanAgentRegistry,
+    NotificationService,
+    ProjectApprovalService,
+    ProjectSimulationService,
     TicketStatus,
     AgentType,
     Ticket,
@@ -1380,6 +1383,620 @@ class TestPlatformIntegration:
                 response += chunk
 
             assert response == "Client interface test response"
+
+
+class TestProjectSimulationService:
+    """Tests for the ProjectSimulationService."""
+
+    @pytest.fixture
+    def mock_project_simulation_service(self, mock_llm_provider, task_planning_service):
+        """Create a mocked project simulation service."""
+        return ProjectSimulationService(
+            llm_provider=mock_llm_provider, task_planning_service=task_planning_service
+        )
+
+    @pytest.mark.asyncio
+    async def test_simulate_project(self, mock_project_simulation_service):
+        """Test full project simulation."""
+        # Mock sub-method results
+        complexity = {"t_shirt_size": "L", "story_points": 8}
+        mock_project_simulation_service._assess_task_complexity = AsyncMock(
+            return_value=complexity
+        )
+
+        risks = {
+            "overall_risk": "medium",
+            "items": [
+                {
+                    "type": "technical",
+                    "description": "Tech risk",
+                    "probability": "medium",
+                    "impact": "high",
+                }
+            ],
+        }
+        mock_project_simulation_service._assess_risks = AsyncMock(
+            return_value=risks)
+
+        timeline = {
+            "optimistic": 10,
+            "realistic": 15,
+            "pessimistic": 20,
+            "confidence": "medium",
+        }
+        mock_project_simulation_service._estimate_timeline = AsyncMock(
+            return_value=timeline
+        )
+
+        resources = {
+            "required_specializations": ["frontend", "backend"],
+            "number_of_agents": 2,
+        }
+        mock_project_simulation_service._assess_resource_needs = AsyncMock(
+            return_value=resources
+        )
+
+        feasibility = {
+            "feasible": True,
+            "coverage_score": 80,
+            "missing_specializations": [],
+            "assessment": "high",
+        }
+        mock_project_simulation_service._assess_feasibility = AsyncMock(
+            return_value=feasibility
+        )
+
+        # Mock the recommendation
+        mock_project_simulation_service._generate_recommendation = MagicMock(
+            return_value="RECOMMENDED TO PROCEED"
+        )
+
+        # Run simulation
+        result = await mock_project_simulation_service.simulate_project(
+            "Build a web app"
+        )
+
+        # Verify results
+        assert "complexity" in result
+        assert "risks" in result
+        assert "timeline" in result
+        assert "resources" in result
+        assert "feasibility" in result
+        assert "recommendation" in result
+        assert result["recommendation"] == "RECOMMENDED TO PROCEED"
+
+    @pytest.mark.asyncio
+    async def test_assess_risks(
+        self, mock_project_simulation_service, mock_llm_provider
+    ):
+        """Test risk assessment."""
+        # Set up mock LLM response
+        mock_json = {
+            "technical_risks": [
+                {
+                    "description": "Technology stack incompatibility",
+                    "probability": "medium",
+                    "impact": "high",
+                    "mitigation": "Conduct compatibility testing early",
+                }
+            ],
+            "timeline_risks": [
+                {
+                    "description": "Scope creep",
+                    "probability": "high",
+                    "impact": "high",
+                    "mitigation": "Define clear requirements and change control process",
+                }
+            ],
+            "overall_risk": "medium",
+        }
+
+        async def mock_generate_text(*args, **kwargs):
+            yield json.dumps(mock_json)
+
+        mock_llm_provider.generate_text = mock_generate_text
+
+        # Test risk assessment
+        risks = await mock_project_simulation_service._assess_risks("Build a web app")
+
+        # Verify result contains expected data
+        assert (
+            risks["technical_risks"][0]["description"]
+            == "Technology stack incompatibility"
+        )
+        assert risks["overall_risk"] == "medium"
+
+    @pytest.mark.asyncio
+    async def test_estimate_timeline(
+        self, mock_project_simulation_service, mock_llm_provider
+    ):
+        """Test timeline estimation."""
+        # Set up mock LLM response
+        mock_json = {
+            "optimistic": 10,
+            "realistic": 15,
+            "pessimistic": 25,
+            "confidence": "medium",
+            "factors": ["complexity", "team experience", "dependencies"],
+        }
+
+        async def mock_generate_text(*args, **kwargs):
+            yield json.dumps(mock_json)
+
+        mock_llm_provider.generate_text = mock_generate_text
+
+        # Test timeline estimation
+        complexity = {"t_shirt_size": "L", "story_points": 8}
+        timeline = await mock_project_simulation_service._estimate_timeline(
+            "Build a web app", complexity
+        )
+
+        # Verify result contains expected data
+        assert timeline["optimistic"] == 10
+        assert timeline["realistic"] == 15
+        assert timeline["pessimistic"] == 25
+        assert timeline["confidence"] == "medium"
+        assert "factors" in timeline
+
+    @pytest.mark.asyncio
+    async def test_assess_resource_needs(
+        self, mock_project_simulation_service, mock_llm_provider
+    ):
+        """Test resource needs assessment."""
+        # Set up mock LLM response
+        mock_json = {
+            "required_specializations": ["frontend", "backend", "database"],
+            "number_of_agents": 3,
+            "required_skillsets": ["React", "Node.js", "MongoDB"],
+            "external_resources": ["Cloud hosting", "CI/CD pipeline"],
+        }
+
+        async def mock_generate_text(*args, **kwargs):
+            yield json.dumps(mock_json)
+
+        mock_llm_provider.generate_text = mock_generate_text
+
+        # Test resource assessment
+        complexity = {"t_shirt_size": "L", "story_points": 8}
+        resources = await mock_project_simulation_service._assess_resource_needs(
+            "Build a web app", complexity
+        )
+
+        # Verify result contains expected data
+        assert len(resources["required_specializations"]) == 3
+        assert resources["number_of_agents"] == 3
+        assert "React" in resources["required_skillsets"]
+        assert "Cloud hosting" in resources["external_resources"]
+
+    def test_assess_feasibility(
+        self, mock_project_simulation_service, task_planning_service
+    ):
+        """Test feasibility assessment."""
+        # Setup test data
+        resources = {"required_specializations": ["frontend", "backend", "ai"]}
+
+        # Mock the agent service specializations
+        specializations = {
+            "agent1": "frontend development",
+            "agent2": "backend systems",
+        }
+        task_planning_service.agent_service.get_specializations = MagicMock(
+            return_value=specializations
+        )
+        task_planning_service.agent_service.get_all_ai_agents = MagicMock(
+            return_value={"agent1": {}, "agent2": {}}
+        )
+
+        # Test feasibility assessment
+        feasibility = mock_project_simulation_service._assess_feasibility(
+            resources)
+
+        # Verify result contains expected data
+        assert isinstance(feasibility, dict)
+        assert "feasible" in feasibility
+        assert "coverage_score" in feasibility
+        assert "missing_specializations" in feasibility
+        assert "ai" in feasibility["missing_specializations"]
+        assert feasibility["coverage_score"] < 100
+
+    def test_generate_recommendation(self, mock_project_simulation_service):
+        """Test recommendation generation."""
+        # Test with high feasibility and low risk
+        risks = {"overall_risk": "low"}
+        feasibility = {
+            "feasible": True,
+            "coverage_score": 90,
+            "missing_specializations": [],
+        }
+
+        recommendation = mock_project_simulation_service._generate_recommendation(
+            risks, feasibility
+        )
+        assert "RECOMMENDED" in recommendation.upper()
+
+        # Test with high feasibility but high risk
+        risks = {"overall_risk": "high"}
+        feasibility = {
+            "feasible": True,
+            "coverage_score": 90,
+            "missing_specializations": [],
+        }
+
+        recommendation = mock_project_simulation_service._generate_recommendation(
+            risks, feasibility
+        )
+        assert "CAUTION" in recommendation.upper()
+
+        # Test with low feasibility
+        risks = {"overall_risk": "low"}
+        feasibility = {
+            "feasible": False,
+            "coverage_score": 40,
+            "missing_specializations": ["ai", "data science"],
+        }
+
+        recommendation = mock_project_simulation_service._generate_recommendation(
+            risks, feasibility
+        )
+        assert "NOT RECOMMENDED" in recommendation.upper()
+
+    class TestNotificationService:
+        """Tests for NotificationService."""
+
+        @pytest.fixture
+        def mock_notification_service(self, mock_human_agent_registry):
+            """Create a mocked notification service."""
+            return NotificationService(mock_human_agent_registry)
+
+        def test_send_notification_with_handler(
+            self, mock_notification_service, mock_human_agent_registry
+        ):
+            """Test sending notification when agent has a handler."""
+            # Setup mock handler
+            mock_handler = MagicMock()
+
+            # Create agent with handler
+            test_agent = {
+                "agent_id": "agent_with_handler",
+                "name": "Test Agent",
+                "notification_handler": mock_handler,
+                "availability_status": "available",
+            }
+
+            # Mock get_human_agent to return our test agent
+            mock_human_agent_registry.get_human_agent = MagicMock(
+                return_value=test_agent
+            )
+
+            # Test sending notification
+            result = mock_notification_service.send_notification(
+                "agent_with_handler", "Test notification", {"ticket_id": "123"}
+            )
+
+            # Verify handler was called
+            assert result is True
+            mock_handler.assert_called_once_with(
+                "Test notification", {"ticket_id": "123"}
+            )
+
+        def test_send_notification_without_handler(
+            self, mock_notification_service, mock_human_agent_registry
+        ):
+            """Test sending notification when agent has no handler."""
+            # Create agent without handler
+            test_agent = {
+                "agent_id": "agent_without_handler",
+                "name": "Test Agent",
+                "availability_status": "available",
+            }
+
+            # Mock get_human_agent to return our test agent
+            mock_human_agent_registry.get_human_agent = MagicMock(
+                return_value=test_agent
+            )
+
+            # Test sending notification
+            result = mock_notification_service.send_notification(
+                "agent_without_handler", "Test notification"
+            )
+
+            # Verify result is false since no handler was available
+            assert result is False
+
+        def test_send_notification_agent_not_found(
+            self, mock_notification_service, mock_human_agent_registry
+        ):
+            """Test sending notification to non-existent agent."""
+            # Mock get_human_agent to return None
+            mock_human_agent_registry.get_human_agent = MagicMock(
+                return_value=None)
+
+            # Test sending notification
+            result = mock_notification_service.send_notification(
+                "nonexistent_agent", "Test notification"
+            )
+
+            # Verify result is false since agent wasn't found
+            assert result is False
+
+        def test_notify_approvers(self, mock_notification_service):
+            """Test notifying multiple approvers."""
+            # Mock send_notification
+            mock_notification_service.send_notification = MagicMock(
+                return_value=True)
+
+            # Test notifying multiple approvers
+            approvers = ["approver1", "approver2", "approver3"]
+            mock_notification_service.notify_approvers(
+                approvers, "Approval needed", {"ticket_id": "123"}
+            )
+
+            # Verify send_notification was called for each approver
+            assert mock_notification_service.send_notification.call_count == len(
+                approvers
+            )
+
+    class TestProjectApprovalService:
+        """Tests for ProjectApprovalService."""
+
+        @pytest.fixture
+        def mock_project_approval_service(
+            self, mock_ticket_repository, mock_human_agent_registry
+        ):
+            """Create a mocked project approval service."""
+            notification_service = NotificationService(
+                mock_human_agent_registry)
+            return ProjectApprovalService(
+                mock_ticket_repository, mock_human_agent_registry, notification_service
+            )
+
+        def test_register_approver(
+            self, mock_project_approval_service, mock_human_agent_registry
+        ):
+            """Test registering an approver."""
+            # Setup mock to recognize the agent
+            mock_human_agent_registry.get_all_human_agents = MagicMock(
+                return_value={"approver1": {}}
+            )
+
+            # Register approver
+            mock_project_approval_service.register_approver("approver1")
+
+            # Verify approver was added
+            assert "approver1" in mock_project_approval_service.approvers
+
+            # Try to register non-existent agent
+            mock_project_approval_service.register_approver("nonexistent")
+
+            # Verify non-existent agent wasn't added
+            assert "nonexistent" not in mock_project_approval_service.approvers
+
+        @pytest.mark.asyncio
+        async def test_submit_for_approval(
+            self, mock_project_approval_service, mock_ticket_repository, sample_ticket
+        ):
+            """Test submitting a project for approval."""
+            # Add an approver
+            mock_project_approval_service.approvers = ["approver1"]
+
+            # Mock notification service
+            mock_project_approval_service.notification_service.send_notification = (
+                AsyncMock(return_value=True)
+            )
+
+            # Submit for approval
+            await mock_project_approval_service.submit_for_approval(sample_ticket)
+
+            # Verify ticket was updated
+            mock_ticket_repository.update.assert_called_once()
+            args, kwargs = mock_ticket_repository.update.call_args
+            assert args[0] == sample_ticket.id
+            assert args[1]["status"] == TicketStatus.PENDING
+            assert args[1]["approval_status"] == "awaiting_approval"
+
+            # Verify notification was sent
+            mock_project_approval_service.notification_service.send_notification.assert_called_once()
+
+        @pytest.mark.asyncio
+        async def test_process_approval_approved(
+            self, mock_project_approval_service, mock_ticket_repository, sample_ticket
+        ):
+            """Test processing an approval decision (approved)."""
+            # Add an approver
+            mock_project_approval_service.approvers = ["approver1"]
+
+            # Mock get_by_id to return our sample ticket
+            mock_ticket_repository.get_by_id = MagicMock(
+                return_value=sample_ticket)
+
+            # Process approval (approved)
+            await mock_project_approval_service.process_approval(
+                "123", "approver1", True, "Looks good"
+            )
+
+            # Verify ticket was updated
+            mock_ticket_repository.update.assert_called_once()
+            args, kwargs = mock_ticket_repository.update.call_args
+            assert args[0] == "123"
+            assert args[1]["status"] == TicketStatus.ACTIVE
+            assert args[1]["approval_status"] == "approved"
+            assert args[1]["approver_id"] == "approver1"
+            assert args[1]["approval_comments"] == "Looks good"
+
+        @pytest.mark.asyncio
+        async def test_process_approval_rejected(
+            self, mock_project_approval_service, mock_ticket_repository, sample_ticket
+        ):
+            """Test processing an approval decision (rejected)."""
+            # Add an approver
+            mock_project_approval_service.approvers = ["approver1"]
+
+            # Mock get_by_id to return our sample ticket
+            mock_ticket_repository.get_by_id = MagicMock(
+                return_value=sample_ticket)
+
+            # Process approval (rejected)
+            await mock_project_approval_service.process_approval(
+                "123", "approver1", False, "Not feasible"
+            )
+
+            # Verify ticket was updated
+            mock_ticket_repository.update.assert_called_once()
+            args, kwargs = mock_ticket_repository.update.call_args
+            assert args[0] == "123"
+            assert args[1]["status"] == TicketStatus.RESOLVED
+            assert args[1]["approval_status"] == "rejected"
+            assert args[1]["approver_id"] == "approver1"
+            assert args[1]["approval_comments"] == "Not feasible"
+
+        @pytest.mark.asyncio
+        async def test_process_approval_unauthorized(
+            self, mock_project_approval_service, mock_ticket_repository
+        ):
+            """Test approval from unauthorized user."""
+            # Add an approver (not the one trying to approve)
+            mock_project_approval_service.approvers = ["approver1"]
+
+            # Ensure this raises an exception
+            with pytest.raises(ValueError, match="Not authorized to approve"):
+                await mock_project_approval_service.process_approval(
+                    "123", "unauthorized", True
+                )
+
+            # Verify repo was not called
+            mock_ticket_repository.update.assert_not_called()
+
+        @pytest.mark.asyncio
+        async def test_process_approval_no_ticket(
+            self, mock_project_approval_service, mock_ticket_repository
+        ):
+            """Test approval with non-existent ticket."""
+            # Add an approver
+            mock_project_approval_service.approvers = ["approver1"]
+
+            # Mock get_by_id to return None
+            mock_ticket_repository.get_by_id = MagicMock(return_value=None)
+
+            # Ensure this raises an exception
+            with pytest.raises(ValueError, match="Ticket .* not found"):
+                await mock_project_approval_service.process_approval(
+                    "nonexistent", "approver1", True
+                )
+
+            # Verify repo was not called
+            mock_ticket_repository.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    class TestQueryProcessorWithProjectApproval:
+        """Test QueryProcessor with project approval and simulation."""
+
+        @pytest.fixture
+        def query_processor_with_approval(
+            self, query_processor, mock_ticket_repository
+        ):
+            """Create a query processor with approval requirements."""
+            query_processor.require_human_approval = True
+
+            # Create project approval service
+            query_processor.project_approval_service = MagicMock()
+            query_processor.project_approval_service.submit_for_approval = AsyncMock()
+
+            # Create project simulation service
+            query_processor.project_simulation_service = MagicMock()
+            query_processor.project_simulation_service.simulate_project = AsyncMock(
+                return_value={
+                    "complexity": {"t_shirt_size": "L"},
+                    "risks": {"overall_risk": "medium"},
+                    "timeline": {"realistic": 15},
+                    "recommendation": "PROCEED WITH CAUTION",
+                }
+            )
+
+            return query_processor
+
+        async def test_process_with_human_approval(
+            self, query_processor_with_approval, mock_ticket_repository, sample_ticket
+        ):
+            """Test processing a query that requires human approval."""
+            # Setup mocks
+            query_processor_with_approval._is_human_agent = AsyncMock(
+                return_value=False
+            )
+            query_processor_with_approval._is_simple_greeting = AsyncMock(
+                return_value=False
+            )
+            query_processor_with_approval._process_system_commands = AsyncMock(
+                return_value=None
+            )
+            mock_ticket_repository.get_active_for_user.return_value = None
+
+            # Setup complexity to be non-simple
+            query_processor_with_approval._assess_task_complexity = AsyncMock(
+                return_value={"t_shirt_size": "L", "story_points": 8}
+            )
+
+            # Mock the ticket service
+            query_processor_with_approval.ticket_service.get_or_create_ticket = (
+                AsyncMock(return_value=sample_ticket)
+            )
+
+            # Test processing with approval requirement
+            response = ""
+            async for chunk in query_processor_with_approval.process(
+                "user1", "Create a complex project"
+            ):
+                response += chunk
+
+            # Verify simulation was run
+            query_processor_with_approval.project_simulation_service.simulate_project.assert_called_once()
+
+            # Verify ticket was submitted for approval
+            query_processor_with_approval.project_approval_service.submit_for_approval.assert_called_once_with(
+                sample_ticket
+            )
+
+            # Verify response contains simulation results and approval message
+            assert "Project Simulation Results" in response
+            assert "PROCEED WITH CAUTION" in response
+            assert "submitted for approval" in response
+
+        async def test_simple_query_bypasses_approval(
+            self, query_processor_with_approval, mock_ticket_repository
+        ):
+            """Test that simple queries bypass the approval process."""
+            # Setup mocks
+            query_processor_with_approval._is_human_agent = AsyncMock(
+                return_value=False
+            )
+            query_processor_with_approval._is_simple_greeting = AsyncMock(
+                return_value=False
+            )
+            query_processor_with_approval._process_system_commands = AsyncMock(
+                return_value=None
+            )
+            mock_ticket_repository.get_active_for_user.return_value = None
+
+            # Setup complexity to be simple
+            query_processor_with_approval._assess_task_complexity = AsyncMock(
+                return_value={"t_shirt_size": "XS", "story_points": 1}
+            )
+
+            # Mock routing and response generation
+            query_processor_with_approval.routing_service.route_query = AsyncMock(
+                return_value="test_agent"
+            )
+
+            # Test processing with a simple query
+            async for _ in query_processor_with_approval.process(
+                "user1", "Simple question"
+            ):
+                pass
+
+            # Verify simulation was not run
+            query_processor_with_approval.project_simulation_service.simulate_project.assert_not_called()
+
+            # Verify ticket was not submitted for approval
+            query_processor_with_approval.project_approval_service.submit_for_approval.assert_not_called()
 
 
 if __name__ == "__main__":

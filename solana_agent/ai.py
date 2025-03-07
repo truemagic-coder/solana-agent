@@ -1986,6 +1986,357 @@ class TaskPlanningService:
             }
 
 
+class NotificationService:
+    """Service for sending notifications to human agents or users."""
+
+    def __init__(self, human_agent_registry: MongoHumanAgentRegistry):
+        """Initialize the notification service with a human agent registry."""
+        self.human_agent_registry = human_agent_registry
+
+    def send_notification(
+        self, recipient_id: str, message: str, metadata: Dict[str, Any] = None
+    ) -> bool:
+        """
+        Send a notification to a human agent.
+
+        Args:
+            recipient_id: ID of the human agent to notify
+            message: Notification message content
+            metadata: Additional data related to the notification (e.g., ticket_id)
+
+        Returns:
+            True if notification was sent, False otherwise
+        """
+        # Get human agent information
+        agent = self.human_agent_registry.get_human_agent(recipient_id)
+        if not agent:
+            print(f"Cannot send notification: Agent {recipient_id} not found")
+            return False
+
+        # If agent has a notification handler, use it
+        if agent.get("notification_handler"):
+            try:
+                # Call the handler with the message and metadata
+                handler = agent["notification_handler"]
+                if metadata:
+                    handler(message, metadata)
+                else:
+                    handler(message)
+                return True
+            except Exception as e:
+                print(
+                    f"Error sending notification to {recipient_id}: {str(e)}")
+                return False
+        else:
+            # Log notification if no handler is available
+            print(f"Notification for {recipient_id} (no handler): {message}")
+            return False
+
+    def notify_approvers(
+        self, approvers: List[str], message: str, metadata: Dict[str, Any] = None
+    ) -> None:
+        """Send notifications to multiple approvers."""
+        for approver_id in approvers:
+            self.send_notification(approver_id, message, metadata)
+
+
+class ProjectApprovalService:
+    """Service for managing human approval of new projects."""
+
+    def __init__(
+        self,
+        ticket_repository: TicketRepository,
+        human_agent_registry: MongoHumanAgentRegistry,
+        notification_service: NotificationService = None,
+    ):
+        self.ticket_repository = ticket_repository
+        self.human_agent_registry = human_agent_registry
+        self.notification_service = notification_service
+        self.approvers = []  # List of human agents with approval privileges
+
+    def register_approver(self, agent_id: str) -> None:
+        """Register a human agent as a project approver."""
+        if agent_id in self.human_agent_registry.get_all_human_agents():
+            self.approvers.append(agent_id)
+
+    async def submit_for_approval(self, ticket: Ticket) -> None:
+        """Submit a project for human approval."""
+        # Update ticket status
+        self.ticket_repository.update(
+            ticket.id,
+            {
+                "status": TicketStatus.PENDING,
+                "approval_status": "awaiting_approval",
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            },
+        )
+
+        # Notify approvers
+        if self.notification_service:
+            for approver_id in self.approvers:
+                self.notification_service.send_notification(
+                    approver_id,
+                    f"New project requires approval: {ticket.query}",
+                    {"ticket_id": ticket.id, "type": "approval_request"},
+                )
+
+    async def process_approval(
+        self, ticket_id: str, approver_id: str, approved: bool, comments: str = ""
+    ) -> None:
+        """Process an approval decision."""
+        if approver_id not in self.approvers:
+            raise ValueError("Not authorized to approve projects")
+
+        ticket = self.ticket_repository.get_by_id(ticket_id)
+        if not ticket:
+            raise ValueError(f"Ticket {ticket_id} not found")
+
+        if approved:
+            self.ticket_repository.update(
+                ticket_id,
+                {
+                    "status": TicketStatus.ACTIVE,
+                    "approval_status": "approved",
+                    "approver_id": approver_id,
+                    "approval_comments": comments,
+                    "approved_at": datetime.datetime.now(datetime.timezone.utc),
+                },
+            )
+        else:
+            self.ticket_repository.update(
+                ticket_id,
+                {
+                    "status": TicketStatus.RESOLVED,
+                    "approval_status": "rejected",
+                    "approver_id": approver_id,
+                    "approval_comments": comments,
+                    "rejected_at": datetime.datetime.now(datetime.timezone.utc),
+                },
+            )
+
+
+class ProjectSimulationService:
+    """Service for simulating project feasibility and requirements."""
+
+    def __init__(
+        self, llm_provider: LLMProvider, task_planning_service: TaskPlanningService
+    ):
+        self.llm_provider = llm_provider
+        self.task_planning_service = task_planning_service
+
+    async def simulate_project(self, project_description: str) -> Dict[str, Any]:
+        """Run a full simulation on a potential project."""
+        # Get basic complexity assessment
+        complexity = await self.task_planning_service._assess_task_complexity(
+            project_description
+        )
+
+        # Perform risk assessment
+        risks = await self._assess_risks(project_description)
+
+        # Estimate timeline with confidence intervals
+        timeline = await self._estimate_timeline(project_description, complexity)
+
+        # Assess resource requirements
+        resources = await self._assess_resource_needs(project_description, complexity)
+
+        # Check against current capacity
+        feasibility = await self._assess_feasibility(resources)
+
+        return {
+            "complexity": complexity,
+            "risks": risks,
+            "timeline": timeline,
+            "resources": resources,
+            "feasibility": feasibility,
+            "recommendation": self._generate_recommendation(risks, feasibility),
+        }
+
+    async def _assess_risks(self, project_description: str) -> Dict[str, Any]:
+        """Assess potential risks in the project."""
+        prompt = f"""
+        Analyze this potential project and identify risks:
+        
+        PROJECT: {project_description}
+        
+        Please identify:
+        1. Technical risks
+        2. Timeline risks
+        3. Resource/capacity risks
+        4. External dependency risks
+        
+        For each risk, provide:
+        - Description
+        - Probability (low/medium/high)
+        - Impact (low/medium/high)
+        - Potential mitigation strategies
+        
+        Return as structured JSON.
+        """
+
+        response = ""
+        async for chunk in self.llm_provider.generate_text(
+            "risk_assessor",
+            prompt,
+            system_prompt="You are an expert risk analyst for software and AI projects.",
+            stream=False,
+            model="gpt-4o",
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        ):
+            response += chunk
+
+        return json.loads(response)
+
+    async def _estimate_timeline(
+        self, project_description: str, complexity: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Estimate timeline with confidence intervals."""
+        prompt = f"""
+        Analyze this project and provide timeline estimates:
+        
+        PROJECT: {project_description}
+        
+        COMPLEXITY: {json.dumps(complexity)}
+        
+        Please provide:
+        1. Optimistic timeline (days)
+        2. Realistic timeline (days)
+        3. Pessimistic timeline (days)
+        4. Confidence level in estimate (low/medium/high)
+        5. Key factors affecting the timeline
+        
+        Return as structured JSON.
+        """
+
+        response = ""
+        async for chunk in self.llm_provider.generate_text(
+            "timeline_estimator",
+            prompt,
+            system_prompt="You are an expert project manager skilled at timeline estimation.",
+            stream=False,
+            model="gpt-4o",
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        ):
+            response += chunk
+
+        return json.loads(response)
+
+    async def _assess_resource_needs(
+        self, project_description: str, complexity: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Assess resource requirements for the project."""
+        prompt = f"""
+        Analyze this project and identify required resources and skills:
+        
+        PROJECT: {project_description}
+        
+        COMPLEXITY: {json.dumps(complexity)}
+        
+        Please identify:
+        1. Required agent specializations
+        2. Number of agents needed
+        3. Required skillsets and expertise levels
+        4. External resources or tools needed
+        5. Knowledge domains involved
+        
+        Return as structured JSON.
+        """
+
+        response = ""
+        async for chunk in self.llm_provider.generate_text(
+            "resource_assessor",
+            prompt,
+            system_prompt="You are an expert resource planner for AI and software projects.",
+            stream=False,
+            model="gpt-4o",
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        ):
+            response += chunk
+
+        return json.loads(response)
+
+    def _assess_feasibility(self, resource_needs: Dict[str, Any]) -> Dict[str, Any]:
+        """Check if we have capacity to take on this project."""
+        # In a real implementation, this would check against actual system capacity
+        # For now, we'll make a simulated assessment
+
+        required_specializations = resource_needs.get(
+            "required_specializations", [])
+
+        # Get available agents and their specializations
+        available_specializations = set()
+        for (
+            agent_id,
+            specialization,
+        ) in self.task_planning_service.agent_service.get_specializations().items():
+            available_specializations.add(specialization)
+
+        # Check which required specializations we have
+        missing_specializations = []
+        for spec in required_specializations:
+            found = False
+            for avail_spec in available_specializations:
+                if (
+                    spec.lower() in avail_spec.lower()
+                    or avail_spec.lower() in spec.lower()
+                ):
+                    found = True
+                    break
+            if not found:
+                missing_specializations.append(spec)
+
+        # Calculate feasibility score
+        coverage = 1.0 - (
+            len(missing_specializations) /
+            max(len(required_specializations), 1)
+        )
+
+        # Generate feasibility assessment
+        return {
+            "feasible": coverage > 0.7,
+            "coverage_score": round(coverage * 100, 1),
+            "missing_specializations": missing_specializations,
+            "available_agents": len(
+                self.task_planning_service.agent_service.get_all_ai_agents()
+            ),
+            "available_specializations": list(available_specializations),
+            "assessment": "high"
+            if coverage > 0.8
+            else "medium"
+            if coverage > 0.5
+            else "low",
+        }
+
+    def _generate_recommendation(
+        self, risks: Dict[str, Any], feasibility: Dict[str, Any]
+    ) -> str:
+        """Generate an overall recommendation."""
+        # Get risk level
+        risk_level = risks.get("overall_risk", "medium")
+
+        # Get feasibility assessment
+        feasibility_score = feasibility.get("coverage_score", 50)
+        is_feasible = feasibility.get("feasible", False)
+        missing_specializations = feasibility.get(
+            "missing_specializations", [])
+
+        # Make recommendation
+        if is_feasible and risk_level in ["low", "medium"]:
+            return f"RECOMMENDED TO PROCEED: This project appears feasible with our current resources (specialization coverage: {feasibility_score}%). The risk level is {risk_level}."
+
+        elif is_feasible and risk_level == "high":
+            return f"PROCEED WITH CAUTION: This project is technically feasible (specialization coverage: {feasibility_score}%), but has high risks that should be mitigated before or during execution."
+
+        elif not is_feasible and len(missing_specializations) > 0:
+            return f"NOT RECOMMENDED: This project requires specializations we currently lack: {', '.join(missing_specializations)}. Consider acquiring these skills or modifying the project scope."
+
+        else:
+            return "NEEDS FURTHER ASSESSMENT: The combination of risks and resource constraints requires a more detailed evaluation before proceeding."
+
+
 #############################################
 # MAIN AGENT PROCESSOR
 #############################################
@@ -2007,6 +2358,9 @@ class QueryProcessor:
         enable_critic: bool = True,
         router_model: str = "gpt-4o-mini",
         task_planning_service: Optional["TaskPlanningService"] = None,
+        project_approval_service: Optional[ProjectApprovalService] = None,
+        project_simulation_service: Optional[ProjectSimulationService] = None,
+        require_human_approval: bool = False,
     ):
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -2019,6 +2373,9 @@ class QueryProcessor:
         self.enable_critic = enable_critic
         self.router_model = router_model
         self.task_planning_service = task_planning_service
+        self.project_approval_service = project_approval_service
+        self.project_simulation_service = project_simulation_service
+        self.require_human_approval = require_human_approval
         self._shutdown_event = asyncio.Event()
 
     async def process(
@@ -2249,6 +2606,53 @@ class QueryProcessor:
                 except ValueError as e:
                     return f"Error: {str(e)}"
 
+            elif command == "!simulate" and args:
+                # Run project simulation
+                if not self.project_simulation_service:
+                    return "Project simulation service is not available."
+
+                simulation = await self.project_simulation_service.simulate_project(
+                    args
+                )
+
+                response = "# Project Simulation Results\n\n"
+                response += f"**Project**: {args}\n\n"
+                response += f"**Complexity**: {simulation['complexity']['t_shirt_size']} ({simulation['complexity']['story_points']} points)\n"
+                response += f"**Timeline Estimate**: {simulation['timeline']['realistic']} days\n"
+                response += f"**Risk Level**: {simulation['risks']['overall_risk']}\n\n"
+
+                response += "## Key Risks\n\n"
+                for risk in simulation["risks"]["items"][:3]:  # Top 3 risks
+                    response += f"- **{risk['type']}**: {risk['description']} (P: {risk['probability']}, I: {risk['impact']})\n"
+
+                response += f"\n## Recommendation\n\n{simulation['recommendation']}"
+
+                return response
+
+            elif command == "!approve" and args:
+                # Format: !approve ticket_id [yes/no] [comments]
+                if not self.project_approval_service:
+                    return "Project approval service is not available."
+
+                parts = args.strip().split(" ", 2)
+                if len(parts) < 2:
+                    return "Usage: !approve ticket_id yes/no [comments]"
+
+                ticket_id = parts[0]
+                approved = parts[1].lower() in [
+                    "yes",
+                    "true",
+                    "approve",
+                    "approved",
+                    "1",
+                ]
+                comments = parts[2] if len(parts) > 2 else ""
+
+                await self.project_approval_service.process_approval(
+                    ticket_id, user_id, approved, comments
+                )
+                return f"Project {ticket_id} has been {'approved' if approved else 'rejected'}."
+
         return None
 
     async def _process_existing_ticket(
@@ -2369,7 +2773,6 @@ class QueryProcessor:
         timezone: str = None,
     ) -> AsyncGenerator[str, None]:
         """Process a message creating a new ticket."""
-        # Check if this should be broken down into subtasks
         if self.task_planning_service:
             (
                 needs_breakdown,
@@ -2402,6 +2805,36 @@ class QueryProcessor:
 
                 yield f"\nEstimated total time: {sum(s.estimated_minutes for s in subtasks)} minutes\n"
                 yield f"\nYou can check the plan status with !status {ticket.id}"
+                return
+
+        # Check if human approval is required
+        is_simple_query = (
+            complexity.get("t_shirt_size") in ["XS", "S"]
+            and complexity.get("story_points", 3) <= 3
+        )
+
+        if self.require_human_approval and not is_simple_query:
+            # Create ticket first
+            ticket = await self.ticket_service.get_or_create_ticket(
+                user_id, user_text, complexity
+            )
+
+            # Simulate project if service is available
+            if self.project_simulation_service:
+                simulation = await self.project_simulation_service.simulate_project(
+                    user_text
+                )
+                yield "Analyzing project feasibility...\n\n"
+                yield "## Project Simulation Results\n\n"
+                yield f"**Complexity**: {simulation['complexity']['t_shirt_size']}\n"
+                yield f"**Timeline**: {simulation['timeline']['realistic']} days\n"
+                yield f"**Risk Level**: {simulation['risks']['overall_risk']}\n"
+                yield f"**Recommendation**: {simulation['recommendation']}\n\n"
+
+            # Submit for approval
+            if self.project_approval_service:
+                await self.project_approval_service.submit_for_approval(ticket)
+                yield "\nThis project has been submitted for approval. You'll be notified once it's reviewed."
                 return
 
         # Route query to appropriate agent
@@ -2821,6 +3254,14 @@ class SolanaAgentFactory:
             ticket_repo, llm_adapter, agent_service
         )
 
+        notification_service = NotificationService(human_agent_repo)
+        project_approval_service = ProjectApprovalService(
+            ticket_repo, human_agent_repo, notification_service
+        )
+        project_simulation_service = ProjectSimulationService(
+            llm_adapter, task_planning_service
+        )
+
         # Create main processor
         query_processor = QueryProcessor(
             agent_service=agent_service,
@@ -2834,6 +3275,9 @@ class SolanaAgentFactory:
             enable_critic=config.get("enable_critic", True),
             router_model=config.get("router_model", "gpt-4o-mini"),
             task_planning_service=task_planning_service,
+            project_approval_service=project_approval_service,
+            project_simulation_service=project_simulation_service,
+            require_human_approval=config.get("require_human_approval", False),
         )
 
         # Register predefined agents if any
