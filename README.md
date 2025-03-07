@@ -231,7 +231,7 @@ agent_service.register_ai_agent(
     name="research_specialist",
     instructions="You are an expert researcher who synthesizes complex information clearly.",
     specialization="Research and knowledge synthesis",
-    model="gpt-4o"
+    model="o3-mini"
 )
 
 agent_service.register_ai_agent(
