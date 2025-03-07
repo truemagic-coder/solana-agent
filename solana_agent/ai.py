@@ -2633,9 +2633,17 @@ class ProjectSimulationService:
             max(len(required_specializations), 1)
         )
 
-        # Factor in system load
+        # Factor in system load - NOW ACTUALLY USING IT
         load_factor = 1.0
         load_percentage = system_load.get("load_percentage", 0)
+
+        # Adjust load factor based on current system load
+        if load_percentage > 90:
+            load_factor = 0.3  # Heavily reduce feasibility when system is near capacity
+        elif load_percentage > 80:
+            load_factor = 0.5  # Significantly reduce feasibility for high load
+        elif load_percentage > 60:
+            load_factor = 0.8  # Moderately reduce feasibility for medium load
 
         # Calculate overall feasibility score considering both expertise and load
         feasibility_score = coverage * load_factor * 100
@@ -2649,6 +2657,9 @@ class ProjectSimulationService:
                 self.task_planning_service.agent_service.get_all_ai_agents()
             ),
             "available_specializations": list(available_specializations),
+            # Include the load percentage in the result
+            "system_load_percentage": load_percentage,
+            "load_factor": load_factor,  # Include the calculated load factor for transparency
             "assessment": "high"
             if feasibility_score > 80
             else "medium"
