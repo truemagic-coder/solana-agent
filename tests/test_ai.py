@@ -7,9 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from solana_agent.ai import (
     # Domain Models
     MongoHumanAgentRegistry,
+    MultitenantSolanaAgent,
+    MultitenantSolanaAgentFactory,
     NotificationService,
     ProjectApprovalService,
     ProjectSimulationService,
+    QdrantAdapter,
+    TenantContext,
+    TenantManager,
     TicketStatus,
     AgentType,
     Ticket,
@@ -1997,6 +2002,599 @@ class TestProjectSimulationService:
 
             # Verify ticket was not submitted for approval
             query_processor_with_approval.project_approval_service.submit_for_approval.assert_not_called()
+
+
+class TestQdrantAdapter:
+    """Tests for the Qdrant vector store adapter."""
+
+    @pytest.fixture
+    def mock_qdrant_client(self):
+        """Mock the Qdrant client."""
+        with patch("qdrant_client.QdrantClient") as mock_client:
+            # Set up collections list mock
+            mock_collections = MagicMock()
+            mock_collections.collections = [
+                MagicMock(name="existing_collection")]
+            mock_client.return_value.get_collections.return_value = mock_collections
+
+            yield mock_client.return_value
+
+    @patch("qdrant_client.QdrantClient")
+    def test_initialization(self, mock_client_class):
+        """Test initialization creates the collection if it doesn't exist."""
+        # Setup mock client
+        mock_client = mock_client_class.return_value
+        mock_client.get_collections.return_value.collections = []
+
+        QdrantAdapter(
+            url="http://test-url:6333",
+            api_key="test-key",
+            collection_name="test_collection",
+        )
+
+        # Verify client was created with correct params
+        mock_client_class.assert_called_once_with(
+            url="http://test-url:6333", api_key="test-key"
+        )
+
+        # Verify create_collection was called if collection doesn't exist
+        mock_client.create_collection.assert_called_once()
+        args, kwargs = mock_client.create_collection.call_args
+        assert kwargs["collection_name"] == "test_collection"
+
+    @patch("qdrant_client.QdrantClient")
+    def test_initialization_existing_collection(self, mock_client_class):
+        """Test initialization doesn't recreate an existing collection."""
+        # Setup mock client
+        mock_client = mock_client_class.return_value
+        mock_collection = MagicMock()
+        mock_collection.name = "test_collection"
+        mock_client.get_collections.return_value.collections = [
+            mock_collection]
+
+        # Test initialization with existing collection
+        QdrantAdapter(collection_name="test_collection")
+
+        # Verify create_collection was not called
+        mock_client.create_collection.assert_not_called()
+
+    @patch("qdrant_client.QdrantClient")
+    def test_store_vectors(self, mock_client_class):
+        """Test storing vectors in Qdrant."""
+        # Setup mock client
+        mock_client = mock_client_class.return_value
+
+        # Create adapter
+        adapter = QdrantAdapter(collection_name="test_collection")
+
+        # Test data
+        vectors = [
+            {"id": "vec1", "values": [0.1, 0.2, 0.3],
+                "metadata": {"key": "value1"}},
+            {"id": "vec2", "values": [0.4, 0.5, 0.6],
+                "metadata": {"key": "value2"}},
+        ]
+
+        # Store vectors
+        adapter.store_vectors(vectors, "test_namespace")
+
+        # Verify upsert was called correctly
+        mock_client.upsert.assert_called_once()
+        args, kwargs = mock_client.upsert.call_args
+
+        # Check collection name
+        assert kwargs["collection_name"] == "test_collection"
+
+        # Check points format - we can't directly check the PointStruct objects
+        # but we can verify the call was made with the right number of points
+        assert len(kwargs["points"]) == 2
+
+    @patch("qdrant_client.QdrantClient")
+    def test_search_vectors(self, mock_client_class):
+        """Test searching vectors in Qdrant."""
+        # Setup mock client
+        mock_client = mock_client_class.return_value
+
+        # Setup mock search results
+        result1 = MagicMock()
+        result1.id = "vec1"
+        result1.score = 0.95
+        result1.payload = {"namespace": "test_namespace", "key": "value1"}
+
+        result2 = MagicMock()
+        result2.id = "vec2"
+        result2.score = 0.85
+        result2.payload = {"namespace": "test_namespace", "key": "value2"}
+
+        mock_client.search.return_value = [result1, result2]
+
+        # Create adapter
+        adapter = QdrantAdapter(collection_name="test_collection")
+
+        # Test search
+        results = adapter.search_vectors(
+            [0.1, 0.2, 0.3], "test_namespace", limit=2)
+
+        # Verify search was called correctly
+        mock_client.search.assert_called_once()
+        args, kwargs = mock_client.search.call_args
+        assert kwargs["collection_name"] == "test_collection"
+        assert kwargs["query_vector"] == [0.1, 0.2, 0.3]
+        assert kwargs["limit"] == 2
+
+        # Verify filter contains namespace condition
+        assert "must" in kwargs["query_filter"].dict()
+
+        # Verify search results were formatted correctly
+        assert len(results) == 2
+        assert results[0]["id"] == "vec1"
+        assert results[0]["score"] == 0.95
+        assert results[0]["metadata"]["key"] == "value1"
+        assert results[1]["id"] == "vec2"
+        assert results[1]["score"] == 0.85
+
+    @patch("qdrant_client.QdrantClient")
+    def test_delete_vector(self, mock_client_class):
+        """Test deleting a vector from Qdrant."""
+        # Setup mock client
+        mock_client = mock_client_class.return_value
+
+        # Create adapter
+        adapter = QdrantAdapter(collection_name="test_collection")
+
+        # Test delete
+        adapter.delete_vector("vec1", "test_namespace")
+
+        # Verify delete was called correctly
+        mock_client.delete.assert_called_once()
+        args, kwargs = mock_client.delete.call_args
+        assert kwargs["collection_name"] == "test_collection"
+        assert "vec1" in str(kwargs["points_selector"].dict())
+        assert kwargs["wait"] is True
+
+
+class TestTenantContext:
+    """Tests for the TenantContext class."""
+
+    def test_initialization(self):
+        """Test initialization with and without config."""
+        # Test with no config
+        context = TenantContext("tenant1")
+        assert context.tenant_id == "tenant1"
+        assert context.config == {}
+        assert context.metadata == {}
+
+        # Test with config
+        config = {"key": "value", "nested": {"subkey": "subvalue"}}
+        context = TenantContext("tenant2", config)
+        assert context.tenant_id == "tenant2"
+        assert context.config == config
+        assert context.metadata == {}
+
+    def test_get_config_value(self):
+        """Test retrieving config values."""
+        config = {"key1": "value1", "nested": {"key2": "value2"}}
+        context = TenantContext("tenant1", config)
+
+        # Test getting existing values
+        assert context.get_config_value("key1") == "value1"
+        assert context.get_config_value("nested") == {"key2": "value2"}
+
+        # Test getting non-existent values
+        assert context.get_config_value("nonexistent") is None
+        assert context.get_config_value("nonexistent", "default") == "default"
+
+    def test_metadata_management(self):
+        """Test setting and getting metadata."""
+        context = TenantContext("tenant1")
+
+        # Test setting and getting metadata
+        context.set_metadata("key1", "value1")
+        context.set_metadata("key2", {"nested": "value2"})
+
+        assert context.get_metadata("key1") == "value1"
+        assert context.get_metadata("key2") == {"nested": "value2"}
+
+        # Test getting non-existent metadata
+        assert context.get_metadata("nonexistent") is None
+        assert context.get_metadata("nonexistent", "default") == "default"
+
+
+class TestTenantManager:
+    """Tests for the TenantManager class."""
+
+    def test_initialization(self):
+        """Test initialization with and without default config."""
+        # Test with no default config
+        manager = TenantManager()
+        assert manager.tenants == {}
+        assert manager.default_config == {}
+
+        # Test with default config
+        default_config = {"key": "value"}
+        manager = TenantManager(default_config)
+        assert manager.default_config == default_config
+
+    def test_register_tenant(self):
+        """Test registering tenants with and without custom config."""
+        default_config = {"key1": "value1", "key2": "value2"}
+        manager = TenantManager(default_config)
+
+        # Register tenant with default config
+        context1 = manager.register_tenant("tenant1")
+        assert context1.tenant_id == "tenant1"
+        assert context1.config == default_config
+        assert "tenant1" in manager.tenants
+
+        # Register tenant with custom config that overrides defaults
+        custom_config = {"key2": "custom", "key3": "new"}
+        context2 = manager.register_tenant("tenant2", custom_config)
+        assert context2.tenant_id == "tenant2"
+        assert context2.config["key1"] == "value1"  # From default
+        assert context2.config["key2"] == "custom"  # Overridden
+        assert context2.config["key3"] == "new"  # New value
+
+    def test_get_tenant(self):
+        """Test retrieving tenant contexts."""
+        manager = TenantManager()
+        manager.register_tenant("tenant1")
+
+        # Get existing tenant
+        context = manager.get_tenant("tenant1")
+        assert context is not None
+        assert context.tenant_id == "tenant1"
+
+        # Get non-existent tenant
+        assert manager.get_tenant("nonexistent") is None
+
+    @patch("solana_agent.ai.MongoDBAdapter")
+    def test_create_tenant_db_adapter(self, mock_mongodb_adapter):
+        """Test creating a tenant-specific database adapter."""
+        # Setup
+        default_config = {
+            "mongo": {
+                "connection_string": "mongodb://default:27017",
+                "database": "default_db",
+            }
+        }
+        manager = TenantManager(default_config)
+        tenant = manager.register_tenant("tenant1")
+
+        # Test with default config
+        manager._create_tenant_db_adapter(tenant)
+        mock_mongodb_adapter.assert_called_once_with(
+            connection_string="mongodb://default:27017",
+            database_name="default_db_tenant1",
+        )
+
+        # Test with tenant-specific config
+        mock_mongodb_adapter.reset_mock()
+        tenant_config = {
+            "mongo": {"connection_string": "mongodb://tenant:27017"}}
+        tenant = manager.register_tenant("tenant2", tenant_config)
+        manager._create_tenant_db_adapter(tenant)
+        mock_mongodb_adapter.assert_called_once_with(
+            connection_string="mongodb://tenant:27017",
+            database_name="default_db_tenant2",
+        )
+
+    @patch("solana_agent.ai.QdrantAdapter")
+    @patch("solana_agent.ai.PineconeAdapter")
+    def test_create_vector_provider(self, mock_pinecone, mock_qdrant):
+        """Test creating vector providers based on tenant config."""
+        # Setup default config with no vector provider
+        manager = TenantManager({})
+
+        # Test with Qdrant config
+        qdrant_config = {
+            "qdrant": {
+                "url": "http://qdrant:6333",
+                "api_key": "qdrant-key",
+                "collection": "tenant_collection",
+            }
+        }
+        tenant = manager.register_tenant("tenant1", qdrant_config)
+        manager._create_tenant_vector_provider(tenant)
+
+        mock_qdrant.assert_called_once_with(
+            url="http://qdrant:6333",
+            api_key="qdrant-key",
+            collection_name="tenant_tenant1_tenant_collection",
+            embedding_model="text-embedding-3-small",
+        )
+        mock_pinecone.assert_not_called()
+
+        # Reset mocks
+        mock_qdrant.reset_mock()
+        mock_pinecone.reset_mock()
+
+        # Test with Pinecone config
+        pinecone_config = {
+            "pinecone": {"api_key": "pinecone-key", "index": "pinecone-index"}
+        }
+        tenant = manager.register_tenant("tenant2", pinecone_config)
+        manager._create_tenant_vector_provider(tenant)
+
+        mock_pinecone.assert_called_once_with(
+            api_key="pinecone-key",
+            index_name="pinecone-index",
+            embedding_model="text-embedding-3-small",
+        )
+        mock_qdrant.assert_not_called()
+
+        # Test precedence (Qdrant over Pinecone)
+        mock_qdrant.reset_mock()
+        mock_pinecone.reset_mock()
+
+        both_config = {
+            "qdrant": {"url": "http://qdrant:6333", "api_key": "qdrant-key"},
+            "pinecone": {"api_key": "pinecone-key", "index": "pinecone-index"},
+        }
+        tenant = manager.register_tenant("tenant3", both_config)
+        manager._create_tenant_vector_provider(tenant)
+
+        mock_qdrant.assert_called_once()
+        mock_pinecone.assert_not_called()
+
+    def test_get_repository_errors(self):
+        """Test error handling in get_repository."""
+        manager = TenantManager()
+
+        # Test with non-existent tenant
+        with pytest.raises(ValueError, match="Tenant nonexistent not found"):
+            manager.get_repository("nonexistent", "ticket")
+
+        # Test with invalid repository type
+        manager.register_tenant("tenant1")
+        with pytest.raises(ValueError, match="Unknown repository type"):
+            manager.get_repository("tenant1", "invalid_type")
+
+    def test_get_service_errors(self):
+        """Test error handling in get_service."""
+        manager = TenantManager()
+
+        # Test with non-existent tenant
+        with pytest.raises(ValueError, match="Tenant nonexistent not found"):
+            manager.get_service("nonexistent", "agent")
+
+        # Test with invalid service type
+        manager.register_tenant("tenant1")
+        with pytest.raises(ValueError, match="Unknown service type"):
+            manager.get_service("tenant1", "invalid_service")
+
+
+class TestMultitenantSolanaAgentFactory:
+    """Tests for the MultitenantSolanaAgentFactory."""
+
+    def test_initialization(self):
+        """Test factory initialization."""
+        global_config = {"key": "value"}
+        factory = MultitenantSolanaAgentFactory(global_config)
+
+        assert factory.tenant_manager is not None
+        assert factory.tenant_manager.default_config == global_config
+
+    def test_register_tenant(self):
+        """Test tenant registration through factory."""
+        factory = MultitenantSolanaAgentFactory({})
+
+        # Mock tenant_manager.register_tenant
+        factory.tenant_manager.register_tenant = MagicMock()
+
+        # Register tenant
+        factory.register_tenant("tenant1", {"custom": "config"})
+
+        # Verify tenant_manager.register_tenant was called
+        factory.tenant_manager.register_tenant.assert_called_once_with(
+            "tenant1", {"custom": "config"}
+        )
+
+    def test_get_processor(self):
+        """Test getting a query processor for a tenant."""
+        factory = MultitenantSolanaAgentFactory({})
+
+        # Mock tenant_manager.get_service
+        mock_processor = MagicMock()
+        factory.tenant_manager.get_service = MagicMock(
+            return_value=mock_processor)
+
+        # Get processor
+        processor = factory.get_processor("tenant1")
+
+        # Verify tenant_manager.get_service was called with correct parameters
+        factory.tenant_manager.get_service.assert_called_once_with(
+            "tenant1", "query_processor"
+        )
+        assert processor == mock_processor
+
+    def test_get_agent_service(self):
+        """Test getting an agent service for a tenant."""
+        factory = MultitenantSolanaAgentFactory({})
+
+        # Mock tenant_manager.get_service
+        mock_agent_service = MagicMock()
+        factory.tenant_manager.get_service = MagicMock(
+            return_value=mock_agent_service)
+
+        # Get agent service
+        agent_service = factory.get_agent_service("tenant1")
+
+        # Verify tenant_manager.get_service was called with correct parameters
+        factory.tenant_manager.get_service.assert_called_once_with(
+            "tenant1", "agent")
+        assert agent_service == mock_agent_service
+
+    def test_register_ai_agent(self):
+        """Test registering an AI agent for a tenant."""
+        factory = MultitenantSolanaAgentFactory({})
+
+        # Mock get_agent_service and register_ai_agent
+        mock_agent_service = MagicMock()
+        factory.get_agent_service = MagicMock(return_value=mock_agent_service)
+
+        # Register AI agent
+        factory.register_ai_agent(
+            "tenant1", "test_agent", "Test instructions", "Testing", "gpt-4o"
+        )
+
+        # Verify get_agent_service was called
+        factory.get_agent_service.assert_called_once_with("tenant1")
+
+        # Verify register_ai_agent was called with correct parameters
+        mock_agent_service.register_ai_agent.assert_called_once_with(
+            "test_agent", "Test instructions", "Testing", "gpt-4o"
+        )
+
+
+class TestMultitenantSolanaAgent:
+    """Tests for the MultitenantSolanaAgent client interface."""
+
+    @patch("solana_agent.ai.MultitenantSolanaAgentFactory")
+    def test_initialization_with_config(self, mock_factory_class):
+        """Test initialization with direct config."""
+        config = {"key": "value"}
+
+        client = MultitenantSolanaAgent(config=config)
+
+        # Verify factory was created
+        mock_factory_class.assert_called_once_with(config)
+        assert client.factory == mock_factory_class.return_value
+
+    @patch("builtins.open", new_callable=MagicMock)
+    @patch("json.load")
+    @patch("solana_agent.ai.MultitenantSolanaAgentFactory")
+    def test_initialization_with_json_config_file(
+        self, mock_factory_class, mock_json_load, mock_open
+    ):
+        """Test initialization with JSON config file."""
+        config = {"key": "value"}
+        mock_json_load.return_value = config
+
+        MultitenantSolanaAgent(config_path="config.json")
+
+        # Verify open was called with the file path
+        mock_open.assert_called_once_with("config.json", "r")
+
+        # Verify json.load was called
+        mock_json_load.assert_called_once()
+
+        # Verify factory was created with loaded config
+        mock_factory_class.assert_called_once_with(config)
+
+    @patch("importlib.util.spec_from_file_location")
+    @patch("builtins.open", new_callable=MagicMock)
+    @patch("solana_agent.ai.MultitenantSolanaAgentFactory")
+    def test_initialization_with_python_config_file(
+        self, mock_factory_class, mock_open, mock_spec_from_file_location
+    ):
+        """Test initialization with Python config file."""
+        # Setup importlib mocking
+        mock_spec = MagicMock()
+        mock_spec_from_file_location.return_value = mock_spec
+        mock_module = MagicMock()
+        mock_spec.loader.exec_module = MagicMock()
+
+        # Config in Python module
+        config = {"key": "value"}
+        mock_module.config = config
+
+        # Using a context manager approach that better handles the patching
+        with patch("importlib.util.module_from_spec", return_value=mock_module):
+            MultitenantSolanaAgent(config_path="config.py")
+
+        # Verify spec_from_file_location was called
+        mock_spec_from_file_location.assert_called_once_with(
+            "config", "config.py")
+
+        # Verify module was executed
+        mock_spec.loader.exec_module.assert_called_once_with(mock_module)
+
+        # Verify factory was created with config from module
+        mock_factory_class.assert_called_once_with(config)
+
+    def test_initialization_with_no_config(self):
+        """Test initialization with no config."""
+        with pytest.raises(
+            ValueError, match="Either config or config_path must be provided"
+        ):
+            MultitenantSolanaAgent()
+
+    def test_register_tenant(self):
+        """Test registering a tenant."""
+        client = MultitenantSolanaAgent(config={})
+        client.factory.register_tenant = MagicMock()
+
+        client.register_tenant("tenant1", {"custom": "config"})
+
+        client.factory.register_tenant.assert_called_once_with(
+            "tenant1", {"custom": "config"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_process(self):
+        """Test processing a message through the client."""
+        client = MultitenantSolanaAgent(config={})
+
+        # Mock processor
+        mock_processor = AsyncMock()
+
+        async def mock_process(*args, **kwargs):
+            yield "Response chunk 1"
+            yield "Response chunk 2"
+
+        mock_processor.process = mock_process
+        client.factory.get_processor = MagicMock(return_value=mock_processor)
+
+        # Process a message
+        response = []
+        async for chunk in client.process("tenant1", "user1", "Hello"):
+            response.append(chunk)
+
+        # Verify get_processor was called
+        client.factory.get_processor.assert_called_once_with("tenant1")
+
+        # Verify response contains expected chunks
+        assert response == ["Response chunk 1", "Response chunk 2"]
+
+    def test_register_agent(self):
+        """Test registering an AI agent."""
+        client = MultitenantSolanaAgent(config={})
+        client.factory.register_ai_agent = MagicMock()
+
+        client.register_agent(
+            "tenant1", "test_agent", "Test instructions", "Testing", "gpt-4o"
+        )
+
+        client.factory.register_ai_agent.assert_called_once_with(
+            "tenant1", "test_agent", "Test instructions", "Testing", "gpt-4o"
+        )
+
+    def test_register_human_agent(self):
+        """Test registering a human agent."""
+        client = MultitenantSolanaAgent(config={})
+
+        # Mock agent service
+        mock_agent_service = MagicMock()
+        client.factory.get_agent_service = MagicMock(
+            return_value=mock_agent_service)
+
+        # Mock notification handler
+        mock_handler = MagicMock()
+
+        client.register_human_agent(
+            "tenant1", "human1", "Human Agent", "Support", mock_handler
+        )
+
+        # Verify agent_service was requested
+        client.factory.get_agent_service.assert_called_once_with("tenant1")
+
+        # Verify register_human_agent was called with correct parameters
+        mock_agent_service.register_human_agent.assert_called_once_with(
+            agent_id="human1",
+            name="Human Agent",
+            specialization="Support",
+            notification_handler=mock_handler,
+        )
 
 
 if __name__ == "__main__":

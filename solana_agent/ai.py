@@ -410,6 +410,126 @@ class AgentRegistry(Protocol):
 #############################################
 
 
+class QdrantAdapter:
+    """Qdrant implementation of VectorStoreProvider."""
+
+    def __init__(
+        self,
+        url: str = "http://localhost:6333",
+        api_key: Optional[str] = None,
+        collection_name: str = "solana_agent",
+        embedding_model: str = "text-embedding-3-small",
+        vector_size: int = 1536,
+    ):
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.http import models
+        except ImportError:
+            raise ImportError(
+                "Qdrant support requires the qdrant-client package. Install it with 'pip install qdrant-client'"
+            )
+
+        # Initialize Qdrant client
+        self.client = QdrantClient(url=url, api_key=api_key)
+        self.collection_name = collection_name
+        self.embedding_model = embedding_model
+        self.vector_size = vector_size
+
+        # Ensure collection exists
+        try:
+            collections = self.client.get_collections().collections
+            collection_names = [collection.name for collection in collections]
+
+            if collection_name not in collection_names:
+                from qdrant_client.http import models
+
+                # Create collection with default configuration
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(
+                        size=vector_size, distance=models.Distance.COSINE
+                    ),
+                )
+        except Exception as e:
+            print(f"Error initializing Qdrant collection: {e}")
+
+    def store_vectors(self, vectors: List[Dict], namespace: str) -> None:
+        """Store vectors in Qdrant."""
+        try:
+            from qdrant_client.http import models
+
+            # Convert input format to Qdrant format
+            points = []
+            for vector in vectors:
+                points.append(
+                    models.PointStruct(
+                        id=vector["id"],
+                        vector=vector["values"],
+                        payload={
+                            # Add namespace as a metadata field
+                            "namespace": namespace,
+                            **vector.get("metadata", {}),
+                        },
+                    )
+                )
+
+            # Upsert vectors
+            self.client.upsert(
+                collection_name=self.collection_name, points=points)
+        except Exception as e:
+            print(f"Error storing vectors in Qdrant: {e}")
+
+    def search_vectors(
+        self, query_vector: List[float], namespace: str, limit: int = 5
+    ) -> List[Dict]:
+        """Search for similar vectors in specified namespace."""
+        try:
+            from qdrant_client.http import models
+
+            # Perform search with namespace filter
+            search_result = self.client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="namespace", match=models.MatchValue(value=namespace)
+                        )
+                    ]
+                ),
+                limit=limit,
+            )
+
+            # Format results to match the expected output format
+            output = []
+            for result in search_result:
+                output.append(
+                    {"id": result.id, "score": result.score,
+                        "metadata": result.payload}
+                )
+
+            return output
+        except Exception as e:
+            print(f"Error searching vectors in Qdrant: {e}")
+            return []
+
+    def delete_vector(self, id: str, namespace: str) -> None:
+        """Delete a vector by ID from a specific namespace."""
+        try:
+            from qdrant_client.http import models
+
+            # Delete with both ID and namespace filter (to ensure we're deleting from the right namespace)
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.PointIdsList(
+                    points=[id],
+                ),
+                wait=True,
+            )
+        except Exception as e:
+            print(f"Error deleting vector from Qdrant: {e}")
+
+
 class MongoDBAdapter:
     """MongoDB implementation of DataStorageProvider."""
 
@@ -3636,6 +3756,16 @@ class SolanaAgentFactory:
 
         # Create vector store provider if configured
         vector_provider = None
+        if "qdrant" in config:
+            vector_provider = QdrantAdapter(
+                url=config["qdrant"].get("url", "http://localhost:6333"),
+                api_key=config["qdrant"].get("api_key"),
+                collection_name=config["qdrant"].get(
+                    "collection", "solana_agent"),
+                embedding_model=config["qdrant"].get(
+                    "embedding_model", "text-embedding-3-small"
+                ),
+            )
         if "pinecone" in config:
             vector_provider = PineconeAdapter(
                 api_key=config["pinecone"]["api_key"],
@@ -3711,6 +3841,428 @@ class SolanaAgentFactory:
             )
 
         return query_processor
+
+
+#############################################
+# MULTI-TENANT SUPPORT
+#############################################
+
+
+class TenantContext:
+    """Manages tenant-specific context and configuration."""
+
+    def __init__(self, tenant_id: str, tenant_config: Dict[str, Any] = None):
+        self.tenant_id = tenant_id
+        self.config = tenant_config or {}
+        self.metadata = {}
+
+    def get_config_value(self, key: str, default: Any = None) -> Any:
+        """Get tenant-specific configuration value."""
+        return self.config.get(key, default)
+
+    def set_metadata(self, key: str, value: Any) -> None:
+        """Set tenant metadata."""
+        self.metadata[key] = value
+
+    def get_metadata(self, key: str, default: Any = None) -> Any:
+        """Get tenant metadata."""
+        return self.metadata.get(key, default)
+
+
+class TenantManager:
+    """Manager for handling multiple tenants in a multi-tenant environment."""
+
+    def __init__(self, default_config: Dict[str, Any] = None):
+        self.tenants = {}
+        self.default_config = default_config or {}
+        self._repositories = {}  # Cache for tenant repositories
+        self._services = {}  # Cache for tenant services
+
+    def register_tenant(
+        self, tenant_id: str, config: Dict[str, Any] = None
+    ) -> TenantContext:
+        """Register a new tenant with optional custom config."""
+        tenant_config = self.default_config.copy()
+        if config:
+            # Deep merge configs
+            self._deep_merge(tenant_config, config)
+
+        context = TenantContext(tenant_id, tenant_config)
+        self.tenants[tenant_id] = context
+        return context
+
+    def get_tenant(self, tenant_id: str) -> Optional[TenantContext]:
+        """Get tenant context by ID."""
+        return self.tenants.get(tenant_id)
+
+    def get_repository(self, tenant_id: str, repo_type: str) -> Any:
+        """Get or create a repository for a specific tenant."""
+        cache_key = f"{tenant_id}:{repo_type}"
+
+        if cache_key in self._repositories:
+            return self._repositories[cache_key]
+
+        tenant = self.get_tenant(tenant_id)
+        if not tenant:
+            raise ValueError(f"Tenant {tenant_id} not found")
+
+        # Create repository with tenant-specific DB connection
+        if repo_type == "ticket":
+            repo = self._create_tenant_ticket_repo(tenant)
+        elif repo_type == "memory":
+            repo = self._create_tenant_memory_repo(tenant)
+        elif repo_type == "human_agent":
+            repo = self._create_tenant_human_agent_repo(tenant)
+        # Add other repository types as needed
+        else:
+            raise ValueError(f"Unknown repository type: {repo_type}")
+
+        self._repositories[cache_key] = repo
+        return repo
+
+    def get_service(self, tenant_id: str, service_type: str) -> Any:
+        """Get or create a service for a specific tenant."""
+        cache_key = f"{tenant_id}:{service_type}"
+
+        if cache_key in self._services:
+            return self._services[cache_key]
+
+        tenant = self.get_tenant(tenant_id)
+        if not tenant:
+            raise ValueError(f"Tenant {tenant_id} not found")
+
+        # Create service with tenant-specific dependencies
+        if service_type == "agent":
+            service = self._create_tenant_agent_service(tenant)
+        elif service_type == "query_processor":
+            service = self._create_tenant_query_processor(tenant)
+        # Add other service types as needed
+        else:
+            raise ValueError(f"Unknown service type: {service_type}")
+
+        self._services[cache_key] = service
+        return service
+
+    def _create_tenant_db_adapter(self, tenant: TenantContext) -> DataStorageProvider:
+        """Create a tenant-specific database adapter."""
+        # Get tenant-specific connection info
+        connection_string = tenant.get_config_value("mongo", {}).get(
+            "connection_string",
+            self.default_config.get("mongo", {}).get("connection_string"),
+        )
+
+        # You can either use different connection strings per tenant
+        # or append tenant ID to database name for simpler isolation
+        db_name = f"{self.default_config.get('mongo', {}).get('database', 'solana_agent')}_{tenant.tenant_id}"
+
+        return MongoDBAdapter(
+            connection_string=connection_string, database_name=db_name
+        )
+
+    def _create_tenant_ticket_repo(self, tenant: TenantContext) -> TicketRepository:
+        """Create a tenant-specific ticket repository."""
+        db_adapter = self._create_tenant_db_adapter(tenant)
+        return MongoTicketRepository(db_adapter)
+
+    def _create_tenant_memory_repo(self, tenant: TenantContext) -> MemoryRepository:
+        """Create a tenant-specific memory repository."""
+        db_adapter = self._create_tenant_db_adapter(tenant)
+
+        # Get tenant-specific vector store if available
+        vector_provider = None
+        if "pinecone" in tenant.config or "qdrant" in tenant.config:
+            vector_provider = self._create_tenant_vector_provider(tenant)
+
+        return MongoMemoryRepository(db_adapter, vector_provider)
+
+    def _create_tenant_human_agent_repo(self, tenant: TenantContext) -> AgentRegistry:
+        """Create a tenant-specific human agent registry."""
+        db_adapter = self._create_tenant_db_adapter(tenant)
+        return MongoHumanAgentRegistry(db_adapter)
+
+    def _create_tenant_vector_provider(
+        self, tenant: TenantContext
+    ) -> VectorStoreProvider:
+        """Create a tenant-specific vector store provider."""
+        # Check which vector provider to use based on tenant config
+        if "qdrant" in tenant.config:
+            return self._create_tenant_qdrant_adapter(tenant)
+        elif "pinecone" in tenant.config:
+            return self._create_tenant_pinecone_adapter(tenant)
+        else:
+            return None
+
+    def _create_tenant_pinecone_adapter(self, tenant: TenantContext) -> PineconeAdapter:
+        """Create a tenant-specific Pinecone adapter."""
+        config = tenant.config.get("pinecone", {})
+
+        # Use tenant-specific index or namespace
+        index_name = config.get(
+            "index",
+            self.default_config.get("pinecone", {}).get(
+                "index", "solana_agent"),
+        )
+
+        return PineconeAdapter(
+            api_key=config.get(
+                "api_key", self.default_config.get(
+                    "pinecone", {}).get("api_key")
+            ),
+            index_name=index_name,
+            embedding_model=config.get(
+                "embedding_model", "text-embedding-3-small"),
+        )
+
+    def _create_tenant_qdrant_adapter(self, tenant: TenantContext) -> "QdrantAdapter":
+        """Create a tenant-specific Qdrant adapter."""
+        config = tenant.config.get("qdrant", {})
+
+        # Use tenant-specific collection
+        collection_name = (
+            f"tenant_{tenant.tenant_id}_{config.get('collection', 'solana_agent')}"
+        )
+
+        return QdrantAdapter(
+            url=config.get(
+                "url",
+                self.default_config.get("qdrant", {}).get(
+                    "url", "http://localhost:6333"
+                ),
+            ),
+            api_key=config.get(
+                "api_key", self.default_config.get("qdrant", {}).get("api_key")
+            ),
+            collection_name=collection_name,
+            embedding_model=config.get(
+                "embedding_model", "text-embedding-3-small"),
+        )
+
+    def _create_tenant_agent_service(self, tenant: TenantContext) -> AgentService:
+        """Create a tenant-specific agent service."""
+        # Get or create LLM provider for the tenant
+        llm_provider = self._create_tenant_llm_provider(tenant)
+
+        # Get human agent registry
+        human_agent_registry = self.get_repository(
+            tenant.tenant_id, "human_agent")
+
+        return AgentService(llm_provider, human_agent_registry)
+
+    def _create_tenant_llm_provider(self, tenant: TenantContext) -> LLMProvider:
+        """Create a tenant-specific LLM provider."""
+        config = tenant.config.get("openai", {})
+
+        return OpenAIAdapter(
+            api_key=config.get(
+                "api_key", self.default_config.get("openai", {}).get("api_key")
+            ),
+            model=config.get(
+                "default_model",
+                self.default_config.get("openai", {}).get(
+                    "default_model", "gpt-4o-mini"
+                ),
+            ),
+        )
+
+    def _create_tenant_query_processor(self, tenant: TenantContext) -> QueryProcessor:
+        """Create a tenant-specific query processor with all services."""
+        # Get repositories
+        ticket_repo = self.get_repository(tenant.tenant_id, "ticket")
+        memory_repo = self.get_repository(tenant.tenant_id, "memory")
+        human_agent_repo = self.get_repository(tenant.tenant_id, "human_agent")
+
+        # Create or get required services
+        agent_service = self.get_service(tenant.tenant_id, "agent")
+
+        # Get LLM provider
+        llm_provider = self._create_tenant_llm_provider(tenant)
+
+        # Create other required services
+        routing_service = RoutingService(
+            llm_provider,
+            agent_service,
+            router_model=tenant.get_config_value(
+                "router_model", "gpt-4o-mini"),
+        )
+
+        ticket_service = TicketService(ticket_repo)
+        handoff_service = HandoffService(
+            MongoHandoffRepository(self._create_tenant_db_adapter(tenant)),
+            ticket_repo,
+            agent_service,
+        )
+        memory_service = MemoryService(memory_repo, llm_provider)
+        nps_service = NPSService(
+            MongoNPSSurveyRepository(self._create_tenant_db_adapter(tenant)),
+            ticket_repo,
+        )
+
+        # Create optional services
+        critic_service = None
+        if tenant.get_config_value("enable_critic", True):
+            critic_service = CriticService(llm_provider)
+
+        # Create memory provider if configured
+        memory_provider = None
+        if "zep" in tenant.config:
+            memory_provider = ZepMemoryAdapter(
+                api_key=tenant.get_config_value("zep", {}).get("api_key"),
+                base_url=tenant.get_config_value("zep", {}).get("base_url"),
+            )
+
+        # Create task planning service
+        task_planning_service = TaskPlanningService(
+            ticket_repo, llm_provider, agent_service
+        )
+
+        # Create notification and approval services
+        notification_service = NotificationService(human_agent_repo)
+        project_approval_service = ProjectApprovalService(
+            ticket_repo, human_agent_repo, notification_service
+        )
+        project_simulation_service = ProjectSimulationService(
+            llm_provider, task_planning_service, ticket_repo
+        )
+
+        # Create query processor
+        return QueryProcessor(
+            agent_service=agent_service,
+            routing_service=routing_service,
+            ticket_service=ticket_service,
+            handoff_service=handoff_service,
+            memory_service=memory_service,
+            nps_service=nps_service,
+            critic_service=critic_service,
+            memory_provider=memory_provider,
+            enable_critic=tenant.get_config_value("enable_critic", True),
+            router_model=tenant.get_config_value(
+                "router_model", "gpt-4o-mini"),
+            task_planning_service=task_planning_service,
+            project_approval_service=project_approval_service,
+            project_simulation_service=project_simulation_service,
+            require_human_approval=tenant.get_config_value(
+                "require_human_approval", False
+            ),
+        )
+
+    def _deep_merge(self, target: Dict, source: Dict) -> None:
+        """Deep merge source dict into target dict."""
+        for key, value in source.items():
+            if (
+                key in target
+                and isinstance(target[key], dict)
+                and isinstance(value, dict)
+            ):
+                self._deep_merge(target[key], value)
+            else:
+                target[key] = value
+
+
+class MultitenantSolanaAgentFactory:
+    """Factory for creating multi-tenant Solana Agent systems."""
+
+    def __init__(self, global_config: Dict[str, Any]):
+        """Initialize the factory with global configuration."""
+        self.tenant_manager = TenantManager(global_config)
+
+    def register_tenant(
+        self, tenant_id: str, tenant_config: Dict[str, Any] = None
+    ) -> None:
+        """Register a new tenant with optional configuration overrides."""
+        self.tenant_manager.register_tenant(tenant_id, tenant_config)
+
+    def get_processor(self, tenant_id: str) -> QueryProcessor:
+        """Get a query processor for a specific tenant."""
+        return self.tenant_manager.get_service(tenant_id, "query_processor")
+
+    def get_agent_service(self, tenant_id: str) -> AgentService:
+        """Get an agent service for a specific tenant."""
+        return self.tenant_manager.get_service(tenant_id, "agent")
+
+    def register_ai_agent(
+        self,
+        tenant_id: str,
+        name: str,
+        instructions: str,
+        specialization: str,
+        model: str = "gpt-4o-mini",
+    ) -> None:
+        """Register an AI agent for a specific tenant."""
+        agent_service = self.get_agent_service(tenant_id)
+        agent_service.register_ai_agent(
+            name, instructions, specialization, model)
+
+
+class MultitenantSolanaAgent:
+    """Multi-tenant client interface for Solana Agent."""
+
+    def __init__(self, config_path: str = None, config: Dict[str, Any] = None):
+        """Initialize the multi-tenant agent system from config."""
+        if (
+            config is None and config_path is None
+        ):  # Check for None specifically, not falsy values
+            raise ValueError("Either config or config_path must be provided")
+
+        if config_path:
+            with open(config_path, "r") as f:
+                if config_path.endswith(".json"):
+                    config = json.load(f)
+                else:
+                    # Assume it's a Python file
+                    import importlib.util
+
+                    spec = importlib.util.spec_from_file_location(
+                        "config", config_path)
+                    config_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(config_module)
+                    config = config_module.config
+
+        # Initialize with the config (may be empty dict, but that's still valid)
+        self.factory = MultitenantSolanaAgentFactory(config or {})
+
+    def register_tenant(
+        self, tenant_id: str, tenant_config: Dict[str, Any] = None
+    ) -> None:
+        """Register a new tenant."""
+        self.factory.register_tenant(tenant_id, tenant_config)
+
+    async def process(
+        self, tenant_id: str, user_id: str, message: str
+    ) -> AsyncGenerator[str, None]:
+        """Process a user message for a specific tenant."""
+        processor = self.factory.get_processor(tenant_id)
+        async for chunk in processor.process(user_id, message):
+            yield chunk
+
+    def register_agent(
+        self,
+        tenant_id: str,
+        name: str,
+        instructions: str,
+        specialization: str,
+        model: str = "gpt-4o-mini",
+    ) -> None:
+        """Register an AI agent for a specific tenant."""
+        self.factory.register_ai_agent(
+            tenant_id, name, instructions, specialization, model
+        )
+
+    def register_human_agent(
+        self,
+        tenant_id: str,
+        agent_id: str,
+        name: str,
+        specialization: str,
+        notification_handler=None,
+    ) -> None:
+        """Register a human agent for a specific tenant."""
+        agent_service = self.factory.get_agent_service(tenant_id)
+        agent_service.register_human_agent(
+            agent_id=agent_id,
+            name=name,
+            specialization=specialization,
+            notification_handler=notification_handler,
+        )
 
 
 #############################################
