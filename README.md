@@ -205,12 +205,22 @@ Solana Agent transforms organizations into living systems that continuously lear
     Real-time and asynchronous communication support.  
     Status tracking for notification delivery and response.
 
+- **🏢 Multi-tenant Platform Architecture:**  
+    Complete tenant isolation with separate databases and storage.  
+    Tenant-specific configuration overrides with inheritance from global defaults.  
+    Support for both Qdrant and Pinecone vector databases.  
+    Per-tenant agent specialization and customization.  
+    Centralized management through tenant registry.  
+    Resource sharing with tenant-level permissions.  
+    Standardized interfaces across all tenants.  
+    Efficient multi-tenant scaling with shared infrastructure.
+
 ## Implementation Technologies
 
 Solana Agent leverages multiple technologies to enable these capabilities:
 
 - **Knowledge Integration:**  
-    Perplexity API, X/Twitter (Grok API), Zep memory, Pinecone vector search.
+    Perplexity API, X/Twitter (Grok API), Zep memory, Pinecone or Qdrant vector search.
 - **Collaborative Intelligence:**  
     Multi-agent swarm architecture with specialized expertise domains.
 - **Human-AI Teaming:**  
@@ -244,6 +254,7 @@ memory_adapter = ZepMemoryAdapter(api_key="your-zep-memory-key")
 
 # Initialize repositories
 ticket_repo = MongoTicketRepository(db_adapter)
+handoff_repo = MongoHandoffRepository(db_adapter)
 memory_repo = MongoMemoryRepository(db_adapter, vector_adapter)
 human_registry = MongoHumanAgentRegistry(db_adapter)
 
