@@ -4740,37 +4740,78 @@ class PluginManager:
         return plugins
 
     def setup_plugin_environment(self, plugin_metadata: Dict[str, Any]) -> str:
-        """Set up a virtual environment for a plugin and install its dependencies."""
+        """Setup virtual environment for a plugin and install its dependencies.
+
+        Args:
+            plugin_metadata: Plugin metadata including path
+
+        Returns:
+            Path to the plugin's virtual environment
+        """
         plugin_name = plugin_metadata["name"]
-        plugin_path = plugin_metadata["path"]
-        env_dir = self.plugins_dir / f"{plugin_name}_env"
+        plugin_path = Path(plugin_metadata["path"])
 
-        # Create virtual environment if it doesn't exist
-        if not env_dir.exists():
-            print(f"Creating virtual environment for plugin {plugin_name}")
-            import venv
+        # Create virtual environment for plugin
+        env_dir = Path(self.plugins_dir) / f"{plugin_name}_env"
 
-            venv.create(env_dir, with_pip=True)
+        # If environment already exists, return its path
+        if env_dir.exists():
+            return str(env_dir)
 
-        # Install requirements
-        requirements_file = Path(plugin_path) / "requirements.txt"
-        if requirements_file.exists():
+        print(f"Creating virtual environment for plugin {plugin_name}")
+
+        # Check if requirements file exists
+        requirements_file = plugin_path / "requirements.txt"
+        pyproject_file = plugin_path / "pyproject.toml"
+
+        # Create virtual environment
+        import venv
+        venv.create(env_dir, with_pip=True)
+
+        # Determine package installation command (prefer uv if available)
+        try:
+            # Try to import uv to check if it's installed
+            import importlib.util
+            uv_spec = importlib.util.find_spec("uv")
+            use_uv = uv_spec is not None
+        except ImportError:
+            use_uv = False
+
+        # Install dependencies if requirements file exists
+        if requirements_file.exists() or pyproject_file.exists():
             print(f"Installing requirements for plugin {plugin_name}")
 
-            # Determine pip path in the virtual environment
+            # Prepare pip command
             if sys.platform == "win32":
                 pip_path = env_dir / "Scripts" / "pip"
             else:
                 pip_path = env_dir / "bin" / "pip"
 
-            # Install requirements
+            # Install dependencies using uv if available
             try:
-                subprocess.run(
-                    [str(pip_path), "install", "-r", str(requirements_file)], check=True
-                )
+                if use_uv:
+                    # Use UV for faster dependency installation
+                    target_file = "pyproject.toml" if pyproject_file.exists() else "requirements.txt"
+                    subprocess.check_call([
+                        "uv", "pip", "install",
+                        "-r" if target_file == "requirements.txt" else ".",
+                        str(plugin_path / target_file)
+                    ])
+                else:
+                    # Fall back to regular pip
+                    if requirements_file.exists():
+                        subprocess.check_call([
+                            str(pip_path), "install", "-r",
+                            str(requirements_file)
+                        ])
+                    elif pyproject_file.exists():
+                        subprocess.check_call([
+                            str(pip_path), "install",
+                            str(plugin_path)
+                        ])
             except subprocess.CalledProcessError as e:
                 print(
-                    f"Error installing requirements for plugin {plugin_name}: {e}")
+                    f"Failed to install dependencies for plugin {plugin_name}: {e}")
 
         return str(env_dir)
 

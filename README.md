@@ -271,14 +271,14 @@ config = {
         "api_key": "your-pinecone-key",
         "index_name": "your-index"
     },
-    "plugins_dir": "plugins",  # Directory containing plugins
+    "plugins_dir": "plugins",
     "agents": [
         {
             "name": "research_specialist",
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
             "specialization": "Research and knowledge synthesis",
             "model": "o3-mini",
-            "tools": ["search_internet"]  # Tools this agent can use
+            "tools": ["search_internet"]
         },
         {
             "name": "customer_support",
