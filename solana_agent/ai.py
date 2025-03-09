@@ -33,6 +33,7 @@ from typing import (
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from openai import OpenAI
+import pymongo
 from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_python.client import AsyncZep
 from zep_cloud.types import Message
@@ -47,6 +48,46 @@ from pathlib import Path
 #############################################
 # DOMAIN MODELS
 #############################################
+
+class OrganizationMission(BaseModel):
+    """Defines the overarching mission and values for all agents in the organization."""
+
+    mission_statement: str = Field(...,
+                                   description="Core purpose of the organization")
+    values: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="List of organizational values with name and description"
+    )
+    goals: List[str] = Field(
+        default_factory=list,
+        description="Strategic objectives of the organization"
+    )
+    guidance: str = Field(
+        "",
+        description="Additional guidance for agents when making decisions"
+    )
+
+    def format_as_directive(self) -> str:
+        """Format the mission as a directive for agents."""
+        directive = f"# ORGANIZATION MISSION\n\n{self.mission_statement}\n\n"
+
+        if self.values:
+            directive += "## Core Values\n\n"
+            for value in self.values:
+                directive += f"- **{value['name']}**: {value['description']}\n"
+            directive += "\n"
+
+        if self.goals:
+            directive += "## Strategic Goals\n\n"
+            for goal in self.goals:
+                directive += f"- {goal}\n"
+            directive += "\n"
+
+        if self.guidance:
+            directive += f"## Additional Guidance\n\n{self.guidance}\n\n"
+
+        directive += "Always align your responses and decisions with these organizational principles.\n"
+        return directive
 
 
 class TicketStatus(str, Enum):
@@ -1862,10 +1903,12 @@ class AgentService:
         llm_provider: LLMProvider,
         human_agent_registry: Optional[MongoHumanAgentRegistry] = None,
         ai_agent_registry: Optional[MongoAIAgentRegistry] = None,
+        organization_mission: Optional[OrganizationMission] = None,
     ):
         self.llm_provider = llm_provider
         self.human_agent_registry = human_agent_registry
         self.ai_agent_registry = ai_agent_registry
+        self.organization_mission = organization_mission
 
         # For backward compatibility
         self.ai_agents = {}
@@ -1900,17 +1943,24 @@ class AgentService:
         model: str = "gpt-4o-mini",
     ) -> None:
         """Register an AI agent with its specialization."""
+        # Add organizational mission directive if available
+        mission_directive = ""
+        if self.organization_mission:
+            mission_directive = f"\n\n{self.organization_mission.format_as_directive()}\n\n"
+
         # Add handoff instruction to all agents
         handoff_instruction = """
         If you need to hand off to another agent, return a JSON object with this structure:
         {"handoff": {"target_agent": "agent_name", "reason": "detailed reason for handoff"}}
         """
-        full_instructions = f"{instructions}\n\n{handoff_instruction}"
+
+        # Combine instructions with mission and handoff
+        full_instructions = f"{instructions}{mission_directive}{handoff_instruction}"
 
         # Use registry if available
         if self.ai_agent_registry:
             self.ai_agent_registry.register_ai_agent(
-                name, instructions, specialization, model
+                name, full_instructions, specialization, model
             )
             # Update local cache for backward compatibility
             self.ai_agents = self.ai_agent_registry.get_all_ai_agents()
@@ -4027,6 +4077,18 @@ class SolanaAgentFactory:
                 ),
             )
 
+        # Create organization mission if specified in config
+        organization_mission = None
+        if "organization" in config:
+            org_config = config["organization"]
+            organization_mission = OrganizationMission(
+                mission_statement=org_config.get("mission_statement", ""),
+                values=[{"name": k, "description": v}
+                        for k, v in org_config.get("values", {}).items()],
+                goals=org_config.get("goals", []),
+                guidance=org_config.get("guidance", "")
+            )
+
         # Create repositories
         ticket_repo = MongoTicketRepository(db_adapter)
         handoff_repo = MongoHandoffRepository(db_adapter)
@@ -4037,7 +4099,7 @@ class SolanaAgentFactory:
 
         # Create services
         agent_service = AgentService(
-            llm_adapter, human_agent_repo, ai_agent_repo)
+            llm_adapter, human_agent_repo, ai_agent_repo, organization_mission)
         routing_service = RoutingService(
             llm_adapter,
             agent_service,
@@ -4074,7 +4136,7 @@ class SolanaAgentFactory:
         print(f"Loaded {loaded_plugins} plugins")
 
         # Register predefined agents if any
-        for agent_config in config.get("agents", []):
+        for agent_config in config.get("ai_agents", []):
             agent_service.register_ai_agent(
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
@@ -4121,15 +4183,6 @@ class SolanaAgentFactory:
             project_simulation_service=project_simulation_service,
             require_human_approval=config.get("require_human_approval", False),
         )
-
-        # Register predefined agents if any
-        for agent_config in config.get("agents", []):
-            agent_service.register_ai_agent(
-                name=agent_config["name"],
-                instructions=agent_config["instructions"],
-                specialization=agent_config["specialization"],
-                model=agent_config.get("model", "gpt-4o-mini"),
-            )
 
         return query_processor
 
@@ -4615,6 +4668,110 @@ class SolanaAgent:
             specialization=specialization,
             notification_handler=notification_handler,
         )
+
+    async def get_pending_surveys(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get pending surveys for a user."""
+        if not self.query_processor or not hasattr(self.query_processor, "nps_service"):
+            return []
+
+        # Query for pending surveys from the NPS service
+        surveys = self.query_processor.nps_service.nps_repository.db.find(
+            "nps_surveys",
+            {
+                "user_id": user_id,
+                "status": "pending",
+                "created_at": {"$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)}
+            }
+        )
+
+        return surveys
+
+    async def submit_survey_response(self, survey_id: str, score: int, feedback: str = "") -> bool:
+        """Submit a response to an NPS survey."""
+        if not self.query_processor or not hasattr(self.query_processor, "nps_service"):
+            return False
+
+        # Process the survey response
+        return self.query_processor.nps_service.process_response(survey_id, score, feedback)
+
+    async def get_paginated_history(
+        self,
+        user_id: str,
+        page_num: int = 1,
+        page_size: int = 20,
+        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+    ) -> Dict[str, Any]:
+        """
+        Get paginated message history for a user.
+
+        Args:
+            user_id: User ID to retrieve history for
+            page_num: Page number (starting from 1)
+            page_size: Number of messages per page
+            sort_order: "asc" for chronological order, "desc" for reverse chronological
+
+        Returns:
+            Dictionary containing paginated results and metadata
+        """
+        # Access the MongoDB adapter through the processor
+        db_adapter = None
+
+        # Find the MongoDB adapter - it could be in different locations depending on setup
+        if hasattr(self.processor, "ticket_service") and hasattr(self.processor.ticket_service, "ticket_repository"):
+            if hasattr(self.processor.ticket_service.ticket_repository, "db"):
+                db_adapter = self.processor.ticket_service.ticket_repository.db
+
+        if not db_adapter:
+            return {
+                "data": [],
+                "total": 0,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": 0,
+                "error": "Database adapter not found"
+            }
+
+        try:
+            # Calculate skip amount for pagination
+            skip = (page_num - 1) * page_size
+
+            # Set the sort direction
+            sort_direction = pymongo.ASCENDING if sort_order.lower() == "asc" else pymongo.DESCENDING
+
+            # Get total count (for pagination metadata)
+            total_items = db_adapter.count_documents(
+                "messages", {"user_id": user_id})
+
+            # Get paginated messages
+            messages = db_adapter.find(
+                "messages",
+                {"user_id": user_id},
+                sort=[("timestamp", sort_direction)],
+                limit=page_size
+            )
+
+            # Skip the appropriate number of documents
+            if skip > 0:
+                messages = messages[skip:]
+
+            # Format response with pagination metadata
+            return {
+                "data": messages,
+                "total": total_items,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": (total_items // page_size) + (1 if total_items % page_size > 0 else 0),
+            }
+
+        except Exception as e:
+            return {
+                "data": [],
+                "total": 0,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": 0,
+                "error": str(e)
+            }
 
 
 #############################################

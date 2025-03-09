@@ -257,6 +257,21 @@ from solana_agent import SolanaAgent
 
 # Define configuration with plugins
 config = {
+    "organization": {
+        "mission_statement": "To revolutionize knowledge work through AI-human collaboration that puts people first.",
+        "values": {
+            "Human-Centered": "Always prioritize human well-being and augmentation over replacement.",
+            "Transparency": "Provide clear explanations for decisions and never hide information.",
+            "Collective Intelligence": "Value diverse perspectives and combine human and AI strengths.",
+            "Continuous Learning": "Embrace feedback and continuously improve based on experience."
+        },
+        "goals": [
+            "Enable human experts to focus on high-value creative work",
+            "Reduce administrative overhead through intelligent automation",
+            "Create seamless knowledge flow across the organization"
+        ],
+        "guidance": "When making decisions, prioritize long-term user success over short-term efficiency."
+    },
     "db": {
         "provider": "mongodb",
         "connection_string": "mongodb://localhost:27017",
@@ -272,7 +287,7 @@ config = {
         "index_name": "your-index"
     },
     "plugins_dir": "plugins",
-    "agents": [
+    "ai_agents": [
         {
             "name": "research_specialist",
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",

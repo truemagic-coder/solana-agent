@@ -1402,7 +1402,7 @@ class TestPlatformIntegration:
             "openai": {"api_key": "test_key", "default_model": "gpt-4o-mini"},
             "enable_critic": True,
             "router_model": "gpt-4o-mini",
-            "agents": [
+            "ai_agents": [
                 {
                     "name": "general",
                     "instructions": "You are a helpful assistant.",
