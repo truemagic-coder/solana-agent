@@ -215,18 +215,30 @@ Solana Agent transforms organizations into living systems that continuously lear
     Standardized interfaces across all tenants.  
     Efficient multi-tenant scaling with shared infrastructure.
 
+- **🔌 Plugin System:**  
+    Extensible architecture with dynamic tool loading capabilities.  
+    Isolated plugin environments with dependency management.  
+    Tool registry for AI agent capability extension.  
+    Permission-based tool access for security and control.  
+    Standard interface for third-party integrations.  
+    Built-in internet search capabilities via Perplexity API.  
+    Seamless AI agent interaction with external services.  
+    Runtime tool discovery without code modification.
+
 ## Implementation Technologies
 
 Solana Agent leverages multiple technologies to enable these capabilities:
 
 - **Knowledge Integration:**  
-    Perplexity API, X/Twitter (Grok API), Zep memory, Pinecone or Qdrant vector search.
+    Zep memory and Pinecone or Qdrant vector search.
 - **Collaborative Intelligence:**  
     Multi-agent swarm architecture with specialized expertise domains.
 - **Human-AI Teaming:**  
     Integrated ticketing, notification systems, and real-time handoffs.
 - **Organization Alignment:**  
     Unified mission framework, critic system, and collective memory.
+- **External Integration:**  
+    Plugin system for extensible tool capabilities and API connections.
 
 ## Installation
 
@@ -241,65 +253,62 @@ Each public method has a docstring for real-time IDE hinting.
 ## Example Setup
 
 ```python
-# Create a Solana Agent system
-from solana_agent import SolanaAgent, MongoDBAdapter, OpenAIAdapter, PineconeAdapter, ZepMemoryAdapter
-from solana_agent import AgentService, RoutingService, TicketService, HandoffService
-from solana_agent import MongoTicketRepository, MongoHumanAgentRegistry, MongoMemoryRepository, MongoHandoffRepository
+from solana_agent import SolanaAgent
 
-# Initialize infrastructure 
-db_adapter = MongoDBAdapter(connection_string="mongodb://localhost:27017", db_name="solana_agent")
-llm_adapter = OpenAIAdapter(api_key="your-openai-key")
-vector_adapter = PineconeAdapter(api_key="your-pinecone-key", index_name="your-index-name")
-# Or for Qdrant
-# vector_adapter = QdrantAdapter(url="http://localhost:6333", api_key="your-qdrant-key")
-memory_adapter = ZepMemoryAdapter(api_key="your-zep-memory-key")
+# Define configuration with plugins
+config = {
+    "db": {
+        "provider": "mongodb",
+        "connection_string": "mongodb://localhost:27017",
+        "db_name": "solana_agent"
+    },
+    "llm": {
+        "provider": "openai",
+        "api_key": "your-openai-key"
+    },
+    "vector_db": {
+        "provider": "pinecone",
+        "api_key": "your-pinecone-key",
+        "index_name": "your-index"
+    },
+    "plugins_dir": "plugins",  # Directory containing plugins
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+            "model": "o3-mini",
+            "tools": ["search_internet"]  # Tools this agent can use
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+            "model": "gpt-4o-mini"
+        }
+    ],
+    "human_agents": [
+        {
+            "agent_id": "expert_dev",
+            "name": "Senior Developer", 
+            "specialization": "Complex technical issues"
+        },
+        {
+            "agent_id": "support_lead",
+            "name": "Support Team Lead",
+            "specialization": "Escalated customer issues"
+        }
+    ],
+    "api_keys": {
+        "perplexity": "your-perplexity-key"  # For internet search plugin
+    }
+}
 
-# Initialize repositories
-ticket_repo = MongoTicketRepository(db_adapter)
-handoff_repo = MongoHandoffRepository(db_adapter)
-memory_repo = MongoMemoryRepository(db_adapter, vector_adapter)
-human_registry = MongoHumanAgentRegistry(db_adapter)
+# Create agent with configuration
+solana_agent = SolanaAgent(config=config)
 
-# Create the agent service with human registry
-agent_service = AgentService(llm_adapter, human_registry)
-
-# Define AI agents directly in code
-agent_service.register_ai_agent(
-    name="research_specialist",
-    instructions="You are an expert researcher who synthesizes complex information clearly.",
-    specialization="Research and knowledge synthesis",
-    model="o3-mini"
-)
-
-agent_service.register_ai_agent(
-    name="customer_support",
-    instructions="You provide friendly, helpful customer support responses.",
-    specialization="Customer inquiries",
-    model="gpt-4o-mini"
-)
-
-# Register human agents in MongoDB registry
-human_registry.register_human_agent(
-    agent_id="expert_dev",
-    name="Senior Developer", 
-    specialization="Complex technical issues"
-)
-
-# Initialize services
-routing_service = RoutingService(llm_adapter, agent_service)
-ticket_service = TicketService(ticket_repo)
-handoff_service = HandoffService(handoff_repo, ticket_repo, agent_service)
-
-# Create the Solana Agent interface
-solana_agent = SolanaAgent(
-    agent_service=agent_service,
-    routing_service=routing_service,
-    ticket_service=ticket_service,
-    handoff_service=handoff_service
-)
-
-# Process a user query through the system
-async for response in solana_agent.process("user123", "How do I optimize my React application?"):
+# Process a query that can use tools
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
 

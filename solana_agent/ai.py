@@ -13,6 +13,7 @@ This module implements a clean architecture approach with:
 import asyncio
 import datetime
 import json
+import os
 import re
 import traceback
 import uuid
@@ -27,6 +28,7 @@ from typing import (
     Protocol,
     Tuple,
     Any,
+    Type,
 )
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
@@ -35,6 +37,11 @@ from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 from pinecone import Pinecone
+from abc import ABC, abstractmethod
+import sys
+import importlib
+import subprocess
+from pathlib import Path
 
 
 #############################################
@@ -756,6 +763,106 @@ class PineconeAdapter:
 #############################################
 
 
+# Add this class alongside other repository implementations
+class MongoAIAgentRegistry:
+    """MongoDB implementation for AI agent management."""
+
+    def __init__(self, db_provider: DataStorageProvider):
+        self.db = db_provider
+        self.collection = "ai_agents"
+        self.ai_agents_cache = {}
+
+        # Ensure collection exists
+        self.db.create_collection(self.collection)
+
+        # Create indexes
+        self.db.create_index(self.collection, [("name", 1)])
+        self.db.create_index(self.collection, [("specialization", 1)])
+
+        # Load existing agents into cache on startup
+        self._load_agents_from_db()
+
+    def _load_agents_from_db(self):
+        """Load all AI agents from database into memory cache."""
+        agents = self.db.find(self.collection, {})
+        for agent in agents:
+            self.ai_agents_cache[agent["name"]] = {
+                "instructions": agent["instructions"],
+                "specialization": agent["specialization"],
+                "model": agent.get("model", "gpt-4o-mini"),
+                "created_at": agent.get("created_at"),
+                "updated_at": agent.get("updated_at"),
+            }
+
+    def register_ai_agent(
+        self,
+        name: str,
+        instructions: str,
+        specialization: str,
+        model: str = "gpt-4o-mini",
+    ) -> None:
+        """Register an AI agent with persistence."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        # Add handoff instruction to all agents
+        handoff_instruction = """
+        If you need to hand off to another agent, return a JSON object with this structure:
+        {"handoff": {"target_agent": "agent_name", "reason": "detailed reason for handoff"}}
+        """
+        full_instructions = f"{instructions}\n\n{handoff_instruction}"
+
+        # Store in database
+        self.db.update_one(
+            self.collection,
+            {"name": name},
+            {
+                "$set": {
+                    "name": name,
+                    "instructions": full_instructions,
+                    "specialization": specialization,
+                    "model": model,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+
+        # Update cache
+        self.ai_agents_cache[name] = {
+            "instructions": full_instructions,
+            "specialization": specialization,
+            "model": model,
+        }
+
+    def get_ai_agent(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get AI agent configuration."""
+        return self.ai_agents_cache.get(name)
+
+    def get_all_ai_agents(self) -> Dict[str, Any]:
+        """Get all registered AI agents."""
+        return self.ai_agents_cache
+
+    def get_specializations(self) -> Dict[str, str]:
+        """Get specializations of all AI agents."""
+        return {
+            name: data.get("specialization", "")
+            for name, data in self.ai_agents_cache.items()
+        }
+
+    def delete_agent(self, name: str) -> bool:
+        """Delete an AI agent by name."""
+        if name not in self.ai_agents_cache:
+            return False
+
+        # Remove from cache
+        del self.ai_agents_cache[name]
+
+        # Remove from database
+        self.db.delete_one(self.collection, {"name": name})
+        return True
+
+
 class MongoHumanAgentRegistry:
     """MongoDB implementation for human agent management."""
 
@@ -793,7 +900,7 @@ class MongoHumanAgentRegistry:
         agent_id: str,
         name: str,
         specialization: str,
-        notification_handler: Optional[Callable] = None,
+        notification_channels: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Register a human agent with persistence."""
         # Store in database
@@ -805,6 +912,7 @@ class MongoHumanAgentRegistry:
                     "agent_id": agent_id,
                     "name": name,
                     "specialization": specialization,
+                    "notification_channels": notification_channels or [],
                     "availability_status": "available",
                     "updated_at": datetime.datetime.now(datetime.timezone.utc),
                 }
@@ -816,10 +924,33 @@ class MongoHumanAgentRegistry:
         self.human_agents_cache[agent_id] = {
             "name": name,
             "specialization": specialization,
-            "notification_handler": notification_handler,
+            "notification_channels": notification_channels or [],
             "availability_status": "available",
         }
         self.specializations_cache[agent_id] = specialization
+
+    def add_notification_channel(self, agent_id: str, channel_type: str, config: Dict[str, Any]) -> bool:
+        """Add a notification channel for a human agent."""
+        if agent_id not in self.human_agents_cache:
+            return False
+
+        channel = {"type": channel_type, "config": config}
+
+        # Update in cache
+        if "notification_channels" not in self.human_agents_cache[agent_id]:
+            self.human_agents_cache[agent_id]["notification_channels"] = []
+
+        self.human_agents_cache[agent_id]["notification_channels"].append(
+            channel)
+
+        # Update in database
+        self.db.update_one(
+            self.collection,
+            {"agent_id": agent_id},
+            {"$push": {"notification_channels": channel}}
+        )
+
+        return True
 
     def get_human_agent(self, agent_id: str) -> Optional[Any]:
         """Get human agent configuration."""
@@ -1638,6 +1769,91 @@ class CriticService:
         ][-limit:]
 
 
+class NotificationService:
+    """Service for sending notifications to human agents or users using notification plugins."""
+
+    def __init__(self, human_agent_registry: MongoHumanAgentRegistry):
+        """Initialize the notification service with a human agent registry."""
+        self.human_agent_registry = human_agent_registry
+
+    def send_notification(self, recipient_id: str, message: str, metadata: Dict[str, Any] = None) -> bool:
+        """
+        Send a notification to a human agent using configured notification channels or legacy handler.
+
+        Args:
+            recipient_id: ID of the human agent to notify
+            message: Notification message content
+            metadata: Additional data related to the notification (e.g., ticket_id)
+
+        Returns:
+            True if notification was sent, False otherwise
+        """
+        # Get human agent information
+        agent = self.human_agent_registry.get_human_agent(recipient_id)
+        if not agent:
+            print(f"Cannot send notification: Agent {recipient_id} not found")
+            return False
+
+        # BACKWARD COMPATIBILITY: Check for legacy notification handler
+        if "notification_handler" in agent and agent["notification_handler"]:
+            try:
+                metadata = metadata or {}
+                agent["notification_handler"](message, metadata)
+                return True
+            except Exception as e:
+                print(
+                    f"Error using notification handler for {recipient_id}: {str(e)}")
+                return False
+
+        # Get notification channels for this agent
+        notification_channels = agent.get("notification_channels", [])
+        if not notification_channels:
+            print(
+                f"No notification channels configured for agent {recipient_id}")
+            return False
+
+        # Try each notification channel until one succeeds
+        success = False
+        for channel in notification_channels:
+            channel_type = channel.get("type")
+            channel_config = channel.get("config", {})
+
+            # Execute the notification tool
+            try:
+                tool_params = {
+                    "recipient": recipient_id,
+                    "message": message,
+                    **channel_config
+                }
+                if metadata:
+                    tool_params["metadata"] = metadata
+
+                result = tool_registry.get_tool(f"notify_{channel_type}")
+                if result:
+                    response = result.execute(**tool_params)
+                    if response.get("status") == "success":
+                        success = True
+                        break
+            except Exception as e:
+                print(
+                    f"Error using notification channel {channel_type} for {recipient_id}: {str(e)}")
+
+        return success
+
+    # Add method needed by tests
+    def notify_approvers(self, approver_ids: List[str], message: str, metadata: Dict[str, Any] = None) -> None:
+        """
+        Send notification to multiple approvers.
+
+        Args:
+            approver_ids: List of approver IDs to notify
+            message: Notification message content
+            metadata: Additional data related to the notification
+        """
+        for approver_id in approver_ids:
+            self.send_notification(approver_id, message, metadata)
+
+
 class AgentService:
     """Service for managing AI and human agents."""
 
@@ -1645,29 +1861,36 @@ class AgentService:
         self,
         llm_provider: LLMProvider,
         human_agent_registry: Optional[MongoHumanAgentRegistry] = None,
+        ai_agent_registry: Optional[MongoAIAgentRegistry] = None,
     ):
         self.llm_provider = llm_provider
-        self.ai_agents = {}
         self.human_agent_registry = human_agent_registry
+        self.ai_agent_registry = ai_agent_registry
+
+        # For backward compatibility
+        self.ai_agents = {}
+        if self.ai_agent_registry:
+            self.ai_agents = self.ai_agent_registry.get_all_ai_agents()
+
         self.specializations = {}
+
+        # Initialize plugin system
+        self.plugin_manager = PluginManager()
+        self.plugin_manager.load_all_plugins()
 
         # If human agent registry is provided, initialize specializations from it
         if self.human_agent_registry:
             self.specializations.update(
                 self.human_agent_registry.get_specializations())
 
+        # If AI agent registry is provided, initialize specializations from it
+        if self.ai_agent_registry:
+            self.specializations.update(
+                self.ai_agent_registry.get_specializations())
+
         # If no human agent registry is provided, use in-memory cache
         if not self.human_agent_registry:
             self.human_agents = {}
-
-    def get_specializations(self) -> Dict[str, str]:
-        """Get specializations of all agents."""
-        if self.human_agent_registry:
-            # Create a merged copy with both AI agents and human agents from registry
-            merged = self.specializations.copy()
-            merged.update(self.human_agent_registry.get_specializations())
-            return merged
-        return self.specializations
 
     def register_ai_agent(
         self,
@@ -1684,9 +1907,55 @@ class AgentService:
         """
         full_instructions = f"{instructions}\n\n{handoff_instruction}"
 
-        self.ai_agents[name] = {
-            "instructions": full_instructions, "model": model}
+        # Use registry if available
+        if self.ai_agent_registry:
+            self.ai_agent_registry.register_ai_agent(
+                name, instructions, specialization, model
+            )
+            # Update local cache for backward compatibility
+            self.ai_agents = self.ai_agent_registry.get_all_ai_agents()
+        else:
+            # Fall back to in-memory storage
+            self.ai_agents[name] = {
+                "instructions": full_instructions, "model": model}
+
         self.specializations[name] = specialization
+
+    def get_specializations(self) -> Dict[str, str]:
+        """Get specializations of all agents."""
+        if self.human_agent_registry:
+            # Create a merged copy with both AI agents and human agents from registry
+            merged = self.specializations.copy()
+            merged.update(self.human_agent_registry.get_specializations())
+            return merged
+        return self.specializations
+
+    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
+        """Give an agent access to a specific tool."""
+        if agent_name not in self.ai_agents:
+            raise ValueError(f"Agent {agent_name} not found")
+
+        tool_registry.assign_tool_to_agent(agent_name, tool_name)
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        return tool_registry.get_agent_tools(agent_name)
+
+    def execute_tool(
+        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute a tool on behalf of an agent."""
+        # Check if agent has access to this tool
+        agent_tools = tool_registry.get_agent_tools(agent_name)
+        tool_names = [tool["name"] for tool in agent_tools]
+
+        if tool_name not in tool_names:
+            raise ValueError(
+                f"Agent {agent_name} does not have access to tool {tool_name}"
+            )
+
+        # Execute the tool
+        return self.plugin_manager.execute_tool(tool_name, **parameters)
 
     def register_human_agent(
         self,
@@ -1748,7 +2017,13 @@ class AgentService:
         if memory_context:
             instructions += f"\n\nUser context and history:\n{memory_context}"
 
+        # Add tool information if agent has any tools
+        tools = self.get_agent_tools(agent_name)
+        if tools and "tools" not in kwargs:
+            kwargs["tools"] = tools
+
         # Generate response
+        response_text = ""
         async for chunk in self.llm_provider.generate_text(
             user_id=user_id,
             prompt=query,
@@ -1756,7 +2031,38 @@ class AgentService:
             model=agent_config["model"],
             **kwargs,
         ):
-            yield chunk
+            response_text += chunk
+
+        # Check for tool calls in the response
+        try:
+            response_data = json.loads(response_text)
+            if "tool_calls" in response_data:
+                for tool_call in response_data["tool_calls"]:
+                    # Extract tool name and arguments
+                    if isinstance(tool_call, dict):
+                        # Direct format
+                        tool_name = tool_call.get("name")
+                        params = tool_call.get("parameters", {})
+
+                        # For the updated OpenAI format
+                        if "function" in tool_call:
+                            function_data = tool_call["function"]
+                            tool_name = function_data.get("name")
+                            try:
+                                params = json.loads(
+                                    function_data.get("arguments", "{}"))
+                            except Exception:
+                                params = {}
+
+                        # Execute the tool
+                        if tool_name:
+                            self.execute_tool(agent_name, tool_name, params)
+
+            # Return the original response for now
+            yield response_text
+        except Exception:
+            # If it's not JSON or doesn't have tool_calls, return as is
+            yield response_text
 
     def get_all_ai_agents(self) -> Dict[str, Any]:
         """Get all registered AI agents."""
@@ -2108,60 +2414,6 @@ class TaskPlanningService:
                 "technical_complexity": 5,
                 "domain_knowledge": 5,
             }
-
-
-class NotificationService:
-    """Service for sending notifications to human agents or users."""
-
-    def __init__(self, human_agent_registry: MongoHumanAgentRegistry):
-        """Initialize the notification service with a human agent registry."""
-        self.human_agent_registry = human_agent_registry
-
-    def send_notification(
-        self, recipient_id: str, message: str, metadata: Dict[str, Any] = None
-    ) -> bool:
-        """
-        Send a notification to a human agent.
-
-        Args:
-            recipient_id: ID of the human agent to notify
-            message: Notification message content
-            metadata: Additional data related to the notification (e.g., ticket_id)
-
-        Returns:
-            True if notification was sent, False otherwise
-        """
-        # Get human agent information
-        agent = self.human_agent_registry.get_human_agent(recipient_id)
-        if not agent:
-            print(f"Cannot send notification: Agent {recipient_id} not found")
-            return False
-
-        # If agent has a notification handler, use it
-        if agent.get("notification_handler"):
-            try:
-                # Call the handler with the message and metadata
-                handler = agent["notification_handler"]
-                if metadata:
-                    handler(message, metadata)
-                else:
-                    handler(message)
-                return True
-            except Exception as e:
-                print(
-                    f"Error sending notification to {recipient_id}: {str(e)}")
-                return False
-        else:
-            # Log notification if no handler is available
-            print(f"Notification for {recipient_id} (no handler): {message}")
-            return False
-
-    def notify_approvers(
-        self, approvers: List[str], message: str, metadata: Dict[str, Any] = None
-    ) -> None:
-        """Send notifications to multiple approvers."""
-        for approver_id in approvers:
-            self.send_notification(approver_id, message, metadata)
 
 
 class ProjectApprovalService:
@@ -3781,9 +4033,11 @@ class SolanaAgentFactory:
         nps_repo = MongoNPSSurveyRepository(db_adapter)
         memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
         human_agent_repo = MongoHumanAgentRegistry(db_adapter)
+        ai_agent_repo = MongoAIAgentRegistry(db_adapter)
 
         # Create services
-        agent_service = AgentService(llm_adapter, human_agent_repo)
+        agent_service = AgentService(
+            llm_adapter, human_agent_repo, ai_agent_repo)
         routing_service = RoutingService(
             llm_adapter,
             agent_service,
@@ -3812,6 +4066,43 @@ class SolanaAgentFactory:
         project_simulation_service = ProjectSimulationService(
             llm_adapter, task_planning_service
         )
+
+        # Initialize plugin system if plugins directory is configured
+        plugins_dir = config.get("plugins_dir", "plugins")
+        agent_service.plugin_manager = PluginManager(plugins_dir)
+        loaded_plugins = agent_service.plugin_manager.load_all_plugins()
+        print(f"Loaded {loaded_plugins} plugins")
+
+        # Register predefined agents if any
+        for agent_config in config.get("agents", []):
+            agent_service.register_ai_agent(
+                name=agent_config["name"],
+                instructions=agent_config["instructions"],
+                specialization=agent_config["specialization"],
+                model=agent_config.get("model", "gpt-4o-mini"),
+            )
+
+            # Register tools for this agent if specified
+            if "tools" in agent_config:
+                for tool_name in agent_config["tools"]:
+                    try:
+                        agent_service.register_tool_for_agent(
+                            agent_config["name"], tool_name
+                        )
+                    except ValueError as e:
+                        print(
+                            f"Error registering tool {tool_name} for agent {agent_config['name']}: {e}"
+                        )
+
+        # Also support global tool registrations
+        if "agent_tools" in config:
+            for agent_name, tools in config["agent_tools"].items():
+                for tool_name in tools:
+                    try:
+                        agent_service.register_tool_for_agent(
+                            agent_name, tool_name)
+                    except ValueError as e:
+                        print(f"Error registering tool: {e}")
 
         # Create main processor
         query_processor = QueryProcessor(
@@ -4323,4 +4614,236 @@ class SolanaAgent:
             name=name,
             specialization=specialization,
             notification_handler=notification_handler,
-        )  #
+        )
+
+
+#############################################
+# PLUGIN SYSTEM
+#############################################
+
+
+class Tool(ABC):
+    """Base class for all agent tools."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique name of the tool."""
+        pass
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """Human-readable description of what the tool does."""
+        pass
+
+    @property
+    @abstractmethod
+    def parameters_schema(self) -> Dict[str, Any]:
+        """JSON Schema for tool parameters."""
+        pass
+
+    @abstractmethod
+    def execute(self, **kwargs) -> Dict[str, Any]:
+        """Execute the tool with provided parameters."""
+        pass
+
+
+class ToolRegistry:
+    """Central registry for all available tools."""
+
+    def __init__(self):
+        self._tools: Dict[str, Type[Tool]] = {}
+        # agent_name -> [tool_names]
+        self._agent_tools: Dict[str, List[str]] = {}
+
+    def register_tool(self, tool_class: Type[Tool]) -> None:
+        """Register a tool in the global registry."""
+        instance = tool_class()
+        self._tools[instance.name] = tool_class
+
+    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> None:
+        """Grant an agent access to a specific tool."""
+        if tool_name not in self._tools:
+            raise ValueError(f"Tool {tool_name} is not registered")
+
+        if agent_name not in self._agent_tools:
+            self._agent_tools[agent_name] = []
+
+        if tool_name not in self._agent_tools[agent_name]:
+            self._agent_tools[agent_name].append(tool_name)
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        tool_names = self._agent_tools.get(agent_name, [])
+        tool_defs = []
+
+        for name in tool_names:
+            if name in self._tools:
+                tool_instance = self._tools[name]()
+                tool_defs.append(
+                    {
+                        "name": tool_instance.name,
+                        "description": tool_instance.description,
+                        "parameters": tool_instance.parameters_schema,
+                    }
+                )
+
+        return tool_defs
+
+    def get_tool(self, tool_name: str) -> Optional[Tool]:
+        """Get a tool by name."""
+        tool_class = self._tools.get(tool_name)
+        return tool_class() if tool_class else None
+
+    def list_all_tools(self) -> List[str]:
+        """List all registered tool names."""
+        return list(self._tools.keys())
+
+
+# Global registry instance
+tool_registry = ToolRegistry()
+
+
+class PluginManager:
+    """Manages discovery, loading and execution of plugins."""
+
+    def __init__(self, plugins_dir: str = "plugins"):
+        self.plugins_dir = Path(plugins_dir)
+        self.loaded_plugins = {}
+        self.plugin_envs = {}
+
+    def discover_plugins(self) -> List[Dict[str, Any]]:
+        """Find all plugins in the plugins directory."""
+        plugins = []
+
+        if not self.plugins_dir.exists():
+            return plugins
+
+        for plugin_dir in self.plugins_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+
+            metadata_file = plugin_dir / "plugin.json"
+
+            if metadata_file.exists():
+                try:
+                    with open(metadata_file, "r") as f:
+                        metadata = json.load(f)
+
+                    metadata["path"] = str(plugin_dir)
+                    plugins.append(metadata)
+                except Exception as e:
+                    print(
+                        f"Error loading plugin metadata from {metadata_file}: {e}")
+
+        return plugins
+
+    def setup_plugin_environment(self, plugin_metadata: Dict[str, Any]) -> str:
+        """Set up a virtual environment for a plugin and install its dependencies."""
+        plugin_name = plugin_metadata["name"]
+        plugin_path = plugin_metadata["path"]
+        env_dir = self.plugins_dir / f"{plugin_name}_env"
+
+        # Create virtual environment if it doesn't exist
+        if not env_dir.exists():
+            print(f"Creating virtual environment for plugin {plugin_name}")
+            import venv
+
+            venv.create(env_dir, with_pip=True)
+
+        # Install requirements
+        requirements_file = Path(plugin_path) / "requirements.txt"
+        if requirements_file.exists():
+            print(f"Installing requirements for plugin {plugin_name}")
+
+            # Determine pip path in the virtual environment
+            if sys.platform == "win32":
+                pip_path = env_dir / "Scripts" / "pip"
+            else:
+                pip_path = env_dir / "bin" / "pip"
+
+            # Install requirements
+            try:
+                subprocess.run(
+                    [str(pip_path), "install", "-r", str(requirements_file)], check=True
+                )
+            except subprocess.CalledProcessError as e:
+                print(
+                    f"Error installing requirements for plugin {plugin_name}: {e}")
+
+        return str(env_dir)
+
+    def load_plugin(self, plugin_metadata: Dict[str, Any]) -> bool:
+        """Load a plugin and register its tools."""
+        plugin_name = plugin_metadata["name"]
+        plugin_path = plugin_metadata["path"]
+
+        # Setup environment for plugin
+        env_dir = self.setup_plugin_environment(plugin_metadata)
+        self.plugin_envs[plugin_name] = env_dir
+
+        # Add plugin directory to path temporarily (fix for import discovery)
+        # We need to add the parent directory, not just the plugin directory itself
+        parent_dir = os.path.dirname(str(plugin_path))
+        sys.path.insert(0, parent_dir)
+
+        try:
+            # Import the plugin module
+            plugin_module = importlib.import_module(plugin_name)
+
+            # Call the plugin's setup function if it exists
+            if hasattr(plugin_module, "register_tools"):
+                plugin_module.register_tools(tool_registry)
+
+            self.loaded_plugins[plugin_name] = plugin_metadata
+            return True
+
+        except Exception as e:
+            print(f"Error loading plugin {plugin_name}: {e}")
+            import traceback
+            traceback.print_exc()  # This will help debug import issues
+            return False
+
+        finally:
+            # Remove the plugin directory from path
+            if parent_dir in sys.path:
+                sys.path.remove(parent_dir)
+
+    def load_all_plugins(self) -> int:
+        """Discover and load all available plugins."""
+        plugins = self.discover_plugins()
+        loaded_count = 0
+
+        for plugin_metadata in plugins:
+            if self.load_plugin(plugin_metadata):
+                loaded_count += 1
+
+        return loaded_count
+
+    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+        """Execute a tool with provided parameters."""
+        tool = tool_registry.get_tool(tool_name)
+        if not tool:
+            raise ValueError(f"Tool {tool_name} not found")
+
+        # Get the plugin name for this tool
+        plugin_name = None
+        for name, metadata in self.loaded_plugins.items():
+            tool_list = metadata.get("tools", [])
+            if isinstance(tool_list, list) and tool_name in tool_list:
+                plugin_name = name
+                break
+
+        if not plugin_name or plugin_name not in self.plugin_envs:
+            # If we can't identify the plugin, execute in the current environment
+            try:
+                return tool.execute(**kwargs)
+            except Exception as e:
+                return {"error": str(e), "status": "error"}
+
+        # Execute in isolated environment
+        try:
+            return tool.execute(**kwargs)
+        except Exception as e:
+            return {"error": str(e), "status": "error"}

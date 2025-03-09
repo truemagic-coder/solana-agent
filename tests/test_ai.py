@@ -3,6 +3,9 @@ import json
 import pytest
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
+import os
+import tempfile
+from pathlib import Path
 
 from solana_agent.ai import (
     # Domain Models
@@ -46,12 +49,88 @@ from solana_agent.ai import (
     SolanaAgentFactory,
     # Client interface
     SolanaAgent,
+    Tool,
+    ToolRegistry,
+    PluginManager,
 )
 
 
 #############################################
 # FIXTURES
 #############################################
+
+
+class TestMathTool(Tool):
+    @property
+    def name(self) -> str:
+        return "test_math_tool"
+
+    @property
+    def description(self) -> str:
+        return "A test tool that performs basic math operations"
+
+    @property
+    def parameters_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["add", "subtract", "multiply", "divide"],
+                    "description": "The operation to perform",
+                },
+                "a": {"type": "number", "description": "First number"},
+                "b": {"type": "number", "description": "Second number"},
+            },
+            "required": ["operation", "a", "b"],
+        }
+
+    def execute(self, **kwargs) -> dict:
+        operation = kwargs.get("operation")
+        a = kwargs.get("a")
+        b = kwargs.get("b")
+
+        if operation == "add":
+            result = a + b
+        elif operation == "subtract":
+            result = a - b
+        elif operation == "multiply":
+            result = a * b
+        elif operation == "divide":
+            if b == 0:
+                return {"error": "Cannot divide by zero", "status": "error"}
+            result = a / b
+        else:
+            return {"error": f"Unknown operation: {operation}", "status": "error"}
+
+        return {"result": result, "status": "success"}
+
+
+class TestInfoTool(Tool):
+    @property
+    def name(self) -> str:
+        return "test_info_tool"
+
+    @property
+    def description(self) -> str:
+        return "A test tool that returns information"
+
+    @property
+    def parameters_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "info_type": {
+                    "type": "string",
+                    "description": "Type of information to return",
+                }
+            },
+            "required": ["info_type"],
+        }
+
+    def execute(self, **kwargs) -> dict:
+        info_type = kwargs.get("info_type")
+        return {"info": f"Info about {info_type}", "status": "success"}
 
 
 @pytest.fixture
@@ -2595,6 +2674,422 @@ class TestMultitenantSolanaAgent:
             specialization="Support",
             notification_handler=mock_handler,
         )
+
+
+class TestToolRegistry:
+    """Tests for the Tool Registry functionality."""
+
+    def setup_method(self):
+        # Reset registry before each test
+        self.registry = ToolRegistry()
+
+    def test_register_tool(self):
+        """Test registering a tool."""
+        self.registry.register_tool(TestMathTool)
+
+        # Verify tool was registered
+        assert "test_math_tool" in self.registry._tools
+
+    def test_assign_tool_to_agent(self):
+        """Test assigning a tool to an agent."""
+        # Register tool
+        self.registry.register_tool(TestMathTool)
+
+        # Assign to agent
+        self.registry.assign_tool_to_agent("test_agent", "test_math_tool")
+
+        # Verify assignment
+        assert "test_agent" in self.registry._agent_tools
+        assert "test_math_tool" in self.registry._agent_tools["test_agent"]
+
+    def test_assign_invalid_tool(self):
+        """Test assigning a non-existent tool."""
+        with pytest.raises(ValueError, match="Tool nonexistent_tool is not registered"):
+            self.registry.assign_tool_to_agent(
+                "test_agent", "nonexistent_tool")
+
+    def test_get_agent_tools(self):
+        """Test getting tools for an agent."""
+        # Register tools
+        self.registry.register_tool(TestMathTool)
+        self.registry.register_tool(TestInfoTool)
+
+        # Assign to agent
+        self.registry.assign_tool_to_agent("test_agent", "test_math_tool")
+
+        # Get tools
+        tools = self.registry.get_agent_tools("test_agent")
+
+        # Verify
+        assert len(tools) == 1
+        assert tools[0]["name"] == "test_math_tool"
+        assert "description" in tools[0]
+        assert "parameters" in tools[0]
+
+        # Test agent with no tools
+        tools = self.registry.get_agent_tools("agent_with_no_tools")
+        assert len(tools) == 0
+
+    def test_get_tool(self):
+        """Test getting a tool by name."""
+        # Register tool
+        self.registry.register_tool(TestMathTool)
+
+        # Get tool
+        tool = self.registry.get_tool("test_math_tool")
+
+        # Verify
+        assert isinstance(tool, TestMathTool)
+        assert tool.name == "test_math_tool"
+
+        # Test nonexistent tool
+        assert self.registry.get_tool("nonexistent_tool") is None
+
+
+class TestPluginManager:
+    """Tests for the Plugin Manager functionality."""
+
+    @pytest.fixture
+    def temp_plugin_dir(self):
+        """Create a temporary plugin directory for testing."""
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            plugin_dir = Path(tmpdirname) / "plugins"
+            plugin_dir.mkdir()
+
+            # Create a test plugin
+            test_plugin_dir = plugin_dir / "test_plugin"
+            test_plugin_dir.mkdir()
+
+            # Create plugin metadata
+            with open(test_plugin_dir / "plugin.json", "w") as f:
+                json.dump(
+                    {
+                        "name": "test_plugin",
+                        "version": "1.0.0",
+                        "description": "Test plugin",
+                        "tools": ["test_math_tool", "test_info_tool"],
+                    },
+                    f,
+                )
+
+            # Create __init__.py
+            with open(test_plugin_dir / "__init__.py", "w") as f:
+                f.write("""
+from solana_agent.ai import Tool
+
+class TestMathTool(Tool):
+    @property
+    def name(self) -> str:
+        return "test_math_tool"
+    
+    @property
+    def description(self) -> str:
+        return "A test tool that performs basic math operations"
+    
+    @property
+    def parameters_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "operation": {"type": "string"},
+                "a": {"type": "number"},
+                "b": {"type": "number"}
+            }
+        }
+    
+    def execute(self, **kwargs):
+        a = kwargs.get("a", 0)
+        b = kwargs.get("b", 0)
+        op = kwargs.get("operation", "add")
+        
+        if op == "add":
+            return {"result": a + b, "status": "success"}
+        return {"error": "Unknown operation", "status": "error"}
+
+class TestInfoTool(Tool):
+    @property
+    def name(self) -> str:
+        return "test_info_tool"
+    
+    @property
+    def description(self) -> str:
+        return "A test tool that returns information"
+    
+    @property
+    def parameters_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "info_type": {"type": "string"}
+            }
+        }
+    
+    def execute(self, **kwargs):
+        return {"info": f"Info about {kwargs.get('info_type', 'unknown')}", "status": "success"}
+
+def register_tools(registry):
+    registry.register_tool(TestMathTool)
+    registry.register_tool(TestInfoTool)
+""")
+
+            # Create an empty requirements.txt
+            with open(test_plugin_dir / "requirements.txt", "w") as f:
+                f.write("# No dependencies")
+
+            yield tmpdirname
+
+    def test_discover_plugins(self, temp_plugin_dir):
+        """Test discovering plugins."""
+        manager = PluginManager(os.path.join(temp_plugin_dir, "plugins"))
+        plugins = manager.discover_plugins()
+
+        # Verify plugin was discovered
+        assert len(plugins) == 1
+        assert plugins[0]["name"] == "test_plugin"
+        assert plugins[0]["tools"] == ["test_math_tool", "test_info_tool"]
+
+    def test_load_plugin(self, temp_plugin_dir):
+        """Test loading a plugin."""
+        manager = PluginManager(os.path.join(temp_plugin_dir, "plugins"))
+        plugins = manager.discover_plugins()
+
+        # Mock the registry
+        mock_registry = MagicMock()
+
+        # Use patching to avoid modifying the global registry
+        with patch("solana_agent.ai.tool_registry", mock_registry):
+            result = manager.load_plugin(plugins[0])
+
+            # Verify plugin was loaded
+            assert result is True
+            assert plugins[0]["name"] in manager.loaded_plugins
+
+            # Verify register_tools was called
+            # Instead of checking for a specific MagicMock class, just verify the method was called
+            assert mock_registry.register_tool.call_count > 0
+
+    def test_load_all_plugins(self, temp_plugin_dir):
+        """Test loading all plugins."""
+        manager = PluginManager(os.path.join(temp_plugin_dir, "plugins"))
+
+        # Use patching to avoid modifying the global registry
+        with patch("solana_agent.ai.tool_registry", MagicMock()):
+            count = manager.load_all_plugins()
+
+            # Verify plugins were loaded
+            assert count == 1
+            assert "test_plugin" in manager.loaded_plugins
+
+    def test_execute_tool(self):
+        """Test executing a tool."""
+        # Register tools directly
+        registry = ToolRegistry()
+        registry.register_tool(TestMathTool)
+
+        manager = PluginManager()
+
+        # Use patching to use our test registry
+        with patch("solana_agent.ai.tool_registry", registry):
+            # Execute the tool
+            result = manager.execute_tool(
+                "test_math_tool", operation="add", a=2, b=3)
+
+            # Verify result
+            assert result["status"] == "success"
+            assert result["result"] == 5
+
+
+class TestAgentServiceWithTools:
+    """Tests for AgentService integration with tools."""
+
+    @pytest.fixture
+    def agent_service_with_tools(self):
+        """Create an agent service with tools for testing."""
+        # Create a mock LLM provider with a response that will actually trigger tool execution
+        mock_llm = AsyncMock()
+
+        async def mock_generate_text(*args, **kwargs):
+            # To fix the test, use the format OpenAI actually returns for tool calls
+            if "tools" in kwargs:
+                yield json.dumps(
+                    {
+                        "content": "",  # Content can be empty when using tools
+                        "tool_calls": [
+                            {
+                                "id": "call_123",
+                                "type": "function",
+                                "function": {
+                                    "name": "test_math_tool",
+                                    "arguments": json.dumps(
+                                        {"operation": "add", "a": 2, "b": 3}
+                                    ),
+                                },
+                            }
+                        ],
+                    }
+                )
+            else:
+                yield "Regular response without tools"
+
+        mock_llm.generate_text = mock_generate_text
+
+        # Create agent service
+        service = AgentService(mock_llm)
+
+        # Register an AI agent
+        service.register_ai_agent(
+            "test_agent",
+            "You are a test agent that can use tools.",
+            "Testing",
+            "gpt-4o",
+        )
+
+        # Setup plugin manager and register tools
+        service.plugin_manager = PluginManager()
+
+        # Create test registry and register tools
+        test_registry = ToolRegistry()
+        test_registry.register_tool(TestMathTool)
+        test_registry.register_tool(TestInfoTool)
+
+        # Register tools for the agent
+        test_registry.assign_tool_to_agent("test_agent", "test_math_tool")
+
+        # Use patching to use our test registry
+        with patch("solana_agent.ai.tool_registry", test_registry):
+            yield service
+
+    @pytest.mark.asyncio
+    async def test_generate_response_with_tools(self, agent_service_with_tools):
+        """Test generating a response that uses tools."""
+        # Mock execute_tool
+        agent_service_with_tools.execute_tool = MagicMock(
+            return_value={"result": 5, "status": "success"}
+        )
+
+        # Generate response
+        response = ""
+        async for chunk in agent_service_with_tools.generate_response(
+            "test_agent", "user1", "Add 2 and 3"
+        ):
+            response += chunk
+
+        # Verify execute_tool was called
+        agent_service_with_tools.execute_tool.assert_called_once_with(
+            "test_agent", "test_math_tool", {
+                "operation": "add", "a": 2, "b": 3}
+        )
+
+    def test_register_tool_for_agent(self, agent_service_with_tools):
+        """Test registering a tool for an agent."""
+        with patch("solana_agent.ai.tool_registry") as mock_registry:
+            # Register a tool
+            agent_service_with_tools.register_tool_for_agent(
+                "test_agent", "test_info_tool"
+            )
+
+            # Verify assign_tool_to_agent was called
+            mock_registry.assign_tool_to_agent.assert_called_once_with(
+                "test_agent", "test_info_tool"
+            )
+
+    def test_get_agent_tools(self, agent_service_with_tools):
+        """Test getting tools for an agent."""
+        with patch("solana_agent.ai.tool_registry") as mock_registry:
+            # Setup mock return value
+            mock_registry.get_agent_tools.return_value = [
+                {"name": "test_tool", "description": "Test"}
+            ]
+
+            # Get tools
+            tools = agent_service_with_tools.get_agent_tools("test_agent")
+
+            # Verify get_agent_tools was called
+            mock_registry.get_agent_tools.assert_called_once_with("test_agent")
+            assert len(tools) == 1
+            assert tools[0]["name"] == "test_tool"
+
+    def test_execute_tool(self, agent_service_with_tools):
+        """Test executing a tool."""
+        with patch("solana_agent.ai.tool_registry") as mock_registry:
+            # Setup mock return values
+            mock_registry.get_agent_tools.return_value = [
+                {"name": "test_math_tool", "description": "Test"}
+            ]
+
+            # Mock plugin manager
+            agent_service_with_tools.plugin_manager.execute_tool = MagicMock(
+                return_value={"result": 5, "status": "success"}
+            )
+
+            # Execute tool
+            result = agent_service_with_tools.execute_tool(
+                "test_agent", "test_math_tool", {
+                    "operation": "add", "a": 2, "b": 3}
+            )
+
+            # Verify plugin_manager.execute_tool was called
+            agent_service_with_tools.plugin_manager.execute_tool.assert_called_once_with(
+                "test_math_tool", operation="add", a=2, b=3
+            )
+            assert result["result"] == 5
+
+
+class TestInternetSearchPlugin:
+    """Tests for the Internet Search plugin."""
+
+    def test_search_tool_structure(self):
+        """Test that the search tool has the correct structure."""
+        # This would test the actual internet search plugin once implemented
+        # For now, we'll just verify the expected properties of such a tool
+
+        # Create a simple mock of what the internet search tool should look like
+        class MockSearchTool(Tool):
+            @property
+            def name(self) -> str:
+                return "search_internet"
+
+            @property
+            def description(self) -> str:
+                return "Search the internet for information"
+
+            @property
+            def parameters_schema(self) -> dict:
+                return {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "model": {
+                            "type": "string",
+                            "enum": [
+                                "sonar",
+                                "sonar-pro",
+                                "sonar-reasoning-pro",
+                                "sonar-reasoning",
+                            ],
+                            "description": "Perplexity model to use",
+                        },
+                    },
+                    "required": ["query"],
+                }
+
+            def execute(self, **kwargs) -> dict:
+                return {
+                    "result": f"Search results for: {kwargs.get('query')}",
+                    "status": "success",
+                }
+
+        # Create and verify the tool
+        tool = MockSearchTool()
+        assert tool.name == "search_internet"
+        assert "Search the internet" in tool.description
+        assert "query" in tool.parameters_schema["properties"]
+        assert "model" in tool.parameters_schema["properties"]
+
+        # Test execution
+        result = tool.execute(query="test query")
+        assert "test query" in result["result"]
+        assert result["status"] == "success"
 
 
 if __name__ == "__main__":
