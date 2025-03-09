@@ -138,7 +138,7 @@ Solana Agent transforms organizations into living systems that continuously lear
     Ticket management for complex or sensitive inquiries.  
     Multiple handoff patterns (AI↔human, human↔human).  
     In-chat command system for human agents to manage tickets.  
-    Availability status management with automatic timeout detection.
+    Availability status management with automatic timeout detection.  
     Direct agent-to-agent communication for real-time consultation.
 
 - **🧠 Distributed Intelligence Capabilities:**  
@@ -154,18 +154,18 @@ Solana Agent transforms organizations into living systems that continuously lear
     Automatic ticket lifecycle management with AI-driven resolution.  
     Intelligent handoffs maintaining ticket context across agents.  
     Command-line interface for human ticket management.  
-    Metrics and analytics on resolution quality and time.
-    Proactive reminders for pending human-assigned tickets.
-    Auto-reassignment system for stalled tickets.
-    Human agent activity tracking and status management.
+    Metrics and analytics on resolution quality and time.  
+    Proactive reminders for pending human-assigned tickets.  
+    Auto-reassignment system for stalled tickets.  
+    Human agent activity tracking and status management.  
 
 - **📊 Performance Optimization Framework:**  
-    Integrated Net Promoter Score (NPS) system for interaction quality measurement.
-    Automatic satisfaction surveys after ticket resolution.
-    Performance-weighted agent routing based on satisfaction scores.
-    Continuous quality monitoring and feedback loops.
-    Simple rating submission for users with optional feedback.
-    Agent performance analytics and trend identification.
+    Integrated Net Promoter Score (NPS) system for interaction quality measurement.  
+    Automatic satisfaction surveys after ticket resolution.  
+    Performance-weighted agent routing based on satisfaction scores.  
+    Continuous quality monitoring and feedback loops.  
+    Simple rating submission for users with optional feedback.  
+    Agent performance analytics and trend identification.  
 
 - **📋 Task Planning System:**  
     Automated complexity assessment for incoming tasks.  
@@ -244,12 +244,14 @@ Each public method has a docstring for real-time IDE hinting.
 # Create a Solana Agent system
 from solana_agent import SolanaAgent, MongoDBAdapter, OpenAIAdapter, PineconeAdapter, ZepMemoryAdapter
 from solana_agent import AgentService, RoutingService, TicketService, HandoffService
-from solana_agent import MongoTicketRepository, MongoHumanAgentRegistry, MongoMemoryRepository
+from solana_agent import MongoTicketRepository, MongoHumanAgentRegistry, MongoMemoryRepository, MongoHandoffRepository
 
 # Initialize infrastructure 
 db_adapter = MongoDBAdapter(connection_string="mongodb://localhost:27017", db_name="solana_agent")
 llm_adapter = OpenAIAdapter(api_key="your-openai-key")
-vector_adapter = PineconeAdapter(api_key="your-pinecone-key")
+vector_adapter = PineconeAdapter(api_key="your-pinecone-key", index_name="your-index-name")
+# Or for Qdrant
+# vector_adapter = QdrantAdapter(url="http://localhost:6333", api_key="your-qdrant-key")
 memory_adapter = ZepMemoryAdapter(api_key="your-zep-memory-key")
 
 # Initialize repositories

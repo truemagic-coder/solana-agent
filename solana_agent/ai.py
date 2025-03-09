@@ -713,7 +713,7 @@ class PineconeAdapter:
         self,
         api_key: str,
         index_name: str,
-        embedding_model: str = "llama-text-embed-v2",
+        embedding_model: str = "text-embedding-3-small",
     ):
         self.client = Pinecone(api_key=api_key)
         self.index = self.client.Index(index_name)
