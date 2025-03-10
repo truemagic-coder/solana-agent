@@ -325,6 +325,10 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
+## Example App
+
+[Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
