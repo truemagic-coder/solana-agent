@@ -49,6 +49,47 @@ from pathlib import Path
 # DOMAIN MODELS
 #############################################
 
+# Define Pydantic models for structured outputs
+class MemoryInsightModel(BaseModel):
+    fact: str = Field(...,
+                      description="The factual information worth remembering")
+    relevance: str = Field(...,
+                           description="Short explanation of why this fact is generally useful")
+
+
+class MemoryInsightsResponse(BaseModel):
+    insights: List[MemoryInsightModel] = Field(default_factory=list,
+                                               description="List of factual insights extracted")
+
+
+class ComplexityAssessment(BaseModel):
+    t_shirt_size: str = Field(...,
+                              description="T-shirt size (XS, S, M, L, XL, XXL)")
+    story_points: int = Field(...,
+                              description="Story points (1, 2, 3, 5, 8, 13, 21)")
+    estimated_minutes: int = Field(...,
+                                   description="Estimated resolution time in minutes")
+    technical_complexity: int = Field(...,
+                                      description="Technical complexity (1-10)")
+    domain_knowledge: int = Field(...,
+                                  description="Domain knowledge required (1-10)")
+
+
+class TicketResolutionModel(BaseModel):
+    status: Literal["resolved", "needs_followup", "cannot_determine"] = Field(
+        ..., description="Resolution status of the ticket"
+    )
+    confidence: float = Field(
+        ..., description="Confidence score for the resolution decision (0.0-1.0)"
+    )
+    reasoning: str = Field(
+        ..., description="Brief explanation for the resolution decision"
+    )
+    suggested_actions: List[str] = Field(
+        default_factory=list, description="Suggested follow-up actions if needed"
+    )
+
+
 class OrganizationMission(BaseModel):
     """Defines the overarching mission and values for all agents in the organization."""
 
@@ -296,7 +337,6 @@ class WorkCapacity(BaseModel):
 # INTERFACES
 #############################################
 
-
 class LLMProvider(Protocol):
     """Interface for language model providers."""
 
@@ -350,7 +390,7 @@ class DataStorageProvider(Protocol):
     ) -> List[Dict]: ...
 
     def update_one(self, collection: str, query: Dict,
-                   update: Dict) -> bool: ...
+                   update: Dict, upsert: bool = False) -> bool: ...
 
     def delete_one(self, collection: str, query: Dict) -> bool: ...
 
@@ -615,9 +655,9 @@ class MongoDBAdapter:
             cursor = cursor.limit(limit)
         return list(cursor)
 
-    def update_one(self, collection: str, query: Dict, update: Dict) -> bool:
-        result = self.db[collection].update_one(query, update)
-        return result.modified_count > 0
+    def update_one(self, collection: str, query: Dict, update: Dict, upsert: bool = False) -> bool:
+        result = self.db[collection].update_one(query, update, upsert=upsert)
+        return result.modified_count > 0 or (upsert and result.upserted_id is not None)
 
     def delete_one(self, collection: str, query: Dict) -> bool:
         result = self.db[collection].delete_one(query)
@@ -639,6 +679,19 @@ class OpenAIAdapter:
     def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
+
+    def generate_embedding(self, text: str) -> List[float]:
+        """Generate embeddings for a given text using OpenAI's embedding model."""
+        try:
+            response = self.client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            # Return a zero vector as fallback (not ideal but prevents crashing)
+            return [0.0] * 1536  # Standard size for text-embedding-3-small
 
     async def generate_text(
         self,
@@ -671,12 +724,32 @@ class OpenAIAdapter:
         else:
             yield response.choices[0].message.content
 
-    def generate_embedding(self, text: str) -> List[float]:
-        """Generate embeddings for text."""
-        response = self.client.embeddings.create(
-            model="text-embedding-3-small", input=text
-        )
-        return response.data[0].embedding
+    async def parse_structured_output(
+        self,
+        prompt: str,
+        system_prompt: str,
+        model_class: Type[BaseModel],
+        **kwargs
+    ) -> BaseModel:
+        """Generate structured output using Pydantic model parsing."""
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            completion = self.client.beta.chat.completions.parse(
+                model=kwargs.get("model", self.model),
+                messages=messages,
+                response_format=model_class,
+                temperature=kwargs.get("temperature", 0.2),
+            )
+            return completion.choices[0].message.parsed
+        except Exception as e:
+            print(f"Error parsing structured output: {e}")
+            # Return default instance as fallback
+            return model_class()
 
 
 class ZepMemoryAdapter:
@@ -803,8 +876,53 @@ class PineconeAdapter:
 # IMPLEMENTATIONS - REPOSITORIES
 #############################################
 
+class MongoMemoryProvider:
+    """MongoDB implementation of MemoryProvider."""
 
-# Add this class alongside other repository implementations
+    def __init__(self, db_adapter: DataStorageProvider):
+        self.db = db_adapter
+        self.collection = "messages"
+
+        # Ensure collection exists
+        self.db.create_collection(self.collection)
+
+        # Create indexes
+        self.db.create_index(self.collection, [("user_id", 1)])
+        self.db.create_index(self.collection, [("timestamp", 1)])
+
+    async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
+        """Store messages in MongoDB."""
+        for message in messages:
+            doc = {
+                "user_id": user_id,
+                "role": message["role"],
+                "content": message["content"],
+                "timestamp": datetime.datetime.now(datetime.timezone.utc)
+            }
+            self.db.insert_one(self.collection, doc)
+
+    async def retrieve(self, user_id: str) -> str:
+        """Retrieve memory context for a user."""
+        # Get recent messages
+        messages = self.db.find(
+            self.collection,
+            {"user_id": user_id},
+            sort=[("timestamp", 1)],
+            limit=10  # Adjust limit as needed
+        )
+
+        # Format as context string
+        context = ""
+        for msg in messages:
+            context += f"{msg['role'].upper()}: {msg['content']}\n\n"
+
+        return context
+
+    async def delete(self, user_id: str) -> None:
+        """Delete memory for a user."""
+        self.db.delete_one(self.collection, {"user_id": user_id})
+
+
 class MongoAIAgentRegistry:
     """MongoDB implementation for AI agent management."""
 
@@ -958,7 +1076,7 @@ class MongoHumanAgentRegistry:
                     "updated_at": datetime.datetime.now(datetime.timezone.utc),
                 }
             },
-            upsert=True,
+            upsert=True
         )
 
         # Update cache
@@ -1394,6 +1512,36 @@ class MongoMemoryRepository:
             return None
 
 
+class DualMemoryProvider(MemoryProvider):
+    """Memory provider that stores messages in both MongoDB and optional Zep."""
+
+    def __init__(self, mongo_provider: MongoMemoryProvider, zep_provider: Optional[ZepMemoryAdapter] = None):
+        self.mongo_provider = mongo_provider
+        self.zep_provider = zep_provider
+
+    async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
+        """Store messages in both providers."""
+        # Always store in MongoDB for UI history
+        await self.mongo_provider.store(user_id, messages)
+
+        # If Zep is configured, also store there for AI context
+        if self.zep_provider:
+            await self.zep_provider.store(user_id, messages)
+
+    async def retrieve(self, user_id: str) -> str:
+        """Retrieve memory context - prefer Zep if available."""
+        if self.zep_provider:
+            return await self.zep_provider.retrieve(user_id)
+        else:
+            return await self.mongo_provider.retrieve(user_id)
+
+    async def delete(self, user_id: str) -> None:
+        """Delete memory from both providers."""
+        await self.mongo_provider.delete(user_id)
+        if self.zep_provider:
+            await self.zep_provider.delete(user_id)
+
+
 #############################################
 # SERVICES
 #############################################
@@ -1689,7 +1837,7 @@ class MemoryService:
         self.llm_provider = llm_provider
 
     async def extract_insights(
-        self, user_id: str, conversation: Dict[str, str]
+        self, conversation: Dict[str, str]
     ) -> List[MemoryInsight]:
         """Extract insights from a conversation."""
         prompt = f"""
@@ -1700,30 +1848,23 @@ class MemoryService:
         
         Extract only factual information that would be useful for future similar conversations.
         Ignore subjective opinions, preferences, or greeting messages.
-        Return insights as a JSON array of objects with "fact" and "relevance" fields.
         Only extract high-quality insights worth remembering.
         If no valuable insights exist, return an empty array.
         """
 
-        response = ""
-        async for chunk in self.llm_provider.generate_text(
-            user_id,
-            prompt,
-            system_prompt="Extract factual insights from conversations.",
-            stream=False,
-            model="gpt-4o-mini",
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response += chunk
-
-        # Parse response
         try:
-            data = json.loads(response)
-            insights = data.get("insights", [])
-            return [MemoryInsight(**insight) for insight in insights]
+            # Use the new parse method
+            result = await self.llm_provider.parse_structured_output(
+                prompt,
+                system_prompt="Extract factual insights from conversations.",
+                model_class=MemoryInsightsResponse,
+                temperature=0.2,
+            )
+
+            # Convert to domain model instances
+            return [MemoryInsight(**insight.model_dump()) for insight in result.insights]
         except Exception as e:
-            print(f"Error parsing insights: {e}")
+            print(f"Error extracting insights: {e}")
             return []
 
     async def store_insights(self, user_id: str, insights: List[MemoryInsight]) -> None:
@@ -2072,6 +2213,10 @@ class AgentService:
         if tools and "tools" not in kwargs:
             kwargs["tools"] = tools
 
+        # Add specific instruction for simple queries to prevent handoff format leakage
+        if len(query.strip()) < 10:
+            instructions += "\n\nIMPORTANT: If the user sends a simple test message, respond conversationally. Never output raw JSON handoff objects directly to the user."
+
         # Generate response
         response_text = ""
         async for chunk in self.llm_provider.generate_text(
@@ -2081,9 +2226,16 @@ class AgentService:
             model=agent_config["model"],
             **kwargs,
         ):
-            response_text += chunk
+            # Filter out raw handoff JSON before yielding to user
+            if not response_text and chunk.strip().startswith('{"handoff":'):
+                # If we're starting with a handoff JSON, replace with a proper response
+                yield "Hello! I'm here to help. What can I assist you with today?"
+                response_text += chunk  # Still store it for processing later
+            else:
+                yield chunk
+                response_text += chunk
 
-        # Check for tool calls in the response
+        # Process handoffs after yielding response (unchanged code)
         try:
             response_data = json.loads(response_text)
             if "tool_calls" in response_data:
@@ -2107,12 +2259,9 @@ class AgentService:
                         # Execute the tool
                         if tool_name:
                             self.execute_tool(agent_name, tool_name, params)
-
-            # Return the original response for now
-            yield response_text
         except Exception:
-            # If it's not JSON or doesn't have tool_calls, return as is
-            yield response_text
+            # If it's not JSON or doesn't have tool_calls, we've already yielded the response
+            pass
 
     def get_all_ai_agents(self) -> Dict[str, Any]:
         """Get all registered AI agents."""
@@ -2419,16 +2568,12 @@ class TaskPlanningService:
             subtask_count=subtask_count,
         )
 
-    async def _assess_task_complexity(self, task_description: str) -> Dict[str, Any]:
-        """Assess the complexity of a task."""
-        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
-        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
-        model = agent_config.get("model", "gpt-4o-mini")
-
+    async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
+        """Assess the complexity of a task using standardized metrics."""
         prompt = f"""
         Analyze this task and provide standardized complexity metrics:
         
-        TASK: {task_description}
+        TASK: {query}
         
         Assess on these dimensions:
         1. T-shirt size (XS, S, M, L, XL, XXL)
@@ -2436,25 +2581,16 @@ class TaskPlanningService:
         3. Estimated resolution time in minutes/hours
         4. Technical complexity (1-10)
         5. Domain knowledge required (1-10)
-        
-        Return a JSON object with these fields.
         """
 
         try:
-            response_text = ""
-            async for chunk in self.llm_provider.generate_text(
-                "complexity_assessor",
+            complexity = await self.agent_service.llm_provider.parse_structured_output(
                 prompt,
                 system_prompt="You are an expert at estimating task complexity.",
-                stream=False,
-                model=model,
+                model_class=ComplexityAssessment,
                 temperature=0.2,
-                response_format={"type": "json_object"},
-            ):
-                response_text += chunk
-
-            complexity_data = json.loads(response_text)
-            return complexity_data
+            )
+            return complexity.model_dump()
         except Exception as e:
             print(f"Error assessing complexity: {e}")
             return {
@@ -3999,7 +4135,7 @@ class QueryProcessor:
         """Extract insights from conversation and store in collective memory."""
         try:
             # Extract insights
-            insights = await self.memory_service.extract_insights(user_id, conversation)
+            insights = await self.memory_service.extract_insights(conversation)
 
             # Store them if any found
             if insights:
@@ -4048,13 +4184,16 @@ class SolanaAgentFactory:
             model=config.get("openai", {}).get("default_model", "gpt-4o-mini"),
         )
 
-        # Create memory providers if configured
-        memory_provider = None
+        mongo_memory = MongoMemoryProvider(db_adapter)
+
+        zep_memory = None
         if "zep" in config:
-            memory_provider = ZepMemoryAdapter(
+            zep_memory = ZepMemoryAdapter(
                 api_key=config["zep"].get("api_key"),
                 base_url=config["zep"].get("base_url"),
             )
+
+        memory_provider = DualMemoryProvider(mongo_memory, zep_memory)
 
         # Create vector store provider if configured
         vector_provider = None
@@ -4671,11 +4810,11 @@ class SolanaAgent:
 
     async def get_pending_surveys(self, user_id: str) -> List[Dict[str, Any]]:
         """Get pending surveys for a user."""
-        if not self.query_processor or not hasattr(self.query_processor, "nps_service"):
+        if not self.processor or not hasattr(self.processor, "nps_service"):
             return []
 
         # Query for pending surveys from the NPS service
-        surveys = self.query_processor.nps_service.nps_repository.db.find(
+        surveys = self.processor.nps_service.nps_repository.db.find(
             "nps_surveys",
             {
                 "user_id": user_id,
@@ -4688,11 +4827,11 @@ class SolanaAgent:
 
     async def submit_survey_response(self, survey_id: str, score: int, feedback: str = "") -> bool:
         """Submit a response to an NPS survey."""
-        if not self.query_processor or not hasattr(self.query_processor, "nps_service"):
+        if not self.processor or not hasattr(self.processor, "nps_service"):
             return False
 
         # Process the survey response
-        return self.query_processor.nps_service.process_response(survey_id, score, feedback)
+        return self.processor.nps_service.process_response(survey_id, score, feedback)
 
     async def get_paginated_history(
         self,
@@ -4702,12 +4841,12 @@ class SolanaAgent:
         sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """
-        Get paginated message history for a user.
+        Get paginated message history for a user, with user messages and assistant responses grouped together.
 
         Args:
             user_id: User ID to retrieve history for
             page_num: Page number (starting from 1)
-            page_size: Number of messages per page
+            page_size: Number of messages per page (number of conversation turns)
             sort_order: "asc" for chronological order, "desc" for reverse chronological
 
         Returns:
@@ -4732,38 +4871,67 @@ class SolanaAgent:
             }
 
         try:
-            # Calculate skip amount for pagination
-            skip = (page_num - 1) * page_size
-
             # Set the sort direction
             sort_direction = pymongo.ASCENDING if sort_order.lower() == "asc" else pymongo.DESCENDING
 
-            # Get total count (for pagination metadata)
-            total_items = db_adapter.count_documents(
-                "messages", {"user_id": user_id})
+            # Get total count of user messages (each user message represents one conversation turn)
+            total_user_messages = db_adapter.count_documents(
+                "messages", {"user_id": user_id, "role": "user"}
+            )
 
-            # Get paginated messages
-            messages = db_adapter.find(
+            # We'll determine total conversation turns based on user messages
+            total_turns = total_user_messages
+
+            # Calculate skip amount for pagination (in terms of user messages)
+            skip = (page_num - 1) * page_size
+
+            # Get all messages for this user, sorted by timestamp
+            all_messages = db_adapter.find(
                 "messages",
                 {"user_id": user_id},
                 sort=[("timestamp", sort_direction)],
-                limit=page_size
+                limit=0  # No limit initially, we'll filter after grouping
             )
 
-            # Skip the appropriate number of documents
-            if skip > 0:
-                messages = messages[skip:]
+            # Group messages into conversation turns
+            conversation_turns = []
+            current_turn = None
+
+            for message in all_messages:
+                if message["role"] == "user":
+                    # Start a new conversation turn
+                    if current_turn:
+                        conversation_turns.append(current_turn)
+
+                    current_turn = {
+                        "user_message": message["content"],
+                        "assistant_message": None,
+                        "timestamp": message["timestamp"].isoformat() if isinstance(message["timestamp"], datetime.datetime) else message["timestamp"],
+                    }
+                elif message["role"] == "assistant" and current_turn and current_turn["assistant_message"] is None:
+                    # Add this as the response to the current turn
+                    current_turn["assistant_message"] = message["content"]
+                    current_turn["response_timestamp"] = message["timestamp"].isoformat() if isinstance(
+                        message["timestamp"], datetime.datetime) else message["timestamp"]
+
+            # Add the last turn if it exists
+            if current_turn:
+                conversation_turns.append(current_turn)
+
+            # Apply pagination to conversation turns
+            paginated_turns = conversation_turns[skip:skip + page_size]
 
             # Format response with pagination metadata
             return {
-                "data": messages,
-                "total": total_items,
+                "data": paginated_turns,
+                "total": total_turns,
                 "page": page_num,
                 "page_size": page_size,
-                "total_pages": (total_items // page_size) + (1 if total_items % page_size > 0 else 0),
+                "total_pages": (total_turns // page_size) + (1 if total_turns % page_size > 0 else 0)
             }
 
         except Exception as e:
+            print(f"Error retrieving message history: {e}")
             return {
                 "data": [],
                 "total": 0,

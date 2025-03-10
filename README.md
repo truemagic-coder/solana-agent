@@ -272,19 +272,17 @@ config = {
         ],
         "guidance": "When making decisions, prioritize long-term user success over short-term efficiency."
     },
-    "db": {
-        "provider": "mongodb",
+    "mongo": {
         "connection_string": "mongodb://localhost:27017",
-        "db_name": "solana_agent"
+        "database": "solana_agent"
     },
-    "llm": {
-        "provider": "openai",
-        "api_key": "your-openai-key"
+    "openai": {
+        "api_key": "your-openai-key",
+        "default_model": "gpt-4o-mini"
     },
-    "vector_db": {
-        "provider": "pinecone",
+    "pinecone": {
         "api_key": "your-pinecone-key",
-        "index_name": "your-index"
+        "index": "your-index"
     },
     "plugins_dir": "plugins",
     "ai_agents": [
