@@ -3,6 +3,8 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-orange.svg)](https://www.python.org/downloads/)
+[![codecov](https://img.shields.io/codecov/c/github/truemagic-coder/solana-agent/main.svg)](https://codecov.io/gh/truemagic-coder/solana-agent)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/test.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/test.yml)
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
@@ -114,17 +116,20 @@ Solana Agent transforms organizations into living systems that continuously lear
     Identify trends invisible to individual actors through network-wide analysis.
 - **Failure-Embracing Architecture:**  
     Convert mistakes into learning opportunities through systematic analysis.
+- **Performance-Based Optimization:**  
+    Route tasks to agents with highest satisfaction scores through NPS feedback integration.
+- **Continuous Quality Assessment:**  
+    Monitor interaction quality through automated satisfaction surveys and impact metrics.
 
 ## Technical Features
 
 - **🗣️ Advanced Interaction Layer:**  
     Streaming text-based conversations with real-time thinking.  
-    Voice-to-voice conversations with natural cadence.  
     Multi-turn context preservation and reasoning.
 
 - **🤖 Multi-Agent Swarm Architecture:**  
     Dynamic specialized agent creation and coordination.  
-    Intelligent routing based on query content and agent expertise.  
+    Intelligent routing based on query content, agent expertise, and performance metrics.  
     Seamless handoffs with comprehensive context passing.  
     Shared memory and collective intelligence across the entire swarm.
 
@@ -133,7 +138,8 @@ Solana Agent transforms organizations into living systems that continuously lear
     Ticket management for complex or sensitive inquiries.  
     Multiple handoff patterns (AI↔human, human↔human).  
     In-chat command system for human agents to manage tickets.  
-    Availability status management for human operators.
+    Availability status management with automatic timeout detection.  
+    Direct agent-to-agent communication for real-time consultation.
 
 - **🧠 Distributed Intelligence Capabilities:**  
     Cross-domain knowledge integration from multiple sources.  
@@ -148,7 +154,25 @@ Solana Agent transforms organizations into living systems that continuously lear
     Automatic ticket lifecycle management with AI-driven resolution.  
     Intelligent handoffs maintaining ticket context across agents.  
     Command-line interface for human ticket management.  
-    Metrics and analytics on resolution quality and time.
+    Metrics and analytics on resolution quality and time.  
+    Proactive reminders for pending human-assigned tickets.  
+    Auto-reassignment system for stalled tickets.  
+    Human agent activity tracking and status management.  
+
+- **📊 Performance Optimization Framework:**  
+    Integrated Net Promoter Score (NPS) system for interaction quality measurement.  
+    Automatic satisfaction surveys after ticket resolution.  
+    Performance-weighted agent routing based on satisfaction scores.  
+    Continuous quality monitoring and feedback loops.  
+    Simple rating submission for users with optional feedback.  
+    Agent performance analytics and trend identification.  
+
+- **📋 Task Planning System:**  
+    Automated complexity assessment for incoming tasks.  
+    Task decomposition into subtasks with dependencies.  
+    Intelligent workload distribution based on agent capacity.  
+    Visual progress tracking with completion estimates.  
+    Prioritization based on urgency, importance, and dependencies.
 
 - **🛡️ Governance Framework:**  
     Define organization-wide values and operating principles in code.  
@@ -157,18 +181,64 @@ Solana Agent transforms organizations into living systems that continuously lear
     Transparent insight extraction with review capabilities.  
     Performance analytics across the agent network.
 
+- **🔍 Project Simulation Framework:**  
+    Data-driven project feasibility assessment using historical performance.  
+    Intelligent timeline estimation based on similar past projects.  
+    Risk analysis with probability and impact scoring.  
+    Resource requirement prediction and availability matching.  
+    System load analysis to prevent overcommitment.  
+    Comprehensive recommendation engine with contextual insights.  
+    Historical satisfaction trend analysis for similar work.
+
+- **✅ Human Approval Workflow:**  
+    Configurable approval requirements for complex projects.  
+    Simple queries bypass approval for efficient handling.  
+    Data-driven approval process with simulation results.  
+    Multi-approver support with role-based authorization.  
+    Project lifecycle tracking from submission to approval/rejection.  
+    Transparent decision documentation with comments and rationale.
+
+- **🔔 Notification System:**  
+    Multi-channel notifications for human agents.  
+    Approval request routing to authorized approvers.  
+    Configurable notification handlers for different channels.  
+    Real-time and asynchronous communication support.  
+    Status tracking for notification delivery and response.
+
+- **🏢 Multi-tenant Platform Architecture:**  
+    Complete tenant isolation with separate databases and storage.  
+    Tenant-specific configuration overrides with inheritance from global defaults.  
+    Support for both Qdrant and Pinecone vector databases.  
+    Per-tenant agent specialization and customization.  
+    Centralized management through tenant registry.  
+    Resource sharing with tenant-level permissions.  
+    Standardized interfaces across all tenants.  
+    Efficient multi-tenant scaling with shared infrastructure.
+
+- **🔌 Plugin System:**  
+    Extensible architecture with dynamic tool loading capabilities.  
+    Isolated plugin environments with dependency management.  
+    Tool registry for AI agent capability extension.  
+    Permission-based tool access for security and control.  
+    Standard interface for third-party integrations.  
+    Built-in internet search capabilities via Perplexity API.  
+    Seamless AI agent interaction with external services.  
+    Runtime tool discovery without code modification.
+
 ## Implementation Technologies
 
 Solana Agent leverages multiple technologies to enable these capabilities:
 
 - **Knowledge Integration:**  
-    Perplexity API, X/Twitter (Grok API), Zep memory, Pinecone vector search.
+    Zep memory and Pinecone or Qdrant vector search.
 - **Collaborative Intelligence:**  
     Multi-agent swarm architecture with specialized expertise domains.
 - **Human-AI Teaming:**  
     Integrated ticketing, notification systems, and real-time handoffs.
 - **Organization Alignment:**  
     Unified mission framework, critic system, and collective memory.
+- **External Integration:**  
+    Plugin system for extensible tool capabilities and API connections.
 
 ## Installation
 
@@ -180,62 +250,78 @@ You can install Solana Agent using pip:
 
 Each public method has a docstring for real-time IDE hinting.
 
-## Production Apps
-
-- **CometHeart:**  
-    AI Companion and Business Coach on mobile using voice-to-voice conversations.
-
 ## Example Setup
 
 ```python
-# Create a decentralized organizational structure
-from solana_agent import Swarm, AI, MongoDatabase
+from solana_agent import SolanaAgent
 
-# Initialize the organizational database
-db = MongoDatabase(db_url="mongodb://localhost:27017", db_name="organization_brain")
+# Define configuration with plugins
+config = {
+    "organization": {
+        "mission_statement": "To revolutionize knowledge work through AI-human collaboration that puts people first.",
+        "values": {
+            "Human-Centered": "Always prioritize human well-being and augmentation over replacement.",
+            "Transparency": "Provide clear explanations for decisions and never hide information.",
+            "Collective Intelligence": "Value diverse perspectives and combine human and AI strengths.",
+            "Continuous Learning": "Embrace feedback and continuously improve based on experience."
+        },
+        "goals": [
+            "Enable human experts to focus on high-value creative work",
+            "Reduce administrative overhead through intelligent automation",
+            "Create seamless knowledge flow across the organization"
+        ],
+        "guidance": "When making decisions, prioritize long-term user success over short-term efficiency."
+    },
+    "mongo": {
+        "connection_string": "mongodb://localhost:27017",
+        "database": "solana_agent"
+    },
+    "openai": {
+        "api_key": "your-openai-key",
+        "default_model": "gpt-4o-mini"
+    },
+    "pinecone": {
+        "api_key": "your-pinecone-key",
+        "index": "your-index"
+    },
+    "plugins_dir": "plugins",
+    "ai_agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+            "model": "o3-mini",
+            "tools": ["search_internet"]
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+            "model": "gpt-4o-mini"
+        }
+    ],
+    "human_agents": [
+        {
+            "agent_id": "expert_dev",
+            "name": "Senior Developer", 
+            "specialization": "Complex technical issues"
+        },
+        {
+            "agent_id": "support_lead",
+            "name": "Support Team Lead",
+            "specialization": "Escalated customer issues"
+        }
+    ],
+    "api_keys": {
+        "perplexity": "your-perplexity-key"  # For internet search plugin
+    }
+}
 
-# Define the organization's mission and values
-mission = """Our organization maximizes collective intelligence through 
-transparent collaboration between humans and AI. We value truth, 
-clarity, and continuous improvement in all interactions."""
+# Create agent with configuration
+solana_agent = SolanaAgent(config=config)
 
-# Create the organizational swarm
-org = Swarm(
-    database=db,
-    directive=mission,
-)
-
-# Register AI expertise domains
-org.register(
-    name="knowledge_worker",
-    agent=AI(
-        openai_api_key="key",
-        instructions="You are an expert in research and knowledge synthesis...",
-        database=db
-    ),
-    specialization="Research, analysis, and knowledge synthesis"
-)
-
-org.register(
-    name="customer_interface",
-    agent=AI(
-        openai_api_key="key",
-        instructions="You handle customer inquiries with empathy and clarity...",
-        database=db
-    ),
-    specialization="Customer interaction and support"
-)
-
-# Register human expertise domains
-org.register_human_agent(
-    agent_id="human_expert_1",
-    name="Technical Specialist",
-    specialization="Advanced technical problem solving requiring human judgment",
-    notification_handler=email_notification
-)
-
-# Process work through the organization
-async for response in org.process("user123", "How can we optimize our supply chain?"):
+# Process a query that can use tools
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
 
