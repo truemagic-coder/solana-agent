@@ -17,11 +17,11 @@ packages = [{ include = "solana_agent" }]
 python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0"
-openai = "^1.65.5"
+python = ">=3.12,<4.0"
+openai = "^1.66.1"
 pydantic = "^2.10.6"
 pymongo = "^4.11.2"
-zep-cloud = "^2.5.0"
+zep-cloud = "^2.6.1"
 zep-python = "^2.0.2"
 requests = "^2.32.3"
 pinecone = "^6.0.1"
