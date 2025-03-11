@@ -4263,9 +4263,8 @@ class SolanaAgentFactory:
             llm_adapter, task_planning_service
         )
 
-        # Initialize plugin system if plugins directory is configured
-        plugins_dir = config.get("plugins_dir", "plugins")
-        agent_service.plugin_manager = PluginManager(plugins_dir)
+        # Initialize plugin system if plugins directory is configured)
+        agent_service.plugin_manager = PluginManager()
         loaded_plugins = agent_service.plugin_manager.load_all_plugins()
         print(f"Loaded {loaded_plugins} plugins")
 
@@ -5028,8 +5027,7 @@ tool_registry = ToolRegistry()
 class PluginManager:
     """Manages discovery, loading and execution of plugins."""
 
-    def __init__(self, plugins_dir: str = "plugins"):
-        self.plugins_dir = plugins_dir
+    def __init__(self):
         self.tools = {}
 
     def load_all_plugins(self) -> int:
