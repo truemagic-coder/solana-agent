@@ -284,7 +284,6 @@ config = {
         "api_key": "your-pinecone-key",
         "index": "your-index"
     },
-    "plugins_dir": "plugins",
     "ai_agents": [
         {
             "name": "research_specialist",
