@@ -13,7 +13,6 @@ This module implements a clean architecture approach with:
 import asyncio
 import datetime
 import json
-import os
 import re
 import traceback
 import uuid
@@ -39,10 +38,6 @@ from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 from pinecone import Pinecone
 from abc import ABC, abstractmethod
-import sys
-import importlib
-import subprocess
-from pathlib import Path
 
 
 #############################################
@@ -5034,181 +5029,47 @@ class PluginManager:
     """Manages discovery, loading and execution of plugins."""
 
     def __init__(self, plugins_dir: str = "plugins"):
-        self.plugins_dir = Path(plugins_dir)
-        self.loaded_plugins = {}
-        self.plugin_envs = {}
-
-    def discover_plugins(self) -> List[Dict[str, Any]]:
-        """Find all plugins in the plugins directory."""
-        plugins = []
-
-        if not self.plugins_dir.exists():
-            return plugins
-
-        for plugin_dir in self.plugins_dir.iterdir():
-            if not plugin_dir.is_dir():
-                continue
-
-            metadata_file = plugin_dir / "plugin.json"
-
-            if metadata_file.exists():
-                try:
-                    with open(metadata_file, "r") as f:
-                        metadata = json.load(f)
-
-                    metadata["path"] = str(plugin_dir)
-                    plugins.append(metadata)
-                except Exception as e:
-                    print(
-                        f"Error loading plugin metadata from {metadata_file}: {e}")
-
-        return plugins
-
-    def setup_plugin_environment(self, plugin_metadata: Dict[str, Any]) -> str:
-        """Setup virtual environment for a plugin and install its dependencies.
-
-        Args:
-            plugin_metadata: Plugin metadata including path
-
-        Returns:
-            Path to the plugin's virtual environment
-        """
-        plugin_name = plugin_metadata["name"]
-        plugin_path = Path(plugin_metadata["path"])
-
-        # Create virtual environment for plugin
-        env_dir = Path(self.plugins_dir) / f"{plugin_name}_env"
-
-        # If environment already exists, return its path
-        if env_dir.exists():
-            return str(env_dir)
-
-        print(f"Creating virtual environment for plugin {plugin_name}")
-
-        # Check if requirements file exists
-        requirements_file = plugin_path / "requirements.txt"
-        pyproject_file = plugin_path / "pyproject.toml"
-
-        # Create virtual environment
-        import venv
-        venv.create(env_dir, with_pip=True)
-
-        # Determine package installation command (prefer uv if available)
-        try:
-            # Try to import uv to check if it's installed
-            import importlib.util
-            uv_spec = importlib.util.find_spec("uv")
-            use_uv = uv_spec is not None
-        except ImportError:
-            use_uv = False
-
-        # Install dependencies if requirements file exists
-        if requirements_file.exists() or pyproject_file.exists():
-            print(f"Installing requirements for plugin {plugin_name}")
-
-            # Prepare pip command
-            if sys.platform == "win32":
-                pip_path = env_dir / "Scripts" / "pip"
-            else:
-                pip_path = env_dir / "bin" / "pip"
-
-            # Install dependencies using uv if available
-            try:
-                if use_uv:
-                    # Use UV for faster dependency installation
-                    target_file = "pyproject.toml" if pyproject_file.exists() else "requirements.txt"
-                    subprocess.check_call([
-                        "uv", "pip", "install",
-                        "-r" if target_file == "requirements.txt" else ".",
-                        str(plugin_path / target_file)
-                    ])
-                else:
-                    # Fall back to regular pip
-                    if requirements_file.exists():
-                        subprocess.check_call([
-                            str(pip_path), "install", "-r",
-                            str(requirements_file)
-                        ])
-                    elif pyproject_file.exists():
-                        subprocess.check_call([
-                            str(pip_path), "install",
-                            str(plugin_path)
-                        ])
-            except subprocess.CalledProcessError as e:
-                print(
-                    f"Failed to install dependencies for plugin {plugin_name}: {e}")
-
-        return str(env_dir)
-
-    def load_plugin(self, plugin_metadata: Dict[str, Any]) -> bool:
-        """Load a plugin and register its tools."""
-        plugin_name = plugin_metadata["name"]
-        plugin_path = plugin_metadata["path"]
-
-        # Setup environment for plugin
-        env_dir = self.setup_plugin_environment(plugin_metadata)
-        self.plugin_envs[plugin_name] = env_dir
-
-        # Add plugin directory to path temporarily (fix for import discovery)
-        # We need to add the parent directory, not just the plugin directory itself
-        parent_dir = os.path.dirname(str(plugin_path))
-        sys.path.insert(0, parent_dir)
-
-        try:
-            # Import the plugin module
-            plugin_module = importlib.import_module(plugin_name)
-
-            # Call the plugin's setup function if it exists
-            if hasattr(plugin_module, "register_tools"):
-                plugin_module.register_tools(tool_registry)
-
-            self.loaded_plugins[plugin_name] = plugin_metadata
-            return True
-
-        except Exception as e:
-            print(f"Error loading plugin {plugin_name}: {e}")
-            import traceback
-            traceback.print_exc()  # This will help debug import issues
-            return False
-
-        finally:
-            # Remove the plugin directory from path
-            if parent_dir in sys.path:
-                sys.path.remove(parent_dir)
+        self.plugins_dir = plugins_dir
+        self.tools = {}
 
     def load_all_plugins(self) -> int:
-        """Discover and load all available plugins."""
-        plugins = self.discover_plugins()
-        loaded_count = 0
+        """Load all plugins using setuptools entry points.
 
-        for plugin_metadata in plugins:
-            if self.load_plugin(plugin_metadata):
-                loaded_count += 1
+        Returns the number of plugins loaded for backwards compatibility.
+        """
+        import importlib.metadata
 
-        return loaded_count
+        count = 0
+        # Discover plugins registered via entry_points
+        for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
+            try:
+                plugin_class = entry_point.load()
+                plugin = plugin_class()
+
+                # Register all tools from this plugin
+                for tool in plugin.get_tools():
+                    self.tools[tool.name] = tool
+                    print(f"Registered tool: {tool.name}")
+                count += 1
+            except Exception as e:
+                print(f"Error loading plugin {entry_point.name}: {e}")
+
+        return count
+
+    def get_tool(self, name):
+        """Get a tool by name."""
+        return self.tools.get(name)
+
+    def list_tools(self):
+        """List all available tools."""
+        return list(self.tools.keys())
 
     def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
         """Execute a tool with provided parameters."""
-        tool = tool_registry.get_tool(tool_name)
+        tool = self.tools.get(tool_name)
         if not tool:
             raise ValueError(f"Tool {tool_name} not found")
 
-        # Get the plugin name for this tool
-        plugin_name = None
-        for name, metadata in self.loaded_plugins.items():
-            tool_list = metadata.get("tools", [])
-            if isinstance(tool_list, list) and tool_name in tool_list:
-                plugin_name = name
-                break
-
-        if not plugin_name or plugin_name not in self.plugin_envs:
-            # If we can't identify the plugin, execute in the current environment
-            try:
-                return tool.execute(**kwargs)
-            except Exception as e:
-                return {"error": str(e), "status": "error"}
-
-        # Execute in isolated environment
         try:
             return tool.execute(**kwargs)
         except Exception as e:
