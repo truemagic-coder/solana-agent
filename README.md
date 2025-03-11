@@ -235,7 +235,6 @@ Solana Agent transforms organizations into living systems that continuously lear
     Tool registry for AI agent capability extension.  
     Permission-based tool access for security and control.  
     Clean interface for third-party integrations through standard Python APIs.  
-    Built-in internet search capabilities via Perplexity API.  
     Runtime tool discovery without service restarts.
 
 ## Implementation Technologies
