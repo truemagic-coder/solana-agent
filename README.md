@@ -215,15 +215,15 @@ Solana Agent transforms organizations into living systems that continuously lear
     Standardized interfaces across all tenants.  
     Efficient multi-tenant scaling with shared infrastructure.
 
-- **🔌 Plugin System:**  
-    Extensible architecture with dynamic tool loading capabilities.  
-    Isolated plugin environments with dependency management.  
+- **🔌 Standard Python Plugin System:**  
+    Extensible architecture using Python's native package ecosystem.  
+    PyPI-compatible plugin distribution with standard dependency management.  
+    Entry point registration (`solana_agent.plugins`) for seamless discovery.  
     Tool registry for AI agent capability extension.  
     Permission-based tool access for security and control.  
-    Standard interface for third-party integrations.  
+    Clean interface for third-party integrations through standard Python APIs.  
     Built-in internet search capabilities via Perplexity API.  
-    Seamless AI agent interaction with external services.  
-    Runtime tool discovery without code modification.
+    Runtime tool discovery without service restarts.
 
 ## Implementation Technologies
 
@@ -250,7 +250,7 @@ You can install Solana Agent using pip:
 
 Each public method has a docstring for real-time IDE hinting.
 
-## Example Setup
+## Example App
 
 ```python
 from solana_agent import SolanaAgent
@@ -323,6 +323,55 @@ solana_agent = SolanaAgent(config=config)
 # Process a query that can use tools
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
+```
+
+## Example Plugin
+
+`my_plugin/plugin.py`
+
+```python
+from solana_agent import Tool
+
+class MyCustomTool(Tool):
+    @property
+    def name(self) -> str:
+        return "my_custom_tool"
+    
+    @property
+    def description(self) -> str:
+        return "Does something amazing"
+    
+    @property
+    def parameters_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "parameter1": {"type": "string", "description": "First parameter"}
+            }
+        }
+    
+    def execute(self, **kwargs) -> dict:
+        # Tool implementation here
+        return {"result": "success", "data": "Something amazing"}
+
+class SolanaPlugin:
+    def get_tools(self):
+        return [MyCustomTool()]
+```
+
+`pyproject.toml`
+
+```toml
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-solana-plugin"
+version = "0.1.0"
+
+[project.entry-points."solana_agent.plugins"]
+my_plugin = "my_plugin.plugin:SolanaPlugin"
 ```
 
 ## Example App
