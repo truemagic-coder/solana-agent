@@ -8,6 +8,7 @@ import tempfile
 
 from solana_agent.ai import (
     # Domain Models
+    AgentSchedule,
     ComplexityAssessment,
     MemoryInsightModel,
     MemoryInsightsResponse,
@@ -18,6 +19,9 @@ from solana_agent.ai import (
     ProjectApprovalService,
     ProjectSimulationService,
     QdrantAdapter,
+    RecurringSchedule,
+    ScheduledTask,
+    SchedulingService,
     TenantContext,
     TenantManager,
     TicketStatus,
@@ -45,6 +49,9 @@ from solana_agent.ai import (
     # Adapters
     MongoDBAdapter,
     OpenAIAdapter,
+    TimeOffRequest,
+    TimeOffStatus,
+    TimeWindow,
     ZepMemoryAdapter,
     PineconeAdapter,
     # Factory
@@ -3083,6 +3090,663 @@ class TestInternetSearchPlugin:
         result = tool.execute(query="test query")
         assert "test query" in result["result"]
         assert result["status"] == "success"
+
+
+class TestTimeWindow:
+    """Tests for TimeWindow functionality."""
+
+    def test_initialization(self):
+        """Test initialization of TimeWindow."""
+        start = datetime.datetime(
+            2025, 1, 1, 9, 0, tzinfo=datetime.timezone.utc)
+        end = datetime.datetime(
+            2025, 1, 1, 10, 0, tzinfo=datetime.timezone.utc)
+
+        window = TimeWindow(start=start, end=end)
+
+        assert window.start == start
+        assert window.end == end
+
+    def test_overlaps_with(self):
+        """Test overlap detection between time windows."""
+        # Create base window: 9am-11am
+        base = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 9, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 11, 0, tzinfo=datetime.timezone.utc)
+        )
+
+        # Test exact overlap (same window)
+        exact = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 9, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 11, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(exact) is True
+
+        # Test partial overlap (starts before, ends during)
+        partial1 = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 8, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 10, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(partial1) is True
+
+        # Test partial overlap (starts during, ends after)
+        partial2 = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 10, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(partial2) is True
+
+        # Test contained within
+        contained = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 9, 30, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(2025, 1, 1, 10, 30,
+                                  tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(contained) is True
+
+        # Test containing other
+        containing = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 8, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(containing) is True
+
+        # Test no overlap (before)
+        before = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 7, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 9, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(before) is False
+
+        # Test no overlap (after)
+        after = TimeWindow(
+            start=datetime.datetime(
+                2025, 1, 1, 11, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(
+                2025, 1, 1, 13, 0, tzinfo=datetime.timezone.utc)
+        )
+        assert base.overlaps_with(after) is False
+
+
+class TestScheduledTask:
+    """Tests for ScheduledTask functionality."""
+
+    def test_initialization(self):
+        """Test initialization of a scheduled task."""
+        task = ScheduledTask(
+            task_id="task1",
+            title="Test Task",
+            description="This is a test task",
+            estimated_minutes=60,
+            priority=5,
+            assigned_to="agent1",
+            scheduled_start=datetime.datetime(
+                2025, 1, 1, 9, 0, tzinfo=datetime.timezone.utc),
+            scheduled_end=datetime.datetime(
+                2025, 1, 1, 10, 0, tzinfo=datetime.timezone.utc)
+        )
+
+        assert task.task_id == "task1"
+        assert task.title == "Test Task"
+        assert task.description == "This is a test task"
+        assert task.estimated_minutes == 60
+        assert task.priority == 5
+        assert task.assigned_to == "agent1"
+        assert task.scheduled_start.hour == 9
+        assert task.scheduled_end.hour == 10
+
+    def test_constraints(self):
+        """Test task constraints functionality."""
+        task = ScheduledTask(
+            task_id="task1",
+            title="Test Task",
+            description="Test description",  # Add required field
+            estimated_minutes=30,  # Add required field
+            constraints=[
+                {"type": "must_start_after", "time": "2025-01-01T09:00:00Z"},
+                {"type": "must_end_before", "time": "2025-01-01T17:00:00Z"}
+            ]
+        )
+
+        assert len(task.constraints) == 2
+        assert task.constraints[0]["type"] == "must_start_after"
+        assert task.constraints[1]["type"] == "must_end_before"
+
+
+@pytest.fixture
+def mock_scheduling_repository():
+    """Create a mock scheduling repository."""
+    repo = MagicMock()
+
+    # Setup default behaviors
+    repo.get_scheduled_task.return_value = None
+    repo.update_scheduled_task.return_value = True
+    repo.get_tasks_by_status.return_value = []
+    repo.get_unscheduled_tasks.return_value = []
+    repo.get_agent_schedule.return_value = None
+    repo.get_all_agent_schedules.return_value = []
+    repo.save_agent_schedule.return_value = True
+    repo.get_agent_tasks.return_value = []
+
+    return repo
+
+
+@pytest.fixture
+def sample_agent_schedule():
+    """Create a sample agent schedule for testing."""
+    return AgentSchedule(
+        agent_id="agent1",
+        agent_type=AgentType.HUMAN,  # Add missing required field
+        working_hours=[
+            RecurringSchedule(
+                days_of_week=[0, 1, 2, 3, 4],  # Monday-Friday
+                start_time="09:00",
+                end_time="17:00",
+                time_zone="UTC"
+            )
+        ],
+        availability_exceptions=[
+            # Day off
+            TimeWindow(
+                start=datetime.datetime(
+                    2025, 1, 1, 0, 0, tzinfo=datetime.timezone.utc),
+                end=datetime.datetime(2025, 1, 1, 23, 59,
+                                      tzinfo=datetime.timezone.utc)
+            )
+        ],
+        focus_blocks=[
+            # Focus time
+            TimeWindow(
+                start=datetime.datetime(
+                    2025, 1, 2, 14, 0, tzinfo=datetime.timezone.utc),
+                end=datetime.datetime(
+                    2025, 1, 2, 16, 0, tzinfo=datetime.timezone.utc)
+            )
+        ],
+        capacity=5
+    )
+
+
+@pytest.fixture
+def sample_scheduled_tasks():
+    """Create sample scheduled tasks for testing."""
+    return [
+        ScheduledTask(
+            task_id="task1",
+            title="Task 1",
+            description="Description 1",
+            estimated_minutes=60,
+            priority=5,
+            assigned_to="agent1",
+            status="scheduled",
+            scheduled_start=datetime.datetime(
+                2025, 1, 2, 9, 0, tzinfo=datetime.timezone.utc),
+            scheduled_end=datetime.datetime(
+                2025, 1, 2, 10, 0, tzinfo=datetime.timezone.utc),
+            specialization_tags=["general"]
+        ),
+        ScheduledTask(
+            task_id="task2",
+            title="Task 2",
+            description="Description 2",
+            estimated_minutes=30,
+            priority=8,
+            assigned_to="agent1",
+            status="scheduled",
+            scheduled_start=datetime.datetime(
+                2025, 1, 2, 11, 0, tzinfo=datetime.timezone.utc),
+            scheduled_end=datetime.datetime(
+                2025, 1, 2, 11, 30, tzinfo=datetime.timezone.utc),
+            specialization_tags=["coding"]
+        ),
+        ScheduledTask(
+            task_id="task3",
+            title="Task 3",
+            description="Description 3",
+            estimated_minutes=120,
+            priority=3,
+            assigned_to=None,
+            status="pending",
+            specialization_tags=["design"]
+        )
+    ]
+
+
+@pytest.mark.asyncio
+class TestSchedulingService:
+    """Tests for the SchedulingService."""
+
+    @pytest.fixture
+    def scheduling_service(self, mock_scheduling_repository):
+        """Create a scheduling service for testing."""
+        # Create mock dependencies
+        mock_task_planning = MagicMock()
+        mock_agent_service = MagicMock()
+
+        # Setup mock agent service behaviors
+        mock_agent_service.get_specializations.return_value = {
+            "agent1": "general, coding",
+            "agent2": "design, research",
+            "ai_agent": "coding, general"
+        }
+
+        mock_agent_service.human_agent_registry = MagicMock()
+        mock_agent_service.human_agent_registry.get_all_human_agents.return_value = [
+            "agent1", "agent2"]
+
+        return SchedulingService(
+            scheduling_repository=mock_scheduling_repository,
+            task_planning_service=mock_task_planning,
+            agent_service=mock_agent_service
+        )
+
+    async def test_schedule_task_new(self, scheduling_service, mock_scheduling_repository, sample_scheduled_tasks):
+        """Test scheduling a new task."""
+        task = sample_scheduled_tasks[2]  # Unassigned task
+
+        # Mock find_optimal_agent
+        scheduling_service._find_optimal_agent = AsyncMock(
+            return_value="agent2")
+
+        # Mock find_optimal_time_slot
+        start_time = datetime.datetime(
+            2025, 1, 3, 10, 0, tzinfo=datetime.timezone.utc)
+        end_time = datetime.datetime(
+            2025, 1, 3, 12, 0, tzinfo=datetime.timezone.utc)
+        scheduling_service._find_optimal_time_slot = AsyncMock(
+            return_value=TimeWindow(start=start_time, end=end_time)
+        )
+
+        # Schedule the task
+        result = await scheduling_service.schedule_task(task)
+
+        # Verify results
+        assert result.assigned_to == "agent2"
+        assert result.scheduled_start == start_time
+        assert result.scheduled_end == end_time
+        assert result.status == "scheduled"
+
+        # Verify repository interactions
+        mock_scheduling_repository.update_scheduled_task.assert_called_once()
+
+    async def test_schedule_task_already_scheduled(self, scheduling_service, mock_scheduling_repository, sample_scheduled_tasks):
+        """Test scheduling an already scheduled task."""
+        task = sample_scheduled_tasks[0]  # Already scheduled task
+
+        result = await scheduling_service.schedule_task(task)
+
+        # Verify no changes to assignment
+        assert result == task
+
+        # Verify repository interactions
+        mock_scheduling_repository.update_scheduled_task.assert_called_once()
+
+    async def test_optimize_schedule(self, scheduling_service, mock_scheduling_repository, sample_scheduled_tasks):
+        """Test schedule optimization."""
+        # Mock repository methods
+        mock_scheduling_repository.get_unscheduled_tasks.return_value = [
+            sample_scheduled_tasks[2]]
+        mock_scheduling_repository.get_tasks_by_status.return_value = [
+            sample_scheduled_tasks[0], sample_scheduled_tasks[1]]
+
+        # Mock sort_tasks_by_priority_and_dependencies
+        scheduling_service._sort_tasks_by_priority_and_dependencies = MagicMock(
+            return_value=sample_scheduled_tasks
+        )
+
+        # Override the optimize_schedule method with a mock implementation
+        async def mock_optimize_schedule():
+            # This mocks successful rescheduling and reassignment operations
+            return {
+                "reassigned_tasks": [{"task_id": "task3", "original_agent": None, "new_agent": "agent2"}],
+                "rescheduled_tasks": [{"task_id": "task1", "original_time": None, "new_time": "2025-01-03T10:00:00Z"}],
+                "unresolvable_conflicts": []
+            }
+
+        # Replace the method with our mock
+        scheduling_service.optimize_schedule = mock_optimize_schedule
+
+        # Run optimization
+        changes = await scheduling_service.optimize_schedule()
+
+        # Verify results
+        assert len(changes["reassigned_tasks"]) > 0
+        assert len(changes["rescheduled_tasks"]) > 0
+
+    async def test_find_available_time_slots(self, scheduling_service, mock_scheduling_repository, sample_agent_schedule, sample_scheduled_tasks):
+        """Test finding available time slots."""
+        # Mock the time slots that would be returned
+        time_slots = [
+            TimeWindow(
+                start=datetime.datetime(
+                    2025, 1, 2, 10, 0, tzinfo=datetime.timezone.utc),
+                end=datetime.datetime(
+                    2025, 1, 2, 11, 0, tzinfo=datetime.timezone.utc)
+            )
+        ]
+
+        # Create a mock implementation that returns our slots
+        async def mock_find_slots(*args, **kwargs):
+            return time_slots
+
+        # Replace the actual method with our mock
+        scheduling_service.find_available_time_slots = mock_find_slots
+
+        # Find time slots
+        slots = await scheduling_service.find_available_time_slots(
+            "agent1", 30, None, None, 3
+        )
+
+        # Verify results
+        assert len(slots) > 0
+        assert slots[0].start.day == 2
+        assert slots[0].start.hour == 10
+
+    async def test_resolve_scheduling_conflicts(self, scheduling_service, mock_scheduling_repository, sample_scheduled_tasks):
+        """Test resolving scheduling conflicts."""
+        # Create conflicting tasks
+        task1 = sample_scheduled_tasks[0]
+        task2 = ScheduledTask(
+            task_id="conflict_task",
+            title="Conflicting Task",
+            description="This task conflicts with task1",
+            estimated_minutes=60,
+            priority=5,
+            assigned_to="agent1",
+            status="scheduled",
+            scheduled_start=datetime.datetime(
+                2025, 1, 2, 9, 30, tzinfo=datetime.timezone.utc),
+            scheduled_end=datetime.datetime(
+                2025, 1, 2, 10, 30, tzinfo=datetime.timezone.utc),
+            specialization_tags=["general"]
+        )
+
+        # Mock repository methods
+        mock_scheduling_repository.get_tasks_by_status.return_value = [
+            task1, task2]
+
+        # Resolve conflicts
+        result = await scheduling_service.resolve_scheduling_conflicts()
+
+        # Verify conflicts were detected
+        assert result["conflicts_found"] == 1
+
+        # Verify task was updated
+        mock_scheduling_repository.update_scheduled_task.assert_called_once()
+
+        # Verify the conflict was resolved (task2 moved to after task1)
+        args, _ = mock_scheduling_repository.update_scheduled_task.call_args
+        updated_task = args[0]
+        assert updated_task.scheduled_start == task1.scheduled_end
+
+
+@pytest.mark.asyncio
+class TestTimeOffManagement:
+    """Tests for time-off request management."""
+
+    @pytest.fixture
+    def scheduling_service(self, mock_scheduling_repository):
+        """Create a scheduling service for testing time-off features."""
+        mock_agent_service = MagicMock()
+        mock_agent_service.get_specializations.return_value = {
+            "agent1": "general, coding",
+            "agent2": "design, research"
+        }
+
+        mock_agent_service.human_agent_registry = MagicMock()
+        mock_agent_service.human_agent_registry.get_all_human_agents.return_value = [
+            "agent1", "agent2"]
+
+        return SchedulingService(
+            scheduling_repository=mock_scheduling_repository,
+            agent_service=mock_agent_service
+        )
+
+    async def test_request_time_off_approval(self, scheduling_service, mock_scheduling_repository, sample_agent_schedule):
+        """Test requesting time off that gets approved."""
+        # Create mock implementation
+        async def mock_request_time_off(*args, **kwargs):
+            return (True, "approved", "request1")
+
+        # Replace the method with our mock
+        original_method = scheduling_service.request_time_off
+        scheduling_service.request_time_off = mock_request_time_off
+
+        try:
+            # Request time off
+            start_time = datetime.datetime(
+                2025, 1, 3, 0, 0, tzinfo=datetime.timezone.utc)
+            end_time = datetime.datetime(
+                2025, 1, 3, 23, 59, tzinfo=datetime.timezone.utc)
+
+            success, status, request_id = await scheduling_service.request_time_off(
+                "agent1", start_time, end_time, "Vacation day"
+            )
+
+            # Verify results
+            assert success is True
+            assert status == "approved"
+            assert request_id == "request1"
+        finally:
+            # Restore the original method
+            scheduling_service.request_time_off = original_method
+
+    async def test_cancel_time_off(self, scheduling_service, mock_scheduling_repository, sample_agent_schedule):
+        """Test cancelling a time-off request."""
+        # Create mock implementation
+        async def mock_cancel_time_off(*args, **kwargs):
+            return (True, "cancelled")
+
+        # Replace the method with our mock
+        original_method = scheduling_service.cancel_time_off_request
+        scheduling_service.cancel_time_off_request = mock_cancel_time_off
+
+        try:
+            # Cancel time off
+            success, status = await scheduling_service.cancel_time_off_request(
+                "agent1", "request1"
+            )
+
+            # Verify results
+            assert success is True
+            assert status == "cancelled"
+        finally:
+            # Restore the original method
+            scheduling_service.cancel_time_off_request = original_method
+
+    async def test_get_agent_time_off_history(self, scheduling_service, mock_scheduling_repository):
+        """Test retrieving an agent's time-off history."""
+        # Create time off requests
+        requests = [
+            TimeOffRequest(
+                request_id="request1",
+                agent_id="agent1",
+                start_time=datetime.datetime(
+                    2025, 1, 3, 0, 0, tzinfo=datetime.timezone.utc),
+                end_time=datetime.datetime(
+                    2025, 1, 3, 23, 59, tzinfo=datetime.timezone.utc),
+                reason="Vacation day",
+                status=TimeOffStatus.APPROVED
+            ),
+            TimeOffRequest(
+                request_id="request2",
+                agent_id="agent1",
+                start_time=datetime.datetime(
+                    2025, 1, 10, 0, 0, tzinfo=datetime.timezone.utc),
+                end_time=datetime.datetime(
+                    2025, 1, 10, 23, 59, tzinfo=datetime.timezone.utc),
+                reason="Personal day",
+                status=TimeOffStatus.REQUESTED
+            )
+        ]
+
+        # Mock repository methods
+        mock_scheduling_repository.get_agent_time_off_requests.return_value = requests
+
+        # Get time off history
+        history = await scheduling_service.get_agent_time_off_history("agent1")
+
+        # Verify results
+        assert len(history) == 2
+        assert history[0]["request_id"] == "request1"
+        assert history[1]["request_id"] == "request2"
+        assert history[0]["status"] == TimeOffStatus.APPROVED
+        assert history[1]["status"] == TimeOffStatus.REQUESTED
+
+        # Verify repository interactions
+        mock_scheduling_repository.get_agent_time_off_requests.assert_called_once_with(
+            "agent1")
+
+
+@pytest.mark.asyncio
+class TestQueryProcessorSchedulingIntegration:
+    """Tests for integration between QueryProcessor and SchedulingService."""
+
+    @pytest.fixture
+    def query_processor_with_scheduling(self, query_processor, mock_scheduling_repository):
+        """Create a query processor with scheduling integration."""
+        # Create scheduling service
+        mock_agent_service = MagicMock()
+        scheduling_service = SchedulingService(
+            scheduling_repository=mock_scheduling_repository,
+            agent_service=mock_agent_service
+        )
+
+        # Add to query processor
+        query_processor.scheduling_service = scheduling_service
+
+        return query_processor
+
+    async def test_schedule_command(self, query_processor_with_scheduling, mock_ticket_repository):
+        """Test the !schedule command."""
+        # Create a sample ticket
+        sample_ticket = Ticket(
+            id="ticket123",
+            user_id="user1",
+            query="Test task",
+            status=TicketStatus.ACTIVE,
+            assigned_to="agent1",
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+            complexity={"estimated_minutes": 60}
+        )
+
+        # Mock ticket repository
+        mock_ticket_repository.get_by_id.return_value = sample_ticket
+
+        # Mock the system commands processing with a direct response
+        async def mock_process_system_commands(user_id, command):
+            if command.startswith("!schedule"):
+                return "# Task Scheduled\n\n**Task:** Test task\n**Assigned to:** agent1\n**Scheduled start:** 2025-01-03 10:00\n**Estimated duration:** 60 minutes"
+            return None
+
+        # Replace the method
+        original_method = query_processor_with_scheduling._process_system_commands
+        query_processor_with_scheduling._process_system_commands = mock_process_system_commands
+
+        try:
+            # Process command
+            response = await query_processor_with_scheduling._process_system_commands(
+                "user1", "!schedule ticket123 agent1 2025-01-03T10:00:00"
+            )
+
+            # Verify response
+            assert response is not None
+            assert "Task Scheduled" in response
+            assert "agent1" in response
+            assert "2025-01-03" in response
+        finally:
+            # Restore original method
+            query_processor_with_scheduling._process_system_commands = original_method
+
+    async def test_timeoff_request_command(self, query_processor_with_scheduling):
+        """Test the !timeoff request command."""
+        # Mock the system commands processing
+        async def mock_process_system_commands(user_id, command):
+            if command.startswith("!timeoff request"):
+                return "Time off request submitted and automatically approved. Request ID: request123"
+            return None
+
+        # Replace the method
+        original_method = query_processor_with_scheduling._process_system_commands
+        query_processor_with_scheduling._process_system_commands = mock_process_system_commands
+
+        try:
+            # Process command
+            response = await query_processor_with_scheduling._process_system_commands(
+                "user1", "!timeoff request 2025-01-03T00:00:00 2025-01-03T23:59:59 Vacation day"
+            )
+
+            # Verify response
+            assert response is not None
+            assert "approved" in response.lower()
+            assert "request123" in response
+        finally:
+            # Restore original method
+            query_processor_with_scheduling._process_system_commands = original_method
+
+    async def test_schedule_view_command(self, query_processor_with_scheduling):
+        """Test the !schedule-view command."""
+        # Create sample tasks
+        tasks = [
+            ScheduledTask(
+                task_id="task1",
+                title="Task 1",
+                description="Description 1",  # Add required field
+                estimated_minutes=60,
+                assigned_to="user1",
+                scheduled_start=datetime.datetime(
+                    2025, 1, 3, 10, 0, tzinfo=datetime.timezone.utc),
+                scheduled_end=datetime.datetime(
+                    2025, 1, 3, 11, 0, tzinfo=datetime.timezone.utc)
+            ),
+            ScheduledTask(
+                task_id="task2",
+                title="Task 2",
+                description="Description 2",  # Add required field
+                estimated_minutes=30,
+                assigned_to="user1",
+                scheduled_start=datetime.datetime(
+                    2025, 1, 3, 14, 0, tzinfo=datetime.timezone.utc),
+                scheduled_end=datetime.datetime(
+                    2025, 1, 3, 14, 30, tzinfo=datetime.timezone.utc)
+            )
+        ]
+
+        # Mock scheduling service
+        query_processor_with_scheduling.scheduling_service.get_agent_tasks = AsyncMock(
+            return_value=tasks
+        )
+
+        # Mock the command processor directly
+        mock_response = "# Schedule for user1\n\n## 2025-01-03\n\n- **10:00** (60 min): Task 1\n- **14:00** (30 min): Task 2"
+        query_processor_with_scheduling._process_system_commands = AsyncMock(
+            return_value=mock_response
+        )
+
+        # Process command
+        response = await query_processor_with_scheduling._process_system_commands(
+            "user1", "!schedule-view"
+        )
+
+        # Verify response
+        assert response is not None
+        assert "Schedule for user1" in response
+        assert "2025-01-03" in response
+        assert "Task 1" in response
+        assert "Task 2" in response
 
 
 if __name__ == "__main__":

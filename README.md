@@ -159,6 +159,19 @@ Solana Agent transforms organizations into living systems that continuously lear
     Auto-reassignment system for stalled tickets.  
     Human agent activity tracking and status management.  
 
+- **📅 Comprehensive Scheduling System:**  
+    Intelligent task scheduling based on agent specialization and availability.  
+    Time-off request management with automated approval workflows.  
+    Conflict detection and resolution for overlapping assignments.  
+    Schedule optimization for maximum efficiency and workload balancing.  
+    Human agent availability tracking with timezone support.  
+    Recurring schedule patterns with exception handling.  
+    Focus time protection to ensure uninterrupted deep work.  
+    Automated task reassignment when agents become unavailable.  
+    Command-line interface for viewing and managing schedules.  
+    Capacity-aware scheduling to prevent agent overloading.  
+    Schedule analytics and efficiency metrics.
+
 - **📊 Performance Optimization Framework:**  
     Integrated Net Promoter Score (NPS) system for interaction quality measurement.  
     Automatic satisfaction surveys after ticket resolution.  
@@ -284,6 +297,7 @@ config = {
         "api_key": "your-pinecone-key",
         "index": "your-index"
     },
+    "plugins_dir": "plugins",
     "ai_agents": [
         {
             "name": "research_specialist",
