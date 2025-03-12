@@ -1158,17 +1158,17 @@ class ResourceRepository:
         self.db.create_index(self.bookings_collection, [("status", 1)])
 
     # Resource CRUD operations
-    async def create_resource(self, resource: Resource) -> str:
+    def create_resource(self, resource: Resource) -> str:
         """Create a new resource."""
         resource_dict = resource.model_dump(mode="json")
         return self.db.insert_one(self.resources_collection, resource_dict)
 
-    async def get_resource(self, resource_id: str) -> Optional[Resource]:
+    def get_resource(self, resource_id: str) -> Optional[Resource]:
         """Get a resource by ID."""
         data = self.db.find_one(self.resources_collection, {"id": resource_id})
         return Resource(**data) if data else None
 
-    async def update_resource(self, resource: Resource) -> bool:
+    def update_resource(self, resource: Resource) -> bool:
         """Update a resource."""
         resource.updated_at = datetime.datetime.now(datetime.timezone.utc)
         resource_dict = resource.model_dump(mode="json")
@@ -1178,11 +1178,11 @@ class ResourceRepository:
             {"$set": resource_dict}
         )
 
-    async def delete_resource(self, resource_id: str) -> bool:
+    def delete_resource(self, resource_id: str) -> bool:
         """Delete a resource."""
         return self.db.delete_one(self.resources_collection, {"id": resource_id})
 
-    async def find_resources(
+    def find_resources(
         self,
         query: Dict[str, Any],
         sort_by: Optional[str] = None,
@@ -1194,7 +1194,7 @@ class ResourceRepository:
                             query, sort_params, limit)
         return [Resource(**item) for item in data]
 
-    async def find_available_resources(
+    def find_available_resources(
         self,
         resource_type: Optional[str] = None,
         tags: Optional[List[str]] = None,
@@ -1236,17 +1236,17 @@ class ResourceRepository:
         return available_resources
 
     # Booking CRUD operations
-    async def create_booking(self, booking: ResourceBooking) -> str:
+    def create_booking(self, booking: ResourceBooking) -> str:
         """Create a new booking."""
         booking_dict = booking.model_dump(mode="json")
         return self.db.insert_one(self.bookings_collection, booking_dict)
 
-    async def get_booking(self, booking_id: str) -> Optional[ResourceBooking]:
+    def get_booking(self, booking_id: str) -> Optional[ResourceBooking]:
         """Get a booking by ID."""
         data = self.db.find_one(self.bookings_collection, {"id": booking_id})
         return ResourceBooking(**data) if data else None
 
-    async def update_booking(self, booking: ResourceBooking) -> bool:
+    def update_booking(self, booking: ResourceBooking) -> bool:
         """Update a booking."""
         booking.updated_at = datetime.datetime.now(datetime.timezone.utc)
         booking_dict = booking.model_dump(mode="json")
@@ -1256,7 +1256,7 @@ class ResourceRepository:
             {"$set": booking_dict}
         )
 
-    async def cancel_booking(self, booking_id: str) -> bool:
+    def cancel_booking(self, booking_id: str) -> bool:
         """Cancel a booking."""
         return self.db.update_one(
             self.bookings_collection,
@@ -1269,7 +1269,7 @@ class ResourceRepository:
             }
         )
 
-    async def get_resource_bookings(
+    def get_resource_bookings(
         self,
         resource_id: str,
         start_time: Optional[datetime.datetime] = None,
@@ -1304,7 +1304,7 @@ class ResourceRepository:
                             query, sort=[("start_time", 1)])
         return [ResourceBooking(**item) for item in data]
 
-    async def get_user_bookings(
+    def get_user_bookings(
         self,
         user_id: str,
         include_cancelled: bool = False
@@ -1319,7 +1319,7 @@ class ResourceRepository:
                             query, sort=[("start_time", 1)])
         return [ResourceBooking(**item) for item in data]
 
-    async def _has_conflicting_bookings(
+    def _has_conflicting_bookings(
         self,
         resource_id: str,
         start_time: datetime.datetime,
