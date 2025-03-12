@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "11.1.1"
+version = "11.2.0"
 description = "The Future of Work"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
