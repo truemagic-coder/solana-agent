@@ -15,6 +15,7 @@ import datetime
 import json
 import re
 import traceback
+from unittest.mock import AsyncMock
 import uuid
 from enum import Enum
 from typing import (
@@ -1354,6 +1355,15 @@ class MongoTicketRepository:
     def count(self, query: Dict) -> int:
         """Count tickets matching query."""
         return self.db.count_documents(self.collection, query)
+
+    def find_stalled_tickets(self, cutoff_time, statuses):
+        """Find tickets that haven't been updated since the cutoff time."""
+        query = {
+            "status": {"$in": [status.value if isinstance(status, Enum) else status for status in statuses]},
+            "updated_at": {"$lt": cutoff_time}
+        }
+        tickets = self.db_adapter.find("tickets", query)
+        return [Ticket(**ticket) for ticket in tickets]
 
 
 class MongoHandoffRepository:
@@ -3018,27 +3028,6 @@ class ProjectApprovalService:
         if agent_id in self.human_agent_registry.get_all_human_agents():
             self.approvers.append(agent_id)
 
-    async def submit_for_approval(self, ticket: Ticket) -> None:
-        """Submit a project for human approval."""
-        # Update ticket status
-        self.ticket_repository.update(
-            ticket.id,
-            {
-                "status": TicketStatus.PENDING,
-                "approval_status": "awaiting_approval",
-                "updated_at": datetime.datetime.now(datetime.timezone.utc),
-            },
-        )
-
-        # Notify approvers
-        if self.notification_service:
-            for approver_id in self.approvers:
-                self.notification_service.send_notification(
-                    approver_id,
-                    f"New project requires approval: {ticket.query}",
-                    {"ticket_id": ticket.id, "type": "approval_request"},
-                )
-
     async def process_approval(
         self, ticket_id: str, approver_id: str, approved: bool, comments: str = ""
     ) -> None:
@@ -3072,6 +3061,27 @@ class ProjectApprovalService:
                     "rejected_at": datetime.datetime.now(datetime.timezone.utc),
                 },
             )
+
+    async def submit_for_approval(self, ticket: Ticket) -> None:
+        """Submit a project for human approval."""
+        # Update ticket status
+        self.ticket_repository.update(
+            ticket.id,
+            {
+                "status": TicketStatus.PENDING,
+                "approval_status": "awaiting_approval",
+                "updated_at": datetime.datetime.now(datetime.timezone.utc),
+            },
+        )
+
+        # Notify approvers
+        if self.notification_service and self.approvers:
+            for approver_id in self.approvers:
+                await self.notification_service.send_notification(
+                    approver_id,
+                    f"New project requires approval: {ticket.query}",
+                    {"ticket_id": ticket.id, "type": "approval_request"},
+                )
 
 
 class ProjectSimulationService:
@@ -4446,6 +4456,7 @@ class QueryProcessor:
         project_simulation_service: Optional[ProjectSimulationService] = None,
         require_human_approval: bool = False,
         scheduling_service: Optional[SchedulingService] = None,
+        stalled_ticket_timeout: Optional[int] = 60,
     ):
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -4463,11 +4474,37 @@ class QueryProcessor:
         self.require_human_approval = require_human_approval
         self._shutdown_event = asyncio.Event()
         self.scheduling_service = scheduling_service
+        self.stalled_ticket_timeout = stalled_ticket_timeout
+
+        self._stalled_ticket_task = None
+
+        # Start background task for stalled ticket detection if not already running
+        if self.stalled_ticket_timeout is not None and self._stalled_ticket_task is None:
+            try:
+                self._stalled_ticket_task = asyncio.create_task(
+                    self._run_stalled_ticket_checks())
+            except RuntimeError:
+                # No running event loop - likely in test environment
+                pass
 
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
     ) -> AsyncGenerator[str, None]:
         """Process the user request with appropriate agent and handle ticket management."""
+        # Start background task for stalled ticket detection if not already running
+        if self.stalled_ticket_timeout is not None and self._stalled_ticket_task is None:
+            try:
+                loop = asyncio.get_running_loop()
+                self._stalled_ticket_task = loop.create_task(
+                    self._run_stalled_ticket_checks())
+            except RuntimeError:
+                # No running event loop - likely in test environment
+                # Instead of just passing, log a message for clarity
+                import logging
+                logging.warning(
+                    "No running event loop available for stalled ticket checker.")
+                # Don't try to create the task - this prevents the coroutine warning
+
         try:
             # Handle human agent messages differently
             if await self._is_human_agent(user_id):
@@ -4515,7 +4552,9 @@ class QueryProcessor:
         except Exception as e:
             print(f"Error in request processing: {str(e)}")
             print(traceback.format_exc())
-            yield "\n\nI apologize for the technical difficulty.\n\n"
+            # Use yield instead of direct function calling to avoid coroutine warning
+            error_msg = "\n\nI apologize for the technical difficulty.\n\n"
+            yield error_msg
 
     async def _is_human_agent(self, user_id: str) -> bool:
         """Check if the user is a registered human agent."""
@@ -4582,6 +4621,69 @@ class QueryProcessor:
             )
 
         return response
+
+    async def shutdown(self):
+        """Clean shutdown of the query processor."""
+        self._shutdown_event.set()
+
+        # Cancel the stalled ticket task if running
+        if hasattr(self, '_stalled_ticket_task') and self._stalled_ticket_task is not None:
+            self._stalled_ticket_task.cancel()
+            try:
+                await self._stalled_ticket_task
+            except (asyncio.CancelledError, TypeError):
+                # Either properly cancelled coroutine or a mock that can't be awaited
+                pass
+
+    async def _run_stalled_ticket_checks(self):
+        """Run periodic checks for stalled tickets."""
+        try:
+            while not self._shutdown_event.is_set():
+                await self._check_for_stalled_tickets()
+                # Check every 5 minutes or half the timeout period, whichever is smaller
+                check_interval = min(
+                    300, self.stalled_ticket_timeout * 30) if self.stalled_ticket_timeout else 300
+                await asyncio.sleep(check_interval)
+        except asyncio.CancelledError:
+            # Task was cancelled, clean exit
+            pass
+        except Exception as e:
+            print(f"Error in stalled ticket check: {e}")
+
+    async def _check_for_stalled_tickets(self):
+        """Check for tickets that haven't been updated in a while and reassign them."""
+        # If stalled ticket detection is disabled, exit early
+        if self.stalled_ticket_timeout is None:
+            return
+
+        # Find tickets that haven't been updated in the configured time
+        stalled_cutoff = datetime.datetime.now(
+            datetime.timezone.utc) - datetime.timedelta(minutes=self.stalled_ticket_timeout)
+
+        # Query for stalled tickets using the find_stalled_tickets method
+        stalled_tickets = await self.ticket_service.ticket_repository.find_stalled_tickets(
+            stalled_cutoff, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
+        )
+
+        for ticket in stalled_tickets:
+            # Re-route using routing service to find the optimal agent
+            new_agent = await self.routing_service.route_query(ticket.query)
+
+            # Skip if the routing didn't change
+            if new_agent == ticket.assigned_to:
+                continue
+
+            # Process as handoff
+            await self.handoff_service.process_handoff(
+                ticket.id,
+                ticket.assigned_to or "unassigned",
+                new_agent,
+                f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+            )
+
+            # Log the reassignment
+            print(
+                f"Stalled ticket {ticket.id} reassigned from {ticket.assigned_to or 'unassigned'} to {new_agent}")
 
     async def _process_system_commands(
         self, user_id: str, user_text: str
@@ -4739,154 +4841,157 @@ class QueryProcessor:
                 )
                 return f"Project {ticket_id} has been {'approved' if approved else 'rejected'}."
 
-        elif command == "!schedule" and args and self.scheduling_service:
-            # Format: !schedule task_id [agent_id] [YYYY-MM-DD HH:MM]
-            parts = args.strip().split(" ", 2)
-            if len(parts) < 1:
-                return "Usage: !schedule task_id [agent_id] [YYYY-MM-DD HH:MM]"
+            elif command == "!schedule" and args and self.scheduling_service:
+                # Format: !schedule task_id [agent_id] [YYYY-MM-DD HH:MM]
+                parts = args.strip().split(" ", 2)
+                if len(parts) < 1:
+                    return "Usage: !schedule task_id [agent_id] [YYYY-MM-DD HH:MM]"
 
-            task_id = parts[0]
-            agent_id = parts[1] if len(parts) > 1 else None
-            time_str = parts[2] if len(parts) > 2 else None
+                task_id = parts[0]
+                agent_id = parts[1] if len(parts) > 1 else None
+                time_str = parts[2] if len(parts) > 2 else None
 
-            # Fetch the task from ticket repository
-            ticket = self.ticket_service.ticket_repository.get_by_id(task_id)
-            if not ticket:
-                return f"Task {task_id} not found."
+                # Fetch the task from ticket repository
+                ticket = self.ticket_service.ticket_repository.get_by_id(
+                    task_id)
+                if not ticket:
+                    return f"Task {task_id} not found."
 
-            # Convert ticket to scheduled task
-            scheduled_task = ScheduledTask(
-                task_id=task_id,
-                title=ticket.query[:50] +
-                "..." if len(ticket.query) > 50 else ticket.query,
-                description=ticket.query,
-                estimated_minutes=ticket.complexity.get(
-                    "estimated_minutes", 30) if ticket.complexity else 30,
-                priority=5,  # Default priority
-                assigned_to=agent_id or ticket.assigned_to,
-                # Use current agent as a specialization tag
-                specialization_tags=[ticket.assigned_to],
-            )
+                # Convert ticket to scheduled task
+                scheduled_task = ScheduledTask(
+                    task_id=task_id,
+                    title=ticket.query[:50] +
+                    "..." if len(ticket.query) > 50 else ticket.query,
+                    description=ticket.query,
+                    estimated_minutes=ticket.complexity.get(
+                        "estimated_minutes", 30) if ticket.complexity else 30,
+                    priority=5,  # Default priority
+                    assigned_to=agent_id or ticket.assigned_to,
+                    # Use current agent as a specialization tag
+                    specialization_tags=[ticket.assigned_to],
+                )
 
-            # Set scheduled time if provided
-            if time_str:
-                try:
-                    scheduled_time = datetime.datetime.fromisoformat(time_str)
-                    scheduled_task.scheduled_start = scheduled_time
-                    scheduled_task.scheduled_end = scheduled_time + datetime.timedelta(
-                        minutes=scheduled_task.estimated_minutes
+                # Set scheduled time if provided
+                if time_str:
+                    try:
+                        scheduled_time = datetime.datetime.fromisoformat(
+                            time_str)
+                        scheduled_task.scheduled_start = scheduled_time
+                        scheduled_task.scheduled_end = scheduled_time + datetime.timedelta(
+                            minutes=scheduled_task.estimated_minutes
+                        )
+                    except ValueError:
+                        return "Invalid date format. Use YYYY-MM-DD HH:MM."
+
+                # Schedule the task
+                result = await self.scheduling_service.schedule_task(
+                    scheduled_task, preferred_agent_id=agent_id
+                )
+
+                # Update ticket with scheduling info
+                self.ticket_service.update_ticket_status(
+                    task_id,
+                    ticket.status,
+                    scheduled_start=result.scheduled_start,
+                    scheduled_agent=result.assigned_to
+                )
+
+                # Format response
+                response = "# Task Scheduled\n\n"
+                response += f"**Task:** {scheduled_task.title}\n"
+                response += f"**Assigned to:** {result.assigned_to}\n"
+                response += f"**Scheduled start:** {result.scheduled_start.strftime('%Y-%m-%d %H:%M')}\n"
+                response += f"**Estimated duration:** {result.estimated_minutes} minutes"
+
+                return response
+
+            elif command == "!timeoff" and args and self.scheduling_service:
+                # Format: !timeoff request YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM reason
+                # or: !timeoff cancel request_id
+                parts = args.strip().split(" ", 1)
+                if len(parts) < 2:
+                    return "Usage: \n- !timeoff request START_DATE END_DATE reason\n- !timeoff cancel request_id"
+
+                action = parts[0].lower()
+                action_args = parts[1]
+
+                if action == "request":
+                    # Parse request args
+                    request_parts = action_args.split(" ", 2)
+                    if len(request_parts) < 3:
+                        return "Usage: !timeoff request YYYY-MM-DD YYYY-MM-DD reason"
+
+                    start_str = request_parts[0]
+                    end_str = request_parts[1]
+                    reason = request_parts[2]
+
+                    try:
+                        start_time = datetime.datetime.fromisoformat(start_str)
+                        end_time = datetime.datetime.fromisoformat(end_str)
+                    except ValueError:
+                        return "Invalid date format. Use YYYY-MM-DD HH:MM."
+
+                    # Submit time off request
+                    success, status, request_id = await self.scheduling_service.request_time_off(
+                        user_id, start_time, end_time, reason
                     )
-                except ValueError:
-                    return "Invalid date format. Use YYYY-MM-DD HH:MM."
 
-            # Schedule the task
-            result = await self.scheduling_service.schedule_task(
-                scheduled_task, preferred_agent_id=agent_id
-            )
+                    if success:
+                        return f"Time off request submitted and automatically approved. Request ID: {request_id}"
+                    else:
+                        return f"Time off request {status}. Request ID: {request_id}"
 
-            # Update ticket with scheduling info
-            self.ticket_service.update_ticket_status(
-                task_id,
-                ticket.status,
-                scheduled_start=result.scheduled_start,
-                scheduled_agent=result.assigned_to
-            )
+                elif action == "cancel":
+                    request_id = action_args.strip()
+                    success, status = await self.scheduling_service.cancel_time_off_request(
+                        user_id, request_id
+                    )
 
-            # Format response
-            response = "# Task Scheduled\n\n"
-            response += f"**Task:** {scheduled_task.title}\n"
-            response += f"**Assigned to:** {result.assigned_to}\n"
-            response += f"**Scheduled start:** {result.scheduled_start.strftime('%Y-%m-%d %H:%M')}\n"
-            response += f"**Estimated duration:** {result.estimated_minutes} minutes"
+                    if success:
+                        return f"Time off request {request_id} cancelled successfully."
+                    else:
+                        return f"Failed to cancel request: {status}"
 
-            return response
+                return "Unknown timeoff action. Use 'request' or 'cancel'."
 
-        elif command == "!timeoff" and args and self.scheduling_service:
-            # Format: !timeoff request YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM reason
-            # or: !timeoff cancel request_id
-            parts = args.strip().split(" ", 1)
-            if len(parts) < 2:
-                return "Usage: \n- !timeoff request START_DATE END_DATE reason\n- !timeoff cancel request_id"
+            elif command == "!schedule-view" and self.scheduling_service:
+                # View agent's schedule for the next week
+                # Default to current user if no agent specified
+                agent_id = args.strip() if args else user_id
 
-            action = parts[0].lower()
-            action_args = parts[1]
+                start_time = datetime.datetime.now(datetime.timezone.utc)
+                end_time = start_time + datetime.timedelta(days=7)
 
-            if action == "request":
-                # Parse request args
-                request_parts = action_args.split(" ", 2)
-                if len(request_parts) < 3:
-                    return "Usage: !timeoff request YYYY-MM-DD YYYY-MM-DD reason"
-
-                start_str = request_parts[0]
-                end_str = request_parts[1]
-                reason = request_parts[2]
-
-                try:
-                    start_time = datetime.datetime.fromisoformat(start_str)
-                    end_time = datetime.datetime.fromisoformat(end_str)
-                except ValueError:
-                    return "Invalid date format. Use YYYY-MM-DD HH:MM."
-
-                # Submit time off request
-                success, status, request_id = await self.scheduling_service.request_time_off(
-                    user_id, start_time, end_time, reason
+                # Get tasks for the specified time period
+                tasks = await self.scheduling_service.get_agent_tasks(
+                    agent_id, start_time, end_time, include_completed=False
                 )
 
-                if success:
-                    return f"Time off request submitted and automatically approved. Request ID: {request_id}"
-                else:
-                    return f"Time off request {status}. Request ID: {request_id}"
+                if not tasks:
+                    return f"No scheduled tasks found for {agent_id} in the next 7 days."
 
-            elif action == "cancel":
-                request_id = action_args.strip()
-                success, status = await self.scheduling_service.cancel_time_off_request(
-                    user_id, request_id
-                )
+                # Sort by start time
+                tasks.sort(
+                    key=lambda t: t.scheduled_start or datetime.datetime.max)
 
-                if success:
-                    return f"Time off request {request_id} cancelled successfully."
-                else:
-                    return f"Failed to cancel request: {status}"
+                # Format response
+                response = f"# Schedule for {agent_id}\n\n"
 
-            return "Unknown timeoff action. Use 'request' or 'cancel'."
+                current_day = None
+                for task in tasks:
+                    # Group by day
+                    task_day = task.scheduled_start.strftime(
+                        "%Y-%m-%d") if task.scheduled_start else "Unscheduled"
 
-        elif command == "!schedule-view" and self.scheduling_service:
-            # View agent's schedule for the next week
-            # Default to current user if no agent specified
-            agent_id = args.strip() if args else user_id
+                    if task_day != current_day:
+                        response += f"\n## {task_day}\n\n"
+                        current_day = task_day
 
-            start_time = datetime.datetime.now(datetime.timezone.utc)
-            end_time = start_time + datetime.timedelta(days=7)
+                    start_time = task.scheduled_start.strftime(
+                        "%H:%M") if task.scheduled_start else "TBD"
+                    response += f"- **{start_time}** ({task.estimated_minutes} min): {task.title}\n"
 
-            # Get tasks for the specified time period
-            tasks = await self.scheduling_service.get_agent_tasks(
-                agent_id, start_time, end_time, include_completed=False
-            )
-
-            if not tasks:
-                return f"No scheduled tasks found for {agent_id} in the next 7 days."
-
-            # Sort by start time
-            tasks.sort(key=lambda t: t.scheduled_start or datetime.datetime.max)
-
-            # Format response
-            response = f"# Schedule for {agent_id}\n\n"
-
-            current_day = None
-            for task in tasks:
-                # Group by day
-                task_day = task.scheduled_start.strftime(
-                    "%Y-%m-%d") if task.scheduled_start else "Unscheduled"
-
-                if task_day != current_day:
-                    response += f"\n## {task_day}\n\n"
-                    current_day = task_day
-
-                start_time = task.scheduled_start.strftime(
-                    "%H:%M") if task.scheduled_start else "TBD"
-                response += f"- **{start_time}** ({task.estimated_minutes} min): {task.title}\n"
-
-            return response
+                return response
 
         return None
 
@@ -5589,7 +5694,8 @@ class SolanaAgentFactory:
             project_approval_service=project_approval_service,
             project_simulation_service=project_simulation_service,
             require_human_approval=config.get("require_human_approval", False),
-            scheduling_service=scheduling_service
+            scheduling_service=scheduling_service,
+            stalled_ticket_timeout=config.get("stalled_ticket_timeout", 60),
         )
 
         return query_processor
@@ -5876,6 +5982,22 @@ class TenantManager:
             llm_provider, task_planning_service, ticket_repo
         )
 
+        # Create scheduling repository and service
+        tenant_db_adapter = self._create_tenant_db_adapter(
+            tenant)  # Get the DB adapter properly
+        scheduling_repository = SchedulingRepository(
+            tenant_db_adapter)  # Use the correct adapter
+
+        scheduling_service = SchedulingService(
+            scheduling_repository=scheduling_repository,
+            task_planning_service=task_planning_service,
+            agent_service=agent_service
+        )
+
+        # Update task_planning_service with scheduling_service if needed
+        if task_planning_service:
+            task_planning_service.scheduling_service = scheduling_service
+
         # Create query processor
         return QueryProcessor(
             agent_service=agent_service,
@@ -5895,6 +6017,9 @@ class TenantManager:
             require_human_approval=tenant.get_config_value(
                 "require_human_approval", False
             ),
+            scheduling_service=scheduling_service,
+            stalled_ticket_timeout=tenant.get_config_value(
+                "stalled_ticket_timeout"),
         )
 
     def _deep_merge(self, target: Dict, source: Dict) -> None:
