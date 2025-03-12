@@ -300,22 +300,31 @@ class AgentType(str, Enum):
 
 
 class Ticket(BaseModel):
-    """Represents a user support ticket."""
-
-    id: str
+    """Model for a support ticket."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     query: str
-    status: TicketStatus
-    assigned_to: str
-    created_at: datetime.datetime
+    status: TicketStatus = TicketStatus.NEW
+    assigned_to: str = ""
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    updated_at: Optional[datetime.datetime] = None
+    resolved_at: Optional[datetime.datetime] = None
+    resolution_confidence: Optional[float] = None
+    resolution_reasoning: Optional[str] = None
+    handoff_reason: Optional[str] = None
     complexity: Optional[Dict[str, Any]] = None
-    context: Optional[str] = None
+    agent_context: Optional[Dict[str, Any]] = None
     is_parent: bool = False
     is_subtask: bool = False
     parent_id: Optional[str] = None
-    updated_at: Optional[datetime.datetime] = None
-    resolved_at: Optional[datetime.datetime] = None
-    handoff_reason: Optional[str] = None
+
+    # Add fields for resource integration
+    description: Optional[str] = None
+    scheduled_start: Optional[datetime.datetime] = None
+    scheduled_end: Optional[datetime.datetime] = None
+    required_resources: List[Dict[str, Any]] = []
+    resource_assignments: List[Dict[str, Any]] = []
 
 
 class Handoff(BaseModel):
@@ -456,17 +465,22 @@ class PlanStatus(BaseModel):
 
 
 class SubtaskModel(BaseModel):
-    """Represents a subtask breakdown of a complex task."""
+    """Model for a subtask in a complex task breakdown."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    parent_id: str
+    parent_id: Optional[str] = None
     title: str
     description: str
-    assignee: Optional[str] = None
-    status: TicketStatus = TicketStatus.PLANNING
-    sequence: int
-    dependencies: List[str] = Field(default_factory=list)
-    estimated_minutes: int = 30
+    estimated_minutes: int
+    dependencies: List[str] = []
+    status: str = "pending"
+    priority: Optional[int] = None
+    assigned_to: Optional[str] = None
+    scheduled_start: Optional[datetime.datetime] = None
+    specialization_tags: List[str] = []
+    sequence: int = 0  # Added missing sequence field
+    required_resources: List[Dict[str, Any]] = []
+    resource_assignments: List[Dict[str, Any]] = []
 
 
 class WorkCapacity(BaseModel):
@@ -2972,6 +2986,143 @@ class AgentService:
         return self.ai_agents
 
 
+class ResourceService:
+    """Service for managing resources and bookings."""
+
+    def __init__(self, resource_repository: ResourceRepository):
+        """Initialize with resource repository."""
+        self.repository = resource_repository
+
+    async def create_resource(self, resource_data, resource_type):
+        """Create a new resource from dictionary data."""
+        # Generate UUID for ID since it can't be None
+        resource_id = str(uuid.uuid4())
+
+        resource = Resource(
+            id=resource_id,
+            name=resource_data["name"],
+            resource_type=resource_type,
+            description=resource_data.get("description"),
+            location=resource_data.get("location"),
+            capacity=resource_data.get("capacity"),
+            tags=resource_data.get("tags", []),
+            attributes=resource_data.get("attributes", {}),
+            availability_schedule=resource_data.get(
+                "availability_schedule", [])
+        )
+
+        # Don't use await when calling repository methods
+        return self.repository.create_resource(resource)
+
+    async def get_resource(self, resource_id):
+        """Get a resource by ID."""
+        # Don't use await
+        return self.repository.get_resource(resource_id)
+
+    async def update_resource(self, resource_id, updates):
+        """Update a resource."""
+        resource = self.repository.get_resource(resource_id)
+        if not resource:
+            return False
+
+        # Apply updates
+        for key, value in updates.items():
+            if hasattr(resource, key):
+                setattr(resource, key, value)
+
+        # Don't use await
+        return self.repository.update_resource(resource)
+
+    async def list_resources(self, resource_type=None):
+        """List all resources, optionally filtered by type."""
+        # Don't use await
+        return self.repository.list_resources(resource_type)
+
+    async def find_available_resources(self, start_time, end_time, capacity=None, tags=None, resource_type=None):
+        """Find available resources for a time period."""
+        # Don't use await
+        resources = self.repository.find_resources(
+            resource_type, capacity, tags)
+
+        # Filter by availability
+        available = []
+        for resource in resources:
+            time_window = TimeWindow(start=start_time, end=end_time)
+            if resource.is_available_at(time_window):
+                if not self.repository._has_conflicting_bookings(resource.id, start_time, end_time):
+                    available.append(resource)
+
+        return available
+
+    async def create_booking(self, resource_id, user_id, title, start_time, end_time, description=None, notes=None):
+        """Create a booking for a resource."""
+        # Check if resource exists
+        resource = self.repository.get_resource(resource_id)
+        if not resource:
+            return False, None, "Resource not found"
+
+        # Check for conflicts
+        if self.repository._has_conflicting_bookings(resource_id, start_time, end_time):
+            return False, None, "Resource is already booked during the requested time"
+
+        # Create booking
+        booking_data = ResourceBooking(
+            id=str(uuid.uuid4()),
+            resource_id=resource_id,
+            user_id=user_id,
+            title=title,
+            description=description,
+            status="confirmed",
+            start_time=start_time,
+            end_time=end_time,
+            notes=notes,
+            created_at=datetime.datetime.now(datetime.timezone.utc)
+        )
+
+        booking_id = self.repository.create_booking(booking_data)
+
+        # Return (success, booking_id, error)
+        return True, booking_id, None
+
+    async def cancel_booking(self, booking_id, user_id):
+        """Cancel a booking."""
+        # Verify booking exists
+        booking = self.repository.get_booking(booking_id)
+        if not booking:
+            return False, "Booking not found"
+
+        # Verify user owns the booking
+        if booking.user_id != user_id:
+            return False, "Not authorized to cancel this booking"
+
+        # Cancel booking
+        result = self.repository.cancel_booking(booking_id)
+        if result:
+            return True, None
+        return False, "Failed to cancel booking"
+
+    async def get_resource_schedule(self, resource_id, start_date, end_date):
+        """Get a resource's schedule for a date range."""
+        return self.repository.get_resource_schedule(resource_id, start_date, end_date)
+
+    async def get_user_bookings(self, user_id, include_cancelled=False):
+        """Get all bookings for a user with resource details."""
+        bookings = self.repository.get_user_bookings(
+            user_id,
+            include_cancelled
+        )
+
+        result = []
+        for booking in bookings:
+            resource = self.repository.get_resource(booking.resource_id)
+            result.append({
+                "booking": booking.model_dump(),
+                "resource": resource.model_dump() if resource else None
+            })
+
+        return result
+
+
 class TaskPlanningService:
     """Service for managing complex task planning and breakdown."""
 
@@ -3325,6 +3476,181 @@ class TaskPlanningService:
                 "technical_complexity": 5,
                 "domain_knowledge": 5,
             }
+
+    async def generate_subtasks_with_resources(
+        self, ticket_id: str, task_description: str
+    ) -> List[SubtaskModel]:
+        """Generate subtasks for a complex task with resource requirements."""
+        # Fetch ticket to verify it exists
+        ticket = self.ticket_repository.get_by_id(ticket_id)
+        if not ticket:
+            raise ValueError(f"Ticket {ticket_id} not found")
+
+        # Mark parent ticket as a parent
+        self.ticket_repository.update(
+            ticket_id, {"is_parent": True, "status": TicketStatus.PLANNING}
+        )
+
+        # Generate subtasks using LLM
+        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
+        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
+        model = agent_config.get("model", "gpt-4o-mini")
+
+        prompt = f"""
+        Break down the following complex task into logical subtasks with resource requirements:
+        
+        TASK: {task_description}
+        
+        For each subtask, provide:
+        1. A brief title
+        2. A clear description of what needs to be done
+        3. An estimate of time required in minutes
+        4. Any dependencies (which subtasks must be completed first)
+        5. Required resources with these details:
+           - Resource type (room, equipment, etc.)
+           - Quantity needed
+           - Specific requirements (e.g., "room with projector", "laptop with design software")
+        
+        Format as a JSON array of objects with these fields:
+        - title: string
+        - description: string
+        - estimated_minutes: number
+        - dependencies: array of previous subtask titles that must be completed first
+        - required_resources: array of objects with fields:
+          - resource_type: string
+          - quantity: number
+          - requirements: string (specific features needed)
+        
+        The subtasks should be in a logical sequence. Keep dependencies minimal and avoid circular dependencies.
+        """
+
+        response_text = ""
+        async for chunk in self.llm_provider.generate_text(
+            ticket.user_id,
+            prompt,
+            system_prompt="You are an expert project planner who breaks down complex tasks efficiently and identifies required resources.",
+            stream=False,
+            model=model,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        ):
+            response_text += chunk
+
+        try:
+            data = json.loads(response_text)
+            subtasks_data = data.get("subtasks", [])
+
+            # Create subtask objects
+            subtasks = []
+            for i, task_data in enumerate(subtasks_data):
+                subtask = SubtaskModel(
+                    parent_id=ticket_id,
+                    title=task_data.get("title", f"Subtask {i+1}"),
+                    description=task_data.get("description", ""),
+                    estimated_minutes=task_data.get("estimated_minutes", 30),
+                    dependencies=[],  # We'll fill this after all subtasks are created
+                    status="planning",
+                    required_resources=task_data.get("required_resources", []),
+                    is_subtask=True,
+                    created_at=datetime.datetime.now(datetime.timezone.utc)
+                )
+                subtasks.append(subtask)
+
+            # Process dependencies (convert title references to IDs)
+            title_to_id = {task.title: task.id for task in subtasks}
+            for i, task_data in enumerate(subtasks_data):
+                dependency_titles = task_data.get("dependencies", [])
+                for title in dependency_titles:
+                    if title in title_to_id:
+                        subtasks[i].dependencies.append(title_to_id[title])
+
+            # Store subtasks in database
+            for subtask in subtasks:
+                self.ticket_repository.create(subtask)
+
+            return subtasks
+
+        except Exception as e:
+            print(f"Error generating subtasks with resources: {e}")
+            return []
+
+    async def allocate_resources(
+        self, subtask_id: str, resource_service: ResourceService
+    ) -> Tuple[bool, str]:
+        """Allocate resources to a subtask."""
+        # Get the subtask
+        subtask = self.ticket_repository.get_by_id(subtask_id)
+        if not subtask or not subtask.is_subtask:
+            return False, "Subtask not found"
+
+        if not subtask.required_resources:
+            return True, "No resources required"
+
+        if not subtask.scheduled_start or not subtask.scheduled_end:
+            return False, "Subtask must be scheduled before resources can be allocated"
+
+        # For each required resource
+        resource_assignments = []
+        for resource_req in subtask.required_resources:
+            resource_type = resource_req.get("resource_type")
+            requirements = resource_req.get("requirements", "")
+            quantity = resource_req.get("quantity", 1)
+
+            # Find available resources matching the requirements
+            resources = await resource_service.find_available_resources(
+                start_time=subtask.scheduled_start,
+                end_time=subtask.scheduled_end,
+                resource_type=resource_type,
+                tags=requirements.split() if requirements else None,
+                capacity=None  # Could use quantity here if it represents capacity
+            )
+
+            if not resources or len(resources) < quantity:
+                return False, f"Insufficient {resource_type} resources available"
+
+            # Allocate the resources by creating bookings
+            allocated_resources = []
+            for i in range(quantity):
+                if i >= len(resources):
+                    break
+
+                resource = resources[i]
+                success, booking_id, error = await resource_service.create_booking(
+                    resource_id=resource.id,
+                    user_id=subtask.assigned_to or "system",
+                    # Use query instead of title
+                    title=f"Task: {subtask.query}",
+                    start_time=subtask.scheduled_start,
+                    end_time=subtask.scheduled_end,
+                    description=subtask.description
+                )
+
+                if success:
+                    allocated_resources.append({
+                        "resource_id": resource.id,
+                        "resource_name": resource.name,
+                        "booking_id": booking_id,
+                        "resource_type": resource.resource_type
+                    })
+                else:
+                    # Clean up any allocations already made
+                    for alloc in allocated_resources:
+                        await resource_service.cancel_booking(alloc["booking_id"], subtask.assigned_to or "system")
+                    return False, f"Failed to book resource: {error}"
+
+            resource_assignments.append({
+                "requirement": resource_req,
+                "allocated": allocated_resources
+            })
+
+        # Update the subtask with resource assignments
+        subtask.resource_assignments = resource_assignments
+        self.ticket_repository.update(subtask_id, {
+            "resource_assignments": resource_assignments,
+            "updated_at": datetime.datetime.now(datetime.timezone.utc)
+        })
+
+        return True, f"Successfully allocated {len(resource_assignments)} resource types"
 
 
 class ProjectApprovalService:
@@ -4095,6 +4421,77 @@ class SchedulingService:
 
         return task
 
+    async def find_optimal_time_slot_with_resources(
+        self,
+        task: ScheduledTask,
+        resource_service: ResourceService,
+        agent_schedule: Optional[AgentSchedule] = None
+    ) -> Optional[TimeWindow]:
+        """Find the optimal time slot for a task based on both agent and resource availability."""
+        if not task.assigned_to:
+            return None
+
+        # First, find potential time slots based on agent availability
+        agent_id = task.assigned_to
+        duration = task.estimated_minutes or 30
+
+        # Start no earlier than now
+        start_after = datetime.datetime.now(datetime.timezone.utc)
+
+        # Apply task constraints
+        for constraint in task.constraints:
+            if constraint.get("type") == "must_start_after" and constraint.get("time"):
+                constraint_time = datetime.datetime.fromisoformat(
+                    constraint["time"])
+                if constraint_time > start_after:
+                    start_after = constraint_time
+
+        # Get potential time slots for the agent
+        agent_slots = await self.find_available_time_slots(
+            agent_id,
+            duration,
+            start_after,
+            count=3,  # Get multiple slots to try with resources
+            agent_schedule=agent_schedule
+        )
+
+        if not agent_slots:
+            return None
+
+        # Check if task has resource requirements
+        required_resources = getattr(task, "required_resources", [])
+        if not required_resources:
+            # If no resources needed, return the first available agent slot
+            return agent_slots[0]
+
+        # For each potential time slot, check resource availability
+        for time_slot in agent_slots:
+            all_resources_available = True
+
+            for resource_req in required_resources:
+                resource_type = resource_req.get("resource_type")
+                requirements = resource_req.get("requirements", "")
+                quantity = resource_req.get("quantity", 1)
+
+                # Find available resources for this time slot
+                resources = await resource_service.find_available_resources(
+                    start_time=time_slot.start,
+                    end_time=time_slot.end,
+                    resource_type=resource_type,
+                    tags=requirements.split() if requirements else None
+                )
+
+                if len(resources) < quantity:
+                    all_resources_available = False
+                    break
+
+            # If all resources are available, use this time slot
+            if all_resources_available:
+                return time_slot
+
+        # If no time slot has all resources available, default to first slot
+        return agent_slots[0]
+
     async def optimize_schedule(self) -> Dict[str, Any]:
         """Optimize the entire schedule to maximize efficiency."""
         # Get all pending and scheduled tasks
@@ -4750,142 +5147,6 @@ class SchedulingService:
         return formatted_requests
 
 
-class ResourceService:
-    """Service for managing resources and bookings."""
-
-    def __init__(self, resource_repository: ResourceRepository):
-        """Initialize with resource repository."""
-        self.repository = resource_repository
-
-    async def create_resource(self, resource_data, resource_type):
-        """Create a new resource from dictionary data."""
-        # Generate UUID for ID since it can't be None
-        resource_id = str(uuid.uuid4())
-
-        resource = Resource(
-            id=resource_id,
-            name=resource_data["name"],
-            resource_type=resource_type,
-            description=resource_data.get("description"),
-            location=resource_data.get("location"),
-            capacity=resource_data.get("capacity"),
-            tags=resource_data.get("tags", []),
-            attributes=resource_data.get("attributes", {}),
-            availability_schedule=resource_data.get(
-                "availability_schedule", [])
-        )
-
-        # Don't use await when calling repository methods
-        return self.repository.create_resource(resource)
-
-    async def get_resource(self, resource_id):
-        """Get a resource by ID."""
-        # Don't use await
-        return self.repository.get_resource(resource_id)
-
-    async def update_resource(self, resource_id, updates):
-        """Update a resource."""
-        resource = self.repository.get_resource(resource_id)
-        if not resource:
-            return False
-
-        # Apply updates
-        for key, value in updates.items():
-            if hasattr(resource, key):
-                setattr(resource, key, value)
-
-        # Don't use await
-        return self.repository.update_resource(resource)
-
-    async def list_resources(self, resource_type=None):
-        """List all resources, optionally filtered by type."""
-        # Don't use await
-        return self.repository.list_resources(resource_type)
-
-    async def find_available_resources(self, start_time, end_time, capacity=None, tags=None, resource_type=None):
-        """Find available resources for a time period."""
-        # Don't use await
-        resources = self.repository.find_resources(
-            resource_type, capacity, tags)
-
-        # Filter by availability
-        available = []
-        for resource in resources:
-            time_window = TimeWindow(start=start_time, end=end_time)
-            if resource.is_available_at(time_window):
-                if not self.repository._has_conflicting_bookings(resource.id, start_time, end_time):
-                    available.append(resource)
-
-        return available
-
-    async def create_booking(self, resource_id, user_id, title, start_time, end_time, description=None, notes=None):
-        """Create a booking for a resource."""
-        # Check if resource exists
-        resource = self.repository.get_resource(resource_id)
-        if not resource:
-            return False, None, "Resource not found"
-
-        # Check for conflicts
-        if self.repository._has_conflicting_bookings(resource_id, start_time, end_time):
-            return False, None, "Resource is already booked during the requested time"
-
-        # Create booking
-        booking_data = ResourceBooking(
-            id=str(uuid.uuid4()),
-            resource_id=resource_id,
-            user_id=user_id,
-            title=title,
-            description=description,
-            status="confirmed",
-            start_time=start_time,
-            end_time=end_time,
-            notes=notes,
-            created_at=datetime.datetime.now(datetime.timezone.utc)
-        )
-
-        booking_id = self.repository.create_booking(booking_data)
-
-        # Return (success, booking_id, error)
-        return True, booking_id, None
-
-    async def cancel_booking(self, booking_id, user_id):
-        """Cancel a booking."""
-        # Verify booking exists
-        booking = self.repository.get_booking(booking_id)
-        if not booking:
-            return False, "Booking not found"
-
-        # Verify user owns the booking
-        if booking.user_id != user_id:
-            return False, "Not authorized to cancel this booking"
-
-        # Cancel booking
-        result = self.repository.cancel_booking(booking_id)
-        if result:
-            return True, None
-        return False, "Failed to cancel booking"
-
-    async def get_resource_schedule(self, resource_id, start_date, end_date):
-        """Get a resource's schedule for a date range."""
-        return self.repository.get_resource_schedule(resource_id, start_date, end_date)
-
-    async def get_user_bookings(self, user_id, include_cancelled=False):
-        """Get all bookings for a user with resource details."""
-        bookings = self.repository.get_user_bookings(
-            user_id,
-            include_cancelled
-        )
-
-        result = []
-        for booking in bookings:
-            resource = self.repository.get_resource(booking.resource_id)
-            result.append({
-                "booking": booking.model_dump(),
-                "resource": resource.model_dump() if resource else None
-            })
-
-        return result
-
 #############################################
 # MAIN AGENT PROCESSOR
 #############################################
@@ -5164,7 +5425,7 @@ class QueryProcessor:
 
                 return response
 
-            elif command == "!plan" and args:
+            if command == "!plan" and args:
                 # Create a new plan from the task description
                 if not self.task_planning_service:
                     return "Task planning service is not available."
@@ -5176,8 +5437,8 @@ class QueryProcessor:
                     user_id, args, complexity
                 )
 
-                # Generate subtasks
-                subtasks = await self.task_planning_service.generate_subtasks(
+                # Generate subtasks with resource requirements
+                subtasks = await self.task_planning_service.generate_subtasks_with_resources(
                     ticket.id, args
                 )
 
@@ -5191,16 +5452,43 @@ class QueryProcessor:
                 for i, subtask in enumerate(subtasks, 1):
                     response += f"{i}. **{subtask.title}**\n"
                     response += f"   - Description: {subtask.description}\n"
-                    response += (
-                        f"   - Estimated time: {subtask.estimated_minutes} minutes\n"
-                    )
+                    response += f"   - Estimated time: {subtask.estimated_minutes} minutes\n"
+
+                    if subtask.required_resources:
+                        response += f"   - Required resources:\n"
+                        for res in subtask.required_resources:
+                            res_type = res.get("resource_type", "unknown")
+                            quantity = res.get("quantity", 1)
+                            requirements = res.get("requirements", "")
+                            response += f"     * {quantity} {res_type}" + \
+                                (f" ({requirements})" if requirements else "") + "\n"
+
                     if subtask.dependencies:
-                        response += (
-                            f"   - Dependencies: {len(subtask.dependencies)} subtasks\n"
-                        )
+                        response += f"   - Dependencies: {len(subtask.dependencies)} subtasks\n"
+
                     response += "\n"
 
                 return response
+
+            # Add a new command for allocating resources to tasks
+            elif command == "!allocate-resources" and args:
+                parts = args.split()
+                if len(parts) < 1:
+                    return "Usage: !allocate-resources [subtask_id]"
+
+                subtask_id = parts[0]
+
+                if not hasattr(self, "resource_service") or not self.resource_service:
+                    return "Resource service is not available."
+
+                success, message = await self.task_planning_service.allocate_resources(
+                    subtask_id, self.resource_service
+                )
+
+                if success:
+                    return f"✅ Resources allocated successfully: {message}"
+                else:
+                    return f"❌ Failed to allocate resources: {message}"
 
             elif command == "!status" and args:
                 # Show status of a specific plan
