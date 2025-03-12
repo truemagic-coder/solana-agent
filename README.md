@@ -296,7 +296,7 @@ config = {
         "api_key": "your-pinecone-key",
         "index": "your-index"
     },
-    "plugins_dir": "plugins",
+    "stalled_ticket_timeout": 60,
     "ai_agents": [
         {
             "name": "research_specialist",
