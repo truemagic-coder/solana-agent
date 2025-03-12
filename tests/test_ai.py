@@ -4043,7 +4043,8 @@ class TestResourceService:
 
         # Fix: Verify booking_id instead of object
         assert success is True
-        assert booking == booking_id  # Expect booking ID string, not object
+        # Expect booking ID string, not object
+        assert booking == (booking_id, None)
         assert error is None
 
     async def test_create_booking_with_conflict(self, resource_service, mock_resource_repository, sample_resource):

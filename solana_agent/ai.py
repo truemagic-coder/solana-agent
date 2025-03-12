@@ -4763,7 +4763,7 @@ class ResourceService:
         resource_id = str(uuid.uuid4())
 
         resource = Resource(
-            id=resource_id,  # Use generated ID instead of None
+            id=resource_id,
             name=resource_data["name"],
             resource_type=resource_type,
             description=resource_data.get("description"),
@@ -4843,12 +4843,9 @@ class ResourceService:
             created_at=datetime.datetime.now(datetime.timezone.utc)
         )
 
-        booking_id, error = self.repository.create_booking(booking_data)
+        booking_id = self.repository.create_booking(booking_data)
 
-        if error:
-            return False, None, error
-
-        # Return the booking ID string, not the booking object
+        # Return (success, booking_id, error)
         return True, booking_id, None
 
     async def cancel_booking(self, booking_id, user_id):
