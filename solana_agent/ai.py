@@ -4446,6 +4446,7 @@ class QueryProcessor:
         project_simulation_service: Optional[ProjectSimulationService] = None,
         require_human_approval: bool = False,
         scheduling_service: Optional[SchedulingService] = None,
+        stalled_ticket_timeout: Optional[int] = 60,
     ):
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -4463,6 +4464,12 @@ class QueryProcessor:
         self.require_human_approval = require_human_approval
         self._shutdown_event = asyncio.Event()
         self.scheduling_service = scheduling_service
+        self.stalled_ticket_timeout = stalled_ticket_timeout
+
+        # Start background task for stalled ticket detection
+        if stalled_ticket_timeout is not None:
+            self._stalled_ticket_task = asyncio.create_task(
+                self._run_stalled_ticket_checks())
 
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
@@ -4582,6 +4589,44 @@ class QueryProcessor:
             )
 
         return response
+
+    async def check_for_stalled_tickets(self):
+        """Check for tickets that haven't been updated in a while and reassign them."""
+        # If stalled ticket detection is disabled, exit early
+        if self.stalled_ticket_timeout is None:
+            return
+
+        # Find tickets that haven't been updated in the configured time
+        stalled_cutoff = datetime.datetime.now(
+            datetime.timezone.utc) - datetime.timedelta(minutes=self.stalled_ticket_timeout)
+
+        # Query for stalled tickets (those not updated since stalled_cutoff)
+        stalled_tickets = self.ticket_service.ticket_repository.find(
+            {
+                "status": {"$in": [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]},
+                "updated_at": {"$lt": stalled_cutoff}
+            }
+        )
+
+        for ticket in stalled_tickets:
+            # Re-route using routing service to find the optimal agent
+            new_agent = await self.routing_service.route_query(ticket.query)
+
+            # Skip if the routing didn't change
+            if new_agent == ticket.assigned_to:
+                continue
+
+            # Process as handoff
+            await self.handoff_service.process_handoff(
+                ticket.id,
+                ticket.assigned_to or "unassigned",
+                new_agent,
+                f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+            )
+
+            # Log the reassignment
+            print(
+                f"Stalled ticket {ticket.id} reassigned from {ticket.assigned_to or 'unassigned'} to {new_agent}")
 
     async def _process_system_commands(
         self, user_id: str, user_text: str
@@ -5589,7 +5634,8 @@ class SolanaAgentFactory:
             project_approval_service=project_approval_service,
             project_simulation_service=project_simulation_service,
             require_human_approval=config.get("require_human_approval", False),
-            scheduling_service=scheduling_service
+            scheduling_service=scheduling_service,
+            stalled_ticket_timeout=config.get("stalled_ticket_timeout", 60),
         )
 
         return query_processor
@@ -5876,6 +5922,22 @@ class TenantManager:
             llm_provider, task_planning_service, ticket_repo
         )
 
+        # Create scheduling repository and service
+        tenant_db_adapter = self._create_tenant_db_adapter(
+            tenant)  # Get the DB adapter properly
+        scheduling_repository = SchedulingRepository(
+            tenant_db_adapter)  # Use the correct adapter
+
+        scheduling_service = SchedulingService(
+            scheduling_repository=scheduling_repository,
+            task_planning_service=task_planning_service,
+            agent_service=agent_service
+        )
+
+        # Update task_planning_service with scheduling_service if needed
+        if task_planning_service:
+            task_planning_service.scheduling_service = scheduling_service
+
         # Create query processor
         return QueryProcessor(
             agent_service=agent_service,
@@ -5895,6 +5957,9 @@ class TenantManager:
             require_human_approval=tenant.get_config_value(
                 "require_human_approval", False
             ),
+            scheduling_service=scheduling_service,
+            stalled_ticket_timeout=tenant.get_config_value(
+                "stalled_ticket_timeout"),
         )
 
     def _deep_merge(self, target: Dict, source: Dict) -> None:

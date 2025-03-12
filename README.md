@@ -156,7 +156,7 @@ Solana Agent transforms organizations into living systems that continuously lear
     Command-line interface for human ticket management.  
     Metrics and analytics on resolution quality and time.  
     Proactive reminders for pending human-assigned tickets.  
-    Auto-reassignment system for stalled tickets.  
+    Worker-driven ticket reassignment.
     Human agent activity tracking and status management.  
 
 - **📅 Comprehensive Scheduling System:**  
