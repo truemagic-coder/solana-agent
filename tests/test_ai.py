@@ -2319,7 +2319,7 @@ class TestQdrantAdapter:
         assert kwargs["limit"] == 2
 
         # Verify filter contains namespace condition
-        assert "must" in kwargs["query_filter"].dict()
+        assert "must" in kwargs["query_filter"].model_dump()
 
         # Verify search results were formatted correctly
         assert len(results) == 2
@@ -2345,7 +2345,7 @@ class TestQdrantAdapter:
         mock_client.delete.assert_called_once()
         args, kwargs = mock_client.delete.call_args
         assert kwargs["collection_name"] == "test_collection"
-        assert "vec1" in str(kwargs["points_selector"].dict())
+        assert "vec1" in str(kwargs["points_selector"].model_dump())
         assert kwargs["wait"] is True
 
 
@@ -3747,6 +3747,118 @@ class TestQueryProcessorSchedulingIntegration:
         assert "2025-01-03" in response
         assert "Task 1" in response
         assert "Task 2" in response
+
+
+@pytest.mark.asyncio
+class TestStalledTicketDetection:
+    """Tests for stalled ticket detection and automatic reassignment."""
+
+    @pytest.fixture
+    def query_processor_with_stalled_detection(self, query_processor, mock_ticket_repository):
+        """Create a query processor with stalled ticket detection enabled."""
+        # Override the stalled_ticket_timeout to a small value for testing
+        query_processor.stalled_ticket_timeout = 60  # 60 minutes
+        return query_processor
+
+    @pytest.fixture
+    def stalled_ticket(self):
+        """Create a ticket that would be considered stalled."""
+        stalled_time = datetime.datetime.now(
+            datetime.timezone.utc) - datetime.timedelta(minutes=120)
+        return Ticket(
+            id="stalled123",
+            user_id="user1",
+            query="Stalled task",
+            status=TicketStatus.ACTIVE,
+            assigned_to="agent1",
+            created_at=stalled_time - datetime.timedelta(minutes=30),
+            # Last updated 2 hours ago (beyond 60 min timeout)
+            updated_at=stalled_time,
+            complexity={"estimated_minutes": 30}
+        )
+
+    async def test_check_for_stalled_tickets(self, query_processor_with_stalled_detection, mock_ticket_repository, stalled_ticket):
+        """Test identification of stalled tickets."""
+        # Setup mock to return a stalled ticket
+        mock_ticket_repository.find_stalled_tickets = AsyncMock(
+            return_value=[stalled_ticket]
+        )
+
+        # Mock the routing service to return a different agent
+        query_processor_with_stalled_detection.routing_service.route_query = AsyncMock(
+            return_value="agent2"  # Different from stalled_ticket.assigned_to
+        )
+
+        # Mock handoff service to track calls
+        query_processor_with_stalled_detection.handoff_service.process_handoff = AsyncMock()
+
+        # Run the check
+        await query_processor_with_stalled_detection._check_for_stalled_tickets()
+
+        # Verify stalled tickets were queried with correct parameters
+        cutoff_time = datetime.datetime.now(
+            datetime.timezone.utc) - datetime.timedelta(minutes=60)
+        mock_ticket_repository.find_stalled_tickets.assert_called_once()
+        args, kwargs = mock_ticket_repository.find_stalled_tickets.call_args
+        assert args[1] == [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
+
+        # Verify handoff was processed
+        query_processor_with_stalled_detection.handoff_service.process_handoff.assert_called_once_with(
+            "stalled123",
+            "agent1",
+            "agent2",
+            "Automatically reassigned after 60 minutes of inactivity"
+        )
+
+    async def test_stalled_detection_disabled(self, query_processor, mock_ticket_repository):
+        """Test that stalled detection is disabled when timeout is None."""
+        # Set timeout to None
+        query_processor.stalled_ticket_timeout = None
+
+        # Mock the repository to track calls
+        mock_ticket_repository.find_stalled_tickets = AsyncMock()
+
+        # Run the check
+        await query_processor._check_for_stalled_tickets()
+
+        # Verify repository was not queried
+        mock_ticket_repository.find_stalled_tickets.assert_not_called()
+
+    async def test_no_reassignment_when_same_agent(self, query_processor_with_stalled_detection, mock_ticket_repository, stalled_ticket):
+        """Test that no reassignment happens when routing returns the same agent."""
+        # Setup mock to return a stalled ticket
+        mock_ticket_repository.find_stalled_tickets = AsyncMock(
+            return_value=[stalled_ticket]
+        )
+
+        # Mock the routing service to return the SAME agent
+        query_processor_with_stalled_detection.routing_service.route_query = AsyncMock(
+            return_value="agent1"  # Same as stalled_ticket.assigned_to
+        )
+
+        # Mock handoff service to track calls
+        query_processor_with_stalled_detection.handoff_service.process_handoff = AsyncMock()
+
+        # Run the check
+        await query_processor_with_stalled_detection._check_for_stalled_tickets()
+
+        # Verify handoff was NOT processed (since agent didn't change)
+        query_processor_with_stalled_detection.handoff_service.process_handoff.assert_not_called()
+
+    async def test_shutdown_cancels_stalled_task(self, query_processor_with_stalled_detection):
+        """Test that the shutdown method properly cancels the stalled ticket task."""
+        # Create a mock task that doesn't need to be awaited
+        mock_task = MagicMock()
+        mock_task.cancel = MagicMock()  # Use regular MagicMock instead of AsyncMock
+
+        # Replace the task
+        query_processor_with_stalled_detection._stalled_ticket_task = mock_task
+
+        # Call shutdown
+        await query_processor_with_stalled_detection.shutdown()
+
+        # Verify task was cancelled
+        mock_task.cancel.assert_called_once()
 
 
 if __name__ == "__main__":
