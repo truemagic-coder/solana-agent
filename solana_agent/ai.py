@@ -483,9 +483,116 @@ class WorkCapacity(BaseModel):
     )
 
 
+class ResourceType(str, Enum):
+    """Types of resources that can be booked."""
+    ROOM = "room"
+    VEHICLE = "vehicle"
+    EQUIPMENT = "equipment"
+    SEAT = "seat"
+    DESK = "desk"
+    OTHER = "other"
+
+
+class ResourceStatus(str, Enum):
+    """Status of a resource."""
+    AVAILABLE = "available"
+    IN_USE = "in_use"
+    MAINTENANCE = "maintenance"
+    UNAVAILABLE = "unavailable"
+
+
+class ResourceLocation(BaseModel):
+    """Physical location of a resource."""
+    address: Optional[str] = None
+    building: Optional[str] = None
+    floor: Optional[int] = None
+    room: Optional[str] = None
+    coordinates: Optional[Dict[str, float]] = None  # Lat/Long if applicable
+
+
+class TimeWindow(BaseModel):
+    """Time window model for availability and exceptions."""
+    start: datetime.datetime
+    end: datetime.datetime
+
+    def overlaps_with(self, other: 'TimeWindow') -> bool:
+        """Check if this window overlaps with another one."""
+        return self.start < other.end and self.end > other.start
+
+
+class ResourceAvailabilityWindow(BaseModel):
+    """Availability window for a resource with recurring pattern options."""
+    day_of_week: Optional[List[int]] = None  # 0 = Monday, 6 = Sunday
+    start_time: str  # Format: "HH:MM", 24h format
+    end_time: str  # Format: "HH:MM", 24h format
+    timezone: str = "UTC"
+
+
+class Resource(BaseModel):
+    """Model for a bookable resource."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    description: Optional[str] = None
+    resource_type: ResourceType
+    status: ResourceStatus = ResourceStatus.AVAILABLE
+    location: Optional[ResourceLocation] = None
+    capacity: Optional[int] = None  # For rooms/vehicles
+    tags: List[str] = []
+    attributes: Dict[str, str] = {}  # Custom attributes
+    availability_schedule: List[ResourceAvailabilityWindow] = []
+    # Overrides for maintenance, holidays
+    availability_exceptions: List[TimeWindow] = []
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    updated_at: Optional[datetime.datetime] = None
+
+    def is_available_at(self, time_window: TimeWindow) -> bool:
+        """Check if resource is available during the specified time window."""
+        # Check if resource is generally available
+        if self.status != ResourceStatus.AVAILABLE:
+            return False
+
+        # Check against exceptions (maintenance, holidays)
+        for exception in self.availability_exceptions:
+            if exception.overlaps_with(time_window):
+                return False
+
+        # Check if the requested time falls within regular availability
+        day_of_week = time_window.start.weekday()
+        start_time = time_window.start.strftime("%H:%M")
+        end_time = time_window.end.strftime("%H:%M")
+
+        for window in self.availability_schedule:
+            if window.day_of_week is None or day_of_week in window.day_of_week:
+                if window.start_time <= start_time and window.end_time >= end_time:
+                    return True
+
+        # Default available if no schedule defined
+        return len(self.availability_schedule) == 0
+
+
+class ResourceBooking(BaseModel):
+    """Model for a resource booking."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    resource_id: str
+    user_id: str
+    title: str
+    description: Optional[str] = None
+    start_time: datetime.datetime
+    end_time: datetime.datetime
+    status: str = "confirmed"  # confirmed, cancelled, completed
+    booking_reference: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_amount: Optional[float] = None
+    notes: Optional[str] = None
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    updated_at: Optional[datetime.datetime] = None
+
 #############################################
 # INTERFACES
 #############################################
+
 
 class LLMProvider(Protocol):
     """Interface for language model providers."""
@@ -1025,6 +1132,217 @@ class PineconeAdapter:
 #############################################
 # IMPLEMENTATIONS - REPOSITORIES
 #############################################
+
+class ResourceRepository:
+    """Repository for managing resources."""
+
+    def __init__(self, db_provider):
+        """Initialize with database provider."""
+        self.db = db_provider
+        self.resources_collection = "resources"
+        self.bookings_collection = "resource_bookings"
+
+        # Ensure collections exist
+        self.db.create_collection(self.resources_collection)
+        self.db.create_collection(self.bookings_collection)
+
+        # Create indexes
+        self.db.create_index(self.resources_collection, [("resource_type", 1)])
+        self.db.create_index(self.resources_collection, [("status", 1)])
+        self.db.create_index(self.resources_collection, [("tags", 1)])
+
+        self.db.create_index(self.bookings_collection, [("resource_id", 1)])
+        self.db.create_index(self.bookings_collection, [("user_id", 1)])
+        self.db.create_index(self.bookings_collection, [("start_time", 1)])
+        self.db.create_index(self.bookings_collection, [("end_time", 1)])
+        self.db.create_index(self.bookings_collection, [("status", 1)])
+
+    # Resource CRUD operations
+    async def create_resource(self, resource: Resource) -> str:
+        """Create a new resource."""
+        resource_dict = resource.model_dump(mode="json")
+        return self.db.insert_one(self.resources_collection, resource_dict)
+
+    async def get_resource(self, resource_id: str) -> Optional[Resource]:
+        """Get a resource by ID."""
+        data = self.db.find_one(self.resources_collection, {"id": resource_id})
+        return Resource(**data) if data else None
+
+    async def update_resource(self, resource: Resource) -> bool:
+        """Update a resource."""
+        resource.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        resource_dict = resource.model_dump(mode="json")
+        return self.db.update_one(
+            self.resources_collection,
+            {"id": resource.id},
+            {"$set": resource_dict}
+        )
+
+    async def delete_resource(self, resource_id: str) -> bool:
+        """Delete a resource."""
+        return self.db.delete_one(self.resources_collection, {"id": resource_id})
+
+    async def find_resources(
+        self,
+        query: Dict[str, Any],
+        sort_by: Optional[str] = None,
+        limit: int = 0
+    ) -> List[Resource]:
+        """Find resources matching query."""
+        sort_params = [(sort_by, 1)] if sort_by else [("name", 1)]
+        data = self.db.find(self.resources_collection,
+                            query, sort_params, limit)
+        return [Resource(**item) for item in data]
+
+    async def find_available_resources(
+        self,
+        resource_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        capacity: Optional[int] = None
+    ) -> List[Resource]:
+        """Find available resources matching the criteria."""
+        # Build base query for available resources
+        query = {"status": ResourceStatus.AVAILABLE}
+
+        if resource_type:
+            query["resource_type"] = resource_type
+
+        if tags:
+            query["tags"] = {"$all": tags}
+
+        if capacity:
+            query["capacity"] = {"$gte": capacity}
+
+        # First get resources that match base criteria
+        resources = self.find_resources(query)
+
+        # If no time range specified, return all matching resources
+        if not start_time or not end_time:
+            return resources
+
+        # Filter by time availability (check bookings and exceptions)
+        time_window = TimeWindow(start=start_time, end=end_time)
+
+        # Check each resource's availability
+        available_resources = []
+        for resource in resources:
+            if resource.is_available_at(time_window):
+                # Check existing bookings
+                if not self._has_conflicting_bookings(resource.id, start_time, end_time):
+                    available_resources.append(resource)
+
+        return available_resources
+
+    # Booking CRUD operations
+    async def create_booking(self, booking: ResourceBooking) -> str:
+        """Create a new booking."""
+        booking_dict = booking.model_dump(mode="json")
+        return self.db.insert_one(self.bookings_collection, booking_dict)
+
+    async def get_booking(self, booking_id: str) -> Optional[ResourceBooking]:
+        """Get a booking by ID."""
+        data = self.db.find_one(self.bookings_collection, {"id": booking_id})
+        return ResourceBooking(**data) if data else None
+
+    async def update_booking(self, booking: ResourceBooking) -> bool:
+        """Update a booking."""
+        booking.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        booking_dict = booking.model_dump(mode="json")
+        return self.db.update_one(
+            self.bookings_collection,
+            {"id": booking.id},
+            {"$set": booking_dict}
+        )
+
+    async def cancel_booking(self, booking_id: str) -> bool:
+        """Cancel a booking."""
+        return self.db.update_one(
+            self.bookings_collection,
+            {"id": booking_id},
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "updated_at": datetime.datetime.now(datetime.timezone.utc)
+                }
+            }
+        )
+
+    async def get_resource_bookings(
+        self,
+        resource_id: str,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        include_cancelled: bool = False
+    ) -> List[ResourceBooking]:
+        """Get all bookings for a resource within a time range."""
+        query = {"resource_id": resource_id}
+
+        if not include_cancelled:
+            query["status"] = {"$ne": "cancelled"}
+
+        if start_time or end_time:
+            time_query = {}
+            if start_time:
+                time_query["$lte"] = end_time
+            if end_time:
+                time_query["$gte"] = start_time
+            if time_query:
+                query["$or"] = [
+                    {"start_time": time_query},
+                    {"end_time": time_query},
+                    {
+                        "$and": [
+                            {"start_time": {"$lte": start_time}},
+                            {"end_time": {"$gte": end_time}}
+                        ]
+                    }
+                ]
+
+        data = self.db.find(self.bookings_collection,
+                            query, sort=[("start_time", 1)])
+        return [ResourceBooking(**item) for item in data]
+
+    async def get_user_bookings(
+        self,
+        user_id: str,
+        include_cancelled: bool = False
+    ) -> List[ResourceBooking]:
+        """Get all bookings for a user."""
+        query = {"user_id": user_id}
+
+        if not include_cancelled:
+            query["status"] = {"$ne": "cancelled"}
+
+        data = self.db.find(self.bookings_collection,
+                            query, sort=[("start_time", 1)])
+        return [ResourceBooking(**item) for item in data]
+
+    async def _has_conflicting_bookings(
+        self,
+        resource_id: str,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime
+    ) -> bool:
+        """Check if there are any conflicting bookings."""
+        query = {
+            "resource_id": resource_id,
+            "status": {"$ne": "cancelled"},
+            "$or": [
+                {"start_time": {"$lt": end_time, "$gte": start_time}},
+                {"end_time": {"$gt": start_time, "$lte": end_time}},
+                {
+                    "$and": [
+                        {"start_time": {"$lte": start_time}},
+                        {"end_time": {"$gte": end_time}}
+                    ]
+                }
+            ]
+        }
+
+        return self.db.count_documents(self.bookings_collection, query) > 0
+
 
 class MongoMemoryProvider:
     """MongoDB implementation of MemoryProvider."""
@@ -4431,6 +4749,146 @@ class SchedulingService:
 
         return formatted_requests
 
+
+class ResourceService:
+    """Service for managing resources and bookings."""
+
+    def __init__(self, resource_repository: ResourceRepository):
+        """Initialize with resource repository."""
+        self.repository = resource_repository
+
+    async def create_resource(self, resource_data, resource_type):
+        """Create a new resource from dictionary data."""
+        # Generate UUID for ID since it can't be None
+        resource_id = str(uuid.uuid4())
+
+        resource = Resource(
+            id=resource_id,  # Use generated ID instead of None
+            name=resource_data["name"],
+            resource_type=resource_type,
+            description=resource_data.get("description"),
+            location=resource_data.get("location"),
+            capacity=resource_data.get("capacity"),
+            tags=resource_data.get("tags", []),
+            attributes=resource_data.get("attributes", {}),
+            availability_schedule=resource_data.get(
+                "availability_schedule", [])
+        )
+
+        # Don't use await when calling repository methods
+        return self.repository.create_resource(resource)
+
+    async def get_resource(self, resource_id):
+        """Get a resource by ID."""
+        # Don't use await
+        return self.repository.get_resource(resource_id)
+
+    async def update_resource(self, resource_id, updates):
+        """Update a resource."""
+        resource = self.repository.get_resource(resource_id)
+        if not resource:
+            return False
+
+        # Apply updates
+        for key, value in updates.items():
+            if hasattr(resource, key):
+                setattr(resource, key, value)
+
+        # Don't use await
+        return self.repository.update_resource(resource)
+
+    async def list_resources(self, resource_type=None):
+        """List all resources, optionally filtered by type."""
+        # Don't use await
+        return self.repository.list_resources(resource_type)
+
+    async def find_available_resources(self, start_time, end_time, capacity=None, tags=None, resource_type=None):
+        """Find available resources for a time period."""
+        # Don't use await
+        resources = self.repository.find_resources(
+            resource_type, capacity, tags)
+
+        # Filter by availability
+        available = []
+        for resource in resources:
+            time_window = TimeWindow(start=start_time, end=end_time)
+            if resource.is_available_at(time_window):
+                if not self.repository._has_conflicting_bookings(resource.id, start_time, end_time):
+                    available.append(resource)
+
+        return available
+
+    async def create_booking(self, resource_id, user_id, title, start_time, end_time, description=None, notes=None):
+        """Create a booking for a resource."""
+        # Check if resource exists
+        resource = self.repository.get_resource(resource_id)
+        if not resource:
+            return False, None, "Resource not found"
+
+        # Check for conflicts
+        if self.repository._has_conflicting_bookings(resource_id, start_time, end_time):
+            return False, None, "Resource is already booked during the requested time"
+
+        # Create booking
+        booking_data = ResourceBooking(
+            id=str(uuid.uuid4()),
+            resource_id=resource_id,
+            user_id=user_id,
+            title=title,
+            description=description,
+            status="confirmed",
+            start_time=start_time,
+            end_time=end_time,
+            notes=notes,
+            created_at=datetime.datetime.now(datetime.timezone.utc)
+        )
+
+        booking_id, error = self.repository.create_booking(booking_data)
+
+        if error:
+            return False, None, error
+
+        # Return the booking ID string, not the booking object
+        return True, booking_id, None
+
+    async def cancel_booking(self, booking_id, user_id):
+        """Cancel a booking."""
+        # Verify booking exists
+        booking = self.repository.get_booking(booking_id)
+        if not booking:
+            return False, "Booking not found"
+
+        # Verify user owns the booking
+        if booking.user_id != user_id:
+            return False, "Not authorized to cancel this booking"
+
+        # Cancel booking
+        result = self.repository.cancel_booking(booking_id)
+        if result:
+            return True, None
+        return False, "Failed to cancel booking"
+
+    async def get_resource_schedule(self, resource_id, start_date, end_date):
+        """Get a resource's schedule for a date range."""
+        return self.repository.get_resource_schedule(resource_id, start_date, end_date)
+
+    async def get_user_bookings(self, user_id, include_cancelled=False):
+        """Get all bookings for a user with resource details."""
+        bookings = self.repository.get_user_bookings(
+            user_id,
+            include_cancelled
+        )
+
+        result = []
+        for booking in bookings:
+            resource = self.repository.get_resource(booking.resource_id)
+            result.append({
+                "booking": booking.model_dump(),
+                "resource": resource.model_dump() if resource else None
+            })
+
+        return result
+
 #############################################
 # MAIN AGENT PROCESSOR
 #############################################
@@ -4992,6 +5450,379 @@ class QueryProcessor:
                     response += f"- **{start_time}** ({task.estimated_minutes} min): {task.title}\n"
 
                 return response
+
+            elif command == "!resources" and self.resource_service:
+                # Format: !resources [list|find|show|create|update|delete]
+                parts = args.strip().split(" ", 1)
+                subcommand = parts[0] if parts else "list"
+                subcmd_args = parts[1] if len(parts) > 1 else ""
+
+                if subcommand == "list":
+                    # List available resources, optionally filtered by type
+                    resource_type = subcmd_args if subcmd_args else None
+
+                    query = {}
+                    if resource_type:
+                        query["resource_type"] = resource_type
+
+                    resources = self.resource_service.repository.find_resources(
+                        query)
+
+                    if not resources:
+                        return "No resources found."
+
+                    response = "# Available Resources\n\n"
+
+                    # Group by type
+                    resources_by_type = {}
+                    for resource in resources:
+                        r_type = resource.resource_type
+                        if r_type not in resources_by_type:
+                            resources_by_type[r_type] = []
+                        resources_by_type[r_type].append(resource)
+
+                    for r_type, r_list in resources_by_type.items():
+                        response += f"## {r_type.capitalize()}\n\n"
+                        for resource in r_list:
+                            status_emoji = "🟢" if resource.status == "available" else "🔴"
+                            response += f"{status_emoji} **{resource.name}** (ID: {resource.id})\n"
+                            if resource.description:
+                                response += f"   {resource.description}\n"
+                            if resource.location and resource.location.building:
+                                response += f"   Location: {resource.location.building}"
+                                if resource.location.room:
+                                    response += f", Room {resource.location.room}"
+                                response += "\n"
+                            if resource.capacity:
+                                response += f"   Capacity: {resource.capacity}\n"
+                            response += "\n"
+
+                    return response
+
+                elif subcommand == "show" and subcmd_args:
+                    # Show details for a specific resource
+                    resource_id = subcmd_args.strip()
+                    resource = await self.resource_service.get_resource(resource_id)
+
+                    if not resource:
+                        return f"Resource with ID {resource_id} not found."
+
+                    response = f"# Resource: {resource.name}\n\n"
+                    response += f"**ID**: {resource.id}\n"
+                    response += f"**Type**: {resource.resource_type}\n"
+                    response += f"**Status**: {resource.status}\n"
+
+                    if resource.description:
+                        response += f"\n**Description**: {resource.description}\n"
+
+                    if resource.location:
+                        response += "\n**Location**:\n"
+                        if resource.location.address:
+                            response += f"- Address: {resource.location.address}\n"
+                        if resource.location.building:
+                            response += f"- Building: {resource.location.building}\n"
+                        if resource.location.floor is not None:
+                            response += f"- Floor: {resource.location.floor}\n"
+                        if resource.location.room:
+                            response += f"- Room: {resource.location.room}\n"
+
+                    if resource.capacity:
+                        response += f"\n**Capacity**: {resource.capacity}\n"
+
+                    if resource.tags:
+                        response += f"\n**Tags**: {', '.join(resource.tags)}\n"
+
+                    # Show availability schedule
+                    if resource.availability_schedule:
+                        response += "\n**Regular Availability**:\n"
+                        for window in resource.availability_schedule:
+                            days = "Every day"
+                            if window.day_of_week:
+                                day_names = [
+                                    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                days = ", ".join([day_names[d]
+                                                 for d in window.day_of_week])
+                            response += f"- {days}: {window.start_time} - {window.end_time} ({window.timezone})\n"
+
+                    # Show upcoming bookings
+                    now = datetime.datetime.now(datetime.timezone.utc)
+                    next_month = now + datetime.timedelta(days=30)
+                    bookings = self.resource_service.repository.get_resource_bookings(
+                        resource_id, now, next_month)
+
+                    if bookings:
+                        response += "\n**Upcoming Bookings**:\n"
+                        for booking in bookings:
+                            start_str = booking.start_time.strftime(
+                                "%Y-%m-%d %H:%M")
+                            end_str = booking.end_time.strftime("%H:%M")
+                            response += f"- {start_str} - {end_str}: {booking.title}\n"
+
+                    return response
+
+                elif subcommand == "find":
+                    # Find available resources for a time period
+                    # Format: !resources find room 2023-03-15 14:00 16:00
+                    parts = subcmd_args.split()
+                    if len(parts) < 4:
+                        return "Usage: !resources find [type] [date] [start_time] [end_time] [capacity]"
+
+                    resource_type = parts[0]
+                    date_str = parts[1]
+                    start_time_str = parts[2]
+                    end_time_str = parts[3]
+                    capacity = int(parts[4]) if len(parts) > 4 else None
+
+                    try:
+                        # Parse date and times
+                        date_obj = datetime.datetime.strptime(
+                            date_str, "%Y-%m-%d").date()
+                        start_time = datetime.datetime.combine(
+                            date_obj,
+                            datetime.datetime.strptime(
+                                start_time_str, "%H:%M").time(),
+                            tzinfo=datetime.timezone.utc
+                        )
+                        end_time = datetime.datetime.combine(
+                            date_obj,
+                            datetime.datetime.strptime(
+                                end_time_str, "%H:%M").time(),
+                            tzinfo=datetime.timezone.utc
+                        )
+
+                        # Find available resources
+                        resources = await self.resource_service.find_available_resources(
+                            resource_type=resource_type,
+                            start_time=start_time,
+                            end_time=end_time,
+                            capacity=capacity
+                        )
+
+                        if not resources:
+                            return f"No {resource_type}s available for the requested time period."
+
+                        response = f"# Available {resource_type.capitalize()}s\n\n"
+                        response += f"**Date**: {date_str}\n"
+                        response += f"**Time**: {start_time_str} - {end_time_str}\n"
+                        if capacity:
+                            response += f"**Minimum Capacity**: {capacity}\n"
+                        response += "\n"
+
+                        for resource in resources:
+                            response += f"- **{resource.name}** (ID: {resource.id})\n"
+                            if resource.description:
+                                response += f"  {resource.description}\n"
+                            if resource.capacity:
+                                response += f"  Capacity: {resource.capacity}\n"
+                            if resource.location and resource.location.building:
+                                response += f"  Location: {resource.location.building}"
+                                if resource.location.room:
+                                    response += f", Room {resource.location.room}"
+                                response += "\n"
+                            response += "\n"
+
+                        return response
+
+                    except ValueError as e:
+                        return f"Error parsing date/time: {e}"
+
+                elif subcommand == "book":
+                    # Book a resource
+                    # Format: !resources book [resource_id] [date] [start_time] [end_time] [title]
+                    parts = subcmd_args.split(" ", 5)
+                    if len(parts) < 5:
+                        return "Usage: !resources book [resource_id] [date] [start_time] [end_time] [title]"
+
+                    resource_id = parts[0]
+                    date_str = parts[1]
+                    start_time_str = parts[2]
+                    end_time_str = parts[3]
+                    title = parts[4] if len(parts) > 4 else "Booking"
+
+                    try:
+                        # Parse date and times
+                        date_obj = datetime.datetime.strptime(
+                            date_str, "%Y-%m-%d").date()
+                        start_time = datetime.datetime.combine(
+                            date_obj,
+                            datetime.datetime.strptime(
+                                start_time_str, "%H:%M").time(),
+                            tzinfo=datetime.timezone.utc
+                        )
+                        end_time = datetime.datetime.combine(
+                            date_obj,
+                            datetime.datetime.strptime(
+                                end_time_str, "%H:%M").time(),
+                            tzinfo=datetime.timezone.utc
+                        )
+
+                        # Create booking
+                        success, booking, error = await self.resource_service.create_booking(
+                            resource_id=resource_id,
+                            user_id=user_id,
+                            title=title,
+                            start_time=start_time,
+                            end_time=end_time
+                        )
+
+                        if not success:
+                            return f"Failed to book resource: {error}"
+
+                        # Get resource details
+                        resource = await self.resource_service.get_resource(resource_id)
+                        resource_name = resource.name if resource else resource_id
+
+                        response = "# Booking Confirmed\n\n"
+                        response += f"**Resource**: {resource_name}\n"
+                        response += f"**Date**: {date_str}\n"
+                        response += f"**Time**: {start_time_str} - {end_time_str}\n"
+                        response += f"**Title**: {title}\n"
+                        response += f"**Booking ID**: {booking.id}\n\n"
+                        response += "Your booking has been confirmed and added to your schedule."
+
+                        return response
+
+                    except ValueError as e:
+                        return f"Error parsing date/time: {e}"
+
+                elif subcommand == "bookings":
+                    # View all bookings for the current user
+                    include_cancelled = "all" in subcmd_args.lower()
+
+                    bookings = await self.resource_service.get_user_bookings(user_id, include_cancelled)
+
+                    if not bookings:
+                        return "You don't have any bookings." + (
+                            " (Use 'bookings all' to include cancelled bookings)" if not include_cancelled else ""
+                        )
+
+                    response = "# Your Bookings\n\n"
+
+                    # Group bookings by date
+                    bookings_by_date = {}
+                    for booking_data in bookings:
+                        booking = booking_data["booking"]
+                        resource = booking_data["resource"]
+
+                        date_str = booking["start_time"].strftime("%Y-%m-%d")
+                        if date_str not in bookings_by_date:
+                            bookings_by_date[date_str] = []
+
+                        bookings_by_date[date_str].append((booking, resource))
+
+                    # Sort dates
+                    for date_str in sorted(bookings_by_date.keys()):
+                        response += f"## {date_str}\n\n"
+
+                        for booking, resource in bookings_by_date[date_str]:
+                            start_time = booking["start_time"].strftime(
+                                "%H:%M")
+                            end_time = booking["end_time"].strftime("%H:%M")
+                            resource_name = resource["name"] if resource else "Unknown Resource"
+
+                            status_emoji = "🟢" if booking["status"] == "confirmed" else "🔴"
+                            response += f"{status_emoji} **{start_time}-{end_time}**: {booking['title']}\n"
+                            response += f"   Resource: {resource_name}\n"
+                            response += f"   Booking ID: {booking['id']}\n\n"
+
+                    return response
+
+                elif subcommand == "cancel" and subcmd_args:
+                    # Cancel a booking
+                    booking_id = subcmd_args.strip()
+
+                    success, error = await self.resource_service.cancel_booking(booking_id, user_id)
+
+                    if success:
+                        return "✅ Your booking has been successfully cancelled."
+                    else:
+                        return f"❌ Failed to cancel booking: {error}"
+
+                elif subcommand == "schedule" and subcmd_args:
+                    # View resource schedule
+                    # Format: !resources schedule resource_id [YYYY-MM-DD] [days]
+                    parts = subcmd_args.split()
+                    if len(parts) < 1:
+                        return "Usage: !resources schedule resource_id [YYYY-MM-DD] [days]"
+
+                    resource_id = parts[0]
+
+                    # Default to today and 7 days
+                    start_date = datetime.datetime.now(datetime.timezone.utc)
+                    days = 7
+
+                    if len(parts) > 1:
+                        try:
+                            start_date = datetime.datetime.strptime(
+                                parts[1], "%Y-%m-%d"
+                            ).replace(tzinfo=datetime.timezone.utc)
+                        except ValueError:
+                            return "Invalid date format. Use YYYY-MM-DD."
+
+                    if len(parts) > 2:
+                        try:
+                            days = min(int(parts[2]), 31)  # Limit to 31 days
+                        except ValueError:
+                            return "Days must be a number."
+
+                    end_date = start_date + datetime.timedelta(days=days)
+
+                    # Get the resource
+                    resource = await self.resource_service.get_resource(resource_id)
+                    if not resource:
+                        return f"Resource with ID {resource_id} not found."
+
+                    # Get schedule
+                    schedule = await self.resource_service.get_resource_schedule(
+                        resource_id, start_date, end_date
+                    )
+
+                    # Create calendar visualization
+                    response = f"# Schedule for {resource.name}\n\n"
+                    response += f"Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}\n\n"
+
+                    # Group by date
+                    schedule_by_date = {}
+                    current_date = start_date
+                    while current_date < end_date:
+                        date_str = current_date.strftime("%Y-%m-%d")
+                        schedule_by_date[date_str] = []
+                        current_date += datetime.timedelta(days=1)
+
+                    # Add entries to appropriate dates
+                    for entry in schedule:
+                        date_str = entry["start_time"].strftime("%Y-%m-%d")
+                        if date_str in schedule_by_date:
+                            schedule_by_date[date_str].append(entry)
+
+                    # Generate calendar view
+                    for date_str, entries in schedule_by_date.items():
+                        # Convert to datetime for day of week
+                        entry_date = datetime.datetime.strptime(
+                            date_str, "%Y-%m-%d")
+                        day_of_week = entry_date.strftime("%A")
+
+                        response += f"## {date_str} ({day_of_week})\n\n"
+
+                        if not entries:
+                            response += "No bookings or exceptions\n\n"
+                            continue
+
+                        # Sort by start time
+                        entries.sort(key=lambda x: x["start_time"])
+
+                        for entry in entries:
+                            start_time = entry["start_time"].strftime("%H:%M")
+                            end_time = entry["end_time"].strftime("%H:%M")
+
+                            if entry["type"] == "booking":
+                                response += f"- **{start_time}-{end_time}**: {entry['title']} (by {entry['user_id']})\n"
+                            else:  # exception
+                                response += f"- **{start_time}-{end_time}**: {entry['status']} (Unavailable)\n"
+
+                        response += "\n"
+
+                    return response
 
         return None
 
