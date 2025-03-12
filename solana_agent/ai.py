@@ -4590,6 +4590,33 @@ class QueryProcessor:
 
         return response
 
+    async def shutdown(self):
+        """Clean shutdown of the query processor."""
+        self._shutdown_event.set()
+
+        # Cancel the stalled ticket task if running
+        if hasattr(self, '_stalled_ticket_task'):
+            self._stalled_ticket_task.cancel()
+            try:
+                await self._stalled_ticket_task
+            except asyncio.CancelledError:
+                pass
+
+        async def _run_stalled_ticket_checks(self):
+            """Run periodic checks for stalled tickets."""
+            try:
+                while not self._shutdown_event.is_set():
+                    await self.check_for_stalled_tickets()
+                    # Check every 5 minutes or half the timeout period, whichever is smaller
+                    check_interval = min(
+                        300, self.stalled_ticket_timeout * 30) if self.stalled_ticket_timeout else 300
+                    await asyncio.sleep(check_interval)
+            except asyncio.CancelledError:
+                # Task was cancelled, clean exit
+                pass
+            except Exception as e:
+                print(f"Error in stalled ticket check: {e}")
+
     async def check_for_stalled_tickets(self):
         """Check for tickets that haven't been updated in a while and reassign them."""
         # If stalled ticket detection is disabled, exit early
