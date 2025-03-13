@@ -286,7 +286,6 @@ Each public method has a docstring for real-time IDE hinting.
 ```python
 from solana_agent import SolanaAgent
 
-# Define configuration with plugins
 config = {
     "organization": {
         "mission_statement": "To revolutionize knowledge work through AI-human collaboration that puts people first.",
@@ -343,9 +342,7 @@ config = {
             "specialization": "Escalated customer issues"
         }
     ],
-    "api_keys": {
-        "perplexity": "your-perplexity-key"  # For internet search plugin
-    }
+    "perplexity_api_key": "your-perplexity-key"  # For internet search plugin
 }
 
 # Create agent with configuration
@@ -356,54 +353,9 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Example Plugin
+## Solana Agent Kit (plugins collection)
 
-`my_plugin/plugin.py`
-
-```python
-from solana_agent import Tool
-
-class MyCustomTool(Tool):
-    @property
-    def name(self) -> str:
-        return "my_custom_tool"
-    
-    @property
-    def description(self) -> str:
-        return "Does something amazing"
-    
-    @property
-    def parameters_schema(self) -> dict:
-        return {
-            "type": "object",
-            "properties": {
-                "parameter1": {"type": "string", "description": "First parameter"}
-            }
-        }
-    
-    def execute(self, **kwargs) -> dict:
-        # Tool implementation here
-        return {"result": "success", "data": "Something amazing"}
-
-class SolanaPlugin:
-    def get_tools(self):
-        return [MyCustomTool()]
-```
-
-`pyproject.toml`
-
-```toml
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "my-solana-plugin"
-version = "0.1.0"
-
-[project.entry-points."solana_agent.plugins"]
-my_plugin = "my_plugin.plugin:SolanaPlugin"
-```
+[Solana Agent Kit](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Example App
 
