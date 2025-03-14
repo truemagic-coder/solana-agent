@@ -1781,7 +1781,7 @@ class MongoTicketRepository:
             "status": {"$in": [status.value if isinstance(status, Enum) else status for status in statuses]},
             "updated_at": {"$lt": cutoff_time}
         }
-        tickets = self.db.find(self.collection, query)
+        tickets = self.db.find("tickets", query)
         return [Ticket(**ticket) for ticket in tickets]
 
 
@@ -2895,6 +2895,14 @@ class AgentService:
         if not self.human_agent_registry:
             self.human_agents = {}
 
+    def get_all_ai_agents(self) -> Dict[str, Any]:
+        """Get all registered AI agents."""
+        return self.ai_agents
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        return self.tool_registry.get_agent_tools(agent_name)
+
     def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
         """Give an agent access to a specific tool."""
         # Make sure the tool exists
@@ -2922,6 +2930,47 @@ class AgentService:
             print(
                 f"Failed to register tool {tool_name} for agent {agent_name}")
 
+    def process_json_response(self, response_text: str, agent_name: str) -> str:
+        """Process a complete response to handle any JSON handoffs or tool calls."""
+        # Check if the response is a JSON object for handoff or tool call
+        if response_text.strip().startswith('{') and ('"handoff":' in response_text or '"tool_call":' in response_text):
+            try:
+                data = json.loads(response_text.strip())
+
+                # Handle handoff
+                if "handoff" in data:
+                    target_agent = data["handoff"].get(
+                        "target_agent", "another agent")
+                    reason = data["handoff"].get(
+                        "reason", "to better assist with your request")
+                    return f"I'll connect you with {target_agent} who can better assist with your request. Reason: {reason}"
+
+                # Handle tool call
+                if "tool_call" in data:
+                    tool_data = data["tool_call"]
+                    tool_name = tool_data.get("name")
+                    parameters = tool_data.get("parameters", {})
+
+                    if tool_name:
+                        try:
+                            # Execute the tool
+                            tool_result = self.execute_tool(
+                                agent_name, tool_name, parameters)
+
+                            # Format the result
+                            if tool_result.get("status") == "success":
+                                return f"I searched for information and found:\n\n{tool_result.get('result', '')}"
+                            else:
+                                return f"I tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+                        except Exception as e:
+                            return f"I tried to use {tool_name}, but encountered an error: {str(e)}"
+            except json.JSONDecodeError:
+                # Not valid JSON
+                pass
+
+        # Return original if not JSON or if processing fails
+        return response_text
+
     def get_agent_system_prompt(self, agent_name: str) -> str:
         """Get the system prompt for an agent, including tool instructions if available."""
         # Get the agent's base instructions
@@ -2934,48 +2983,50 @@ class AgentService:
         # Add tool instructions if any tools are available
         available_tools = self.get_agent_tools(agent_name)
         if available_tools:
-            # Convert tools to simple format
-            tools_text = "\n".join(
-                [f"- {tool['name']}: {tool['description']}" for tool in available_tools])
+            tools_json = json.dumps(available_tools, indent=2)
 
-            # Example tool usage in plain text
-            example_tool = "search_internet"
-            example_query = "latest Solana news"
-            example_format = (
-                '{"name": "search_internet", "parameters": {"query": "latest Solana news"}}'
-            )
-
-            # Tool instructions using simple string format
+            # Tool instructions using JSON format similar to handoffs
             tool_instructions = f"""
-                                You have access to the following tools:
-                                {tools_text}
-                                
-                                IMPORTANT - TOOL USAGE: When you need to use a tool, respond with JSON using this format:
-                                
-                                TOOL_START
-                                {example_format}
-                                TOOL_END
-                                
-                                Example: To search the internet for "{example_query}", respond with:
-                                
-                                TOOL_START
-                                {example_format}
-                                TOOL_END
-                                
-                                ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
-                                """
+    You have access to the following tools:
+    {tools_json}
+
+    IMPORTANT - TOOL USAGE: When you need to use a tool, respond with a JSON object using this format:
+
+    {{
+    "tool_call": {{
+        "name": "tool_name",
+        "parameters": {{
+        "param1": "value1",
+        "param2": "value2"
+        }}
+    }}
+    }}
+
+    Example: To search the internet for "latest Solana news", respond with:
+
+    {{
+    "tool_call": {{
+        "name": "search_internet",
+        "parameters": {{
+        "query": "latest Solana news"
+        }}
+    }}
+    }}
+
+    ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
+    """
             instructions = f"{instructions}\n\n{tool_instructions}"
 
         # Add specific instructions about valid handoff agents
         valid_agents = list(self.ai_agents.keys())
         if valid_agents:
             handoff_instructions = f"""
-                                    IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {', '.join(valid_agents)}
-                                    DO NOT invent or reference agents that don't exist in this list.
-                                    
-                                    To hand off to another agent, use this format:
-                                    {{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
-                                    """
+    IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {', '.join(valid_agents)}
+    DO NOT invent or reference agents that don't exist in this list.
+
+    To hand off to another agent, use this format:
+    {{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
+    """
             instructions = f"{instructions}\n\n{handoff_instructions}"
 
         return instructions
@@ -3160,10 +3211,6 @@ class AgentService:
             return True
         return False
 
-    def get_all_ai_agents(self) -> Dict[str, Any]:
-        """Get all registered AI agents."""
-        return self.ai_agents
-
     async def generate_response(
         self,
         agent_name: str,
@@ -3186,12 +3233,15 @@ class AgentService:
         if memory_context:
             instructions += f"\n\nUser context and history:\n{memory_context}"
 
-        # Generate response
-        response_text = ""
+        # Add critical instruction to prevent raw JSON
+        instructions += "\n\nCRITICAL: When using tools or making handoffs, ALWAYS respond with properly formatted JSON as instructed."
 
-        # Track if we're in the middle of a tool call
-        in_tool_block = False
-        tool_block_content = ""
+        # Generate response
+        response_buffer = ""
+        tool_json_found = False
+
+        # We'll collect the entire response first to properly detect JSON
+        full_response = ""
 
         async for chunk in self.llm_provider.generate_text(
             user_id=user_id,
@@ -3200,74 +3250,55 @@ class AgentService:
             model=agent_config["model"],
             **kwargs,
         ):
-            # Filter out raw handoff JSON before yielding to user
-            if not response_text and chunk.strip().startswith('{"handoff":'):
-                # If we're starting with a handoff JSON, replace with a proper response
-                yield "Hello! I'm here to help. What can I assist you with today?"
-                response_text += chunk  # Still store it for processing later
+            # Add to full response
+            full_response += chunk
+
+            # If the response is starting with "{", it might be JSON
+            if full_response.strip().startswith("{"):
+                tool_json_found = True
+                # Don't yield anything yet, we'll process it after collecting everything
                 continue
 
-            # Check for tool block markers in this chunk
-            if "TOOL_START" in chunk and not in_tool_block:
-                # Extract everything before TOOL_START and yield it
-                parts = chunk.split("TOOL_START", 1)
-                if parts[0]:  # If there's content before TOOL_START
-                    yield parts[0]
-                    response_text += parts[0]
+            # If we get here, it's not JSON (at least not starting with it)
+            yield chunk
 
-                # Start collecting tool block content
-                in_tool_block = True
-                tool_block_content = "TOOL_START" + parts[1]
-                response_text += "TOOL_START" + parts[1]
-                continue
+        # Now handle the complete response if it looks like JSON
+        if full_response.strip().startswith("{"):
+            try:
+                # Try to parse the complete response as JSON
+                data = json.loads(full_response.strip())
 
-            if in_tool_block:
-                # Still collecting tool block content
-                tool_block_content += chunk
-                response_text += chunk
+                # Handle tool call
+                if "tool_call" in data:
+                    tool_data = data["tool_call"]
+                    tool_name = tool_data.get("name")
+                    parameters = tool_data.get("parameters", {})
 
-                # Check if tool block is complete
-                if "TOOL_END" in chunk:
-                    # Process the complete tool block
-                    in_tool_block = False
-
-                    # Execute the tool and get results
-                    try:
-                        # Extract JSON between TOOL_START and TOOL_END
-                        tool_json = tool_block_content.split("TOOL_START", 1)[
-                            1].split("TOOL_END", 1)[0].strip()
-
-                        # Parse the tool call
-                        tool_call = json.loads(tool_json)
-                        tool_name = tool_call.get("name")
-                        parameters = tool_call.get("parameters", {})
-
+                    if tool_name:
                         # Execute the tool
-                        if tool_name:
-                            print(
-                                f"Executing tool {tool_name} with parameters: {parameters}")
-                            tool_result = self.execute_tool(
-                                agent_name, tool_name, parameters)
+                        tool_result = self.execute_tool(
+                            agent_name, tool_name, parameters)
 
-                            # Format the result
-                            if tool_result.get("status") == "success":
-                                tool_response = f"\nI searched for information and found:\n\n{tool_result.get('result', '')}"
-                            else:
-                                tool_response = f"\nI tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+                        # Just yield the result, no JSON or explanatory text
+                        if tool_result.get("status") == "success":
+                            result = tool_result.get('result', '')
+                            yield result
+                        else:
+                            error_msg = f"Error: {tool_result.get('message', 'Unknown error')}"
+                            yield error_msg
 
-                            # Yield the tool result instead of the tool block
-                            yield tool_response
-                    except Exception as e:
-                        # If there's an error, yield a generic message
-                        print(f"Error processing tool call: {str(e)}")
-                        yield "\nI tried to search for information, but encountered an error."
+                # Handle handoff - yield special indicator instead of returning
+                elif "handoff" in data:
+                    # Instead of returning, yield a special string that the calling code can detect
+                    yield "HANDOFF:" + json.dumps(data["handoff"])
 
-                    # Reset tool block tracking
-                    tool_block_content = ""
-            else:
-                # Regular content, just yield it
-                yield chunk
-                response_text += chunk
+            except json.JSONDecodeError:
+                # Not valid JSON after all, yield it
+                yield full_response
+        # If we didn't yield anything and it's not JSON, yield the full response
+        elif not tool_json_found:
+            # We've already yielded this in the loop if it's not JSON
+            pass
 
 
 class ResourceService:
@@ -5530,24 +5561,40 @@ class QueryProcessor:
 
             # Check for active ticket
             active_ticket = self.ticket_service.ticket_repository.get_active_for_user(
-                user_id
-            )
+                user_id)
 
             if active_ticket:
                 # Process existing ticket
-                async for chunk in self._process_existing_ticket(
-                    user_id, user_text, active_ticket, timezone
-                ):
+                response_buffer = ""
+                async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                    response_buffer += chunk
                     yield chunk
+
+                # Check final response for unprocessed JSON
+                if response_buffer.strip().startswith('{'):
+                    agent_name = active_ticket.assigned_to or "default_agent"
+                    processed_response = self.agent_service.process_json_response(
+                        response_buffer, agent_name)
+                    if processed_response != response_buffer:
+                        yield "\n\n" + processed_response
             else:
                 # Create new ticket
                 complexity = await self._assess_task_complexity(user_text)
 
                 # Process as new ticket
-                async for chunk in self._process_new_ticket(
-                    user_id, user_text, complexity, timezone
-                ):
+                response_buffer = ""
+                async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                    response_buffer += chunk
                     yield chunk
+
+                # Check final response for unprocessed JSON
+                if response_buffer.strip().startswith('{'):
+                    # Determine agent name from response buffer or default
+                    agent_name = "default_agent"
+                    processed_response = self.agent_service.process_json_response(
+                        response_buffer, agent_name)
+                    if processed_response != response_buffer:
+                        yield "\n\n" + processed_response
 
         except Exception as e:
             print(f"Error in request processing: {str(e)}")
