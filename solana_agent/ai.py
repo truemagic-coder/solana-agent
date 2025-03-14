@@ -12,6 +12,7 @@ This module implements a clean architecture approach with:
 
 import asyncio
 import datetime
+import importlib
 import json
 import re
 import traceback
@@ -44,6 +45,73 @@ from abc import ABC, abstractmethod
 #############################################
 # DOMAIN MODELS
 #############################################
+
+class ToolCallModel(BaseModel):
+    """Model for tool calls in agent responses."""
+    name: str = Field(..., description="Name of the tool to execute")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict, description="Parameters for the tool")
+
+
+class ToolInstructionModel(BaseModel):
+    """Model for tool usage instructions in system prompts."""
+    available_tools: List[Dict[str, Any]] = Field(default_factory=list,
+                                                  description="Tools available to this agent")
+    example_tool: str = Field("search_internet",
+                              description="Example tool to use in instructions")
+    example_query: str = Field("latest Solana news",
+                               description="Example query to use in instructions")
+    valid_agents: List[str] = Field(default_factory=list,
+                                    description="List of valid agents for handoff")
+
+    def format_instructions(self) -> str:
+        """Format the tool and handoff instructions using plain text delimiters."""
+        tools_json = json.dumps(self.available_tools, indent=2)
+
+        # Tool usage instructions with plain text delimiters
+        tool_instructions = f"""
+You have access to the following tools:
+{tools_json}
+
+IMPORTANT - TOOL USAGE: When you need to use a tool, respond with JSON using these exact plain text delimiters:
+
+TOOL_START
+{{
+  "name": "tool_name",
+  "parameters": {{
+    "param1": "value1",
+    "param2": "value2"
+  }}
+}}
+TOOL_END
+
+Example: To search the internet for "{self.example_query}", respond with:
+
+TOOL_START
+{{
+  "name": "{self.example_tool}",
+  "parameters": {{
+    "query": "{self.example_query}"
+  }}
+}}
+TOOL_END
+
+ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
+"""
+
+        # Handoff instructions if valid agents are provided
+        handoff_instructions = ""
+        if self.valid_agents:
+            handoff_instructions = f"""
+IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {", ".join(self.valid_agents)}
+DO NOT invent or reference agents that don't exist in this list.
+
+To hand off to another agent, use this format:
+{{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
+"""
+
+        return f"{tool_instructions}\n\n{handoff_instructions}"
+
 
 class AgentType(str, Enum):
     """Type of agent (AI or Human)."""
@@ -1010,6 +1078,7 @@ class OpenAIAdapter:
         messages.append({"role": "user", "content": prompt})
 
         try:
+            # First try the beta parsing API
             completion = self.client.beta.chat.completions.parse(
                 model=kwargs.get("model", self.model),
                 messages=messages,
@@ -1018,7 +1087,25 @@ class OpenAIAdapter:
             )
             return completion.choices[0].message.parsed
         except Exception as e:
-            print(f"Error parsing structured output: {e}")
+            print(f"Error with beta.parse method: {e}")
+
+            # Fallback to manual parsing with Pydantic
+            try:
+                response = self.client.chat.completions.create(
+                    model=kwargs.get("model", self.model),
+                    messages=messages,
+                    temperature=kwargs.get("temperature", 0.2),
+                    response_format={"type": "json_object"},
+                )
+                response_text = response.choices[0].message.content
+
+                if response_text:
+                    # Use Pydantic's parse_raw method instead of json.loads
+                    return model_class.parse_raw(response_text)
+
+            except Exception as e:
+                print(f"Error parsing structured output with Pydantic: {e}")
+
             # Return default instance as fallback
             return model_class()
 
@@ -1694,7 +1781,7 @@ class MongoTicketRepository:
             "status": {"$in": [status.value if isinstance(status, Enum) else status for status in statuses]},
             "updated_at": {"$lt": cutoff_time}
         }
-        tickets = self.db_adapter.find("tickets", query)
+        tickets = self.db.find(self.collection, query)
         return [Ticket(**ticket) for ticket in tickets]
 
 
@@ -2672,21 +2759,14 @@ class CriticService:
 class NotificationService:
     """Service for sending notifications to human agents or users using notification plugins."""
 
-    def __init__(self, human_agent_registry: MongoHumanAgentRegistry):
+    def __init__(self, human_agent_registry: MongoHumanAgentRegistry, tool_registry=None):
         """Initialize the notification service with a human agent registry."""
         self.human_agent_registry = human_agent_registry
+        self.tool_registry = tool_registry
 
     def send_notification(self, recipient_id: str, message: str, metadata: Dict[str, Any] = None) -> bool:
         """
         Send a notification to a human agent using configured notification channels or legacy handler.
-
-        Args:
-            recipient_id: ID of the human agent to notify
-            message: Notification message content
-            metadata: Additional data related to the notification (e.g., ticket_id)
-
-        Returns:
-            True if notification was sent, False otherwise
         """
         # Get human agent information
         agent = self.human_agent_registry.get_human_agent(recipient_id)
@@ -2712,6 +2792,11 @@ class NotificationService:
                 f"No notification channels configured for agent {recipient_id}")
             return False
 
+        # No tool registry available
+        if not self.tool_registry:
+            print("No tool registry available for notifications")
+            return False
+
         # Try each notification channel until one succeeds
         success = False
         for channel in notification_channels:
@@ -2728,9 +2813,9 @@ class NotificationService:
                 if metadata:
                     tool_params["metadata"] = metadata
 
-                result = tool_registry.get_tool(f"notify_{channel_type}")
-                if result:
-                    response = result.execute(**tool_params)
+                tool = self.tool_registry.get_tool(f"notify_{channel_type}")
+                if tool:
+                    response = tool.execute(**tool_params)
                     if response.get("status") == "success":
                         success = True
                         break
@@ -2763,11 +2848,14 @@ class AgentService:
         human_agent_registry: Optional[MongoHumanAgentRegistry] = None,
         ai_agent_registry: Optional[MongoAIAgentRegistry] = None,
         organization_mission: Optional[OrganizationMission] = None,
+        config: Optional[Dict[str, Any]] = None
     ):
+        """Initialize the agent service with LLM provider and optional registries."""
         self.llm_provider = llm_provider
         self.human_agent_registry = human_agent_registry
         self.ai_agent_registry = ai_agent_registry
         self.organization_mission = organization_mission
+        self.config = config or {}
 
         # For backward compatibility
         self.ai_agents = {}
@@ -2776,9 +2864,22 @@ class AgentService:
 
         self.specializations = {}
 
-        # Initialize plugin system
-        self.plugin_manager = PluginManager()
-        self.plugin_manager.load_all_plugins()
+        # Create our tool registry and plugin manager
+        self.tool_registry = ToolRegistry()
+        self.plugin_manager = PluginManager(
+            config=self.config, tool_registry=self.tool_registry)
+
+        # Load plugins
+        loaded_count = self.plugin_manager.load_all_plugins()
+        print(
+            f"Loaded {loaded_count} plugins with {len(self.tool_registry.list_all_tools())} registered tools")
+
+        # Configure all tools with our config after loading
+        self.tool_registry.configure_all_tools(self.config)
+
+        # Debug output of registered tools
+        print(
+            f"Available tools after initialization: {self.tool_registry.list_all_tools()}")
 
         # If human agent registry is provided, initialize specializations from it
         if self.human_agent_registry:
@@ -2793,6 +2894,154 @@ class AgentService:
         # If no human agent registry is provided, use in-memory cache
         if not self.human_agent_registry:
             self.human_agents = {}
+
+    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
+        """Give an agent access to a specific tool."""
+        # Make sure the tool exists
+        if tool_name not in self.tool_registry.list_all_tools():
+            print(
+                f"Error registering tool {tool_name} for agent {agent_name}: Tool not registered")
+            raise ValueError(f"Tool {tool_name} is not registered")
+
+        # Check if agent exists
+        if agent_name not in self.ai_agents and (
+            not self.ai_agent_registry or
+            not self.ai_agent_registry.get_ai_agent(agent_name)
+        ):
+            print(
+                f"Warning: Agent {agent_name} not found but attempting to register tool")
+
+        # Assign the tool to the agent
+        success = self.tool_registry.assign_tool_to_agent(
+            agent_name, tool_name)
+
+        if success:
+            print(
+                f"Successfully registered tool {tool_name} for agent {agent_name}")
+        else:
+            print(
+                f"Failed to register tool {tool_name} for agent {agent_name}")
+
+    def get_agent_system_prompt(self, agent_name: str) -> str:
+        """Get the system prompt for an agent, including tool instructions if available."""
+        # Get the agent's base instructions
+        if agent_name not in self.ai_agents:
+            raise ValueError(f"Agent {agent_name} not found")
+
+        agent_config = self.ai_agents[agent_name]
+        instructions = agent_config.get("instructions", "")
+
+        # Add tool instructions if any tools are available
+        available_tools = self.get_agent_tools(agent_name)
+        if available_tools:
+            # Convert tools to simple format
+            tools_text = "\n".join(
+                [f"- {tool['name']}: {tool['description']}" for tool in available_tools])
+
+            # Example tool usage in plain text
+            example_tool = "search_internet"
+            example_query = "latest Solana news"
+            example_format = (
+                '{"name": "search_internet", "parameters": {"query": "latest Solana news"}}'
+            )
+
+            # Tool instructions using simple string format
+            tool_instructions = f"""
+                                You have access to the following tools:
+                                {tools_text}
+                                
+                                IMPORTANT - TOOL USAGE: When you need to use a tool, respond with JSON using this format:
+                                
+                                TOOL_START
+                                {example_format}
+                                TOOL_END
+                                
+                                Example: To search the internet for "{example_query}", respond with:
+                                
+                                TOOL_START
+                                {example_format}
+                                TOOL_END
+                                
+                                ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
+                                """
+            instructions = f"{instructions}\n\n{tool_instructions}"
+
+        # Add specific instructions about valid handoff agents
+        valid_agents = list(self.ai_agents.keys())
+        if valid_agents:
+            handoff_instructions = f"""
+                                    IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {', '.join(valid_agents)}
+                                    DO NOT invent or reference agents that don't exist in this list.
+                                    
+                                    To hand off to another agent, use this format:
+                                    {{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
+                                    """
+            instructions = f"{instructions}\n\n{handoff_instructions}"
+
+        return instructions
+
+    def process_tool_calls(self, agent_name: str, response_text: str) -> str:
+        """Process any tool calls in the agent's response and return updated response."""
+        # Regex to find tool calls in the format TOOL_START {...} TOOL_END
+        tool_pattern = r"TOOL_START\s*([\s\S]*?)\s*TOOL_END"
+        tool_matches = re.findall(tool_pattern, response_text)
+
+        if not tool_matches:
+            return response_text
+
+        print(
+            f"Found {len(tool_matches)} tool calls in response from {agent_name}")
+
+        # Process each tool call
+        modified_response = response_text
+        for tool_json in tool_matches:
+            try:
+                # Parse the tool call JSON
+                tool_call_text = tool_json.strip()
+                print(f"Processing tool call: {tool_call_text[:100]}")
+
+                # Parse the JSON (handle both normal and stringified JSON)
+                try:
+                    tool_call = json.loads(tool_call_text)
+                except json.JSONDecodeError as e:
+                    # If there are escaped quotes or formatting issues, try cleaning it up
+                    cleaned_json = tool_call_text.replace(
+                        '\\"', '"').replace('\\n', '\n')
+                    tool_call = json.loads(cleaned_json)
+
+                tool_name = tool_call.get("name")
+                parameters = tool_call.get("parameters", {})
+
+                if tool_name:
+                    # Execute the tool
+                    print(
+                        f"Executing tool {tool_name} with parameters: {parameters}")
+                    tool_result = self.execute_tool(
+                        agent_name, tool_name, parameters)
+
+                    # Format the result for inclusion in the response
+                    if tool_result.get("status") == "success":
+                        formatted_result = f"\n\nI searched for information and found:\n\n{tool_result.get('result', '')}"
+                    else:
+                        formatted_result = f"\n\nI tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+
+                    # Replace the entire tool block with the result
+                    full_tool_block = f"TOOL_START\n{tool_json}\nTOOL_END"
+                    modified_response = modified_response.replace(
+                        full_tool_block, formatted_result)
+                    print(f"Successfully processed tool call: {tool_name}")
+            except Exception as e:
+                print(f"Error processing tool call: {str(e)}")
+                # Replace with error message
+                full_tool_block = f"TOOL_START\n{tool_json}\nTOOL_END"
+                modified_response = modified_response.replace(
+                    full_tool_block, "\n\nI tried to search for information, but encountered an error processing the tool call.")
+
+        return modified_response
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        return self.tool_registry.get_agent_tools(agent_name)
 
     def register_ai_agent(
         self,
@@ -2839,32 +3088,37 @@ class AgentService:
             return merged
         return self.specializations
 
-    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
-        """Give an agent access to a specific tool."""
-        if agent_name not in self.ai_agents:
-            raise ValueError(f"Agent {agent_name} not found")
-
-        tool_registry.assign_tool_to_agent(agent_name, tool_name)
-
-    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
-        """Get all tools available to a specific agent."""
-        return tool_registry.get_agent_tools(agent_name)
-
-    def execute_tool(
-        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
-        # Check if agent has access to this tool
-        agent_tools = tool_registry.get_agent_tools(agent_name)
-        tool_names = [tool["name"] for tool in agent_tools]
+        print(f"Executing tool {tool_name} for agent {agent_name}")
+        print(f"Parameters: {parameters}")
+
+        # Get the tool directly from the registry
+        tool = self.tool_registry.get_tool(tool_name)
+        if not tool:
+            print(
+                f"Tool {tool_name} not found in registry. Available tools: {self.tool_registry.list_all_tools()}")
+            return {"status": "error", "message": f"Tool {tool_name} not found"}
+
+        # Check if agent has access
+        agent_tools = self.get_agent_tools(agent_name)
+        tool_names = [t["name"] for t in agent_tools]
 
         if tool_name not in tool_names:
-            raise ValueError(
-                f"Agent {agent_name} does not have access to tool {tool_name}"
-            )
+            print(
+                f"Agent {agent_name} does not have access to tool {tool_name}. Available tools: {tool_names}")
+            return {"status": "error", "message": f"Agent {agent_name} does not have access to tool {tool_name}"}
 
-        # Execute the tool
-        return self.plugin_manager.execute_tool(tool_name, **parameters)
+        # Execute the tool with parameters
+        try:
+            print(
+                f"Executing {tool_name} with config: {'API key present' if hasattr(tool, '_api_key') and tool._api_key else 'No API key'}")
+            result = tool.execute(**parameters)
+            print(f"Tool execution result: {result.get('status', 'unknown')}")
+            return result
+        except Exception as e:
+            print(f"Error executing tool {tool_name}: {str(e)}")
+            return {"status": "error", "message": f"Error: {str(e)}"}
 
     def register_human_agent(
         self,
@@ -2906,6 +3160,10 @@ class AgentService:
             return True
         return False
 
+    def get_all_ai_agents(self) -> Dict[str, Any]:
+        """Get all registered AI agents."""
+        return self.ai_agents
+
     async def generate_response(
         self,
         agent_name: str,
@@ -2921,22 +3179,20 @@ class AgentService:
 
         agent_config = self.ai_agents[agent_name]
 
-        # Get instructions and add memory context
-        instructions = agent_config["instructions"]
+        # Get the properly formatted system prompt with tools and handoff instructions
+        instructions = self.get_agent_system_prompt(agent_name)
+
+        # Add memory context
         if memory_context:
             instructions += f"\n\nUser context and history:\n{memory_context}"
 
-        # Add tool information if agent has any tools
-        tools = self.get_agent_tools(agent_name)
-        if tools and "tools" not in kwargs:
-            kwargs["tools"] = tools
-
-        # Add specific instruction for simple queries to prevent handoff format leakage
-        if len(query.strip()) < 10:
-            instructions += "\n\nIMPORTANT: If the user sends a simple test message, respond conversationally. Never output raw JSON handoff objects directly to the user."
-
         # Generate response
         response_text = ""
+
+        # Track if we're in the middle of a tool call
+        in_tool_block = False
+        tool_block_content = ""
+
         async for chunk in self.llm_provider.generate_text(
             user_id=user_id,
             prompt=query,
@@ -2949,41 +3205,69 @@ class AgentService:
                 # If we're starting with a handoff JSON, replace with a proper response
                 yield "Hello! I'm here to help. What can I assist you with today?"
                 response_text += chunk  # Still store it for processing later
-            else:
-                yield chunk
+                continue
+
+            # Check for tool block markers in this chunk
+            if "TOOL_START" in chunk and not in_tool_block:
+                # Extract everything before TOOL_START and yield it
+                parts = chunk.split("TOOL_START", 1)
+                if parts[0]:  # If there's content before TOOL_START
+                    yield parts[0]
+                    response_text += parts[0]
+
+                # Start collecting tool block content
+                in_tool_block = True
+                tool_block_content = "TOOL_START" + parts[1]
+                response_text += "TOOL_START" + parts[1]
+                continue
+
+            if in_tool_block:
+                # Still collecting tool block content
+                tool_block_content += chunk
                 response_text += chunk
 
-        # Process handoffs after yielding response (unchanged code)
-        try:
-            response_data = json.loads(response_text)
-            if "tool_calls" in response_data:
-                for tool_call in response_data["tool_calls"]:
-                    # Extract tool name and arguments
-                    if isinstance(tool_call, dict):
-                        # Direct format
-                        tool_name = tool_call.get("name")
-                        params = tool_call.get("parameters", {})
+                # Check if tool block is complete
+                if "TOOL_END" in chunk:
+                    # Process the complete tool block
+                    in_tool_block = False
 
-                        # For the updated OpenAI format
-                        if "function" in tool_call:
-                            function_data = tool_call["function"]
-                            tool_name = function_data.get("name")
-                            try:
-                                params = json.loads(
-                                    function_data.get("arguments", "{}"))
-                            except Exception:
-                                params = {}
+                    # Execute the tool and get results
+                    try:
+                        # Extract JSON between TOOL_START and TOOL_END
+                        tool_json = tool_block_content.split("TOOL_START", 1)[
+                            1].split("TOOL_END", 1)[0].strip()
+
+                        # Parse the tool call
+                        tool_call = json.loads(tool_json)
+                        tool_name = tool_call.get("name")
+                        parameters = tool_call.get("parameters", {})
 
                         # Execute the tool
                         if tool_name:
-                            self.execute_tool(agent_name, tool_name, params)
-        except Exception:
-            # If it's not JSON or doesn't have tool_calls, we've already yielded the response
-            pass
+                            print(
+                                f"Executing tool {tool_name} with parameters: {parameters}")
+                            tool_result = self.execute_tool(
+                                agent_name, tool_name, parameters)
 
-    def get_all_ai_agents(self) -> Dict[str, Any]:
-        """Get all registered AI agents."""
-        return self.ai_agents
+                            # Format the result
+                            if tool_result.get("status") == "success":
+                                tool_response = f"\nI searched for information and found:\n\n{tool_result.get('result', '')}"
+                            else:
+                                tool_response = f"\nI tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+
+                            # Yield the tool result instead of the tool block
+                            yield tool_response
+                    except Exception as e:
+                        # If there's an error, yield a generic message
+                        print(f"Error processing tool call: {str(e)}")
+                        yield "\nI tried to search for information, but encountered an error."
+
+                    # Reset tool block tracking
+                    tool_block_content = ""
+            else:
+                # Regular content, just yield it
+                yield chunk
+                response_text += chunk
 
 
 class ResourceService:
@@ -6715,16 +6999,25 @@ class SolanaAgentFactory:
 
         # Create services
         agent_service = AgentService(
-            llm_adapter, human_agent_repo, ai_agent_repo, organization_mission)
+            llm_adapter, human_agent_repo, ai_agent_repo, organization_mission, config)
+
+        # Debug the agent service tool registry to confirm tools were registered
+        print(
+            f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
+
         routing_service = RoutingService(
             llm_adapter,
             agent_service,
             router_model=config.get("router_model", "gpt-4o-mini"),
         )
+
         ticket_service = TicketService(ticket_repo)
+
         handoff_service = HandoffService(
             handoff_repo, ticket_repo, agent_service)
+
         memory_service = MemoryService(memory_repo, llm_adapter)
+
         nps_service = NPSService(nps_repo, ticket_repo)
 
         # Create critic service if enabled
@@ -6737,7 +7030,11 @@ class SolanaAgentFactory:
             ticket_repo, llm_adapter, agent_service
         )
 
-        notification_service = NotificationService(human_agent_repo)
+        notification_service = NotificationService(
+            human_agent_registry=human_agent_repo,
+            tool_registry=agent_service.tool_registry
+        )
+
         project_approval_service = ProjectApprovalService(
             ticket_repo, human_agent_repo, notification_service
         )
@@ -6775,10 +7072,15 @@ class SolanaAgentFactory:
             # Register tools for this agent if specified
             if "tools" in agent_config:
                 for tool_name in agent_config["tools"]:
+                    # Print available tools before registering
+                    print(
+                        f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
                     try:
                         agent_service.register_tool_for_agent(
                             agent_config["name"], tool_name
                         )
+                        print(
+                            f"Successfully registered {tool_name} for agent {agent_config['name']}")
                     except ValueError as e:
                         print(
                             f"Error registering tool {tool_name} for agent {agent_config['name']}: {e}"
@@ -7456,51 +7758,57 @@ class SolanaAgent:
 # PLUGIN SYSTEM
 #############################################
 
+class AutoTool:
+    """Base class for tools that automatically register with the system."""
 
-class Tool(ABC):
-    """Base class for all agent tools."""
+    def __init__(self, name: str, description: str, registry=None):
+        """Initialize the tool with name and description."""
+        self.name = name
+        self.description = description
+        self._config = {}
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique name of the tool."""
-        pass
+        # Register with the provided registry if given
+        if registry is not None:
+            registry.register_tool(self)
 
-    @property
-    @abstractmethod
-    def description(self) -> str:
-        """Human-readable description of what the tool does."""
-        pass
+    def configure(self, config: Dict[str, Any]) -> None:
+        """Configure the tool with settings from config."""
+        self._config = config
 
-    @property
-    @abstractmethod
-    def parameters_schema(self) -> Dict[str, Any]:
-        """JSON Schema for tool parameters."""
-        pass
+    def get_schema(self) -> Dict[str, Any]:
+        """Return the JSON schema for this tool's parameters."""
+        # Override in subclasses
+        return {}
 
-    @abstractmethod
-    def execute(self, **kwargs) -> Dict[str, Any]:
-        """Execute the tool with provided parameters."""
-        pass
+    def execute(self, **params) -> Dict[str, Any]:
+        """Execute the tool with the provided parameters."""
+        # Override in subclasses
+        raise NotImplementedError()
 
 
 class ToolRegistry:
-    """Central registry for all available tools."""
+    """Instance-based registry that manages tools and their access permissions."""
 
     def __init__(self):
-        self._tools: Dict[str, Type[Tool]] = {}
-        # agent_name -> [tool_names]
-        self._agent_tools: Dict[str, List[str]] = {}
+        """Initialize an empty tool registry."""
+        self._tools = {}  # name -> tool instance
+        self._agent_tools = {}  # agent_name -> [tool_names]
 
-    def register_tool(self, tool_class: Type[Tool]) -> None:
-        """Register a tool in the global registry."""
-        instance = tool_class()
-        self._tools[instance.name] = tool_class
+    def register_tool(self, tool) -> bool:
+        """Register a tool with this registry."""
+        self._tools[tool.name] = tool
+        print(f"Registered tool: {tool.name}")
+        return True
 
-    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> None:
-        """Grant an agent access to a specific tool."""
+    def get_tool(self, tool_name: str):
+        """Get a tool by name."""
+        return self._tools.get(tool_name)
+
+    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
+        """Give an agent access to a specific tool."""
         if tool_name not in self._tools:
-            raise ValueError(f"Tool {tool_name} is not registered")
+            print(f"Error: Tool {tool_name} is not registered")
+            return False
 
         if agent_name not in self._agent_tools:
             self._agent_tools[agent_name] = []
@@ -7508,83 +7816,86 @@ class ToolRegistry:
         if tool_name not in self._agent_tools[agent_name]:
             self._agent_tools[agent_name].append(tool_name)
 
+        return True
+
     def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
-        """Get all tools available to a specific agent."""
+        """Get all tools available to an agent."""
         tool_names = self._agent_tools.get(agent_name, [])
-        tool_defs = []
-
-        for name in tool_names:
-            if name in self._tools:
-                tool_instance = self._tools[name]()
-                tool_defs.append(
-                    {
-                        "name": tool_instance.name,
-                        "description": tool_instance.description,
-                        "parameters": tool_instance.parameters_schema,
-                    }
-                )
-
-        return tool_defs
-
-    def get_tool(self, tool_name: str) -> Optional[Tool]:
-        """Get a tool by name."""
-        tool_class = self._tools.get(tool_name)
-        return tool_class() if tool_class else None
+        return [
+            {
+                "name": name,
+                "description": self._tools[name].description,
+                "parameters": self._tools[name].get_schema()
+            }
+            for name in tool_names if name in self._tools
+        ]
 
     def list_all_tools(self) -> List[str]:
-        """List all registered tool names."""
+        """List all registered tools."""
         return list(self._tools.keys())
 
-
-# Global registry instance
-tool_registry = ToolRegistry()
+    def configure_all_tools(self, config: Dict[str, Any]) -> None:
+        """Configure all registered tools with the same config."""
+        for tool in self._tools.values():
+            tool.configure(config)
 
 
 class PluginManager:
-    """Manages discovery, loading and execution of plugins."""
+    """Manager for discovering and loading plugins."""
 
-    def __init__(self):
-        self.tools = {}
+    # Class variable to track loaded entry points
+    _loaded_entry_points = set()
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None, tool_registry: Optional[ToolRegistry] = None):
+        """Initialize with optional configuration and tool registry."""
+        self.config = config or {}
+        self.tool_registry = tool_registry or ToolRegistry()
 
     def load_all_plugins(self) -> int:
-        """Load all plugins using setuptools entry points.
+        """Load all plugins using entry points and apply configuration."""
+        loaded_count = 0
+        plugins = []
 
-        Returns the number of plugins loaded for backwards compatibility.
-        """
-        import importlib.metadata
-
-        count = 0
-        # Discover plugins registered via entry_points
+        # Discover plugins through entry points
         for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
-            try:
-                plugin_class = entry_point.load()
-                plugin = plugin_class()
+            # Skip if this entry point has already been loaded
+            entry_point_id = f"{entry_point.name}:{entry_point.value}"
+            if entry_point_id in PluginManager._loaded_entry_points:
+                print(f"Skipping already loaded plugin: {entry_point.name}")
+                continue
 
-                # Register all tools from this plugin
-                for tool in plugin.get_tools():
-                    self.tools[tool.name] = tool
-                    print(f"Registered tool: {tool.name}")
-                count += 1
+            try:
+                print(f"Found plugin entry point: {entry_point.name}")
+                PluginManager._loaded_entry_points.add(entry_point_id)
+                plugin_factory = entry_point.load()
+                plugin = plugin_factory()
+                plugins.append(plugin)
+
+                # Initialize the plugin with config
+                if hasattr(plugin, 'initialize') and callable(plugin.initialize):
+                    plugin.initialize(self.config)
+                    print(
+                        f"Initialized plugin {entry_point.name} with config keys: {list(self.config.keys() if self.config else [])}")
+
+                loaded_count += 1
             except Exception as e:
                 print(f"Error loading plugin {entry_point.name}: {e}")
 
-        return count
+        # After all plugins are initialized, register their tools
+        for plugin in plugins:
+            try:
+                if hasattr(plugin, 'get_tools') and callable(plugin.get_tools):
+                    tools = plugin.get_tools()
+                    # Register each tool with our registry
+                    if isinstance(tools, list):
+                        for tool in tools:
+                            self.tool_registry.register_tool(tool)
+                            tool.configure(self.config)
+                    else:
+                        # Single tool case
+                        self.tool_registry.register_tool(tools)
+                        tools.configure(self.config)
+            except Exception as e:
+                print(f"Error registering tools from plugin: {e}")
 
-    def get_tool(self, name):
-        """Get a tool by name."""
-        return self.tools.get(name)
-
-    def list_tools(self):
-        """List all available tools."""
-        return list(self.tools.keys())
-
-    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
-        """Execute a tool with provided parameters."""
-        tool = self.tools.get(tool_name)
-        if not tool:
-            raise ValueError(f"Tool {tool_name} not found")
-
-        try:
-            return tool.execute(**kwargs)
-        except Exception as e:
-            return {"error": str(e), "status": "error"}
+        return loaded_count
