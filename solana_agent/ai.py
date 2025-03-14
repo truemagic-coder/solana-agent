@@ -31,7 +31,7 @@ from typing import (
     Any,
     Type,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pymongo import MongoClient
 from openai import OpenAI
 import pymongo
@@ -2366,79 +2366,91 @@ class RoutingService:
         self.router_model = router_model
 
     async def route_query(self, query: str) -> str:
-        """Route query to the most appropriate AI agent."""
-        specializations = self.agent_registry.get_specializations()
-        # Get AI-only specializations
-        ai_specialists = {
-            k: v
-            for k, v in specializations.items()
-            if k in self.agent_registry.get_all_ai_agents()
-        }
+        """Route a query to the appropriate agent based on content."""
+        # Get available agents
+        agents = self.agent_registry.get_all_ai_agents()
+        if not agents:
+            return "default_agent"  # Fallback to default if no agents
 
-        # Create routing prompt
+        agent_names = list(agents.keys())
+
+        # Format agent descriptions for prompt
+        agent_descriptions = []
+        specializations = self.agent_registry.get_specializations()
+
+        for name in agent_names:
+            spec = specializations.get(name, "General assistant")
+            agent_descriptions.append(f"- {name}: {spec}")
+
+        agent_info = "\n".join(agent_descriptions)
+
+        # Create prompt for routing
         prompt = f"""
-        Analyze this user query and determine the MOST APPROPRIATE AI specialist.
+        You are a router that determines which AI agent should handle a user query.
         
         User query: "{query}"
         
-        Available AI specialists:
-        {json.dumps(ai_specialists, indent=2)}
+        Available agents:
+        {agent_info}
         
-        CRITICAL INSTRUCTIONS:
-        1. Choose specialists based on domain expertise match.
-        2. Return EXACTLY ONE specialist name from the available list.
-        3. Do not invent new specialist names.
+        Select the most appropriate agent based on the query and agent specializations.
+        Respond with ONLY the agent name, nothing else.
         """
 
-        # Generate routing decision using structured output
-        response = ""
-        async for chunk in self.llm_provider.generate_text(
-            "router",
-            prompt,
-            system_prompt="You are a routing system that matches queries to the best specialist.",
-            stream=False,
-            model=self.router_model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response += chunk
-
+        response_text = ""
         try:
-            data = json.loads(response)
-            selected_agent = data.get("selected_agent", "")
+            async for chunk in self.llm_provider.generate_text(
+                "system",
+                prompt,
+                system_prompt="You are a routing system. Only respond with the name of the most appropriate agent.",
+                model=self.router_model,
+                temperature=0.1,
+            ):
+                response_text += chunk
 
-            # Fallback to matching if needed
-            if selected_agent not in ai_specialists:
-                agent_name = self._match_agent_name(
-                    selected_agent, list(ai_specialists.keys())
-                )
-            else:
-                agent_name = selected_agent
+            # Clean up the response text to handle different formats
+            response_text = response_text.strip()
 
-            return agent_name
+            # First try to parse as JSON (old behavior)
+            try:
+                data = json.loads(response_text)
+                if isinstance(data, dict) and "agent" in data:
+                    return self._match_agent_name(data["agent"], agent_names)
+            except json.JSONDecodeError:
+                # Not JSON, try to parse as plain text
+                pass
+
+            # Treat as plain text - just match the agent name directly
+            return self._match_agent_name(response_text, agent_names)
+
         except Exception as e:
-            print(f"Error parsing routing decision: {e}")
-            # Fallback to the old matching method
-            return self._match_agent_name(response.strip(), list(ai_specialists.keys()))
+            print(f"Error in routing: {e}")
+            # Default to the first agent if there's an error
+            return agent_names[0]
 
     def _match_agent_name(self, response: str, agent_names: List[str]) -> str:
-        """Match router response to an actual AI agent name."""
-        # Exact match (priority)
-        if response in agent_names:
-            return response
+        """Match the response to a valid agent name."""
+        # Clean up the response
+        if isinstance(response, dict) and "name" in response:
+            response = response["name"]  # Handle {"name": "agent_name"} format
 
-        # Case-insensitive match
+        # Convert to string and clean it up
+        clean_response = str(response).strip().lower()
+
+        # Direct match first
         for name in agent_names:
-            if name.lower() == response.lower():
+            if name.lower() == clean_response:
                 return name
 
-        # Partial match
+        # Check for partial matches
         for name in agent_names:
-            if name.lower() in response.lower():
+            if name.lower() in clean_response or clean_response in name.lower():
                 return name
 
-        # Fallback to first AI agent
-        return agent_names[0] if agent_names else "default"
+        # If no match, return first agent as default
+        print(
+            f"No matching agent found for: '{response}'. Using {agent_names[0]}")
+        return agent_names[0]
 
 
 class TicketService:
@@ -3287,10 +3299,13 @@ class AgentService:
                             error_msg = f"Error: {tool_result.get('message', 'Unknown error')}"
                             yield error_msg
 
-                # Handle handoff - yield special indicator instead of returning
+                # Handle handoff - DON'T YIELD anything, just return a flag via a special mechanism
                 elif "handoff" in data:
-                    # Instead of returning, yield a special string that the calling code can detect
-                    yield "HANDOFF:" + json.dumps(data["handoff"])
+                    # Process handoff at QueryProcessor level instead
+                    # Instead of yielding the message, attach a special attribute to the generator
+                    self._last_handoff = data["handoff"]
+                    # Don't yield anything for handoffs
+                    return
 
             except json.JSONDecodeError:
                 # Not valid JSON after all, yield it
@@ -5518,6 +5533,18 @@ class QueryProcessor:
                 # No running event loop - likely in test environment
                 pass
 
+    async def _store_conversation(self, user_id: str, user_text: str, response_text: str) -> None:
+        """Store conversation history in memory provider."""
+        if self.memory_provider:
+            await self.memory_provider.store(
+                user_id,
+                [
+                    {"role": "user", "content": user_text},
+                    {"role": "assistant", "content": self._truncate(
+                        response_text, 2500)},
+                ],
+            )
+
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
     ) -> AsyncGenerator[str, None]:
@@ -5537,20 +5564,32 @@ class QueryProcessor:
                 # Don't try to create the task - this prevents the coroutine warning
 
         try:
+            # Check if this is a simple message using LLM
+            if await self._is_simple_message(user_text):
+                # Use a default agent to respond to simple messages
+                agent_name = next(
+                    iter(self.agent_service.get_all_ai_agents().keys()))
+
+                # Generate simple response without creating a ticket
+                response_buffer = ""
+                async for chunk in self.agent_service.generate_response(
+                    agent_name=agent_name,
+                    user_id=user_id,
+                    query=user_text,
+                ):
+                    response_buffer += chunk
+                    yield chunk
+
+                # Store in conversation history
+                await self._store_conversation(user_id, user_text, response_buffer)
+                return
+
             # Handle human agent messages differently
             if await self._is_human_agent(user_id):
                 async for chunk in self._process_human_agent_message(
                     user_id, user_text
                 ):
                     yield chunk
-                return
-
-            # Handle simple greetings without full agent routing
-            if await self._is_simple_greeting(user_text):
-                greeting_response = await self._generate_greeting_response(
-                    user_id, user_text
-                )
-                yield greeting_response
                 return
 
             # Handle system commands
@@ -5603,71 +5642,49 @@ class QueryProcessor:
             error_msg = "\n\nI apologize for the technical difficulty.\n\n"
             yield error_msg
 
+    async def _is_simple_message(self, user_text: str) -> bool:
+        """Use the LLM to check if this is a simple message that doesn't need ticket creation."""
+        first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
+
+        prompt = f"""
+        Analyze this message and determine if it's a very simple message like a greeting,
+        acknowledgment, or test message that doesn't require complex processing.
+        
+        Message: "{user_text}"
+        
+        Examples of simple messages include:
+        - Greetings (hi, hello, hey)
+        - Acknowledgments (thanks, thank you, ok, got it)
+        - Simple status checks (test, ping)
+        - Goodbyes (bye, goodbye)
+        
+        Respond with ONLY "simple" or "complex".
+        """
+
+        response = ""
+        try:
+            async for chunk in self.agent_service.generate_response(
+                first_agent,
+                "message_classifier",
+                prompt,
+                "",  # No memory context needed
+                stream=False,
+                temperature=0.2,
+            ):
+                response += chunk
+
+            # Clean up the response
+            response = response.strip().lower()
+
+            # Check if the response indicates this is a simple message
+            return "simple" in response
+        except Exception as e:
+            print(f"Error checking if message is simple: {e}")
+            return False
+
     async def _is_human_agent(self, user_id: str) -> bool:
         """Check if the user is a registered human agent."""
         return user_id in self.agent_service.get_all_human_agents()
-
-    async def _is_simple_greeting(self, text: str) -> bool:
-        """Determine if the user message is a simple greeting."""
-        text_lower = text.lower().strip()
-
-        # Common greetings list
-        simple_greetings = [
-            "hello",
-            "hi",
-            "hey",
-            "greetings",
-            "good morning",
-            "good afternoon",
-            "good evening",
-            "what's up",
-            "how are you",
-            "how's it going",
-        ]
-
-        # Check if text starts with a greeting and is relatively short
-        is_greeting = any(
-            text_lower.startswith(greeting) for greeting in simple_greetings
-        )
-        # Arbitrary threshold for "simple" messages
-        is_short = len(text.split()) < 7
-
-        return is_greeting and is_short
-
-    async def _generate_greeting_response(self, user_id: str, text: str) -> str:
-        """Generate a friendly response to a simple greeting."""
-        # Get user context if available
-        context = ""
-        if self.memory_provider:
-            context = await self.memory_provider.retrieve(user_id)
-
-        # Get first available AI agent for the greeting
-        first_agent_name = next(
-            iter(self.agent_service.get_all_ai_agents().keys()))
-
-        response = ""
-        async for chunk in self.agent_service.generate_response(
-            first_agent_name,
-            user_id,
-            text,
-            context,
-            temperature=0.7,
-            max_tokens=100,  # Keep it brief
-        ):
-            response += chunk
-
-        # Store in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": text},
-                    {"role": "assistant",
-                        "content": self._truncate(response, 2500)},
-                ],
-            )
-
-        return response
 
     async def shutdown(self):
         """Clean shutdown of the query processor."""
@@ -6491,15 +6508,6 @@ class QueryProcessor:
         except Exception as e:
             print(f"Error parsing handoff data: {e}")
 
-        # Fall back to old method if structured parsing fails
-        if "HANDOFF:" in chunk and not handoff_info:
-            handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
-            match = re.search(handoff_pattern, full_response)
-            if match:
-                target_agent = match.group(1)
-                reason = match.group(2)
-                handoff_info = {"target": target_agent, "reason": reason}
-
         # Store conversation in memory if available
         if self.memory_provider:
             await self.memory_provider.store(
@@ -6529,7 +6537,7 @@ class QueryProcessor:
         # Check if ticket can be considered resolved
         if not handoff_info:
             resolution = await self._check_ticket_resolution(
-                user_id, full_response, user_text
+                full_response, user_text
             )
 
             if resolution.status == "resolved" and resolution.confidence >= 0.7:
@@ -6718,7 +6726,7 @@ class QueryProcessor:
                 # Check if ticket can be considered resolved
                 if not handoff_info:
                     resolution = await self._check_ticket_resolution(
-                        user_id, full_response, user_text
+                        full_response, user_text
                     )
 
                     if resolution.status == "resolved" and resolution.confidence >= 0.7:
@@ -6845,7 +6853,7 @@ class QueryProcessor:
         return result
 
     async def _check_ticket_resolution(
-        self, user_id: str, response: str, query: str
+        self, response: str, query: str
     ) -> TicketResolution:
         """Determine if a ticket can be considered resolved based on the response."""
         # Get first AI agent for analysis
@@ -6863,36 +6871,34 @@ class QueryProcessor:
         2. "needs_followup" - The assistant couldn't fully address the issue or more information is needed
         3. "cannot_determine" - Cannot tell if the issue is resolved
         
-        Return a JSON object with:
+        Return a structured output with:
         - "status": One of the above values
         - "confidence": A score from 0.0 to 1.0 indicating confidence in this assessment
         - "reasoning": Brief explanation for your decision
         - "suggested_actions": Array of recommended next steps (if any)
         """
 
-        # Generate resolution assessment
-        resolution_text = ""
-        async for chunk in self.agent_service.generate_response(
-            first_agent,
-            "resolution_checker",
-            prompt,
-            "",  # No memory context needed
-            stream=False,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            resolution_text += chunk
-
         try:
-            data = json.loads(resolution_text)
-            return TicketResolution(**data)
-        except Exception as e:
-            print(f"Error parsing resolution decision: {e}")
-            return TicketResolution(
-                status="cannot_determine",
-                confidence=0.2,
-                reasoning="Failed to analyze resolution status",
+            # Use structured output parsing with the Pydantic model directly
+            resolution = await self.agent_service.llm_provider.parse_structured_output(
+                prompt=prompt,
+                system_prompt="You are a resolution analysis system. Analyze conversations and determine if queries have been resolved.",
+                model_class=TicketResolution,
+                model=self.agent_service.ai_agents[first_agent].get(
+                    "model", "gpt-4o-mini"),
+                temperature=0.2,
             )
+            return resolution
+        except Exception as e:
+            print(f"Exception in resolution check: {e}")
+
+        # Default fallback if anything fails
+        return TicketResolution(
+            status="cannot_determine",
+            confidence=0.2,
+            reasoning="Failed to analyze resolution status",
+            suggested_actions=["Review conversation manually"]
+        )
 
     async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
         """Assess the complexity of a task using standardized metrics."""
