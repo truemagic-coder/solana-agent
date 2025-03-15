@@ -810,8 +810,13 @@ class MemoryRepository(Protocol):
 class AgentRegistry(Protocol):
     """Interface for agent management."""
 
-    def register_ai_agent(self, name: str, agent: Any,
-                          specialization: str) -> None: ...
+    def register_ai_agent(
+        self,
+        name: str,
+        instructions: str,
+        specialization: str,
+        model: str = "gpt-4o-mini",
+    ) -> None: ...
 
     def register_human_agent(
         self,
@@ -1579,16 +1584,26 @@ class MongoAIAgentRegistry:
         }
 
     def delete_agent(self, name: str) -> bool:
-        """Delete an AI agent by name."""
+        """Delete an AI agent from the registry."""
+        # First check if agent exists
         if name not in self.ai_agents_cache:
             return False
 
-        # Remove from cache
-        del self.ai_agents_cache[name]
+        # Delete from database
+        result = self.db.delete_one(
+            self.collection,
+            {"name": name}
+        )
 
-        # Remove from database
-        self.db.delete_one(self.collection, {"name": name})
-        return True
+        # Delete from cache if database deletion was successful
+        if result:
+            if name in self.ai_agents_cache:
+                del self.ai_agents_cache[name]
+            print(f"Agent {name} successfully deleted from MongoDB and cache")
+            return True
+        else:
+            print(f"Failed to delete agent {name} from MongoDB")
+            return False
 
 
 class MongoHumanAgentRegistry:
@@ -2868,6 +2883,7 @@ class AgentService:
         self.ai_agent_registry = ai_agent_registry
         self.organization_mission = organization_mission
         self.config = config or {}
+        self._last_handoff = None
 
         # For backward compatibility
         self.ai_agents = {}
@@ -3131,7 +3147,7 @@ class AgentService:
         # Use registry if available
         if self.ai_agent_registry:
             self.ai_agent_registry.register_ai_agent(
-                name, full_instructions, specialization, model
+                name, full_instructions, specialization, model,
             )
             # Update local cache for backward compatibility
             self.ai_agents = self.ai_agent_registry.get_all_ai_agents()
@@ -3249,71 +3265,98 @@ class AgentService:
         instructions += "\n\nCRITICAL: When using tools or making handoffs, ALWAYS respond with properly formatted JSON as instructed."
 
         # Generate response
-        response_buffer = ""
         tool_json_found = False
-
-        # We'll collect the entire response first to properly detect JSON
         full_response = ""
 
-        async for chunk in self.llm_provider.generate_text(
-            user_id=user_id,
-            prompt=query,
-            system_prompt=instructions,
-            model=agent_config["model"],
-            **kwargs,
-        ):
-            # Add to full response
-            full_response += chunk
+        try:
+            async for chunk in self.llm_provider.generate_text(
+                user_id=user_id,
+                prompt=query,
+                system_prompt=instructions,
+                model=agent_config["model"],
+                **kwargs,
+            ):
+                # Add to full response
+                full_response += chunk
 
-            # If the response is starting with "{", it might be JSON
-            if full_response.strip().startswith("{"):
-                tool_json_found = True
-                # Don't yield anything yet, we'll process it after collecting everything
-                continue
+                # Check if this might be JSON
+                if full_response.strip().startswith("{") and not tool_json_found:
+                    tool_json_found = True
+                    print(
+                        f"Detected potential JSON response starting with: {full_response[:50]}...")
+                    continue
 
-            # If we get here, it's not JSON (at least not starting with it)
-            yield chunk
+                # If not JSON, yield the chunk
+                if not tool_json_found:
+                    yield chunk
 
-        # Now handle the complete response if it looks like JSON
-        if full_response.strip().startswith("{"):
-            try:
-                # Try to parse the complete response as JSON
-                data = json.loads(full_response.strip())
+            # Process JSON if found
+            if tool_json_found:
+                try:
+                    print(
+                        f"Processing JSON response: {full_response[:100]}...")
+                    data = json.loads(full_response.strip())
+                    print(
+                        f"Successfully parsed JSON with keys: {list(data.keys())}")
 
-                # Handle tool call
-                if "tool_call" in data:
-                    tool_data = data["tool_call"]
-                    tool_name = tool_data.get("name")
-                    parameters = tool_data.get("parameters", {})
+                    # Handle tool call
+                    if "tool_call" in data:
+                        tool_data = data["tool_call"]
+                        tool_name = tool_data.get("name")
+                        parameters = tool_data.get("parameters", {})
 
-                    if tool_name:
-                        # Execute the tool
-                        tool_result = self.execute_tool(
-                            agent_name, tool_name, parameters)
+                        print(
+                            f"Processing tool call: {tool_name} with parameters: {parameters}")
 
-                        # Just yield the result, no JSON or explanatory text
-                        if tool_result.get("status") == "success":
-                            result = tool_result.get('result', '')
-                            yield result
-                        else:
-                            error_msg = f"Error: {tool_result.get('message', 'Unknown error')}"
-                            yield error_msg
+                        if tool_name:
+                            try:
+                                # Execute tool
+                                print(f"Executing tool: {tool_name}")
+                                tool_result = self.execute_tool(
+                                    agent_name, tool_name, parameters)
+                                print(
+                                    f"Tool execution result status: {tool_result.get('status')}")
 
-                # Handle handoff - DON'T YIELD anything, just return a flag via a special mechanism
-                elif "handoff" in data:
-                    # Process handoff at QueryProcessor level instead
-                    # Instead of yielding the message, attach a special attribute to the generator
-                    self._last_handoff = data["handoff"]
-                    # Don't yield anything for handoffs
-                    return
+                                if tool_result.get("status") == "success":
+                                    print(
+                                        f"Tool executed successfully - yielding result")
+                                    yield tool_result.get('result', '')
+                                else:
+                                    print(
+                                        f"Tool execution failed: {tool_result.get('message')}")
+                                    yield f"Error: {tool_result.get('message', 'Unknown error')}"
+                            except Exception as e:
+                                print(f"Tool execution exception: {str(e)}")
+                                yield f"Error executing tool: {str(e)}"
 
-            except json.JSONDecodeError:
-                # Not valid JSON after all, yield it
-                yield full_response
-        # If we didn't yield anything and it's not JSON, yield the full response
-        elif not tool_json_found:
-            # We've already yielded this in the loop if it's not JSON
-            pass
+                    # Handle handoff
+                    elif "handoff" in data:
+                        print(
+                            f"Processing handoff to: {data['handoff'].get('target_agent')}")
+                        # Store handoff data but don't yield anything
+                        self._last_handoff = data["handoff"]
+                        return
+
+                    # If we got JSON but it's not a tool call or handoff, yield it as text
+                    else:
+                        print(
+                            f"Received JSON but not a tool call or handoff. Keys: {list(data.keys())}")
+                        yield full_response
+
+                except json.JSONDecodeError as e:
+                    # Not valid JSON, yield it as is
+                    print(f"JSON parse error: {str(e)} - yielding as text")
+                    yield full_response
+
+            # If nothing has been yielded yet (e.g., failed JSON parsing), yield the full response
+            if not tool_json_found:
+                print(f"Non-JSON response handled normally")
+
+        except Exception as e:
+            print(f"Error in generate_response: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error: {str(e)}"
 
 
 class ResourceService:
@@ -5533,18 +5576,6 @@ class QueryProcessor:
                 # No running event loop - likely in test environment
                 pass
 
-    async def _store_conversation(self, user_id: str, user_text: str, response_text: str) -> None:
-        """Store conversation history in memory provider."""
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": self._truncate(
-                        response_text, 2500)},
-                ],
-            )
-
     async def process(
         self, user_id: str, user_text: str, timezone: str = None
     ) -> AsyncGenerator[str, None]:
@@ -5556,40 +5587,18 @@ class QueryProcessor:
                 self._stalled_ticket_task = loop.create_task(
                     self._run_stalled_ticket_checks())
             except RuntimeError:
-                # No running event loop - likely in test environment
-                # Instead of just passing, log a message for clarity
                 import logging
                 logging.warning(
                     "No running event loop available for stalled ticket checker.")
-                # Don't try to create the task - this prevents the coroutine warning
 
         try:
-            # Check if this is a simple message using LLM
-            if await self._is_simple_message(user_text):
-                # Use a default agent to respond to simple messages
-                agent_name = next(
-                    iter(self.agent_service.get_all_ai_agents().keys()))
-
-                # Generate simple response without creating a ticket
-                response_buffer = ""
-                async for chunk in self.agent_service.generate_response(
-                    agent_name=agent_name,
-                    user_id=user_id,
-                    query=user_text,
-                ):
-                    response_buffer += chunk
-                    yield chunk
-
-                # Store in conversation history
-                await self._store_conversation(user_id, user_text, response_buffer)
-                return
-
-            # Handle human agent messages differently
-            if await self._is_human_agent(user_id):
-                async for chunk in self._process_human_agent_message(
-                    user_id, user_text
-                ):
-                    yield chunk
+            # Special case for "test" and other very simple messages
+            if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
+                response = f"Hello! How can I help you today?"
+                yield response
+                # Store this simple interaction in memory
+                if self.memory_provider:
+                    await self._store_conversation(user_id, user_text, response)
                 return
 
             # Handle system commands
@@ -5598,89 +5607,61 @@ class QueryProcessor:
                 yield command_response
                 return
 
+            # Route to appropriate agent
+            agent_name = await self.routing_service.route_query(user_text)
+
             # Check for active ticket
             active_ticket = self.ticket_service.ticket_repository.get_active_for_user(
                 user_id)
 
             if active_ticket:
                 # Process existing ticket
-                response_buffer = ""
-                async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
-                    response_buffer += chunk
-                    yield chunk
+                try:
+                    response_buffer = ""
+                    async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                        response_buffer += chunk
+                        yield chunk
 
-                # Check final response for unprocessed JSON
-                if response_buffer.strip().startswith('{'):
-                    agent_name = active_ticket.assigned_to or "default_agent"
-                    processed_response = self.agent_service.process_json_response(
-                        response_buffer, agent_name)
-                    if processed_response != response_buffer:
-                        yield "\n\n" + processed_response
+                    # Check final response for unprocessed JSON
+                    if response_buffer.strip().startswith('{'):
+                        agent_name = active_ticket.assigned_to or "default_agent"
+                        processed_response = self.agent_service.process_json_response(
+                            response_buffer, agent_name)
+                        if processed_response != response_buffer:
+                            yield "\n\n" + processed_response
+                except ValueError as e:
+                    if "Ticket" in str(e) and "not found" in str(e):
+                        # Ticket no longer exists - create a new one
+                        complexity = await self._assess_task_complexity(user_text)
+                        async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                            yield chunk
+                    else:
+                        yield f"I'm sorry, I encountered an error: {str(e)}"
+
             else:
                 # Create new ticket
-                complexity = await self._assess_task_complexity(user_text)
+                try:
+                    complexity = await self._assess_task_complexity(user_text)
 
-                # Process as new ticket
-                response_buffer = ""
-                async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
-                    response_buffer += chunk
-                    yield chunk
+                    # Process as new ticket
+                    response_buffer = ""
+                    async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                        response_buffer += chunk
+                        yield chunk
 
-                # Check final response for unprocessed JSON
-                if response_buffer.strip().startswith('{'):
-                    # Determine agent name from response buffer or default
-                    agent_name = "default_agent"
-                    processed_response = self.agent_service.process_json_response(
-                        response_buffer, agent_name)
-                    if processed_response != response_buffer:
-                        yield "\n\n" + processed_response
+                    # Check final response for unprocessed JSON
+                    if response_buffer.strip().startswith('{'):
+                        processed_response = self.agent_service.process_json_response(
+                            response_buffer, agent_name)
+                        if processed_response != response_buffer:
+                            yield "\n\n" + processed_response
+                except Exception as e:
+                    yield f"I'm sorry, I encountered an error: {str(e)}"
 
         except Exception as e:
             print(f"Error in request processing: {str(e)}")
             print(traceback.format_exc())
-            # Use yield instead of direct function calling to avoid coroutine warning
-            error_msg = "\n\nI apologize for the technical difficulty.\n\n"
-            yield error_msg
-
-    async def _is_simple_message(self, user_text: str) -> bool:
-        """Use the LLM to check if this is a simple message that doesn't need ticket creation."""
-        first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
-
-        prompt = f"""
-        Analyze this message and determine if it's a very simple message like a greeting,
-        acknowledgment, or test message that doesn't require complex processing.
-        
-        Message: "{user_text}"
-        
-        Examples of simple messages include:
-        - Greetings (hi, hello, hey)
-        - Acknowledgments (thanks, thank you, ok, got it)
-        - Simple status checks (test, ping)
-        - Goodbyes (bye, goodbye)
-        
-        Respond with ONLY "simple" or "complex".
-        """
-
-        response = ""
-        try:
-            async for chunk in self.agent_service.generate_response(
-                first_agent,
-                "message_classifier",
-                prompt,
-                "",  # No memory context needed
-                stream=False,
-                temperature=0.2,
-            ):
-                response += chunk
-
-            # Clean up the response
-            response = response.strip().lower()
-
-            # Check if the response indicates this is a simple message
-            return "simple" in response
-        except Exception as e:
-            print(f"Error checking if message is simple: {e}")
-            return False
+            yield "I apologize for the technical difficulty.\n\n"
 
     async def _is_human_agent(self, user_id: str) -> bool:
         """Check if the user is a registered human agent."""
@@ -5725,7 +5706,7 @@ class QueryProcessor:
             datetime.timezone.utc) - datetime.timedelta(minutes=self.stalled_ticket_timeout)
 
         # Query for stalled tickets using the find_stalled_tickets method
-        stalled_tickets = await self.ticket_service.ticket_repository.find_stalled_tickets(
+        stalled_tickets = self.ticket_service.ticket_repository.find_stalled_tickets(
             stalled_cutoff, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
         )
 
@@ -6462,103 +6443,104 @@ class QueryProcessor:
     async def _process_existing_ticket(
         self, user_id: str, user_text: str, ticket: Ticket, timezone: str = None
     ) -> AsyncGenerator[str, None]:
-        """Process a message for an existing ticket."""
+        """
+        Process a message for an existing ticket. 
+        Checks for handoff data and handles it with ticket-based handoff
+        unless the target agent is set to skip ticket creation.
+        """
         # Get assigned agent or re-route if needed
         agent_name = ticket.assigned_to
-
-        # If no valid assignment, route to appropriate agent
-        if not agent_name or agent_name not in self.agent_service.get_all_ai_agents():
+        if not agent_name:
             agent_name = await self.routing_service.route_query(user_text)
-            # Update ticket with new assignment
             self.ticket_service.update_ticket_status(
-                ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
+                ticket.id, TicketStatus.IN_PROGRESS, assigned_to=agent_name
             )
-
-        # Update ticket status
-        self.ticket_service.update_ticket_status(
-            ticket.id, TicketStatus.ACTIVE)
 
         # Get memory context if available
         memory_context = ""
         if self.memory_provider:
             memory_context = await self.memory_provider.retrieve(user_id)
 
-        # Generate response with streaming
+        # Try to generate response
         full_response = ""
         handoff_info = None
+        handoff_detected = False
 
-        async for chunk in self.agent_service.generate_response(
-            agent_name, user_id, user_text, memory_context, temperature=0.7
-        ):
-            yield chunk
-            full_response += chunk
-
-        # Check for handoff in structured format
         try:
-            # Look for JSON handoff object in the response
-            handoff_match = re.search(r'{"handoff":\s*{.*?}}', full_response)
-            if handoff_match:
-                handoff_data = json.loads(handoff_match.group(0))
-                if "handoff" in handoff_data:
+            # Generate response with streaming
+            async for chunk in self.agent_service.generate_response(
+                agent_name=agent_name,
+                user_id=user_id,
+                query=user_text,
+                memory_context=memory_context,
+            ):
+                # Detect possible handoff signals (JSON or prefix)
+                if chunk.strip().startswith("HANDOFF:") or (
+                    not full_response and chunk.strip().startswith("{")
+                ):
+                    handoff_detected = True
+                    full_response += chunk
+                    continue
+
+                full_response += chunk
+                yield chunk
+
+            # After response generation, handle handoff if needed
+            if handoff_detected or (
+                not full_response.strip()
+                and hasattr(self.agent_service, "_last_handoff")
+            ):
+                if hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff:
+                    handoff_data = {
+                        "handoff": self.agent_service._last_handoff}
                     target_agent = handoff_data["handoff"].get("target_agent")
                     reason = handoff_data["handoff"].get("reason")
-                    if target_agent and reason:
+
+                    if target_agent:
                         handoff_info = {
                             "target": target_agent, "reason": reason}
+
+                        await self.handoff_service.process_handoff(
+                            ticket.id,
+                            agent_name,
+                            handoff_info["target"],
+                            handoff_info["reason"],
+                        )
+
+                    print(
+                        f"Generating response from new agent: {target_agent}")
+                    new_response_buffer = ""
+                    async for chunk in self.agent_service.generate_response(
+                        agent_name=target_agent,
+                        user_id=user_id,
+                        query=user_text,
+                        memory_context=memory_context,
+                    ):
+                        new_response_buffer += chunk
+                        yield chunk
+
+                    full_response = new_response_buffer
+
+                self.agent_service._last_handoff = None
+
+            # Store conversation in memory
+            if self.memory_provider:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {
+                            "role": "assistant",
+                            "content": self._truncate(full_response, 2500),
+                        },
+                    ],
+                )
+
         except Exception as e:
-            print(f"Error parsing handoff data: {e}")
-
-        # Store conversation in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": user_text},
-                    {
-                        "role": "assistant",
-                        "content": self._truncate(full_response, 2500),
-                    },
-                ],
-            )
-
-        # Process handoff if detected
-        if handoff_info:
-            try:
-                await self.handoff_service.process_handoff(
-                    ticket.id,
-                    agent_name,
-                    handoff_info["target"],
-                    handoff_info["reason"],
-                )
-            except ValueError as e:
-                # If handoff fails, just continue with current agent
-                print(f"Handoff failed: {e}")
-
-        # Check if ticket can be considered resolved
-        if not handoff_info:
-            resolution = await self._check_ticket_resolution(
-                full_response, user_text
-            )
-
-            if resolution.status == "resolved" and resolution.confidence >= 0.7:
-                self.ticket_service.mark_ticket_resolved(
-                    ticket.id,
-                    {
-                        "confidence": resolution.confidence,
-                        "reasoning": resolution.reasoning,
-                    },
-                )
-
-                # Create NPS survey
-                self.nps_service.create_survey(user_id, ticket.id, agent_name)
-
-        # Extract and store insights in background
-        if full_response:
-            asyncio.create_task(
-                self._extract_and_store_insights(
-                    user_id, {"message": user_text, "response": full_response}
-                )
-            )
+            print(f"Error processing ticket: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
 
     async def _process_new_ticket(
         self,
@@ -6650,106 +6632,113 @@ class QueryProcessor:
             ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
         )
 
-        # Generate response with streaming
+        # Generate initial response with streaming
         full_response = ""
-        handoff_info = None
+        handoff_detected = False
 
-        async for chunk in self.agent_service.generate_response(
-            agent_name, user_id, user_text, memory_context, temperature=0.7
-        ):
-            yield chunk
-            full_response += chunk
+        try:
+            # Generate response with streaming
+            async for chunk in self.agent_service.generate_response(
+                agent_name, user_id, user_text, memory_context, temperature=0.7
+            ):
+                # Check if this looks like a JSON handoff
+                if chunk.strip().startswith("{") and not handoff_detected:
+                    handoff_detected = True
+                    full_response += chunk
+                    continue
 
-            # Check for handoff in structured format
-            try:
-                # Look for JSON handoff object in the response
-                handoff_match = re.search(
-                    r'{"handoff":\s*{.*?}}', full_response)
-                if handoff_match:
-                    handoff_data = json.loads(handoff_match.group(0))
-                    if "handoff" in handoff_data:
-                        target_agent = handoff_data["handoff"].get(
-                            "target_agent")
-                        reason = handoff_data["handoff"].get("reason")
-                        if target_agent and reason:
-                            handoff_info = {
-                                "target": target_agent, "reason": reason}
-            except Exception as e:
-                print(f"Error parsing handoff data: {e}")
+                # Only yield if not a JSON chunk
+                if not handoff_detected:
+                    yield chunk
+                    full_response += chunk
 
-            # Fall back to old method if structured parsing fails
-            if "HANDOFF:" in chunk and not handoff_info:
-                handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
-                match = re.search(handoff_pattern, full_response)
-                if match:
-                    target_agent = match.group(1)
-                    reason = match.group(2)
-                    handoff_info = {"target": target_agent, "reason": reason}
+            # Handle handoff if detected
+            if handoff_detected or (hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff):
+                target_agent = None
+                reason = "Handoff detected"
 
-        # Store conversation in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": user_text},
-                    {
-                        "role": "assistant",
-                        "content": self._truncate(full_response, 2500),
-                    },
-                ],
+                # Process the handoff from _last_handoff property
+                if hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff:
+                    target_agent = self.agent_service._last_handoff.get(
+                        "target_agent")
+                    reason = self.agent_service._last_handoff.get(
+                        "reason", "No reason provided")
+
+                    if target_agent:
+                        try:
+                            # Process handoff and update ticket
+                            await self.handoff_service.process_handoff(
+                                ticket.id,
+                                agent_name,
+                                target_agent,
+                                reason,
+                            )
+
+                            # Generate response from new agent
+                            print(
+                                f"Generating response from new agent after handoff: {target_agent}")
+                            new_response = ""
+                            async for chunk in self.agent_service.generate_response(
+                                target_agent,
+                                user_id,
+                                user_text,
+                                memory_context,
+                                temperature=0.7
+                            ):
+                                yield chunk
+                                new_response += chunk
+
+                            # Update full response for storage
+                            full_response = new_response
+                        except ValueError as e:
+                            print(f"Handoff failed: {e}")
+                            yield f"\n\nNote: A handoff was attempted but failed: {str(e)}"
+
+                    # Reset handoff state
+                    self.agent_service._last_handoff = None
+
+            # Check if ticket can be considered resolved
+            resolution = await self._check_ticket_resolution(
+                full_response, user_text
             )
 
-        # Process handoff if detected
-        if handoff_info:
-            try:
-                await self.handoff_service.process_handoff(
+            if resolution.status == "resolved" and resolution.confidence >= 0.7:
+                self.ticket_service.mark_ticket_resolved(
                     ticket.id,
-                    agent_name,
-                    handoff_info["target"],
-                    handoff_info["reason"],
+                    {
+                        "confidence": resolution.confidence,
+                        "reasoning": resolution.reasoning,
+                    },
                 )
-            except ValueError as e:
-                print(f"Handoff failed: {e}")
 
-                # Process handoff if detected
-                if handoff_info:
-                    try:
-                        await self.handoff_service.process_handoff(
-                            ticket.id,
-                            agent_name,
-                            handoff_info["target"],
-                            handoff_info["reason"],
-                        )
-                    except ValueError as e:
-                        print(f"Handoff failed: {e}")
+                # Create NPS survey
+                self.nps_service.create_survey(
+                    user_id, ticket.id, agent_name)
 
-                # Check if ticket can be considered resolved
-                if not handoff_info:
-                    resolution = await self._check_ticket_resolution(
-                        full_response, user_text
+            # Store in memory provider
+            if self.memory_provider:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": self._truncate(
+                            full_response, 2500)},
+                    ],
+                )
+
+            # Extract and store insights in background
+            if full_response:
+                asyncio.create_task(
+                    self._extract_and_store_insights(
+                        user_id, {"message": user_text,
+                                  "response": full_response}
                     )
+                )
 
-                    if resolution.status == "resolved" and resolution.confidence >= 0.7:
-                        self.ticket_service.mark_ticket_resolved(
-                            ticket.id,
-                            {
-                                "confidence": resolution.confidence,
-                                "reasoning": resolution.reasoning,
-                            },
-                        )
-
-                        # Create NPS survey
-                        self.nps_service.create_survey(
-                            user_id, ticket.id, agent_name)
-
-                # Extract and store insights in background
-                if full_response:
-                    asyncio.create_task(
-                        self._extract_and_store_insights(
-                            user_id, {"message": user_text,
-                                      "response": full_response}
-                        )
-                    )
+        except Exception as e:
+            print(f"Error in _process_new_ticket: {str(e)}")
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
 
     async def _process_human_agent_message(
         self, user_id: str, user_text: str
@@ -6902,6 +6891,17 @@ class QueryProcessor:
 
     async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
         """Assess the complexity of a task using standardized metrics."""
+        # Special handling for very simple messages
+        if len(query.strip()) <= 10 and query.lower().strip() in ["test", "hello", "hi", "hey", "ping", "thanks"]:
+            print(f"Using pre-defined complexity for simple message: {query}")
+            return {
+                "t_shirt_size": "XS",
+                "story_points": 1,
+                "estimated_minutes": 5,
+                "technical_complexity": 1,
+                "domain_knowledge": 1,
+            }
+
         # Get first AI agent for analysis
         first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
 
@@ -6931,16 +6931,28 @@ class QueryProcessor:
             ):
                 response_text += chunk
 
+            if not response_text.strip():
+                print("Empty response from complexity assessment")
+                return {
+                    "t_shirt_size": "S",
+                    "story_points": 2,
+                    "estimated_minutes": 15,
+                    "technical_complexity": 3,
+                    "domain_knowledge": 2,
+                }
+
             complexity_data = json.loads(response_text)
+            print(f"Successfully parsed complexity: {complexity_data}")
             return complexity_data
         except Exception as e:
             print(f"Error assessing complexity: {e}")
+            print(f"Failed response text: '{response_text}'")
             return {
-                "t_shirt_size": "M",
-                "story_points": 3,
-                "estimated_minutes": 30,
-                "technical_complexity": 5,
-                "domain_knowledge": 5,
+                "t_shirt_size": "S",
+                "story_points": 2,
+                "estimated_minutes": 15,
+                "technical_complexity": 3,
+                "domain_knowledge": 2,
             }
 
     async def _extract_and_store_insights(
@@ -6975,6 +6987,20 @@ class QueryProcessor:
 
         return truncated + "..."
 
+    async def _store_conversation(self, user_id: str, user_text: str, response_text: str) -> None:
+        """Store conversation history in memory provider."""
+        if self.memory_provider:
+            try:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": response_text},
+                    ],
+                )
+            except Exception as e:
+                print(f"Error storing conversation: {e}")
+                # Don't let memory storage errors affect the user experience
 
 #############################################
 # FACTORY AND DEPENDENCY INJECTION
@@ -7112,6 +7138,27 @@ class SolanaAgentFactory:
         agent_service.plugin_manager = PluginManager()
         loaded_plugins = agent_service.plugin_manager.load_all_plugins()
         print(f"Loaded {loaded_plugins} plugins")
+
+        # Get list of all agents defined in config
+        config_defined_agents = [agent["name"]
+                                 for agent in config.get("ai_agents", [])]
+
+        # Sync MongoDB with config-defined agents (delete any agents not in config)
+        all_db_agents = ai_agent_repo.db.find(ai_agent_repo.collection, {})
+        db_agent_names = [agent["name"] for agent in all_db_agents]
+
+        # Find agents that exist in DB but not in config
+        agents_to_delete = [
+            name for name in db_agent_names if name not in config_defined_agents]
+
+        # Delete those agents
+        for agent_name in agents_to_delete:
+            print(
+                f"Deleting agent '{agent_name}' from MongoDB - no longer defined in config")
+            ai_agent_repo.db.delete_one(
+                ai_agent_repo.collection, {"name": agent_name})
+            if agent_name in ai_agent_repo.ai_agents_cache:
+                del ai_agent_repo.ai_agents_cache[agent_name]
 
         # Register predefined agents if any
         for agent_config in config.get("ai_agents", []):
