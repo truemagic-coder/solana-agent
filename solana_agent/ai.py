@@ -1790,7 +1790,7 @@ class MongoTicketRepository:
         """Count tickets matching query."""
         return self.db.count_documents(self.collection, query)
 
-    def find_stalled_tickets(self, cutoff_time, statuses):
+    async def find_stalled_tickets(self, cutoff_time, statuses):
         """Find tickets that haven't been updated since the cutoff time."""
         query = {
             "status": {"$in": [status.value if isinstance(status, Enum) else status for status in statuses]},
@@ -5701,34 +5701,48 @@ class QueryProcessor:
         if self.stalled_ticket_timeout is None:
             return
 
-        # Find tickets that haven't been updated in the configured time
-        stalled_cutoff = datetime.datetime.now(
-            datetime.timezone.utc) - datetime.timedelta(minutes=self.stalled_ticket_timeout)
-
-        # Query for stalled tickets using the find_stalled_tickets method
-        stalled_tickets = self.ticket_service.ticket_repository.find_stalled_tickets(
-            stalled_cutoff, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
-        )
-
-        for ticket in stalled_tickets:
-            # Re-route using routing service to find the optimal agent
-            new_agent = await self.routing_service.route_query(ticket.query)
-
-            # Skip if the routing didn't change
-            if new_agent == ticket.assigned_to:
-                continue
-
-            # Process as handoff
-            await self.handoff_service.process_handoff(
-                ticket.id,
-                ticket.assigned_to or "unassigned",
-                new_agent,
-                f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+        try:
+            # Find tickets that haven't been updated in the configured time
+            cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+                minutes=self.stalled_ticket_timeout
             )
 
-            # Log the reassignment
-            print(
-                f"Stalled ticket {ticket.id} reassigned from {ticket.assigned_to or 'unassigned'} to {new_agent}")
+            # The find_stalled_tickets method should be async
+            stalled_tickets = await self.ticket_service.ticket_repository.find_stalled_tickets(
+                cutoff_time, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
+            )
+
+            for ticket in stalled_tickets:
+                print(
+                    f"Found stalled ticket: {ticket.id} (last updated: {ticket.updated_at})")
+
+                # Skip tickets without an assigned agent
+                if not ticket.assigned_to:
+                    continue
+
+                # Re-route the query to see if a different agent is better
+                new_agent = await self.routing_service.route_query(ticket.query)
+
+                # Only reassign if a different agent is suggested
+                if new_agent != ticket.assigned_to:
+                    print(
+                        f"Reassigning ticket {ticket.id} from {ticket.assigned_to} to {new_agent}")
+
+                    try:
+                        await self.handoff_service.process_handoff(
+                            ticket.id,
+                            ticket.assigned_to,
+                            new_agent,
+                            f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+                        )
+                    except Exception as e:
+                        print(
+                            f"Error reassigning stalled ticket {ticket.id}: {e}")
+
+        except Exception as e:
+            print(f"Error in stalled ticket check: {e}")
+            import traceback
+            print(traceback.format_exc())
 
     async def _process_system_commands(
         self, user_id: str, user_text: str
