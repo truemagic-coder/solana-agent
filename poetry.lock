@@ -670,13 +670,13 @@ files = [
 
 [[package]]
 name = "openai"
-version = "1.66.2"
+version = "1.66.3"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "openai-1.66.2-py3-none-any.whl", hash = "sha256:75194057ee6bb8b732526387b6041327a05656d976fc21c064e21c8ac6b07999"},
-    {file = "openai-1.66.2.tar.gz", hash = "sha256:9b3a843c25f81ee09b6469d483d9fba779d5c6ea41861180772f043481b0598d"},
+    {file = "openai-1.66.3-py3-none-any.whl", hash = "sha256:a427c920f727711877ab17c11b95f1230b27767ba7a01e5b66102945141ceca9"},
+    {file = "openai-1.66.3.tar.gz", hash = "sha256:8dde3aebe2d081258d4159c4cb27bdc13b5bb3f7ea2201d9bd940b9a89faf0c9"},
 ]
 
 [package.dependencies]
@@ -788,13 +788,13 @@ xml = ["lxml (>=4.9.2)"]
 
 [[package]]
 name = "pinecone"
-version = "6.0.1"
+version = "6.0.2"
 description = "Pinecone client and SDK"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "pinecone-6.0.1-py3-none-any.whl", hash = "sha256:9088c6fc85bc1d70b259b108c59df2b3687a82da491123be8f3c7dfef051ada8"},
-    {file = "pinecone-6.0.1.tar.gz", hash = "sha256:2fbca13153d32d1a012a12eb10472bd5dbb645be8e441381ad88349d8b2198bb"},
+    {file = "pinecone-6.0.2-py3-none-any.whl", hash = "sha256:a85fa36d7d1451e7b7563ccfc7e3e2dadd39b33e5d53b2882468db8514ab8847"},
+    {file = "pinecone-6.0.2.tar.gz", hash = "sha256:9c2e74be8b3abe76909da9b4dae61bced49aade51f6fc39b87edb97a1f8df0e4"},
 ]
 
 [package.dependencies]
@@ -1369,13 +1369,13 @@ files = [
 
 [[package]]
 name = "zep-cloud"
-version = "2.6.1"
+version = "2.7.0"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.9.0"
 files = [
-    {file = "zep_cloud-2.6.1-py3-none-any.whl", hash = "sha256:52cf59fb30ae46aeeb92a126b11c93992525c2bc8c3d7f2bb67216cebbe9e385"},
-    {file = "zep_cloud-2.6.1.tar.gz", hash = "sha256:8cdc2e4f58cf752f33fc07d5b0552e266a3dcba9781a15be9bde94c03bf1d0b6"},
+    {file = "zep_cloud-2.7.0-py3-none-any.whl", hash = "sha256:ebb9a340939ded1055b821ed4c31b98d1e525d93e9b00864747829e8ec371fa3"},
+    {file = "zep_cloud-2.7.0.tar.gz", hash = "sha256:62af22e2ba64d978cd2a4e29813c363f3746ca78fa4612051bfbfb26a9f1faa7"},
 ]
 
 [package.dependencies]
@@ -1402,4 +1402,4 @@ typing_extensions = ">=4.0.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.12,<4.0"
-content-hash = "bd89d26050ac0381beda4ec3fd4431664aae939be7f3795c301ff5c13dac9e87"
+content-hash = "9f208a2e29662684e420c0eca262e91019ed2f18b5be6c25775ae99f42a07ab6"

@@ -12,6 +12,7 @@ This module implements a clean architecture approach with:
 
 import asyncio
 import datetime
+import importlib
 import json
 import re
 import traceback
@@ -30,7 +31,7 @@ from typing import (
     Any,
     Type,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pymongo import MongoClient
 from openai import OpenAI
 import pymongo
@@ -44,6 +45,73 @@ from abc import ABC, abstractmethod
 #############################################
 # DOMAIN MODELS
 #############################################
+
+class ToolCallModel(BaseModel):
+    """Model for tool calls in agent responses."""
+    name: str = Field(..., description="Name of the tool to execute")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict, description="Parameters for the tool")
+
+
+class ToolInstructionModel(BaseModel):
+    """Model for tool usage instructions in system prompts."""
+    available_tools: List[Dict[str, Any]] = Field(default_factory=list,
+                                                  description="Tools available to this agent")
+    example_tool: str = Field("search_internet",
+                              description="Example tool to use in instructions")
+    example_query: str = Field("latest Solana news",
+                               description="Example query to use in instructions")
+    valid_agents: List[str] = Field(default_factory=list,
+                                    description="List of valid agents for handoff")
+
+    def format_instructions(self) -> str:
+        """Format the tool and handoff instructions using plain text delimiters."""
+        tools_json = json.dumps(self.available_tools, indent=2)
+
+        # Tool usage instructions with plain text delimiters
+        tool_instructions = f"""
+You have access to the following tools:
+{tools_json}
+
+IMPORTANT - TOOL USAGE: When you need to use a tool, respond with JSON using these exact plain text delimiters:
+
+TOOL_START
+{{
+  "name": "tool_name",
+  "parameters": {{
+    "param1": "value1",
+    "param2": "value2"
+  }}
+}}
+TOOL_END
+
+Example: To search the internet for "{self.example_query}", respond with:
+
+TOOL_START
+{{
+  "name": "{self.example_tool}",
+  "parameters": {{
+    "query": "{self.example_query}"
+  }}
+}}
+TOOL_END
+
+ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
+"""
+
+        # Handoff instructions if valid agents are provided
+        handoff_instructions = ""
+        if self.valid_agents:
+            handoff_instructions = f"""
+IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {", ".join(self.valid_agents)}
+DO NOT invent or reference agents that don't exist in this list.
+
+To hand off to another agent, use this format:
+{{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
+"""
+
+        return f"{tool_instructions}\n\n{handoff_instructions}"
+
 
 class AgentType(str, Enum):
     """Type of agent (AI or Human)."""
@@ -742,8 +810,13 @@ class MemoryRepository(Protocol):
 class AgentRegistry(Protocol):
     """Interface for agent management."""
 
-    def register_ai_agent(self, name: str, agent: Any,
-                          specialization: str) -> None: ...
+    def register_ai_agent(
+        self,
+        name: str,
+        instructions: str,
+        specialization: str,
+        model: str = "gpt-4o-mini",
+    ) -> None: ...
 
     def register_human_agent(
         self,
@@ -1010,6 +1083,7 @@ class OpenAIAdapter:
         messages.append({"role": "user", "content": prompt})
 
         try:
+            # First try the beta parsing API
             completion = self.client.beta.chat.completions.parse(
                 model=kwargs.get("model", self.model),
                 messages=messages,
@@ -1018,7 +1092,25 @@ class OpenAIAdapter:
             )
             return completion.choices[0].message.parsed
         except Exception as e:
-            print(f"Error parsing structured output: {e}")
+            print(f"Error with beta.parse method: {e}")
+
+            # Fallback to manual parsing with Pydantic
+            try:
+                response = self.client.chat.completions.create(
+                    model=kwargs.get("model", self.model),
+                    messages=messages,
+                    temperature=kwargs.get("temperature", 0.2),
+                    response_format={"type": "json_object"},
+                )
+                response_text = response.choices[0].message.content
+
+                if response_text:
+                    # Use Pydantic's parse_raw method instead of json.loads
+                    return model_class.parse_raw(response_text)
+
+            except Exception as e:
+                print(f"Error parsing structured output with Pydantic: {e}")
+
             # Return default instance as fallback
             return model_class()
 
@@ -1492,16 +1584,26 @@ class MongoAIAgentRegistry:
         }
 
     def delete_agent(self, name: str) -> bool:
-        """Delete an AI agent by name."""
+        """Delete an AI agent from the registry."""
+        # First check if agent exists
         if name not in self.ai_agents_cache:
             return False
 
-        # Remove from cache
-        del self.ai_agents_cache[name]
+        # Delete from database
+        result = self.db.delete_one(
+            self.collection,
+            {"name": name}
+        )
 
-        # Remove from database
-        self.db.delete_one(self.collection, {"name": name})
-        return True
+        # Delete from cache if database deletion was successful
+        if result:
+            if name in self.ai_agents_cache:
+                del self.ai_agents_cache[name]
+            print(f"Agent {name} successfully deleted from MongoDB and cache")
+            return True
+        else:
+            print(f"Failed to delete agent {name} from MongoDB")
+            return False
 
 
 class MongoHumanAgentRegistry:
@@ -1688,13 +1790,13 @@ class MongoTicketRepository:
         """Count tickets matching query."""
         return self.db.count_documents(self.collection, query)
 
-    def find_stalled_tickets(self, cutoff_time, statuses):
+    async def find_stalled_tickets(self, cutoff_time, statuses):
         """Find tickets that haven't been updated since the cutoff time."""
         query = {
             "status": {"$in": [status.value if isinstance(status, Enum) else status for status in statuses]},
             "updated_at": {"$lt": cutoff_time}
         }
-        tickets = self.db_adapter.find("tickets", query)
+        tickets = self.db.find("tickets", query)
         return [Ticket(**ticket) for ticket in tickets]
 
 
@@ -2279,79 +2381,91 @@ class RoutingService:
         self.router_model = router_model
 
     async def route_query(self, query: str) -> str:
-        """Route query to the most appropriate AI agent."""
-        specializations = self.agent_registry.get_specializations()
-        # Get AI-only specializations
-        ai_specialists = {
-            k: v
-            for k, v in specializations.items()
-            if k in self.agent_registry.get_all_ai_agents()
-        }
+        """Route a query to the appropriate agent based on content."""
+        # Get available agents
+        agents = self.agent_registry.get_all_ai_agents()
+        if not agents:
+            return "default_agent"  # Fallback to default if no agents
 
-        # Create routing prompt
+        agent_names = list(agents.keys())
+
+        # Format agent descriptions for prompt
+        agent_descriptions = []
+        specializations = self.agent_registry.get_specializations()
+
+        for name in agent_names:
+            spec = specializations.get(name, "General assistant")
+            agent_descriptions.append(f"- {name}: {spec}")
+
+        agent_info = "\n".join(agent_descriptions)
+
+        # Create prompt for routing
         prompt = f"""
-        Analyze this user query and determine the MOST APPROPRIATE AI specialist.
+        You are a router that determines which AI agent should handle a user query.
         
         User query: "{query}"
         
-        Available AI specialists:
-        {json.dumps(ai_specialists, indent=2)}
+        Available agents:
+        {agent_info}
         
-        CRITICAL INSTRUCTIONS:
-        1. Choose specialists based on domain expertise match.
-        2. Return EXACTLY ONE specialist name from the available list.
-        3. Do not invent new specialist names.
+        Select the most appropriate agent based on the query and agent specializations.
+        Respond with ONLY the agent name, nothing else.
         """
 
-        # Generate routing decision using structured output
-        response = ""
-        async for chunk in self.llm_provider.generate_text(
-            "router",
-            prompt,
-            system_prompt="You are a routing system that matches queries to the best specialist.",
-            stream=False,
-            model=self.router_model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response += chunk
-
+        response_text = ""
         try:
-            data = json.loads(response)
-            selected_agent = data.get("selected_agent", "")
+            async for chunk in self.llm_provider.generate_text(
+                "system",
+                prompt,
+                system_prompt="You are a routing system. Only respond with the name of the most appropriate agent.",
+                model=self.router_model,
+                temperature=0.1,
+            ):
+                response_text += chunk
 
-            # Fallback to matching if needed
-            if selected_agent not in ai_specialists:
-                agent_name = self._match_agent_name(
-                    selected_agent, list(ai_specialists.keys())
-                )
-            else:
-                agent_name = selected_agent
+            # Clean up the response text to handle different formats
+            response_text = response_text.strip()
 
-            return agent_name
+            # First try to parse as JSON (old behavior)
+            try:
+                data = json.loads(response_text)
+                if isinstance(data, dict) and "agent" in data:
+                    return self._match_agent_name(data["agent"], agent_names)
+            except json.JSONDecodeError:
+                # Not JSON, try to parse as plain text
+                pass
+
+            # Treat as plain text - just match the agent name directly
+            return self._match_agent_name(response_text, agent_names)
+
         except Exception as e:
-            print(f"Error parsing routing decision: {e}")
-            # Fallback to the old matching method
-            return self._match_agent_name(response.strip(), list(ai_specialists.keys()))
+            print(f"Error in routing: {e}")
+            # Default to the first agent if there's an error
+            return agent_names[0]
 
     def _match_agent_name(self, response: str, agent_names: List[str]) -> str:
-        """Match router response to an actual AI agent name."""
-        # Exact match (priority)
-        if response in agent_names:
-            return response
+        """Match the response to a valid agent name."""
+        # Clean up the response
+        if isinstance(response, dict) and "name" in response:
+            response = response["name"]  # Handle {"name": "agent_name"} format
 
-        # Case-insensitive match
+        # Convert to string and clean it up
+        clean_response = str(response).strip().lower()
+
+        # Direct match first
         for name in agent_names:
-            if name.lower() == response.lower():
+            if name.lower() == clean_response:
                 return name
 
-        # Partial match
+        # Check for partial matches
         for name in agent_names:
-            if name.lower() in response.lower():
+            if name.lower() in clean_response or clean_response in name.lower():
                 return name
 
-        # Fallback to first AI agent
-        return agent_names[0] if agent_names else "default"
+        # If no match, return first agent as default
+        print(
+            f"No matching agent found for: '{response}'. Using {agent_names[0]}")
+        return agent_names[0]
 
 
 class TicketService:
@@ -2672,21 +2786,14 @@ class CriticService:
 class NotificationService:
     """Service for sending notifications to human agents or users using notification plugins."""
 
-    def __init__(self, human_agent_registry: MongoHumanAgentRegistry):
+    def __init__(self, human_agent_registry: MongoHumanAgentRegistry, tool_registry=None):
         """Initialize the notification service with a human agent registry."""
         self.human_agent_registry = human_agent_registry
+        self.tool_registry = tool_registry
 
     def send_notification(self, recipient_id: str, message: str, metadata: Dict[str, Any] = None) -> bool:
         """
         Send a notification to a human agent using configured notification channels or legacy handler.
-
-        Args:
-            recipient_id: ID of the human agent to notify
-            message: Notification message content
-            metadata: Additional data related to the notification (e.g., ticket_id)
-
-        Returns:
-            True if notification was sent, False otherwise
         """
         # Get human agent information
         agent = self.human_agent_registry.get_human_agent(recipient_id)
@@ -2712,6 +2819,11 @@ class NotificationService:
                 f"No notification channels configured for agent {recipient_id}")
             return False
 
+        # No tool registry available
+        if not self.tool_registry:
+            print("No tool registry available for notifications")
+            return False
+
         # Try each notification channel until one succeeds
         success = False
         for channel in notification_channels:
@@ -2728,9 +2840,9 @@ class NotificationService:
                 if metadata:
                     tool_params["metadata"] = metadata
 
-                result = tool_registry.get_tool(f"notify_{channel_type}")
-                if result:
-                    response = result.execute(**tool_params)
+                tool = self.tool_registry.get_tool(f"notify_{channel_type}")
+                if tool:
+                    response = tool.execute(**tool_params)
                     if response.get("status") == "success":
                         success = True
                         break
@@ -2763,11 +2875,15 @@ class AgentService:
         human_agent_registry: Optional[MongoHumanAgentRegistry] = None,
         ai_agent_registry: Optional[MongoAIAgentRegistry] = None,
         organization_mission: Optional[OrganizationMission] = None,
+        config: Optional[Dict[str, Any]] = None
     ):
+        """Initialize the agent service with LLM provider and optional registries."""
         self.llm_provider = llm_provider
         self.human_agent_registry = human_agent_registry
         self.ai_agent_registry = ai_agent_registry
         self.organization_mission = organization_mission
+        self.config = config or {}
+        self._last_handoff = None
 
         # For backward compatibility
         self.ai_agents = {}
@@ -2776,9 +2892,22 @@ class AgentService:
 
         self.specializations = {}
 
-        # Initialize plugin system
-        self.plugin_manager = PluginManager()
-        self.plugin_manager.load_all_plugins()
+        # Create our tool registry and plugin manager
+        self.tool_registry = ToolRegistry()
+        self.plugin_manager = PluginManager(
+            config=self.config, tool_registry=self.tool_registry)
+
+        # Load plugins
+        loaded_count = self.plugin_manager.load_all_plugins()
+        print(
+            f"Loaded {loaded_count} plugins with {len(self.tool_registry.list_all_tools())} registered tools")
+
+        # Configure all tools with our config after loading
+        self.tool_registry.configure_all_tools(self.config)
+
+        # Debug output of registered tools
+        print(
+            f"Available tools after initialization: {self.tool_registry.list_all_tools()}")
 
         # If human agent registry is provided, initialize specializations from it
         if self.human_agent_registry:
@@ -2793,6 +2922,205 @@ class AgentService:
         # If no human agent registry is provided, use in-memory cache
         if not self.human_agent_registry:
             self.human_agents = {}
+
+    def get_all_ai_agents(self) -> Dict[str, Any]:
+        """Get all registered AI agents."""
+        return self.ai_agents
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        return self.tool_registry.get_agent_tools(agent_name)
+
+    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
+        """Give an agent access to a specific tool."""
+        # Make sure the tool exists
+        if tool_name not in self.tool_registry.list_all_tools():
+            print(
+                f"Error registering tool {tool_name} for agent {agent_name}: Tool not registered")
+            raise ValueError(f"Tool {tool_name} is not registered")
+
+        # Check if agent exists
+        if agent_name not in self.ai_agents and (
+            not self.ai_agent_registry or
+            not self.ai_agent_registry.get_ai_agent(agent_name)
+        ):
+            print(
+                f"Warning: Agent {agent_name} not found but attempting to register tool")
+
+        # Assign the tool to the agent
+        success = self.tool_registry.assign_tool_to_agent(
+            agent_name, tool_name)
+
+        if success:
+            print(
+                f"Successfully registered tool {tool_name} for agent {agent_name}")
+        else:
+            print(
+                f"Failed to register tool {tool_name} for agent {agent_name}")
+
+    def process_json_response(self, response_text: str, agent_name: str) -> str:
+        """Process a complete response to handle any JSON handoffs or tool calls."""
+        # Check if the response is a JSON object for handoff or tool call
+        if response_text.strip().startswith('{') and ('"handoff":' in response_text or '"tool_call":' in response_text):
+            try:
+                data = json.loads(response_text.strip())
+
+                # Handle handoff
+                if "handoff" in data:
+                    target_agent = data["handoff"].get(
+                        "target_agent", "another agent")
+                    reason = data["handoff"].get(
+                        "reason", "to better assist with your request")
+                    return f"I'll connect you with {target_agent} who can better assist with your request. Reason: {reason}"
+
+                # Handle tool call
+                if "tool_call" in data:
+                    tool_data = data["tool_call"]
+                    tool_name = tool_data.get("name")
+                    parameters = tool_data.get("parameters", {})
+
+                    if tool_name:
+                        try:
+                            # Execute the tool
+                            tool_result = self.execute_tool(
+                                agent_name, tool_name, parameters)
+
+                            # Format the result
+                            if tool_result.get("status") == "success":
+                                return f"I searched for information and found:\n\n{tool_result.get('result', '')}"
+                            else:
+                                return f"I tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+                        except Exception as e:
+                            return f"I tried to use {tool_name}, but encountered an error: {str(e)}"
+            except json.JSONDecodeError:
+                # Not valid JSON
+                pass
+
+        # Return original if not JSON or if processing fails
+        return response_text
+
+    def get_agent_system_prompt(self, agent_name: str) -> str:
+        """Get the system prompt for an agent, including tool instructions if available."""
+        # Get the agent's base instructions
+        if agent_name not in self.ai_agents:
+            raise ValueError(f"Agent {agent_name} not found")
+
+        agent_config = self.ai_agents[agent_name]
+        instructions = agent_config.get("instructions", "")
+
+        # Add tool instructions if any tools are available
+        available_tools = self.get_agent_tools(agent_name)
+        if available_tools:
+            tools_json = json.dumps(available_tools, indent=2)
+
+            # Tool instructions using JSON format similar to handoffs
+            tool_instructions = f"""
+    You have access to the following tools:
+    {tools_json}
+
+    IMPORTANT - TOOL USAGE: When you need to use a tool, respond with a JSON object using this format:
+
+    {{
+    "tool_call": {{
+        "name": "tool_name",
+        "parameters": {{
+        "param1": "value1",
+        "param2": "value2"
+        }}
+    }}
+    }}
+
+    Example: To search the internet for "latest Solana news", respond with:
+
+    {{
+    "tool_call": {{
+        "name": "search_internet",
+        "parameters": {{
+        "query": "latest Solana news"
+        }}
+    }}
+    }}
+
+    ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
+    """
+            instructions = f"{instructions}\n\n{tool_instructions}"
+
+        # Add specific instructions about valid handoff agents
+        valid_agents = list(self.ai_agents.keys())
+        if valid_agents:
+            handoff_instructions = f"""
+    IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {', '.join(valid_agents)}
+    DO NOT invent or reference agents that don't exist in this list.
+
+    To hand off to another agent, use this format:
+    {{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
+    """
+            instructions = f"{instructions}\n\n{handoff_instructions}"
+
+        return instructions
+
+    def process_tool_calls(self, agent_name: str, response_text: str) -> str:
+        """Process any tool calls in the agent's response and return updated response."""
+        # Regex to find tool calls in the format TOOL_START {...} TOOL_END
+        tool_pattern = r"TOOL_START\s*([\s\S]*?)\s*TOOL_END"
+        tool_matches = re.findall(tool_pattern, response_text)
+
+        if not tool_matches:
+            return response_text
+
+        print(
+            f"Found {len(tool_matches)} tool calls in response from {agent_name}")
+
+        # Process each tool call
+        modified_response = response_text
+        for tool_json in tool_matches:
+            try:
+                # Parse the tool call JSON
+                tool_call_text = tool_json.strip()
+                print(f"Processing tool call: {tool_call_text[:100]}")
+
+                # Parse the JSON (handle both normal and stringified JSON)
+                try:
+                    tool_call = json.loads(tool_call_text)
+                except json.JSONDecodeError as e:
+                    # If there are escaped quotes or formatting issues, try cleaning it up
+                    cleaned_json = tool_call_text.replace(
+                        '\\"', '"').replace('\\n', '\n')
+                    tool_call = json.loads(cleaned_json)
+
+                tool_name = tool_call.get("name")
+                parameters = tool_call.get("parameters", {})
+
+                if tool_name:
+                    # Execute the tool
+                    print(
+                        f"Executing tool {tool_name} with parameters: {parameters}")
+                    tool_result = self.execute_tool(
+                        agent_name, tool_name, parameters)
+
+                    # Format the result for inclusion in the response
+                    if tool_result.get("status") == "success":
+                        formatted_result = f"\n\nI searched for information and found:\n\n{tool_result.get('result', '')}"
+                    else:
+                        formatted_result = f"\n\nI tried to search for information, but encountered an error: {tool_result.get('message', 'Unknown error')}"
+
+                    # Replace the entire tool block with the result
+                    full_tool_block = f"TOOL_START\n{tool_json}\nTOOL_END"
+                    modified_response = modified_response.replace(
+                        full_tool_block, formatted_result)
+                    print(f"Successfully processed tool call: {tool_name}")
+            except Exception as e:
+                print(f"Error processing tool call: {str(e)}")
+                # Replace with error message
+                full_tool_block = f"TOOL_START\n{tool_json}\nTOOL_END"
+                modified_response = modified_response.replace(
+                    full_tool_block, "\n\nI tried to search for information, but encountered an error processing the tool call.")
+
+        return modified_response
+
+    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
+        """Get all tools available to a specific agent."""
+        return self.tool_registry.get_agent_tools(agent_name)
 
     def register_ai_agent(
         self,
@@ -2819,7 +3147,7 @@ class AgentService:
         # Use registry if available
         if self.ai_agent_registry:
             self.ai_agent_registry.register_ai_agent(
-                name, full_instructions, specialization, model
+                name, full_instructions, specialization, model,
             )
             # Update local cache for backward compatibility
             self.ai_agents = self.ai_agent_registry.get_all_ai_agents()
@@ -2839,32 +3167,37 @@ class AgentService:
             return merged
         return self.specializations
 
-    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> None:
-        """Give an agent access to a specific tool."""
-        if agent_name not in self.ai_agents:
-            raise ValueError(f"Agent {agent_name} not found")
-
-        tool_registry.assign_tool_to_agent(agent_name, tool_name)
-
-    def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
-        """Get all tools available to a specific agent."""
-        return tool_registry.get_agent_tools(agent_name)
-
-    def execute_tool(
-        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
-        # Check if agent has access to this tool
-        agent_tools = tool_registry.get_agent_tools(agent_name)
-        tool_names = [tool["name"] for tool in agent_tools]
+        print(f"Executing tool {tool_name} for agent {agent_name}")
+        print(f"Parameters: {parameters}")
+
+        # Get the tool directly from the registry
+        tool = self.tool_registry.get_tool(tool_name)
+        if not tool:
+            print(
+                f"Tool {tool_name} not found in registry. Available tools: {self.tool_registry.list_all_tools()}")
+            return {"status": "error", "message": f"Tool {tool_name} not found"}
+
+        # Check if agent has access
+        agent_tools = self.get_agent_tools(agent_name)
+        tool_names = [t["name"] for t in agent_tools]
 
         if tool_name not in tool_names:
-            raise ValueError(
-                f"Agent {agent_name} does not have access to tool {tool_name}"
-            )
+            print(
+                f"Agent {agent_name} does not have access to tool {tool_name}. Available tools: {tool_names}")
+            return {"status": "error", "message": f"Agent {agent_name} does not have access to tool {tool_name}"}
 
-        # Execute the tool
-        return self.plugin_manager.execute_tool(tool_name, **parameters)
+        # Execute the tool with parameters
+        try:
+            print(
+                f"Executing {tool_name} with config: {'API key present' if hasattr(tool, '_api_key') and tool._api_key else 'No API key'}")
+            result = tool.execute(**parameters)
+            print(f"Tool execution result: {result.get('status', 'unknown')}")
+            return result
+        except Exception as e:
+            print(f"Error executing tool {tool_name}: {str(e)}")
+            return {"status": "error", "message": f"Error: {str(e)}"}
 
     def register_human_agent(
         self,
@@ -2921,69 +3254,109 @@ class AgentService:
 
         agent_config = self.ai_agents[agent_name]
 
-        # Get instructions and add memory context
-        instructions = agent_config["instructions"]
+        # Get the properly formatted system prompt with tools and handoff instructions
+        instructions = self.get_agent_system_prompt(agent_name)
+
+        # Add memory context
         if memory_context:
             instructions += f"\n\nUser context and history:\n{memory_context}"
 
-        # Add tool information if agent has any tools
-        tools = self.get_agent_tools(agent_name)
-        if tools and "tools" not in kwargs:
-            kwargs["tools"] = tools
-
-        # Add specific instruction for simple queries to prevent handoff format leakage
-        if len(query.strip()) < 10:
-            instructions += "\n\nIMPORTANT: If the user sends a simple test message, respond conversationally. Never output raw JSON handoff objects directly to the user."
+        # Add critical instruction to prevent raw JSON
+        instructions += "\n\nCRITICAL: When using tools or making handoffs, ALWAYS respond with properly formatted JSON as instructed."
 
         # Generate response
-        response_text = ""
-        async for chunk in self.llm_provider.generate_text(
-            user_id=user_id,
-            prompt=query,
-            system_prompt=instructions,
-            model=agent_config["model"],
-            **kwargs,
-        ):
-            # Filter out raw handoff JSON before yielding to user
-            if not response_text and chunk.strip().startswith('{"handoff":'):
-                # If we're starting with a handoff JSON, replace with a proper response
-                yield "Hello! I'm here to help. What can I assist you with today?"
-                response_text += chunk  # Still store it for processing later
-            else:
-                yield chunk
-                response_text += chunk
+        tool_json_found = False
+        full_response = ""
 
-        # Process handoffs after yielding response (unchanged code)
         try:
-            response_data = json.loads(response_text)
-            if "tool_calls" in response_data:
-                for tool_call in response_data["tool_calls"]:
-                    # Extract tool name and arguments
-                    if isinstance(tool_call, dict):
-                        # Direct format
-                        tool_name = tool_call.get("name")
-                        params = tool_call.get("parameters", {})
+            async for chunk in self.llm_provider.generate_text(
+                user_id=user_id,
+                prompt=query,
+                system_prompt=instructions,
+                model=agent_config["model"],
+                **kwargs,
+            ):
+                # Add to full response
+                full_response += chunk
 
-                        # For the updated OpenAI format
-                        if "function" in tool_call:
-                            function_data = tool_call["function"]
-                            tool_name = function_data.get("name")
-                            try:
-                                params = json.loads(
-                                    function_data.get("arguments", "{}"))
-                            except Exception:
-                                params = {}
+                # Check if this might be JSON
+                if full_response.strip().startswith("{") and not tool_json_found:
+                    tool_json_found = True
+                    print(
+                        f"Detected potential JSON response starting with: {full_response[:50]}...")
+                    continue
 
-                        # Execute the tool
+                # If not JSON, yield the chunk
+                if not tool_json_found:
+                    yield chunk
+
+            # Process JSON if found
+            if tool_json_found:
+                try:
+                    print(
+                        f"Processing JSON response: {full_response[:100]}...")
+                    data = json.loads(full_response.strip())
+                    print(
+                        f"Successfully parsed JSON with keys: {list(data.keys())}")
+
+                    # Handle tool call
+                    if "tool_call" in data:
+                        tool_data = data["tool_call"]
+                        tool_name = tool_data.get("name")
+                        parameters = tool_data.get("parameters", {})
+
+                        print(
+                            f"Processing tool call: {tool_name} with parameters: {parameters}")
+
                         if tool_name:
-                            self.execute_tool(agent_name, tool_name, params)
-        except Exception:
-            # If it's not JSON or doesn't have tool_calls, we've already yielded the response
-            pass
+                            try:
+                                # Execute tool
+                                print(f"Executing tool: {tool_name}")
+                                tool_result = self.execute_tool(
+                                    agent_name, tool_name, parameters)
+                                print(
+                                    f"Tool execution result status: {tool_result.get('status')}")
 
-    def get_all_ai_agents(self) -> Dict[str, Any]:
-        """Get all registered AI agents."""
-        return self.ai_agents
+                                if tool_result.get("status") == "success":
+                                    print(
+                                        f"Tool executed successfully - yielding result")
+                                    yield tool_result.get('result', '')
+                                else:
+                                    print(
+                                        f"Tool execution failed: {tool_result.get('message')}")
+                                    yield f"Error: {tool_result.get('message', 'Unknown error')}"
+                            except Exception as e:
+                                print(f"Tool execution exception: {str(e)}")
+                                yield f"Error executing tool: {str(e)}"
+
+                    # Handle handoff
+                    elif "handoff" in data:
+                        print(
+                            f"Processing handoff to: {data['handoff'].get('target_agent')}")
+                        # Store handoff data but don't yield anything
+                        self._last_handoff = data["handoff"]
+                        return
+
+                    # If we got JSON but it's not a tool call or handoff, yield it as text
+                    else:
+                        print(
+                            f"Received JSON but not a tool call or handoff. Keys: {list(data.keys())}")
+                        yield full_response
+
+                except json.JSONDecodeError as e:
+                    # Not valid JSON, yield it as is
+                    print(f"JSON parse error: {str(e)} - yielding as text")
+                    yield full_response
+
+            # If nothing has been yielded yet (e.g., failed JSON parsing), yield the full response
+            if not tool_json_found:
+                print(f"Non-JSON response handled normally")
+
+        except Exception as e:
+            print(f"Error in generate_response: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error: {str(e)}"
 
 
 class ResourceService:
@@ -5214,28 +5587,18 @@ class QueryProcessor:
                 self._stalled_ticket_task = loop.create_task(
                     self._run_stalled_ticket_checks())
             except RuntimeError:
-                # No running event loop - likely in test environment
-                # Instead of just passing, log a message for clarity
                 import logging
                 logging.warning(
                     "No running event loop available for stalled ticket checker.")
-                # Don't try to create the task - this prevents the coroutine warning
 
         try:
-            # Handle human agent messages differently
-            if await self._is_human_agent(user_id):
-                async for chunk in self._process_human_agent_message(
-                    user_id, user_text
-                ):
-                    yield chunk
-                return
-
-            # Handle simple greetings without full agent routing
-            if await self._is_simple_greeting(user_text):
-                greeting_response = await self._generate_greeting_response(
-                    user_id, user_text
-                )
-                yield greeting_response
+            # Special case for "test" and other very simple messages
+            if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
+                response = f"Hello! How can I help you today?"
+                yield response
+                # Store this simple interaction in memory
+                if self.memory_provider:
+                    await self._store_conversation(user_id, user_text, response)
                 return
 
             # Handle system commands
@@ -5244,99 +5607,65 @@ class QueryProcessor:
                 yield command_response
                 return
 
+            # Route to appropriate agent
+            agent_name = await self.routing_service.route_query(user_text)
+
             # Check for active ticket
             active_ticket = self.ticket_service.ticket_repository.get_active_for_user(
-                user_id
-            )
+                user_id)
 
             if active_ticket:
                 # Process existing ticket
-                async for chunk in self._process_existing_ticket(
-                    user_id, user_text, active_ticket, timezone
-                ):
-                    yield chunk
+                try:
+                    response_buffer = ""
+                    async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                        response_buffer += chunk
+                        yield chunk
+
+                    # Check final response for unprocessed JSON
+                    if response_buffer.strip().startswith('{'):
+                        agent_name = active_ticket.assigned_to or "default_agent"
+                        processed_response = self.agent_service.process_json_response(
+                            response_buffer, agent_name)
+                        if processed_response != response_buffer:
+                            yield "\n\n" + processed_response
+                except ValueError as e:
+                    if "Ticket" in str(e) and "not found" in str(e):
+                        # Ticket no longer exists - create a new one
+                        complexity = await self._assess_task_complexity(user_text)
+                        async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                            yield chunk
+                    else:
+                        yield f"I'm sorry, I encountered an error: {str(e)}"
+
             else:
                 # Create new ticket
-                complexity = await self._assess_task_complexity(user_text)
+                try:
+                    complexity = await self._assess_task_complexity(user_text)
 
-                # Process as new ticket
-                async for chunk in self._process_new_ticket(
-                    user_id, user_text, complexity, timezone
-                ):
-                    yield chunk
+                    # Process as new ticket
+                    response_buffer = ""
+                    async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                        response_buffer += chunk
+                        yield chunk
+
+                    # Check final response for unprocessed JSON
+                    if response_buffer.strip().startswith('{'):
+                        processed_response = self.agent_service.process_json_response(
+                            response_buffer, agent_name)
+                        if processed_response != response_buffer:
+                            yield "\n\n" + processed_response
+                except Exception as e:
+                    yield f"I'm sorry, I encountered an error: {str(e)}"
 
         except Exception as e:
             print(f"Error in request processing: {str(e)}")
             print(traceback.format_exc())
-            # Use yield instead of direct function calling to avoid coroutine warning
-            error_msg = "\n\nI apologize for the technical difficulty.\n\n"
-            yield error_msg
+            yield "I apologize for the technical difficulty.\n\n"
 
     async def _is_human_agent(self, user_id: str) -> bool:
         """Check if the user is a registered human agent."""
         return user_id in self.agent_service.get_all_human_agents()
-
-    async def _is_simple_greeting(self, text: str) -> bool:
-        """Determine if the user message is a simple greeting."""
-        text_lower = text.lower().strip()
-
-        # Common greetings list
-        simple_greetings = [
-            "hello",
-            "hi",
-            "hey",
-            "greetings",
-            "good morning",
-            "good afternoon",
-            "good evening",
-            "what's up",
-            "how are you",
-            "how's it going",
-        ]
-
-        # Check if text starts with a greeting and is relatively short
-        is_greeting = any(
-            text_lower.startswith(greeting) for greeting in simple_greetings
-        )
-        # Arbitrary threshold for "simple" messages
-        is_short = len(text.split()) < 7
-
-        return is_greeting and is_short
-
-    async def _generate_greeting_response(self, user_id: str, text: str) -> str:
-        """Generate a friendly response to a simple greeting."""
-        # Get user context if available
-        context = ""
-        if self.memory_provider:
-            context = await self.memory_provider.retrieve(user_id)
-
-        # Get first available AI agent for the greeting
-        first_agent_name = next(
-            iter(self.agent_service.get_all_ai_agents().keys()))
-
-        response = ""
-        async for chunk in self.agent_service.generate_response(
-            first_agent_name,
-            user_id,
-            text,
-            context,
-            temperature=0.7,
-            max_tokens=100,  # Keep it brief
-        ):
-            response += chunk
-
-        # Store in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": text},
-                    {"role": "assistant",
-                        "content": self._truncate(response, 2500)},
-                ],
-            )
-
-        return response
 
     async def shutdown(self):
         """Clean shutdown of the query processor."""
@@ -5372,34 +5701,48 @@ class QueryProcessor:
         if self.stalled_ticket_timeout is None:
             return
 
-        # Find tickets that haven't been updated in the configured time
-        stalled_cutoff = datetime.datetime.now(
-            datetime.timezone.utc) - datetime.timedelta(minutes=self.stalled_ticket_timeout)
-
-        # Query for stalled tickets using the find_stalled_tickets method
-        stalled_tickets = await self.ticket_service.ticket_repository.find_stalled_tickets(
-            stalled_cutoff, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
-        )
-
-        for ticket in stalled_tickets:
-            # Re-route using routing service to find the optimal agent
-            new_agent = await self.routing_service.route_query(ticket.query)
-
-            # Skip if the routing didn't change
-            if new_agent == ticket.assigned_to:
-                continue
-
-            # Process as handoff
-            await self.handoff_service.process_handoff(
-                ticket.id,
-                ticket.assigned_to or "unassigned",
-                new_agent,
-                f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+        try:
+            # Find tickets that haven't been updated in the configured time
+            cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+                minutes=self.stalled_ticket_timeout
             )
 
-            # Log the reassignment
-            print(
-                f"Stalled ticket {ticket.id} reassigned from {ticket.assigned_to or 'unassigned'} to {new_agent}")
+            # The find_stalled_tickets method should be async
+            stalled_tickets = await self.ticket_service.ticket_repository.find_stalled_tickets(
+                cutoff_time, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
+            )
+
+            for ticket in stalled_tickets:
+                print(
+                    f"Found stalled ticket: {ticket.id} (last updated: {ticket.updated_at})")
+
+                # Skip tickets without an assigned agent
+                if not ticket.assigned_to:
+                    continue
+
+                # Re-route the query to see if a different agent is better
+                new_agent = await self.routing_service.route_query(ticket.query)
+
+                # Only reassign if a different agent is suggested
+                if new_agent != ticket.assigned_to:
+                    print(
+                        f"Reassigning ticket {ticket.id} from {ticket.assigned_to} to {new_agent}")
+
+                    try:
+                        await self.handoff_service.process_handoff(
+                            ticket.id,
+                            ticket.assigned_to,
+                            new_agent,
+                            f"Automatically reassigned after {self.stalled_ticket_timeout} minutes of inactivity"
+                        )
+                    except Exception as e:
+                        print(
+                            f"Error reassigning stalled ticket {ticket.id}: {e}")
+
+        except Exception as e:
+            print(f"Error in stalled ticket check: {e}")
+            import traceback
+            print(traceback.format_exc())
 
     async def _process_system_commands(
         self, user_id: str, user_text: str
@@ -6114,112 +6457,104 @@ class QueryProcessor:
     async def _process_existing_ticket(
         self, user_id: str, user_text: str, ticket: Ticket, timezone: str = None
     ) -> AsyncGenerator[str, None]:
-        """Process a message for an existing ticket."""
+        """
+        Process a message for an existing ticket. 
+        Checks for handoff data and handles it with ticket-based handoff
+        unless the target agent is set to skip ticket creation.
+        """
         # Get assigned agent or re-route if needed
         agent_name = ticket.assigned_to
-
-        # If no valid assignment, route to appropriate agent
-        if not agent_name or agent_name not in self.agent_service.get_all_ai_agents():
+        if not agent_name:
             agent_name = await self.routing_service.route_query(user_text)
-            # Update ticket with new assignment
             self.ticket_service.update_ticket_status(
-                ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
+                ticket.id, TicketStatus.IN_PROGRESS, assigned_to=agent_name
             )
-
-        # Update ticket status
-        self.ticket_service.update_ticket_status(
-            ticket.id, TicketStatus.ACTIVE)
 
         # Get memory context if available
         memory_context = ""
         if self.memory_provider:
             memory_context = await self.memory_provider.retrieve(user_id)
 
-        # Generate response with streaming
+        # Try to generate response
         full_response = ""
         handoff_info = None
+        handoff_detected = False
 
-        async for chunk in self.agent_service.generate_response(
-            agent_name, user_id, user_text, memory_context, temperature=0.7
-        ):
-            yield chunk
-            full_response += chunk
-
-        # Check for handoff in structured format
         try:
-            # Look for JSON handoff object in the response
-            handoff_match = re.search(r'{"handoff":\s*{.*?}}', full_response)
-            if handoff_match:
-                handoff_data = json.loads(handoff_match.group(0))
-                if "handoff" in handoff_data:
+            # Generate response with streaming
+            async for chunk in self.agent_service.generate_response(
+                agent_name=agent_name,
+                user_id=user_id,
+                query=user_text,
+                memory_context=memory_context,
+            ):
+                # Detect possible handoff signals (JSON or prefix)
+                if chunk.strip().startswith("HANDOFF:") or (
+                    not full_response and chunk.strip().startswith("{")
+                ):
+                    handoff_detected = True
+                    full_response += chunk
+                    continue
+
+                full_response += chunk
+                yield chunk
+
+            # After response generation, handle handoff if needed
+            if handoff_detected or (
+                not full_response.strip()
+                and hasattr(self.agent_service, "_last_handoff")
+            ):
+                if hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff:
+                    handoff_data = {
+                        "handoff": self.agent_service._last_handoff}
                     target_agent = handoff_data["handoff"].get("target_agent")
                     reason = handoff_data["handoff"].get("reason")
-                    if target_agent and reason:
+
+                    if target_agent:
                         handoff_info = {
                             "target": target_agent, "reason": reason}
+
+                        await self.handoff_service.process_handoff(
+                            ticket.id,
+                            agent_name,
+                            handoff_info["target"],
+                            handoff_info["reason"],
+                        )
+
+                    print(
+                        f"Generating response from new agent: {target_agent}")
+                    new_response_buffer = ""
+                    async for chunk in self.agent_service.generate_response(
+                        agent_name=target_agent,
+                        user_id=user_id,
+                        query=user_text,
+                        memory_context=memory_context,
+                    ):
+                        new_response_buffer += chunk
+                        yield chunk
+
+                    full_response = new_response_buffer
+
+                self.agent_service._last_handoff = None
+
+            # Store conversation in memory
+            if self.memory_provider:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {
+                            "role": "assistant",
+                            "content": self._truncate(full_response, 2500),
+                        },
+                    ],
+                )
+
         except Exception as e:
-            print(f"Error parsing handoff data: {e}")
-
-        # Fall back to old method if structured parsing fails
-        if "HANDOFF:" in chunk and not handoff_info:
-            handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
-            match = re.search(handoff_pattern, full_response)
-            if match:
-                target_agent = match.group(1)
-                reason = match.group(2)
-                handoff_info = {"target": target_agent, "reason": reason}
-
-        # Store conversation in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": user_text},
-                    {
-                        "role": "assistant",
-                        "content": self._truncate(full_response, 2500),
-                    },
-                ],
-            )
-
-        # Process handoff if detected
-        if handoff_info:
-            try:
-                await self.handoff_service.process_handoff(
-                    ticket.id,
-                    agent_name,
-                    handoff_info["target"],
-                    handoff_info["reason"],
-                )
-            except ValueError as e:
-                # If handoff fails, just continue with current agent
-                print(f"Handoff failed: {e}")
-
-        # Check if ticket can be considered resolved
-        if not handoff_info:
-            resolution = await self._check_ticket_resolution(
-                user_id, full_response, user_text
-            )
-
-            if resolution.status == "resolved" and resolution.confidence >= 0.7:
-                self.ticket_service.mark_ticket_resolved(
-                    ticket.id,
-                    {
-                        "confidence": resolution.confidence,
-                        "reasoning": resolution.reasoning,
-                    },
-                )
-
-                # Create NPS survey
-                self.nps_service.create_survey(user_id, ticket.id, agent_name)
-
-        # Extract and store insights in background
-        if full_response:
-            asyncio.create_task(
-                self._extract_and_store_insights(
-                    user_id, {"message": user_text, "response": full_response}
-                )
-            )
+            print(f"Error processing ticket: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
 
     async def _process_new_ticket(
         self,
@@ -6311,106 +6646,113 @@ class QueryProcessor:
             ticket.id, TicketStatus.ACTIVE, assigned_to=agent_name
         )
 
-        # Generate response with streaming
+        # Generate initial response with streaming
         full_response = ""
-        handoff_info = None
+        handoff_detected = False
 
-        async for chunk in self.agent_service.generate_response(
-            agent_name, user_id, user_text, memory_context, temperature=0.7
-        ):
-            yield chunk
-            full_response += chunk
+        try:
+            # Generate response with streaming
+            async for chunk in self.agent_service.generate_response(
+                agent_name, user_id, user_text, memory_context, temperature=0.7
+            ):
+                # Check if this looks like a JSON handoff
+                if chunk.strip().startswith("{") and not handoff_detected:
+                    handoff_detected = True
+                    full_response += chunk
+                    continue
 
-            # Check for handoff in structured format
-            try:
-                # Look for JSON handoff object in the response
-                handoff_match = re.search(
-                    r'{"handoff":\s*{.*?}}', full_response)
-                if handoff_match:
-                    handoff_data = json.loads(handoff_match.group(0))
-                    if "handoff" in handoff_data:
-                        target_agent = handoff_data["handoff"].get(
-                            "target_agent")
-                        reason = handoff_data["handoff"].get("reason")
-                        if target_agent and reason:
-                            handoff_info = {
-                                "target": target_agent, "reason": reason}
-            except Exception as e:
-                print(f"Error parsing handoff data: {e}")
+                # Only yield if not a JSON chunk
+                if not handoff_detected:
+                    yield chunk
+                    full_response += chunk
 
-            # Fall back to old method if structured parsing fails
-            if "HANDOFF:" in chunk and not handoff_info:
-                handoff_pattern = r"HANDOFF:\s*([A-Za-z0-9_]+)\s*REASON:\s*(.+)"
-                match = re.search(handoff_pattern, full_response)
-                if match:
-                    target_agent = match.group(1)
-                    reason = match.group(2)
-                    handoff_info = {"target": target_agent, "reason": reason}
+            # Handle handoff if detected
+            if handoff_detected or (hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff):
+                target_agent = None
+                reason = "Handoff detected"
 
-        # Store conversation in memory if available
-        if self.memory_provider:
-            await self.memory_provider.store(
-                user_id,
-                [
-                    {"role": "user", "content": user_text},
-                    {
-                        "role": "assistant",
-                        "content": self._truncate(full_response, 2500),
-                    },
-                ],
+                # Process the handoff from _last_handoff property
+                if hasattr(self.agent_service, "_last_handoff") and self.agent_service._last_handoff:
+                    target_agent = self.agent_service._last_handoff.get(
+                        "target_agent")
+                    reason = self.agent_service._last_handoff.get(
+                        "reason", "No reason provided")
+
+                    if target_agent:
+                        try:
+                            # Process handoff and update ticket
+                            await self.handoff_service.process_handoff(
+                                ticket.id,
+                                agent_name,
+                                target_agent,
+                                reason,
+                            )
+
+                            # Generate response from new agent
+                            print(
+                                f"Generating response from new agent after handoff: {target_agent}")
+                            new_response = ""
+                            async for chunk in self.agent_service.generate_response(
+                                target_agent,
+                                user_id,
+                                user_text,
+                                memory_context,
+                                temperature=0.7
+                            ):
+                                yield chunk
+                                new_response += chunk
+
+                            # Update full response for storage
+                            full_response = new_response
+                        except ValueError as e:
+                            print(f"Handoff failed: {e}")
+                            yield f"\n\nNote: A handoff was attempted but failed: {str(e)}"
+
+                    # Reset handoff state
+                    self.agent_service._last_handoff = None
+
+            # Check if ticket can be considered resolved
+            resolution = await self._check_ticket_resolution(
+                full_response, user_text
             )
 
-        # Process handoff if detected
-        if handoff_info:
-            try:
-                await self.handoff_service.process_handoff(
+            if resolution.status == "resolved" and resolution.confidence >= 0.7:
+                self.ticket_service.mark_ticket_resolved(
                     ticket.id,
-                    agent_name,
-                    handoff_info["target"],
-                    handoff_info["reason"],
+                    {
+                        "confidence": resolution.confidence,
+                        "reasoning": resolution.reasoning,
+                    },
                 )
-            except ValueError as e:
-                print(f"Handoff failed: {e}")
 
-                # Process handoff if detected
-                if handoff_info:
-                    try:
-                        await self.handoff_service.process_handoff(
-                            ticket.id,
-                            agent_name,
-                            handoff_info["target"],
-                            handoff_info["reason"],
-                        )
-                    except ValueError as e:
-                        print(f"Handoff failed: {e}")
+                # Create NPS survey
+                self.nps_service.create_survey(
+                    user_id, ticket.id, agent_name)
 
-                # Check if ticket can be considered resolved
-                if not handoff_info:
-                    resolution = await self._check_ticket_resolution(
-                        user_id, full_response, user_text
+            # Store in memory provider
+            if self.memory_provider:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": self._truncate(
+                            full_response, 2500)},
+                    ],
+                )
+
+            # Extract and store insights in background
+            if full_response:
+                asyncio.create_task(
+                    self._extract_and_store_insights(
+                        user_id, {"message": user_text,
+                                  "response": full_response}
                     )
+                )
 
-                    if resolution.status == "resolved" and resolution.confidence >= 0.7:
-                        self.ticket_service.mark_ticket_resolved(
-                            ticket.id,
-                            {
-                                "confidence": resolution.confidence,
-                                "reasoning": resolution.reasoning,
-                            },
-                        )
-
-                        # Create NPS survey
-                        self.nps_service.create_survey(
-                            user_id, ticket.id, agent_name)
-
-                # Extract and store insights in background
-                if full_response:
-                    asyncio.create_task(
-                        self._extract_and_store_insights(
-                            user_id, {"message": user_text,
-                                      "response": full_response}
-                        )
-                    )
+        except Exception as e:
+            print(f"Error in _process_new_ticket: {str(e)}")
+            print(traceback.format_exc())
+            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
 
     async def _process_human_agent_message(
         self, user_id: str, user_text: str
@@ -6514,7 +6856,7 @@ class QueryProcessor:
         return result
 
     async def _check_ticket_resolution(
-        self, user_id: str, response: str, query: str
+        self, response: str, query: str
     ) -> TicketResolution:
         """Determine if a ticket can be considered resolved based on the response."""
         # Get first AI agent for analysis
@@ -6532,39 +6874,48 @@ class QueryProcessor:
         2. "needs_followup" - The assistant couldn't fully address the issue or more information is needed
         3. "cannot_determine" - Cannot tell if the issue is resolved
         
-        Return a JSON object with:
+        Return a structured output with:
         - "status": One of the above values
         - "confidence": A score from 0.0 to 1.0 indicating confidence in this assessment
         - "reasoning": Brief explanation for your decision
         - "suggested_actions": Array of recommended next steps (if any)
         """
 
-        # Generate resolution assessment
-        resolution_text = ""
-        async for chunk in self.agent_service.generate_response(
-            first_agent,
-            "resolution_checker",
-            prompt,
-            "",  # No memory context needed
-            stream=False,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            resolution_text += chunk
-
         try:
-            data = json.loads(resolution_text)
-            return TicketResolution(**data)
-        except Exception as e:
-            print(f"Error parsing resolution decision: {e}")
-            return TicketResolution(
-                status="cannot_determine",
-                confidence=0.2,
-                reasoning="Failed to analyze resolution status",
+            # Use structured output parsing with the Pydantic model directly
+            resolution = await self.agent_service.llm_provider.parse_structured_output(
+                prompt=prompt,
+                system_prompt="You are a resolution analysis system. Analyze conversations and determine if queries have been resolved.",
+                model_class=TicketResolution,
+                model=self.agent_service.ai_agents[first_agent].get(
+                    "model", "gpt-4o-mini"),
+                temperature=0.2,
             )
+            return resolution
+        except Exception as e:
+            print(f"Exception in resolution check: {e}")
+
+        # Default fallback if anything fails
+        return TicketResolution(
+            status="cannot_determine",
+            confidence=0.2,
+            reasoning="Failed to analyze resolution status",
+            suggested_actions=["Review conversation manually"]
+        )
 
     async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
         """Assess the complexity of a task using standardized metrics."""
+        # Special handling for very simple messages
+        if len(query.strip()) <= 10 and query.lower().strip() in ["test", "hello", "hi", "hey", "ping", "thanks"]:
+            print(f"Using pre-defined complexity for simple message: {query}")
+            return {
+                "t_shirt_size": "XS",
+                "story_points": 1,
+                "estimated_minutes": 5,
+                "technical_complexity": 1,
+                "domain_knowledge": 1,
+            }
+
         # Get first AI agent for analysis
         first_agent = next(iter(self.agent_service.get_all_ai_agents().keys()))
 
@@ -6594,16 +6945,28 @@ class QueryProcessor:
             ):
                 response_text += chunk
 
+            if not response_text.strip():
+                print("Empty response from complexity assessment")
+                return {
+                    "t_shirt_size": "S",
+                    "story_points": 2,
+                    "estimated_minutes": 15,
+                    "technical_complexity": 3,
+                    "domain_knowledge": 2,
+                }
+
             complexity_data = json.loads(response_text)
+            print(f"Successfully parsed complexity: {complexity_data}")
             return complexity_data
         except Exception as e:
             print(f"Error assessing complexity: {e}")
+            print(f"Failed response text: '{response_text}'")
             return {
-                "t_shirt_size": "M",
-                "story_points": 3,
-                "estimated_minutes": 30,
-                "technical_complexity": 5,
-                "domain_knowledge": 5,
+                "t_shirt_size": "S",
+                "story_points": 2,
+                "estimated_minutes": 15,
+                "technical_complexity": 3,
+                "domain_knowledge": 2,
             }
 
     async def _extract_and_store_insights(
@@ -6638,6 +7001,20 @@ class QueryProcessor:
 
         return truncated + "..."
 
+    async def _store_conversation(self, user_id: str, user_text: str, response_text: str) -> None:
+        """Store conversation history in memory provider."""
+        if self.memory_provider:
+            try:
+                await self.memory_provider.store(
+                    user_id,
+                    [
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": response_text},
+                    ],
+                )
+            except Exception as e:
+                print(f"Error storing conversation: {e}")
+                # Don't let memory storage errors affect the user experience
 
 #############################################
 # FACTORY AND DEPENDENCY INJECTION
@@ -6715,16 +7092,25 @@ class SolanaAgentFactory:
 
         # Create services
         agent_service = AgentService(
-            llm_adapter, human_agent_repo, ai_agent_repo, organization_mission)
+            llm_adapter, human_agent_repo, ai_agent_repo, organization_mission, config)
+
+        # Debug the agent service tool registry to confirm tools were registered
+        print(
+            f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
+
         routing_service = RoutingService(
             llm_adapter,
             agent_service,
             router_model=config.get("router_model", "gpt-4o-mini"),
         )
+
         ticket_service = TicketService(ticket_repo)
+
         handoff_service = HandoffService(
             handoff_repo, ticket_repo, agent_service)
+
         memory_service = MemoryService(memory_repo, llm_adapter)
+
         nps_service = NPSService(nps_repo, ticket_repo)
 
         # Create critic service if enabled
@@ -6737,7 +7123,11 @@ class SolanaAgentFactory:
             ticket_repo, llm_adapter, agent_service
         )
 
-        notification_service = NotificationService(human_agent_repo)
+        notification_service = NotificationService(
+            human_agent_registry=human_agent_repo,
+            tool_registry=agent_service.tool_registry
+        )
+
         project_approval_service = ProjectApprovalService(
             ticket_repo, human_agent_repo, notification_service
         )
@@ -6763,6 +7153,27 @@ class SolanaAgentFactory:
         loaded_plugins = agent_service.plugin_manager.load_all_plugins()
         print(f"Loaded {loaded_plugins} plugins")
 
+        # Get list of all agents defined in config
+        config_defined_agents = [agent["name"]
+                                 for agent in config.get("ai_agents", [])]
+
+        # Sync MongoDB with config-defined agents (delete any agents not in config)
+        all_db_agents = ai_agent_repo.db.find(ai_agent_repo.collection, {})
+        db_agent_names = [agent["name"] for agent in all_db_agents]
+
+        # Find agents that exist in DB but not in config
+        agents_to_delete = [
+            name for name in db_agent_names if name not in config_defined_agents]
+
+        # Delete those agents
+        for agent_name in agents_to_delete:
+            print(
+                f"Deleting agent '{agent_name}' from MongoDB - no longer defined in config")
+            ai_agent_repo.db.delete_one(
+                ai_agent_repo.collection, {"name": agent_name})
+            if agent_name in ai_agent_repo.ai_agents_cache:
+                del ai_agent_repo.ai_agents_cache[agent_name]
+
         # Register predefined agents if any
         for agent_config in config.get("ai_agents", []):
             agent_service.register_ai_agent(
@@ -6775,10 +7186,15 @@ class SolanaAgentFactory:
             # Register tools for this agent if specified
             if "tools" in agent_config:
                 for tool_name in agent_config["tools"]:
+                    # Print available tools before registering
+                    print(
+                        f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
                     try:
                         agent_service.register_tool_for_agent(
                             agent_config["name"], tool_name
                         )
+                        print(
+                            f"Successfully registered {tool_name} for agent {agent_config['name']}")
                     except ValueError as e:
                         print(
                             f"Error registering tool {tool_name} for agent {agent_config['name']}: {e}"
@@ -7456,51 +7872,57 @@ class SolanaAgent:
 # PLUGIN SYSTEM
 #############################################
 
+class AutoTool:
+    """Base class for tools that automatically register with the system."""
 
-class Tool(ABC):
-    """Base class for all agent tools."""
+    def __init__(self, name: str, description: str, registry=None):
+        """Initialize the tool with name and description."""
+        self.name = name
+        self.description = description
+        self._config = {}
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique name of the tool."""
-        pass
+        # Register with the provided registry if given
+        if registry is not None:
+            registry.register_tool(self)
 
-    @property
-    @abstractmethod
-    def description(self) -> str:
-        """Human-readable description of what the tool does."""
-        pass
+    def configure(self, config: Dict[str, Any]) -> None:
+        """Configure the tool with settings from config."""
+        self._config = config
 
-    @property
-    @abstractmethod
-    def parameters_schema(self) -> Dict[str, Any]:
-        """JSON Schema for tool parameters."""
-        pass
+    def get_schema(self) -> Dict[str, Any]:
+        """Return the JSON schema for this tool's parameters."""
+        # Override in subclasses
+        return {}
 
-    @abstractmethod
-    def execute(self, **kwargs) -> Dict[str, Any]:
-        """Execute the tool with provided parameters."""
-        pass
+    def execute(self, **params) -> Dict[str, Any]:
+        """Execute the tool with the provided parameters."""
+        # Override in subclasses
+        raise NotImplementedError()
 
 
 class ToolRegistry:
-    """Central registry for all available tools."""
+    """Instance-based registry that manages tools and their access permissions."""
 
     def __init__(self):
-        self._tools: Dict[str, Type[Tool]] = {}
-        # agent_name -> [tool_names]
-        self._agent_tools: Dict[str, List[str]] = {}
+        """Initialize an empty tool registry."""
+        self._tools = {}  # name -> tool instance
+        self._agent_tools = {}  # agent_name -> [tool_names]
 
-    def register_tool(self, tool_class: Type[Tool]) -> None:
-        """Register a tool in the global registry."""
-        instance = tool_class()
-        self._tools[instance.name] = tool_class
+    def register_tool(self, tool) -> bool:
+        """Register a tool with this registry."""
+        self._tools[tool.name] = tool
+        print(f"Registered tool: {tool.name}")
+        return True
 
-    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> None:
-        """Grant an agent access to a specific tool."""
+    def get_tool(self, tool_name: str):
+        """Get a tool by name."""
+        return self._tools.get(tool_name)
+
+    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
+        """Give an agent access to a specific tool."""
         if tool_name not in self._tools:
-            raise ValueError(f"Tool {tool_name} is not registered")
+            print(f"Error: Tool {tool_name} is not registered")
+            return False
 
         if agent_name not in self._agent_tools:
             self._agent_tools[agent_name] = []
@@ -7508,83 +7930,86 @@ class ToolRegistry:
         if tool_name not in self._agent_tools[agent_name]:
             self._agent_tools[agent_name].append(tool_name)
 
+        return True
+
     def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
-        """Get all tools available to a specific agent."""
+        """Get all tools available to an agent."""
         tool_names = self._agent_tools.get(agent_name, [])
-        tool_defs = []
-
-        for name in tool_names:
-            if name in self._tools:
-                tool_instance = self._tools[name]()
-                tool_defs.append(
-                    {
-                        "name": tool_instance.name,
-                        "description": tool_instance.description,
-                        "parameters": tool_instance.parameters_schema,
-                    }
-                )
-
-        return tool_defs
-
-    def get_tool(self, tool_name: str) -> Optional[Tool]:
-        """Get a tool by name."""
-        tool_class = self._tools.get(tool_name)
-        return tool_class() if tool_class else None
+        return [
+            {
+                "name": name,
+                "description": self._tools[name].description,
+                "parameters": self._tools[name].get_schema()
+            }
+            for name in tool_names if name in self._tools
+        ]
 
     def list_all_tools(self) -> List[str]:
-        """List all registered tool names."""
+        """List all registered tools."""
         return list(self._tools.keys())
 
-
-# Global registry instance
-tool_registry = ToolRegistry()
+    def configure_all_tools(self, config: Dict[str, Any]) -> None:
+        """Configure all registered tools with the same config."""
+        for tool in self._tools.values():
+            tool.configure(config)
 
 
 class PluginManager:
-    """Manages discovery, loading and execution of plugins."""
+    """Manager for discovering and loading plugins."""
 
-    def __init__(self):
-        self.tools = {}
+    # Class variable to track loaded entry points
+    _loaded_entry_points = set()
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None, tool_registry: Optional[ToolRegistry] = None):
+        """Initialize with optional configuration and tool registry."""
+        self.config = config or {}
+        self.tool_registry = tool_registry or ToolRegistry()
 
     def load_all_plugins(self) -> int:
-        """Load all plugins using setuptools entry points.
+        """Load all plugins using entry points and apply configuration."""
+        loaded_count = 0
+        plugins = []
 
-        Returns the number of plugins loaded for backwards compatibility.
-        """
-        import importlib.metadata
-
-        count = 0
-        # Discover plugins registered via entry_points
+        # Discover plugins through entry points
         for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
-            try:
-                plugin_class = entry_point.load()
-                plugin = plugin_class()
+            # Skip if this entry point has already been loaded
+            entry_point_id = f"{entry_point.name}:{entry_point.value}"
+            if entry_point_id in PluginManager._loaded_entry_points:
+                print(f"Skipping already loaded plugin: {entry_point.name}")
+                continue
 
-                # Register all tools from this plugin
-                for tool in plugin.get_tools():
-                    self.tools[tool.name] = tool
-                    print(f"Registered tool: {tool.name}")
-                count += 1
+            try:
+                print(f"Found plugin entry point: {entry_point.name}")
+                PluginManager._loaded_entry_points.add(entry_point_id)
+                plugin_factory = entry_point.load()
+                plugin = plugin_factory()
+                plugins.append(plugin)
+
+                # Initialize the plugin with config
+                if hasattr(plugin, 'initialize') and callable(plugin.initialize):
+                    plugin.initialize(self.config)
+                    print(
+                        f"Initialized plugin {entry_point.name} with config keys: {list(self.config.keys() if self.config else [])}")
+
+                loaded_count += 1
             except Exception as e:
                 print(f"Error loading plugin {entry_point.name}: {e}")
 
-        return count
+        # After all plugins are initialized, register their tools
+        for plugin in plugins:
+            try:
+                if hasattr(plugin, 'get_tools') and callable(plugin.get_tools):
+                    tools = plugin.get_tools()
+                    # Register each tool with our registry
+                    if isinstance(tools, list):
+                        for tool in tools:
+                            self.tool_registry.register_tool(tool)
+                            tool.configure(self.config)
+                    else:
+                        # Single tool case
+                        self.tool_registry.register_tool(tools)
+                        tools.configure(self.config)
+            except Exception as e:
+                print(f"Error registering tools from plugin: {e}")
 
-    def get_tool(self, name):
-        """Get a tool by name."""
-        return self.tools.get(name)
-
-    def list_tools(self):
-        """List all available tools."""
-        return list(self.tools.keys())
-
-    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
-        """Execute a tool with provided parameters."""
-        tool = self.tools.get(tool_name)
-        if not tool:
-            raise ValueError(f"Tool {tool_name} not found")
-
-        try:
-            return tool.execute(**kwargs)
-        except Exception as e:
-            return {"error": str(e), "status": "error"}
+        return loaded_count

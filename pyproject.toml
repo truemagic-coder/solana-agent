@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "11.3.0"
+version = "12.0.0"
 description = "The Future of Work"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -18,13 +18,13 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "^1.66.2"
+openai = "^1.66.3"
 pydantic = "^2.10.6"
 pymongo = "^4.11.2"
-zep-cloud = "^2.6.1"
+zep-cloud = "^2.7.0"
 zep-python = "^2.0.2"
 requests = "^2.32.3"
-pinecone = "^6.0.1"
+pinecone = "^6.0.2"
 pandas = "^2.2.3"
 ntplib = "^0.4.0"
 qdrant-client = "^1.13.3"
