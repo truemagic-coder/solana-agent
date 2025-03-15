@@ -250,7 +250,7 @@ Solana Agent transforms organizations into living systems that continuously lear
 - **🔌 Standard Python Plugin System:**  
     Extensible architecture using Python's native package ecosystem.  
     PyPI-compatible plugin distribution with standard dependency management.  
-    Entry point registration (`solana_agent.plugins`) for seamless discovery.  
+    Entry point registration for seamless discovery.  
     Tool registry for AI agent capability extension.  
     Permission-based tool access for security and control.  
     Clean interface for third-party integrations through standard Python APIs.  
