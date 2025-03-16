@@ -64,54 +64,6 @@ class ToolInstructionModel(BaseModel):
     valid_agents: List[str] = Field(default_factory=list,
                                     description="List of valid agents for handoff")
 
-    def format_instructions(self) -> str:
-        """Format the tool and handoff instructions using plain text delimiters."""
-        tools_json = json.dumps(self.available_tools, indent=2)
-
-        # Tool usage instructions with plain text delimiters
-        tool_instructions = f"""
-You have access to the following tools:
-{tools_json}
-
-IMPORTANT - TOOL USAGE: When you need to use a tool, respond with JSON using these exact plain text delimiters:
-
-TOOL_START
-{{
-  "name": "tool_name",
-  "parameters": {{
-    "param1": "value1",
-    "param2": "value2"
-  }}
-}}
-TOOL_END
-
-Example: To search the internet for "{self.example_query}", respond with:
-
-TOOL_START
-{{
-  "name": "{self.example_tool}",
-  "parameters": {{
-    "query": "{self.example_query}"
-  }}
-}}
-TOOL_END
-
-ALWAYS use the search_internet tool when the user asks for current information or facts that might be beyond your knowledge cutoff. DO NOT attempt to handoff for information that could be obtained using search_internet.
-"""
-
-        # Handoff instructions if valid agents are provided
-        handoff_instructions = ""
-        if self.valid_agents:
-            handoff_instructions = f"""
-IMPORTANT - HANDOFFS: You can ONLY hand off to these existing agents: {", ".join(self.valid_agents)}
-DO NOT invent or reference agents that don't exist in this list.
-
-To hand off to another agent, use this format:
-{{"handoff": {{"target_agent": "<AGENT_NAME_FROM_LIST_ABOVE>", "reason": "detailed reason for handoff"}}}}
-"""
-
-        return f"{tool_instructions}\n\n{handoff_instructions}"
-
 
 class AgentType(str, Enum):
     """Type of agent (AI or Human)."""
