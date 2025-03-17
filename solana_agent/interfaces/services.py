@@ -1385,3 +1385,41 @@ class TaskPlanningService(ABC):
             Tuple of (success, message)
         """
         pass
+
+
+class CommandService(ABC):
+    """Interface for processing system commands."""
+
+    @abstractmethod
+    async def process_command(
+        self, user_id: str, command_text: str, timezone: Optional[str] = None
+    ) -> Optional[str]:
+        """Process a system command.
+
+        Args:
+            user_id: User ID
+            command_text: Command text including prefix
+            timezone: Optional user timezone
+
+        Returns:
+            Command result or None if not a command
+        """
+        pass
+
+    @abstractmethod
+    def get_available_commands(self) -> List[Dict[str, Any]]:
+        """Get information about all available commands.
+
+        Returns:
+            List of command information dictionaries
+        """
+        pass
+
+    @abstractmethod
+    def register_handler(self, handler: Any) -> None:
+        """Register a command handler.
+
+        Args:
+            handler: Command handler to register
+        """
+        pass

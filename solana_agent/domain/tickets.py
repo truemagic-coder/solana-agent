@@ -64,3 +64,32 @@ class Ticket(BaseModel):
         default_factory=list, description="Ticket notes")
     metadata: Dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata")
+
+
+class TicketResolutionStatus(str, Enum):
+    """Status of a ticket resolution assessment."""
+    RESOLVED = "resolved"
+    NEEDS_FOLLOWUP = "needs_followup"
+    CANNOT_DETERMINE = "cannot_determine"
+
+
+class TicketResolution(BaseModel):
+    """Assessment of whether a ticket has been resolved."""
+    status: str = Field(
+        ...,
+        description="Resolution status (resolved, needs_followup, cannot_determine)"
+    )
+    confidence: float = Field(
+        ...,
+        description="Confidence in the resolution assessment (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    reasoning: str = Field(
+        ...,
+        description="Reasoning for the resolution assessment"
+    )
+    suggested_actions: List[str] = Field(
+        default_factory=list,
+        description="Suggested actions based on resolution status"
+    )
