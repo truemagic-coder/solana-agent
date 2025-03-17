@@ -4,6 +4,7 @@ Provider interfaces for external service adapters.
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, List, Optional, Any, TypeVar, Type
 from pydantic import BaseModel
+from datetime import datetime
 
 T = TypeVar('T', bound=BaseModel)
 
