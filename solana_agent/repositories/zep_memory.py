@@ -10,8 +10,8 @@ from zep_python.client import AsyncZep
 from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_cloud.types import Message
 
-from solana_agent.interfaces.repositories import MemoryRepository
-from solana_agent.domain.memory import MemoryInsight
+from solana_agent.interfaces import MemoryRepository
+from solana_agent.domains import MemoryInsight
 
 
 class ZepMemoryRepository(MemoryRepository):

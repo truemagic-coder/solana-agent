@@ -6,9 +6,9 @@ This service manages user satisfaction tracking, NPS surveys, and feedback colle
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from solana_agent.interfaces.services import NPSService as NPSServiceInterface
-from solana_agent.interfaces.repositories import FeedbackRepository
-from solana_agent.domain.feedback import UserFeedback, NPSRating, FeedbackType
+from solana_agent.interfaces import NPSService as NPSServiceInterface
+from solana_agent.interfaces import FeedbackRepository
+from solana_agent.domains import UserFeedback, NPSRating, FeedbackType
 
 
 class NPSService(NPSServiceInterface):

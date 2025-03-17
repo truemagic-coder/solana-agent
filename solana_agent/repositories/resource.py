@@ -4,9 +4,8 @@ MongoDB implementation of the resource repository.
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from solana_agent.domain.resources import Resource, ResourceBooking
-from solana_agent.domain.enums import ResourceStatus, BookingStatus
-from solana_agent.interfaces.repositories import ResourceRepository
+from solana_agent.domains import Resource, ResourceBooking
+from solana_agent.interfaces import ResourceRepository
 
 
 class MongoResourceRepository(ResourceRepository):

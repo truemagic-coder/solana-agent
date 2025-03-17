@@ -9,3 +9,11 @@ This package contains:
 - Provider interfaces for external service adapters
 - Service interfaces for business logic components
 """
+
+from solana_agent.interfaces.plugins import *
+from solana_agent.interfaces.providers import *
+from solana_agent.interfaces.repositories import *
+from solana_agent.interfaces.services import *
+
+# Version of the domain model
+__version__ = '14.0.0'

@@ -4,8 +4,8 @@ MongoDB implementation of the scheduling repository.
 from datetime import datetime, date
 from typing import Dict, List, Optional, Any
 
-from solana_agent.domain.scheduling import ScheduledTask, AgentSchedule
-from solana_agent.interfaces.repositories import SchedulingRepository
+from solana_agent.domains import ScheduledTask, AgentSchedule
+from solana_agent.interfaces import SchedulingRepository
 
 
 class MongoSchedulingRepository(SchedulingRepository):

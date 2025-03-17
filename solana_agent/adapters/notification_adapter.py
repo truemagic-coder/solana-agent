@@ -8,7 +8,7 @@ import smtplib
 from email.mime.text import MIMEText
 from typing import Dict, Optional, Any, List
 
-from solana_agent.interfaces.providers import NotificationProvider
+from solana_agent.interfaces import NotificationProvider
 
 
 class EmailNotificationAdapter(NotificationProvider):

@@ -7,11 +7,11 @@ using historical data when available.
 import json
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.services import ProjectSimulationService as ProjectSimulationServiceInterface
-from solana_agent.interfaces.services import TaskPlanningService
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.interfaces.repositories import TicketRepository
-from solana_agent.domain.tickets import TicketStatus
+from solana_agent.interfaces import ProjectSimulationService as ProjectSimulationServiceInterface
+from solana_agent.interfaces import TaskPlanningService
+from solana_agent.interfaces import LLMProvider
+from solana_agent.interfaces import TicketRepository
+from solana_agent.domains import TicketStatus
 
 
 class ProjectSimulationService(ProjectSimulationServiceInterface):

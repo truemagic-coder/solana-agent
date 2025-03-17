@@ -6,11 +6,11 @@ This service manages agent handoffs and escalations between AI and human agents.
 from typing import Tuple, Optional, Any
 from datetime import datetime
 
-from solana_agent.interfaces.services import HandoffService as HandoffServiceInterface
-from solana_agent.interfaces.repositories import TicketRepository, HandoffRepository
-from solana_agent.services.agent import AgentService
-from solana_agent.domain.tickets import TicketStatus, TicketNote
-from solana_agent.domain.handoff import HandoffEvaluation, Handoff
+from solana_agent.interfaces import HandoffService as HandoffServiceInterface
+from solana_agent.interfaces import TicketRepository, HandoffRepository
+from solana_agent.services import AgentService
+from solana_agent.domains import TicketStatus, TicketNote
+from solana_agent.domains import HandoffEvaluation, Handoff
 
 
 class HandoffService(HandoffServiceInterface):

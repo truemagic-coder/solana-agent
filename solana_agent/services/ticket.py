@@ -7,9 +7,9 @@ import uuid
 import datetime
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.services import TicketService as TicketServiceInterface
-from solana_agent.interfaces.repositories import TicketRepository
-from solana_agent.domain.tickets import Ticket, TicketStatus, TicketNote, TicketPriority
+from solana_agent.interfaces import TicketService as TicketServiceInterface
+from solana_agent.interfaces import TicketRepository
+from solana_agent.domains import Ticket, TicketStatus, TicketNote, TicketPriority
 
 
 class TicketService(TicketServiceInterface):

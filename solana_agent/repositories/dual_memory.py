@@ -5,10 +5,10 @@ This repository combines multiple memory repositories for different storage need
 """
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.repositories import MemoryRepository
-from solana_agent.repositories.zep_memory import ZepMemoryRepository
-from solana_agent.repositories.mongo_memory import MongoMemoryRepository
-from solana_agent.domain.memory import MemoryInsight
+from solana_agent.interfaces import MemoryRepository
+from solana_agent.repositories import ZepMemoryRepository
+from solana_agent.repositories import MongoMemoryRepository
+from solana_agent.domains import MemoryInsight
 
 
 class DualMemoryRepository(MemoryRepository):

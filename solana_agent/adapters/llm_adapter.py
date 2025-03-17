@@ -10,7 +10,7 @@ from typing import AsyncGenerator, Dict, List, Optional, Any, Type, TypeVar
 from openai import OpenAI
 from pydantic import BaseModel
 
-from solana_agent.interfaces.providers import LLMProvider
+from solana_agent.interfaces import LLMProvider
 
 T = TypeVar('T', bound=BaseModel)
 

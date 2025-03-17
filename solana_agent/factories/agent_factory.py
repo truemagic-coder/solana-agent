@@ -6,34 +6,34 @@ services and components used in the system.
 """
 from typing import Dict, Any
 
-from solana_agent.services.query import QueryService
-from solana_agent.services.agent import AgentService
-from solana_agent.services.routing import RoutingService
-from solana_agent.services.ticket import TicketService
-from solana_agent.services.handoff import HandoffService
-from solana_agent.services.memory import MemoryService
-from solana_agent.services.nps import NPSService
-from solana_agent.services.critic import CriticService
-from solana_agent.services.task_planning import TaskPlanningService
-from solana_agent.services.project_approval import ProjectApprovalService
-from solana_agent.services.project_simulation import ProjectSimulationService
-from solana_agent.services.notification import NotificationService
-from solana_agent.services.scheduling import SchedulingService
-from solana_agent.services.command import CommandService
+from solana_agent.services import QueryService
+from solana_agent.services import AgentService
+from solana_agent.services import RoutingService
+from solana_agent.services import TicketService
+from solana_agent.services import HandoffService
+from solana_agent.services import MemoryService
+from solana_agent.services import NPSService
+from solana_agent.services import CriticService
+from solana_agent.services import TaskPlanningService
+from solana_agent.services import ProjectApprovalService
+from solana_agent.services import ProjectSimulationService
+from solana_agent.services import NotificationService
+from solana_agent.services import SchedulingService
+from solana_agent.services import CommandService
 
-from solana_agent.repositories.ticket import MongoTicketRepository
-from solana_agent.repositories.feedback import MongoFeedbackRepository
-from solana_agent.repositories.mongo_memory import MongoMemoryRepository
-from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.repositories.scheduling import SchedulingRepository
-from solana_agent.repositories.handoff import MongoHandoffRepository
+from solana_agent.repositories import MongoTicketRepository
+from solana_agent.repositories import MongoFeedbackRepository
+from solana_agent.repositories import MongoMemoryRepository
+from solana_agent.repositories import MongoAgentRepository
+from solana_agent.repositories import SchedulingRepository
+from solana_agent.repositories import MongoHandoffRepository
 
-from solana_agent.adapters.llm_adapter import OpenAIAdapter
-from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.adapters.memory_adapter import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
-from solana_agent.adapters.vector_adapter import QdrantAdapter, PineconeAdapter
+from solana_agent.adapters import OpenAIAdapter
+from solana_agent.adapters import MongoDBAdapter
+from solana_agent.adapters import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
+from solana_agent.adapters import QdrantAdapter, PineconeAdapter
 
-from solana_agent.domain.agents import OrganizationMission
+from solana_agent.domains import OrganizationMission
 from solana_agent.plugins import PluginManager
 
 

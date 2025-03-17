@@ -8,13 +8,13 @@ without changing the business logic.
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator
-from solana_agent.domain.feedback import UserFeedback
-from solana_agent.domain.tickets import Ticket, TicketNote
-from solana_agent.domain.agents import AIAgent, HumanAgent, AgentPerformance
-from solana_agent.domain.resources import Resource, ResourceBooking
-from solana_agent.domain.scheduling import ScheduledTask, AgentSchedule
-from solana_agent.domain.enums import TicketStatus
-from solana_agent.domain.memory import MemoryInsight
+from solana_agent.domains import UserFeedback
+from solana_agent.domains import Ticket, TicketNote
+from solana_agent.domains import AIAgent, HumanAgent, AgentPerformance
+from solana_agent.domains import Resource, ResourceBooking
+from solana_agent.domains import ScheduledTask, AgentSchedule
+from solana_agent.domains import TicketStatus
+from solana_agent.domains import MemoryInsight
 
 
 class TicketRepository(ABC):

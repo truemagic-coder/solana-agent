@@ -6,11 +6,11 @@ This repository handles storing and retrieving memory insights and conversation 
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.repositories import MemoryRepository
-from solana_agent.interfaces.providers import DataStorageProvider
-from solana_agent.interfaces.providers import VectorStoreProvider
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.domain.memory import MemoryInsight
+from solana_agent.interfaces import MemoryRepository
+from solana_agent.interfaces import DataStorageProvider
+from solana_agent.interfaces import VectorStoreProvider
+from solana_agent.interfaces import LLMProvider
+from solana_agent.domains import MemoryInsight
 
 
 class MongoMemoryRepository(MemoryRepository):

@@ -9,16 +9,16 @@ import uuid
 import datetime
 from typing import Dict, List, Optional, Any, Tuple
 
-from solana_agent.interfaces.services import TaskPlanningService as TaskPlanningServiceInterface
-from solana_agent.interfaces.services import ResourceService
-from solana_agent.interfaces.repositories import TicketRepository
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.domain.tasks import (
+from solana_agent.interfaces import TaskPlanningService as TaskPlanningServiceInterface
+from solana_agent.interfaces import ResourceService
+from solana_agent.interfaces import TicketRepository
+from solana_agent.interfaces import LLMProvider
+from solana_agent.domains import (
     ComplexityAssessment, SubtaskModel, TaskBreakdown, TaskBreakdownWithResources, WorkCapacity, PlanStatus,
     TaskStatus
 )
-from solana_agent.domain.tickets import Ticket, TicketStatus
-from solana_agent.domain.scheduling import ScheduledTask
+from solana_agent.domains import Ticket, TicketStatus
+from solana_agent.domains import ScheduledTask
 
 
 class TaskPlanningService(TaskPlanningServiceInterface):

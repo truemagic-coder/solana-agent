@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 from pymongo import MongoClient
 
-from solana_agent.interfaces.providers import DataStorageProvider
+from solana_agent.interfaces import DataStorageProvider
 
 
 class MongoDBAdapter(DataStorageProvider):

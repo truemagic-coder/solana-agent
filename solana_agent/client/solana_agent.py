@@ -7,7 +7,7 @@ the agent system without dealing with internal implementation details.
 import json
 import datetime
 import importlib.util
-from typing import Dict, List, Any, AsyncGenerator, Optional
+from typing import Dict, List, Any, AsyncGenerator
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 

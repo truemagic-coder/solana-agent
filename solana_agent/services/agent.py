@@ -7,11 +7,11 @@ and response generation.
 import asyncio
 from typing import AsyncGenerator, Dict, List, Optional, Any
 
-from solana_agent.interfaces.services import AgentService as AgentServiceInterface
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.interfaces.repositories import AgentRepository
-from solana_agent.domain.agents import AIAgent, HumanAgent, OrganizationMission
-from solana_agent.interfaces.plugins import ToolRegistry
+from solana_agent.interfaces import AgentService as AgentServiceInterface
+from solana_agent.interfaces import LLMProvider
+from solana_agent.interfaces import AgentRepository
+from solana_agent.interfaces import ToolRegistry
+from solana_agent.domains import AIAgent, HumanAgent, OrganizationMission
 
 
 class AgentService(AgentServiceInterface):

@@ -7,14 +7,13 @@ specializations, availability, and query analysis.
 from typing import Dict, List, Optional, Any, Tuple
 import datetime
 
-from solana_agent.interfaces.services import RoutingService as RoutingServiceInterface
-from solana_agent.interfaces.services import TicketService, SchedulingService
-from solana_agent.interfaces.services import AgentService
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.domain.agents import AIAgent, HumanAgent, AgentType
-from solana_agent.domain.tickets import Ticket
-from solana_agent.domain.models import QueryAnalysis
-from solana_agent.domain.scheduling import ScheduledTask, ScheduledTaskStatus
+from solana_agent.interfaces import RoutingService as RoutingServiceInterface
+from solana_agent.interfaces import TicketService, SchedulingService
+from solana_agent.interfaces import AgentService
+from solana_agent.interfaces import LLMProvider
+from solana_agent.domains import Ticket
+from solana_agent.domains import QueryAnalysis
+from solana_agent.domains import ScheduledTask, ScheduledTaskStatus
 
 
 class RoutingService(RoutingServiceInterface):
@@ -151,7 +150,7 @@ class RoutingService(RoutingServiceInterface):
             self.ticket_service.assign_ticket(ticket.id, selected_agent)
 
             note_text = f"Routed based on specialization: {analysis['primary_specialization']}. " + \
-                        f"Complexity: {analysis['complexity_level']}/5."
+                f"Complexity: {analysis['complexity_level']}/5."
 
             if is_scheduled and scheduled_task:
                 scheduled_time = scheduled_task.scheduled_start.strftime(

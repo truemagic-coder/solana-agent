@@ -9,8 +9,8 @@ import datetime
 from typing import Dict, List, Optional, Any
 
 
-from solana_agent.interfaces.services import CommandService as CommandServiceInterface
-from solana_agent.interfaces.services import (
+from solana_agent.interfaces import CommandService as CommandServiceInterface
+from solana_agent.interfaces import (
     TicketService, AgentService, SchedulingService,
     TaskPlanningService, ProjectApprovalService
 )

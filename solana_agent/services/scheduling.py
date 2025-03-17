@@ -8,10 +8,10 @@ import uuid
 import datetime
 from typing import Dict, List, Optional, Any, Tuple
 
-from solana_agent.interfaces.services import SchedulingService as SchedulingServiceInterface
-from solana_agent.interfaces.services import TaskPlanningService, AgentService, ResourceService
-from solana_agent.interfaces.repositories import SchedulingRepository
-from solana_agent.domain.scheduling import (
+from solana_agent.interfaces import SchedulingService as SchedulingServiceInterface
+from solana_agent.interfaces import TaskPlanningService, AgentService, ResourceService
+from solana_agent.interfaces import SchedulingRepository
+from solana_agent.domains import (
     AgentAvailabilityPattern, ScheduledTask, AgentSchedule, SchedulingEvent,
     TimeWindow, TimeOffRequest, TimeOffStatus
 )
@@ -763,7 +763,8 @@ class SchedulingService(SchedulingServiceInterface):
                 if next_slot:
                     # Prefer agents who can start sooner
                     time_until_available = (
-                        next_slot.start - now).total_seconds() / 3600.0  # hours
+                        # hours
+                        next_slot.start - now).total_seconds() / 3600.0
                     score -= time_until_available  # Smaller penalty for agents available sooner
                 else:
                     # No available slots found in the scheduling window

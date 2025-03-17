@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 
 from pinecone import Pinecone
 
-from solana_agent.interfaces.providers import VectorStoreProvider
+from solana_agent.interfaces import VectorStoreProvider
 
 
 class PineconeAdapter(VectorStoreProvider):

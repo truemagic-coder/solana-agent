@@ -9,16 +9,16 @@ import asyncio
 import datetime
 from typing import AsyncGenerator, Dict, Optional, Any
 
-from solana_agent.domain.tasks import ComplexityAssessment
-from solana_agent.interfaces.services import QueryService as QueryServiceInterface
-from solana_agent.interfaces.services import (
+from solana_agent.domains import ComplexityAssessment
+from solana_agent.interfaces import QueryService as QueryServiceInterface
+from solana_agent.interfaces import (
     AgentService, RoutingService, TicketService, HandoffService,
     MemoryService, NPSService, CriticService, TaskPlanningService,
     ProjectApprovalService, ProjectSimulationService, SchedulingService,
     CommandService
 )
-from solana_agent.interfaces.providers import MemoryProvider
-from solana_agent.domain.tickets import TicketStatus, Ticket, TicketResolution
+from solana_agent.interfaces import MemoryProvider
+from solana_agent.domains import TicketStatus, Ticket, TicketResolution
 
 
 class QueryService(QueryServiceInterface):

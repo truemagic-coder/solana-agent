@@ -5,9 +5,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator
 import json
 
-from solana_agent.domain.tickets import Ticket, TicketNote
-from solana_agent.domain.enums import TicketStatus
-from solana_agent.interfaces.repositories import TicketRepository
+from solana_agent.domains import Ticket, TicketNote
+from solana_agent.domains import TicketStatus
+from solana_agent.interfaces import TicketRepository
 
 
 class MongoTicketRepository(TicketRepository):

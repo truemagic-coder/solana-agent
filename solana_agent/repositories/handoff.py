@@ -6,9 +6,9 @@ This repository handles storing and retrieving handoff records.
 import datetime
 from typing import List, Optional, Any
 
-from solana_agent.interfaces.repositories import HandoffRepository
-from solana_agent.interfaces.providers import DBProvider
-from solana_agent.domain.handoff import Handoff
+from solana_agent.interfaces import HandoffRepository
+from solana_agent.interfaces import DBProvider
+from solana_agent.domains import Handoff
 
 
 class MongoHandoffRepository(HandoffRepository):

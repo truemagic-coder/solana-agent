@@ -4,9 +4,9 @@ MongoDB implementation of the agent repository.
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from solana_agent.domain.agents import AIAgent, HumanAgent, AgentPerformance
-from solana_agent.domain.enums import AgentType
-from solana_agent.interfaces.repositories import AgentRepository
+from solana_agent.domains import AIAgent, HumanAgent, AgentPerformance
+from solana_agent.domains import AgentType
+from solana_agent.interfaces import AgentRepository
 
 
 class MongoAgentRepository(AgentRepository):

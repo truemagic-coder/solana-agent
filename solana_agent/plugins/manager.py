@@ -7,8 +7,8 @@ loads, and manages plugins.
 import importlib
 from typing import Dict, List, Any, Optional
 
-from solana_agent.interfaces.plugins import PluginManager as PluginManagerInterface
-from solana_agent.plugins.registry import ToolRegistry
+from solana_agent.interfaces import PluginManager as PluginManagerInterface
+from solana_agent.plugins import ToolRegistry
 
 
 class PluginManager(PluginManagerInterface):

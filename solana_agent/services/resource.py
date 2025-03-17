@@ -8,9 +8,9 @@ import uuid
 import datetime
 from typing import Dict, List, Optional, Any, Tuple
 
-from solana_agent.interfaces.services import ResourceService as ResourceServiceInterface
-from solana_agent.interfaces.repositories import ResourceRepository
-from solana_agent.domain.resources import Resource, ResourceBooking, TimeWindow
+from solana_agent.interfaces import ResourceService as ResourceServiceInterface
+from solana_agent.interfaces import ResourceRepository
+from solana_agent.domains import Resource, ResourceBooking, TimeWindow
 
 
 class ResourceService(ResourceServiceInterface):

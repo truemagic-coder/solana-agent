@@ -7,12 +7,12 @@ ensuring proper separation of concerns and testability.
 from abc import ABC, abstractmethod
 from datetime import date, datetime
 from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
-from solana_agent.domain.feedback import UserFeedback
-from solana_agent.domain.tickets import Ticket, TicketResolution
-from solana_agent.domain.agents import AIAgent, HumanAgent
-from solana_agent.domain.resources import Resource, ResourceBooking
-from solana_agent.domain.scheduling import ScheduledTask, AgentSchedule, ScheduleConflict
-from solana_agent.domain.memory import MemoryInsight
+from solana_agent.domains import UserFeedback
+from solana_agent.domains import Ticket, TicketResolution
+from solana_agent.domains import HumanAgent
+from solana_agent.domains import Resource, ResourceBooking
+from solana_agent.domains import ScheduledTask, AgentSchedule, ScheduleConflict
+from solana_agent.domains import MemoryInsight
 
 
 class AgentService(ABC):

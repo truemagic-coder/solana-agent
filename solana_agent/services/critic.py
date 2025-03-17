@@ -5,9 +5,9 @@ This service provides quality assessment of responses and feedback.
 """
 from typing import Dict, Optional, Any
 
-from solana_agent.interfaces.services import CriticService as CriticServiceInterface
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.domain.models import ResponseEvaluation
+from solana_agent.interfaces import CriticService as CriticServiceInterface
+from solana_agent.interfaces import LLMProvider
+from solana_agent.domains import ResponseEvaluation
 
 
 class CriticService(CriticServiceInterface):

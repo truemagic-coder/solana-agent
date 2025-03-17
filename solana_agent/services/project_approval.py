@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from uuid import uuid4
 
-from solana_agent.interfaces.services import ProjectApprovalService as ProjectApprovalServiceInterface
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.interfaces.repositories import ProjectRepository
-from solana_agent.domain.projects import Project, ProjectStatus, ApprovalCriteria, ProjectReview
-from solana_agent.domain.models import ProjectApprovalResult
+from solana_agent.interfaces import ProjectApprovalService as ProjectApprovalServiceInterface
+from solana_agent.interfaces import LLMProvider
+from solana_agent.interfaces import ProjectRepository
+from solana_agent.domains import Project, ProjectStatus, ApprovalCriteria, ProjectReview
+from solana_agent.domains import ProjectApprovalResult
 
 
 class ProjectApprovalService(ProjectApprovalServiceInterface):

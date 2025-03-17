@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 import uuid
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.repositories import FeedbackRepository
-from solana_agent.interfaces.providers import DataStorageProvider
-from solana_agent.domain.feedback import UserFeedback, FeedbackType, NPSRating
+from solana_agent.interfaces import FeedbackRepository
+from solana_agent.interfaces import DataStorageProvider
+from solana_agent.domains import UserFeedback, FeedbackType, NPSRating
 
 
 class MongoFeedbackRepository(FeedbackRepository):

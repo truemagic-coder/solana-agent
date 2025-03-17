@@ -7,9 +7,9 @@ and scheduling notifications for future delivery.
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.services import NotificationService as NotificationServiceInterface
-from solana_agent.interfaces.providers import NotificationProvider
-from solana_agent.domain.notifications import NotificationTemplate
+from solana_agent.interfaces import NotificationService as NotificationServiceInterface
+from solana_agent.interfaces import NotificationProvider
+from solana_agent.domains import NotificationTemplate
 
 
 class NotificationService(NotificationServiceInterface):

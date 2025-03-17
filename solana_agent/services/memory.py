@@ -5,11 +5,11 @@ This service manages collective memory, insights extraction, and memory search.
 """
 from typing import Dict, List, Optional, Any
 
-from solana_agent.interfaces.services import MemoryService as MemoryServiceInterface
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.interfaces.repositories import MemoryRepository
-from solana_agent.domain.memory import MemoryInsight
-from solana_agent.domain.memory import MemoryInsightsResponse
+from solana_agent.interfaces import MemoryService as MemoryServiceInterface
+from solana_agent.interfaces import LLMProvider
+from solana_agent.interfaces import MemoryRepository
+from solana_agent.domains import MemoryInsight
+from solana_agent.domains import MemoryInsightsResponse
 
 
 class MemoryService(MemoryServiceInterface):
