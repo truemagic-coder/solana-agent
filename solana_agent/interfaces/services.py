@@ -1235,3 +1235,153 @@ class SchedulingService(ABC):
             List of time off requests
         """
         pass
+
+
+class TaskPlanningService(ABC):
+    """Interface for task planning services."""
+
+    @abstractmethod
+    def register_agent_capacity(
+        self,
+        agent_id: str,
+        agent_type: Any,
+        max_tasks: int,
+        specializations: List[str],
+    ) -> None:
+        """Register an agent's work capacity.
+
+        Args:
+            agent_id: Agent ID
+            agent_type: Type of agent
+            max_tasks: Maximum concurrent tasks
+            specializations: Agent specializations
+        """
+        pass
+
+    @abstractmethod
+    def update_agent_availability(self, agent_id: str, status: str) -> bool:
+        """Update an agent's availability status.
+
+        Args:
+            agent_id: Agent ID
+            status: New status
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    def get_agent_capacity(self, agent_id: str) -> Optional[Any]:
+        """Get an agent's capacity information.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            WorkCapacity object or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def get_available_agents(self, specialization: Optional[str] = None) -> List[str]:
+        """Get list of available agents, optionally filtered by specialization.
+
+        Args:
+            specialization: Optional specialization to filter by
+
+        Returns:
+            List of agent IDs
+        """
+        pass
+
+    @abstractmethod
+    async def needs_breakdown(self, task_description: str) -> Tuple[bool, str]:
+        """Determine if a task needs to be broken down into subtasks.
+
+        Args:
+            task_description: Task description
+
+        Returns:
+            Tuple of (needs_breakdown, reasoning)
+        """
+        pass
+
+    @abstractmethod
+    async def generate_subtasks(self, ticket_id: str, task_description: str) -> List[Any]:
+        """Generate subtasks for a complex task.
+
+        Args:
+            ticket_id: Parent ticket ID
+            task_description: Task description
+
+        Returns:
+            List of subtask objects
+        """
+        pass
+
+    @abstractmethod
+    async def assign_subtasks(self, parent_ticket_id: str) -> Dict[str, List[str]]:
+        """Assign subtasks to available agents based on capacity.
+
+        Args:
+            parent_ticket_id: Parent ticket ID
+
+        Returns:
+            Dictionary mapping agent IDs to lists of assigned subtask IDs
+        """
+        pass
+
+    @abstractmethod
+    async def get_plan_status(self, parent_ticket_id: str) -> Any:
+        """Get the status of a task plan.
+
+        Args:
+            parent_ticket_id: Parent ticket ID
+
+        Returns:
+            PlanStatus object
+        """
+        pass
+
+    @abstractmethod
+    async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
+        """Assess the complexity of a task using standardized metrics.
+
+        Args:
+            query: Task description
+
+        Returns:
+            Dictionary of complexity metrics
+        """
+        pass
+
+    @abstractmethod
+    async def generate_subtasks_with_resources(
+        self, ticket_id: str, task_description: str
+    ) -> List[Any]:
+        """Generate subtasks for a complex task with resource requirements.
+
+        Args:
+            ticket_id: Parent ticket ID
+            task_description: Task description
+
+        Returns:
+            List of subtask objects with resource requirements
+        """
+        pass
+
+    @abstractmethod
+    async def allocate_resources(
+        self, subtask_id: str, resource_service: Any
+    ) -> Tuple[bool, str]:
+        """Allocate resources to a subtask.
+
+        Args:
+            subtask_id: Subtask ID
+            resource_service: Resource service for resource allocation
+
+        Returns:
+            Tuple of (success, message)
+        """
+        pass

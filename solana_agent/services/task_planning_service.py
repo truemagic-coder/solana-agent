@@ -1,23 +1,54 @@
+"""
+Task planning service implementation.
+
+This service manages complex task planning, breakdown into subtasks,
+and resource allocation.
+"""
+import json
+import uuid
+import datetime
+from typing import Dict, List, Optional, Any, Tuple
+
+from solana_agent.interfaces.services import TaskPlanningService as TaskPlanningServiceInterface
+from solana_agent.interfaces.services import ResourceService
+from solana_agent.interfaces.repositories import TicketRepository
+from solana_agent.interfaces.providers import LLMProvider
+from solana_agent.domain.tasks import (
+    ComplexityAssessment, SubtaskModel, TaskBreakdown, TaskBreakdownWithResources, WorkCapacity, PlanStatus,
+    TaskStatus
+)
+from solana_agent.domain.tickets import Ticket, TicketStatus
+from solana_agent.domain.scheduling import ScheduledTask
 
 
-class TaskPlanningService:
+class TaskPlanningService(TaskPlanningServiceInterface):
     """Service for managing complex task planning and breakdown."""
 
     def __init__(
         self,
         ticket_repository: TicketRepository,
         llm_provider: LLMProvider,
-        agent_service: AgentService,
+        agent_service: Any,
+        scheduling_service: Optional[Any] = None
     ):
+        """Initialize the task planning service.
+
+        Args:
+            ticket_repository: Repository for ticket operations
+            llm_provider: Provider for language model interactions
+            agent_service: Service for agent management
+            scheduling_service: Optional service for task scheduling
+        """
         self.ticket_repository = ticket_repository
         self.llm_provider = llm_provider
         self.agent_service = agent_service
+        self.scheduling_service = scheduling_service
         self.capacity_registry = {}  # agent_id -> WorkCapacity
 
     def register_agent_capacity(
         self,
         agent_id: str,
-        agent_type: AgentType,
+        agent_type: str,
         max_tasks: int,
         specializations: List[str],
     ) -> None:
@@ -96,11 +127,7 @@ class TaskPlanningService:
             ticket_id, {"is_parent": True, "status": TicketStatus.PLANNING}
         )
 
-        # Generate subtasks using LLM
-        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
-        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
-        model = agent_config.get("model", "gpt-4o-mini")
-
+        # Generate subtasks using LLM with structured output
         prompt = f"""
         Break down the following complex task into logical subtasks:
         
@@ -112,40 +139,30 @@ class TaskPlanningService:
         3. An estimate of time required in minutes
         4. Any dependencies (which subtasks must be completed first)
         
-        Format as a JSON array of objects with these fields:
-        - title: string
-        - description: string
-        - estimated_minutes: number
-        - dependencies: array of previous subtask titles that must be completed first
-        
         The subtasks should be in a logical sequence. Keep dependencies minimal and avoid circular dependencies.
         """
 
-        response_text = ""
-        async for chunk in self.llm_provider.generate_text(
-            ticket.user_id,
-            prompt,
-            system_prompt="You are an expert project planner who breaks down complex tasks efficiently.",
-            stream=False,
-            model=model,  # Use the agent's configured model
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response_text += chunk
-
         try:
-            data = json.loads(response_text)
-            subtasks_data = data.get("subtasks", [])
+            # Use structured output parsing
+            breakdown = await self.llm_provider.parse_structured_output(
+                prompt=prompt,
+                system_prompt="You are an expert project planner who breaks down complex tasks efficiently.",
+                model_class=TaskBreakdown,
+                temperature=0.2
+            )
+
+            subtasks_data = breakdown.subtasks
 
             # Create subtask objects
             subtasks = []
             for i, task_data in enumerate(subtasks_data):
                 subtask = SubtaskModel(
+                    id=str(uuid.uuid4()),
                     parent_id=ticket_id,
-                    title=task_data["title"],
-                    description=task_data["description"],
+                    title=task_data.title,
+                    description=task_data.description,
                     sequence=i + 1,
-                    estimated_minutes=task_data.get("estimated_minutes", 30),
+                    estimated_minutes=task_data.estimated_minutes,
                     dependencies=[],
                 )
                 subtasks.append(subtask)
@@ -154,46 +171,49 @@ class TaskPlanningService:
             title_to_id = {task.title: task.id for task in subtasks}
 
             for i, task_data in enumerate(subtasks_data):
-                if "dependencies" in task_data:
-                    for dep_title in task_data["dependencies"]:
-                        if dep_title in title_to_id:
-                            subtasks[i].dependencies.append(
-                                title_to_id[dep_title])
+                for dep_title in task_data.dependencies:
+                    if dep_title in title_to_id:
+                        subtasks[i].dependencies.append(title_to_id[dep_title])
 
             # Store subtasks in database
             for subtask in subtasks:
                 new_ticket = Ticket(
                     id=subtask.id,
+                    title=subtask.title,
+                    description=subtask.description,
                     user_id=ticket.user_id,
-                    query=subtask.description,
                     status=TicketStatus.PLANNING,
                     assigned_to="",
                     created_at=datetime.datetime.now(datetime.timezone.utc),
+                    updated_at=datetime.datetime.now(datetime.timezone.utc),
                     is_subtask=True,
                     parent_id=ticket_id,
-                    complexity={
+                    metadata={
                         "estimated_minutes": subtask.estimated_minutes,
                         "sequence": subtask.sequence,
+                        "dependencies": subtask.dependencies
                     },
                 )
                 self.ticket_repository.create(new_ticket)
 
             # After creating subtasks, schedule them if scheduling_service is available
-            if hasattr(self, 'scheduling_service') and self.scheduling_service:
+            if self.scheduling_service:
                 # Schedule each subtask
                 for subtask in subtasks:
-                    # Convert SubtaskModel to ScheduledTask
                     scheduled_task = ScheduledTask(
                         task_id=subtask.id,
-                        parent_id=ticket_id,
                         title=subtask.title,
                         description=subtask.description,
-                        estimated_minutes=subtask.estimated_minutes,
+                        status=TaskStatus.PLANNING,
                         priority=5,  # Default priority
-                        assigned_to=subtask.assignee,
-                        status="pending",
-                        dependencies=subtask.dependencies,
-                        specialization_tags=[]  # Can be enhanced with auto-detection
+                        estimated_minutes=subtask.estimated_minutes,
+                        depends_on=subtask.dependencies,
+                        metadata={
+                            "ticket_id": ticket_id,
+                            "parent_ticket_id": ticket_id,
+                            "is_subtask": True,
+                            "sequence": subtask.sequence
+                        }
                     )
 
                     # Try to schedule the task
@@ -208,13 +228,11 @@ class TaskPlanningService:
     async def assign_subtasks(self, parent_ticket_id: str) -> Dict[str, List[str]]:
         """Assign subtasks to available agents based on capacity."""
         # Get all subtasks for the parent
-        subtasks = self.ticket_repository.find(
-            {
-                "parent_id": parent_ticket_id,
-                "is_subtask": True,
-                "status": TicketStatus.PLANNING,
-            }
-        )
+        subtasks = self.ticket_repository.find({
+            "parent_id": parent_ticket_id,
+            "is_subtask": True,
+            "status": TicketStatus.PLANNING,
+        })
 
         if not subtasks:
             return {}
@@ -234,8 +252,11 @@ class TaskPlanningService:
 
             # Update subtask with assignment
             self.ticket_repository.update(
-                subtask.id, {"assigned_to": agent_id,
-                             "status": TicketStatus.ACTIVE}
+                subtask.id, {
+                    "assigned_to": agent_id,
+                    "status": TicketStatus.ACTIVE,
+                    "updated_at": datetime.datetime.now(datetime.timezone.utc)
+                }
             )
 
             # Update agent capacity
@@ -251,15 +272,15 @@ class TaskPlanningService:
         """Get the status of a task plan."""
         # Get parent ticket
         parent = self.ticket_repository.get_by_id(parent_ticket_id)
-        if not parent or not parent.is_parent:
+        if not parent or not getattr(parent, "is_parent", False):
             raise ValueError(
-                f"Parent ticket {parent_ticket_id} not found or is not a parent"
-            )
+                f"Parent ticket {parent_ticket_id} not found or is not a parent")
 
         # Get all subtasks
-        subtasks = self.ticket_repository.find(
-            {"parent_id": parent_ticket_id, "is_subtask": True}
-        )
+        subtasks = self.ticket_repository.find({
+            "parent_id": parent_ticket_id,
+            "is_subtask": True
+        })
 
         subtask_count = len(subtasks)
         if subtask_count == 0:
@@ -301,13 +322,11 @@ class TaskPlanningService:
             if progress > 0:
                 first_subtask = min(subtasks, key=lambda t: t.created_at)
                 start_time = first_subtask.created_at
-                time_elapsed = (
-                    datetime.datetime.now(datetime.timezone.utc) - start_time
-                ).total_seconds()
+                time_elapsed = (datetime.datetime.now(
+                    datetime.timezone.utc) - start_time).total_seconds()
                 time_remaining = (time_elapsed / progress) * (100 - progress)
                 completion_time = datetime.datetime.now(
-                    datetime.timezone.utc
-                ) + datetime.timedelta(seconds=time_remaining)
+                    datetime.timezone.utc) + datetime.timedelta(seconds=time_remaining)
                 estimated_completion = completion_time.strftime(
                     "%Y-%m-%d %H:%M")
             else:
@@ -321,39 +340,6 @@ class TaskPlanningService:
             subtask_count=subtask_count,
         )
 
-    async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
-        """Assess the complexity of a task using standardized metrics."""
-        prompt = f"""
-        Analyze this task and provide standardized complexity metrics:
-        
-        TASK: {query}
-        
-        Assess on these dimensions:
-        1. T-shirt size (XS, S, M, L, XL, XXL)
-        2. Story points (1, 2, 3, 5, 8, 13, 21)
-        3. Estimated resolution time in minutes/hours
-        4. Technical complexity (1-10)
-        5. Domain knowledge required (1-10)
-        """
-
-        try:
-            complexity = await self.agent_service.llm_provider.parse_structured_output(
-                prompt,
-                system_prompt="You are an expert at estimating task complexity.",
-                model_class=ComplexityAssessment,
-                temperature=0.2,
-            )
-            return complexity.model_dump()
-        except Exception as e:
-            print(f"Error assessing complexity: {e}")
-            return {
-                "t_shirt_size": "M",
-                "story_points": 3,
-                "estimated_minutes": 30,
-                "technical_complexity": 5,
-                "domain_knowledge": 5,
-            }
-
     async def generate_subtasks_with_resources(
         self, ticket_id: str, task_description: str
     ) -> List[SubtaskModel]:
@@ -365,14 +351,14 @@ class TaskPlanningService:
 
         # Mark parent ticket as a parent
         self.ticket_repository.update(
-            ticket_id, {"is_parent": True, "status": TicketStatus.PLANNING}
+            ticket_id, {
+                "is_parent": True,
+                "status": TicketStatus.PLANNING,
+                "updated_at": datetime.datetime.now(datetime.timezone.utc)
+            }
         )
 
-        # Generate subtasks using LLM
-        agent_name = next(iter(self.agent_service.get_all_ai_agents().keys()))
-        agent_config = self.agent_service.get_all_ai_agents()[agent_name]
-        model = agent_config.get("model", "gpt-4o-mini")
-
+        # Generate subtasks using LLM with structured output
         prompt = f"""
         Break down the following complex task into logical subtasks with resource requirements:
         
@@ -388,46 +374,35 @@ class TaskPlanningService:
            - Quantity needed
            - Specific requirements (e.g., "room with projector", "laptop with design software")
         
-        Format as a JSON array of objects with these fields:
-        - title: string
-        - description: string
-        - estimated_minutes: number
-        - dependencies: array of previous subtask titles that must be completed first
-        - required_resources: array of objects with fields:
-          - resource_type: string
-          - quantity: number
-          - requirements: string (specific features needed)
-        
         The subtasks should be in a logical sequence. Keep dependencies minimal and avoid circular dependencies.
         """
 
-        response_text = ""
-        async for chunk in self.llm_provider.generate_text(
-            ticket.user_id,
-            prompt,
-            system_prompt="You are an expert project planner who breaks down complex tasks efficiently and identifies required resources.",
-            stream=False,
-            model=model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response_text += chunk
-
         try:
-            data = json.loads(response_text)
-            subtasks_data = data.get("subtasks", [])
+            # Use structured output parsing
+            breakdown = await self.llm_provider.parse_structured_output(
+                prompt=prompt,
+                system_prompt="You are an expert project planner who breaks down complex tasks efficiently and identifies required resources.",
+                model_class=TaskBreakdownWithResources,
+                temperature=0.2
+            )
+
+            subtasks_data = breakdown.subtasks
 
             # Create subtask objects
             subtasks = []
             for i, task_data in enumerate(subtasks_data):
+                subtask_id = str(uuid.uuid4())
                 subtask = SubtaskModel(
+                    id=subtask_id,
                     parent_id=ticket_id,
-                    title=task_data.get("title", f"Subtask {i+1}"),
-                    description=task_data.get("description", ""),
-                    estimated_minutes=task_data.get("estimated_minutes", 30),
+                    title=task_data.title,
+                    description=task_data.description,
+                    sequence=i + 1,
+                    estimated_minutes=task_data.estimated_minutes,
                     dependencies=[],  # We'll fill this after all subtasks are created
                     status="planning",
-                    required_resources=task_data.get("required_resources", []),
+                    required_resources=[resource.model_dump()
+                                        for resource in task_data.required_resources],
                     is_subtask=True,
                     created_at=datetime.datetime.now(datetime.timezone.utc)
                 )
@@ -436,14 +411,31 @@ class TaskPlanningService:
             # Process dependencies (convert title references to IDs)
             title_to_id = {task.title: task.id for task in subtasks}
             for i, task_data in enumerate(subtasks_data):
-                dependency_titles = task_data.get("dependencies", [])
-                for title in dependency_titles:
-                    if title in title_to_id:
-                        subtasks[i].dependencies.append(title_to_id[title])
+                for dep_title in task_data.dependencies:
+                    if dep_title in title_to_id:
+                        subtasks[i].dependencies.append(title_to_id[dep_title])
 
             # Store subtasks in database
             for subtask in subtasks:
-                self.ticket_repository.create(subtask)
+                new_ticket = Ticket(
+                    id=subtask.id,
+                    title=subtask.title,
+                    description=subtask.description,
+                    user_id=ticket.user_id,
+                    status=TicketStatus.PLANNING,
+                    assigned_to="",
+                    created_at=datetime.datetime.now(datetime.timezone.utc),
+                    updated_at=datetime.datetime.now(datetime.timezone.utc),
+                    is_subtask=True,
+                    parent_id=ticket_id,
+                    metadata={
+                        "estimated_minutes": subtask.estimated_minutes,
+                        "sequence": subtask.sequence,
+                        "dependencies": subtask.dependencies,
+                        "required_resources": subtask.required_resources
+                    },
+                )
+                self.ticket_repository.create(new_ticket)
 
             return subtasks
 
@@ -457,26 +449,44 @@ class TaskPlanningService:
         """Allocate resources to a subtask."""
         # Get the subtask
         subtask = self.ticket_repository.get_by_id(subtask_id)
-        if not subtask or not subtask.is_subtask:
+        if not subtask or not getattr(subtask, "is_subtask", False):
             return False, "Subtask not found"
 
-        if not subtask.required_resources:
+        # Get required resources from metadata
+        required_resources = subtask.metadata.get("required_resources", [])
+        if not required_resources:
             return True, "No resources required"
 
-        if not subtask.scheduled_start or not subtask.scheduled_end:
+        # Check if subtask is scheduled
+        scheduled_start = getattr(subtask, "scheduled_start", None)
+        scheduled_end = getattr(subtask, "scheduled_end", None)
+
+        if not scheduled_start or not scheduled_end:
+            # Try to get from scheduling service if available
+            if self.scheduling_service:
+                try:
+                    scheduled_task = self.scheduling_service.repository.get_scheduled_task(
+                        subtask_id)
+                    if scheduled_task:
+                        scheduled_start = scheduled_task.scheduled_start
+                        scheduled_end = scheduled_task.scheduled_end
+                except Exception:
+                    pass
+
+        if not scheduled_start or not scheduled_end:
             return False, "Subtask must be scheduled before resources can be allocated"
 
         # For each required resource
         resource_assignments = []
-        for resource_req in subtask.required_resources:
+        for resource_req in required_resources:
             resource_type = resource_req.get("resource_type")
             requirements = resource_req.get("requirements", "")
             quantity = resource_req.get("quantity", 1)
 
             # Find available resources matching the requirements
             resources = await resource_service.find_available_resources(
-                start_time=subtask.scheduled_start,
-                end_time=subtask.scheduled_end,
+                start_time=scheduled_start,
+                end_time=scheduled_end,
                 resource_type=resource_type,
                 tags=requirements.split() if requirements else None,
                 capacity=None  # Could use quantity here if it represents capacity
@@ -495,10 +505,9 @@ class TaskPlanningService:
                 success, booking_id, error = await resource_service.create_booking(
                     resource_id=resource.id,
                     user_id=subtask.assigned_to or "system",
-                    # Use query instead of title
-                    title=f"Task: {subtask.query}",
-                    start_time=subtask.scheduled_start,
-                    end_time=subtask.scheduled_end,
+                    title=f"Task: {subtask.title}",
+                    start_time=scheduled_start,
+                    end_time=scheduled_end,
                     description=subtask.description
                 )
 
@@ -521,10 +530,45 @@ class TaskPlanningService:
             })
 
         # Update the subtask with resource assignments
-        subtask.resource_assignments = resource_assignments
+        updated_metadata = subtask.metadata.copy() if hasattr(subtask, "metadata") else {}
+        updated_metadata["resource_assignments"] = resource_assignments
+
         self.ticket_repository.update(subtask_id, {
-            "resource_assignments": resource_assignments,
+            "metadata": updated_metadata,
             "updated_at": datetime.datetime.now(datetime.timezone.utc)
         })
 
         return True, f"Successfully allocated {len(resource_assignments)} resource types"
+
+    async def _assess_task_complexity(self, query: str) -> Dict[str, Any]:
+        """Assess the complexity of a task using standardized metrics."""
+        prompt = f"""
+        Analyze this task and provide standardized complexity metrics:
+        
+        TASK: {query}
+        
+        Assess on these dimensions:
+        1. T-shirt size (XS, S, M, L, XL, XXL)
+        2. Story points (1, 2, 3, 5, 8, 13, 21)
+        3. Estimated resolution time in minutes/hours
+        4. Technical complexity (1-10)
+        5. Domain knowledge required (1-10)
+        """
+
+        try:
+            complexity = await self.llm_provider.parse_structured_output(
+                prompt,
+                system_prompt="You are an expert at estimating task complexity.",
+                model_class=ComplexityAssessment,
+                temperature=0.2,
+            )
+            return complexity.model_dump()
+        except Exception as e:
+            print(f"Error assessing complexity: {e}")
+            return {
+                "t_shirt_size": "M",
+                "story_points": 3,
+                "estimated_minutes": 30,
+                "technical_complexity": 5,
+                "domain_knowledge": 5,
+            }
