@@ -5,7 +5,7 @@ These interfaces define the contracts for business logic services,
 ensuring proper separation of concerns and testability.
 """
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
 from solana_agent.domain.feedback import UserFeedback
 from solana_agent.domain.tickets import Ticket, TicketResolution
@@ -455,5 +455,513 @@ class CriticService(ABC):
 
         Returns:
             Improvement suggestions
+        """
+        pass
+
+
+class NotificationService(ABC):
+    """Interface for notification management services."""
+
+    @abstractmethod
+    async def send_notification(
+        self,
+        user_id: str,
+        message: str,
+        channel: str = "email",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send a notification to a user.
+
+        Args:
+            user_id: User ID or email address
+            message: Notification message
+            channel: Notification channel (email, sms, in_app)
+            metadata: Additional metadata
+
+        Returns:
+            True if notification was sent successfully
+        """
+        pass
+
+    @abstractmethod
+    async def send_from_template(
+        self,
+        user_id: str,
+        template_id: str,
+        data: Dict[str, Any],
+        channel: str = "email"
+    ) -> bool:
+        """Send a notification using a template.
+
+        Args:
+            user_id: User ID or email address
+            template_id: Template identifier
+            data: Template data for substitution
+            channel: Notification channel
+
+        Returns:
+            True if notification was sent successfully
+        """
+        pass
+
+    @abstractmethod
+    def register_template(self, template_id: str, template: Any) -> None:
+        """Register a notification template.
+
+        Args:
+            template_id: Template identifier
+            template: Template object
+        """
+        pass
+
+    @abstractmethod
+    async def schedule_notification(
+        self,
+        user_id: str,
+        message: str,
+        scheduled_time: datetime,
+        channel: str = "email",
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Schedule a notification for future delivery.
+
+        Args:
+            user_id: User ID or email address
+            message: Notification message
+            scheduled_time: When to send the notification
+            channel: Notification channel
+            metadata: Additional metadata
+
+        Returns:
+            Scheduled notification ID
+        """
+        pass
+
+    @abstractmethod
+    async def cancel_scheduled_notification(self, notification_id: str) -> bool:
+        """Cancel a scheduled notification.
+
+        Args:
+            notification_id: Scheduled notification ID
+
+        Returns:
+            True if cancellation was successful
+        """
+        pass
+
+
+class ProjectApprovalService(ABC):
+    """Interface for project approval services."""
+
+    @abstractmethod
+    async def submit_project(self, project: Any) -> str:
+        """Submit a project for approval.
+
+        Args:
+            project: Project to submit
+
+        Returns:
+            Project ID
+        """
+        pass
+
+    @abstractmethod
+    async def get_project(self, project_id: str) -> Optional[Any]:
+        """Get a project by ID.
+
+        Args:
+            project_id: Project ID
+
+        Returns:
+            Project or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def review_project(
+        self, project_id: str, reviewer_id: str, is_human_reviewer: bool = True
+    ) -> Tuple[float, List[Dict[str, Any]]]:
+        """Review a project against approval criteria.
+
+        Args:
+            project_id: Project ID
+            reviewer_id: ID of the reviewer
+            is_human_reviewer: Whether the reviewer is human
+
+        Returns:
+            Tuple of (overall_score, criteria_results)
+        """
+        pass
+
+    @abstractmethod
+    async def submit_review(
+        self,
+        project_id: str,
+        reviewer_id: str,
+        criteria_scores: List[Dict[str, Any]],
+        overall_score: float,
+        comments: str = ""
+    ) -> bool:
+        """Submit a completed review.
+
+        Args:
+            project_id: Project ID
+            reviewer_id: ID of the reviewer
+            criteria_scores: Scores for each criterion
+            overall_score: Overall project score
+            comments: Optional review comments
+
+        Returns:
+            True if review was submitted successfully
+        """
+        pass
+
+    @abstractmethod
+    async def approve_project(self, project_id: str, approver_id: str, comments: str = "") -> bool:
+        """Approve a project.
+
+        Args:
+            project_id: Project ID
+            approver_id: ID of the approver
+            comments: Optional approval comments
+
+        Returns:
+            True if approval was successful
+        """
+        pass
+
+    @abstractmethod
+    async def reject_project(self, project_id: str, rejector_id: str, reason: str) -> bool:
+        """Reject a project.
+
+        Args:
+            project_id: Project ID
+            rejector_id: ID of the rejector
+            reason: Rejection reason
+
+        Returns:
+            True if rejection was successful
+        """
+        pass
+
+
+class RoutingService(ABC):
+    """Interface for query routing services."""
+
+    @abstractmethod
+    async def analyze_query(self, query: str) -> Dict[str, Any]:
+        """Analyze a query to determine routing information.
+
+        Args:
+            query: User query to analyze
+
+        Returns:
+            Analysis results including specializations and complexity
+        """
+        pass
+
+    @abstractmethod
+    async def route_query(self, user_id: str, query: str) -> Tuple[str, Any]:
+        """Route a query to the appropriate agent.
+
+        Args:
+            user_id: User ID
+            query: User query
+
+        Returns:
+            Tuple of (agent_name, ticket)
+        """
+        pass
+
+    @abstractmethod
+    async def reroute_ticket(self, ticket_id: str, target_agent: str, reason: str) -> bool:
+        """Reroute a ticket to a different agent.
+
+        Args:
+            ticket_id: Ticket ID
+            target_agent: Target agent name
+            reason: Reason for rerouting
+
+        Returns:
+            True if rerouting was successful
+        """
+        pass
+
+
+class TicketService(ABC):
+    """Interface for ticket management services."""
+
+    @abstractmethod
+    async def get_or_create_ticket(
+        self, user_id: str, query: str, complexity: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Get active ticket for user or create a new one.
+
+        Args:
+            user_id: User ID
+            query: User query
+            complexity: Optional complexity metadata
+
+        Returns:
+            Active or newly created ticket
+        """
+        pass
+
+    @abstractmethod
+    def update_ticket_status(self, ticket_id: str, status: Any, **additional_updates) -> bool:
+        """Update ticket status and additional fields.
+
+        Args:
+            ticket_id: Ticket ID
+            status: New status
+            **additional_updates: Additional fields to update
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    def mark_ticket_resolved(self, ticket_id: str, resolution_data: Dict[str, Any]) -> bool:
+        """Mark a ticket as resolved with resolution information.
+
+        Args:
+            ticket_id: Ticket ID
+            resolution_data: Resolution details
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    def add_note_to_ticket(
+        self, ticket_id: str, content: str, note_type: str = "system", created_by: Optional[str] = None
+    ) -> bool:
+        """Add a note to a ticket.
+
+        Args:
+            ticket_id: Ticket ID
+            content: Note content
+            note_type: Type of note
+            created_by: ID of note creator
+
+        Returns:
+            True if note was added successfully
+        """
+        pass
+
+    @abstractmethod
+    def get_ticket_by_id(self, ticket_id: str) -> Optional[Any]:
+        """Get a ticket by ID.
+
+        Args:
+            ticket_id: Ticket ID
+
+        Returns:
+            Ticket or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def get_tickets_by_user(self, user_id: str, limit: int = 20) -> List[Any]:
+        """Get tickets for a specific user.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of tickets to return
+
+        Returns:
+            List of tickets
+        """
+        pass
+
+    @abstractmethod
+    def get_tickets_by_status(self, status: Any, limit: int = 50) -> List[Any]:
+        """Get tickets by status.
+
+        Args:
+            status: Ticket status
+            limit: Maximum number of tickets to return
+
+        Returns:
+            List of tickets
+        """
+        pass
+
+    @abstractmethod
+    def assign_ticket(self, ticket_id: str, agent_id: str) -> bool:
+        """Assign a ticket to an agent.
+
+        Args:
+            ticket_id: Ticket ID
+            agent_id: Agent ID
+
+        Returns:
+            True if assignment was successful
+        """
+        pass
+
+    @abstractmethod
+    def close_ticket(self, ticket_id: str, reason: str = "") -> bool:
+        """Close a ticket.
+
+        Args:
+            ticket_id: Ticket ID
+            reason: Closure reason
+
+        Returns:
+            True if closure was successful
+        """
+        pass
+
+
+class ResourceService(ABC):
+    """Interface for resource management services."""
+
+    @abstractmethod
+    async def create_resource(self, resource_data: Dict[str, Any], resource_type: str) -> str:
+        """Create a new resource from dictionary data.
+
+        Args:
+            resource_data: Resource properties
+            resource_type: Type of resource
+
+        Returns:
+            Resource ID
+        """
+        pass
+
+    @abstractmethod
+    async def get_resource(self, resource_id: str) -> Optional[Any]:
+        """Get a resource by ID.
+
+        Args:
+            resource_id: Resource ID
+
+        Returns:
+            Resource or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def update_resource(self, resource_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a resource.
+
+        Args:
+            resource_id: Resource ID
+            updates: Dictionary of updates to apply
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    async def list_resources(self, resource_type: Optional[str] = None) -> List[Any]:
+        """List all resources, optionally filtered by type.
+
+        Args:
+            resource_type: Optional type to filter by
+
+        Returns:
+            List of resources
+        """
+        pass
+
+    @abstractmethod
+    async def find_available_resources(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        capacity: Optional[int] = None,
+        tags: Optional[List[str]] = None,
+        resource_type: Optional[str] = None
+    ) -> List[Any]:
+        """Find available resources for a time period.
+
+        Args:
+            start_time: Start of time window
+            end_time: End of time window
+            capacity: Minimum capacity required
+            tags: Required resource tags
+            resource_type: Type of resource
+
+        Returns:
+            List of available resources
+        """
+        pass
+
+    @abstractmethod
+    async def create_booking(
+        self,
+        resource_id: str,
+        user_id: str,
+        title: str,
+        start_time: datetime,
+        end_time: datetime,
+        description: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Create a booking for a resource.
+
+        Args:
+            resource_id: Resource ID
+            user_id: User ID
+            title: Booking title
+            start_time: Start time
+            end_time: End time
+            description: Optional description
+            notes: Optional notes
+
+        Returns:
+            Tuple of (success, booking_id, error_message)
+        """
+        pass
+
+    @abstractmethod
+    async def cancel_booking(self, booking_id: str, user_id: str) -> Tuple[bool, Optional[str]]:
+        """Cancel a booking.
+
+        Args:
+            booking_id: Booking ID
+            user_id: User ID attempting to cancel
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        pass
+
+    @abstractmethod
+    async def get_resource_schedule(
+        self,
+        resource_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Any]:
+        """Get a resource's schedule for a date range.
+
+        Args:
+            resource_id: Resource ID
+            start_date: Start date
+            end_date: End date
+
+        Returns:
+            List of bookings in the date range
+        """
+        pass
+
+    @abstractmethod
+    async def get_user_bookings(
+        self, user_id: str, include_cancelled: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get all bookings for a user with resource details.
+
+        Args:
+            user_id: User ID
+            include_cancelled: Whether to include cancelled bookings
+
+        Returns:
+            List of booking and resource information
         """
         pass

@@ -1,78 +1,108 @@
 """
-Resource domain models for managing bookable resources.
+Resource domain models.
+
+These models define structures for resources, bookings, and availability.
 """
-import datetime
-import uuid
-from typing import Dict, List, Optional, Any
+from datetime import datetime, date, time
+from enum import Enum
+from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field
 
-from solana_agent.domain.enums import ResourceType, ResourceStatus, BookingStatus
+
+class TimeWindow(BaseModel):
+    """Time window for availability."""
+    start: datetime = Field(..., description="Start time")
+    end: datetime = Field(..., description="End time")
+
+
+class AvailabilitySchedule(BaseModel):
+    """Schedule of availability for a resource."""
+    day_of_week: int = Field(...,
+                             description="Day of week (0=Monday, 6=Sunday)", ge=0, le=6)
+    start_time: time = Field(..., description="Start time")
+    end_time: time = Field(..., description="End time")
+
+
+class ResourceType(str, Enum):
+    """Types of resources."""
+    ROOM = "room"
+    EQUIPMENT = "equipment"
+    VEHICLE = "vehicle"
+    PERSON = "person"
+    SOFTWARE = "software"
+    OTHER = "other"
 
 
 class Resource(BaseModel):
-    """A bookable resource."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    type: ResourceType
-    status: ResourceStatus = ResourceStatus.AVAILABLE
-    location: Optional[str] = None
-    capacity: Optional[int] = None
-    features: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    """Resource model."""
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Resource name")
+    resource_type: str = Field(..., description="Resource type")
+    description: Optional[str] = Field(
+        None, description="Resource description")
+    location: Optional[str] = Field(None, description="Resource location")
+    capacity: Optional[int] = Field(None, description="Resource capacity")
+    tags: List[str] = Field(default_factory=list, description="Resource tags")
+    attributes: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional attributes")
+    availability_schedule: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Availability schedule")
 
-    def is_available(self, start_time: datetime.datetime, end_time: datetime.datetime) -> bool:
-        """Check if resource is available during a time period."""
-        return self.status == ResourceStatus.AVAILABLE
+    def is_available_at(self, time_window: TimeWindow) -> bool:
+        """Check if resource is available in the time window.
+
+        Args:
+            time_window: Time window to check
+
+        Returns:
+            True if resource is available
+        """
+        # If no schedule is defined, assume always available
+        if not self.availability_schedule:
+            return True
+
+        # Get day of week for start and end times (0=Monday, 6=Sunday)
+        start_day = time_window.start.weekday()
+        end_day = time_window.end.weekday()
+
+        # If spans multiple days, check each day
+        if start_day != end_day:
+            return False  # For simplicity, don't allow multi-day bookings
+
+        # Check if time falls within any availability window for the day
+        for window in self.availability_schedule:
+            if window.get("day_of_week") == start_day:
+                avail_start = datetime.combine(
+                    time_window.start.date(), window.get("start_time"))
+                avail_end = datetime.combine(
+                    time_window.start.date(), window.get("end_time"))
+
+                if avail_start <= time_window.start and avail_end >= time_window.end:
+                    return True
+
+        return False
+
+
+class BookingStatus(str, Enum):
+    """Status of a resource booking."""
+    CONFIRMED = "confirmed"
+    PENDING = "pending"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
 
 
 class ResourceBooking(BaseModel):
-    """A booking for a resource."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    resource_id: str
-    user_id: str
-    ticket_id: Optional[str] = None
-    start_time: datetime.datetime
-    end_time: datetime.datetime
-    status: BookingStatus = BookingStatus.PENDING
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    updated_at: Optional[datetime.datetime] = None
-    notes: Optional[str] = None
-
-    def duration_minutes(self) -> int:
-        """Calculate the duration of this booking in minutes."""
-        delta = self.end_time - self.start_time
-        return int(delta.total_seconds() / 60)
-
-    def update_status(self, new_status: BookingStatus) -> None:
-        """Update the booking status."""
-        self.status = new_status
-        self.updated_at = datetime.datetime.now(datetime.timezone.utc)
-
-    def overlaps_with(self, other_booking: 'ResourceBooking') -> bool:
-        """Check if this booking overlaps with another booking."""
-        # If different resources, no overlap
-        if self.resource_id != other_booking.resource_id:
-            return False
-
-        # Check for time overlap
-        return (
-            (self.start_time <= other_booking.start_time < self.end_time) or
-            (self.start_time < other_booking.end_time <= self.end_time) or
-            (other_booking.start_time <= self.start_time and
-             other_booking.end_time >= self.end_time)
-        )
-
-
-class ResourceRequest(BaseModel):
-    """Request for resources to be allocated to a task."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    ticket_id: str
-    resource_type: ResourceType
-    quantity: int = 1
-    required_features: List[str] = Field(default_factory=list)
-    start_time: Optional[datetime.datetime] = None
-    end_time: Optional[datetime.datetime] = None
-    priority: int = 1
-    status: str = "pending"  # pending, fulfilled, rejected
-    allocated_resource_ids: List[str] = Field(default_factory=list)
+    """Resource booking model."""
+    id: str = Field(..., description="Unique identifier")
+    resource_id: str = Field(..., description="Resource ID")
+    user_id: str = Field(..., description="User ID")
+    title: str = Field(..., description="Booking title")
+    description: Optional[str] = Field(None, description="Booking description")
+    status: str = Field("confirmed", description="Booking status")
+    start_time: datetime = Field(..., description="Start time")
+    end_time: datetime = Field(..., description="End time")
+    notes: Optional[str] = Field(None, description="Booking notes")
+    created_at: datetime = Field(...,
+                                 description="When the booking was created")
+    cancelled_at: Optional[datetime] = Field(
+        None, description="When the booking was cancelled")

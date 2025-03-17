@@ -6,7 +6,7 @@ allowing for different storage implementations (MongoDB, memory, etc.)
 without changing the business logic.
 """
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from solana_agent.domain.feedback import UserFeedback
 from solana_agent.domain.tickets import Ticket, TicketNote
@@ -338,5 +338,223 @@ class FeedbackRepository(ABC):
 
         Returns:
             Dictionary mapping scores to counts
+        """
+        pass
+
+
+class ProjectRepository(ABC):
+    """Interface for project data storage and retrieval."""
+
+    @abstractmethod
+    def create(self, project: Any) -> str:
+        """Create a new project.
+
+        Args:
+            project: Project to create
+
+        Returns:
+            Project ID
+        """
+        pass
+
+    @abstractmethod
+    def get_by_id(self, project_id: str) -> Optional[Any]:
+        """Get a project by ID.
+
+        Args:
+            project_id: Project ID
+
+        Returns:
+            Project or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def update(self, project_id: str, project: Any) -> bool:
+        """Update a project.
+
+        Args:
+            project_id: Project ID
+            project: Updated project
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    def delete(self, project_id: str) -> bool:
+        """Delete a project.
+
+        Args:
+            project_id: Project ID
+
+        Returns:
+            True if deletion was successful
+        """
+        pass
+
+    @abstractmethod
+    def find_by_status(self, status: str) -> List[Any]:
+        """Find projects by status.
+
+        Args:
+            status: Project status
+
+        Returns:
+            List of matching projects
+        """
+        pass
+
+    @abstractmethod
+    def find_by_submitter(self, submitter_id: str) -> List[Any]:
+        """Find projects by submitter.
+
+        Args:
+            submitter_id: Submitter ID
+
+        Returns:
+            List of matching projects
+        """
+        pass
+
+
+class ResourceRepository(ABC):
+    """Interface for resource data storage and retrieval."""
+
+    @abstractmethod
+    def create_resource(self, resource: Any) -> str:
+        """Create a new resource.
+
+        Args:
+            resource: Resource to create
+
+        Returns:
+            Resource ID
+        """
+        pass
+
+    @abstractmethod
+    def get_resource(self, resource_id: str) -> Optional[Any]:
+        """Get a resource by ID.
+
+        Args:
+            resource_id: Resource ID
+
+        Returns:
+            Resource or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def update_resource(self, resource: Any) -> bool:
+        """Update a resource.
+
+        Args:
+            resource: Updated resource
+
+        Returns:
+            True if update was successful
+        """
+        pass
+
+    @abstractmethod
+    def list_resources(self, resource_type: Optional[str] = None) -> List[Any]:
+        """List all resources, optionally filtered by type.
+
+        Args:
+            resource_type: Optional type to filter by
+
+        Returns:
+            List of resources
+        """
+        pass
+
+    @abstractmethod
+    def find_resources(
+        self,
+        resource_type: Optional[str] = None,
+        min_capacity: Optional[int] = None,
+        tags: Optional[List[str]] = None
+    ) -> List[Any]:
+        """Find resources matching criteria.
+
+        Args:
+            resource_type: Optional type to filter by
+            min_capacity: Minimum capacity required
+            tags: Required resource tags
+
+        Returns:
+            List of matching resources
+        """
+        pass
+
+    @abstractmethod
+    def create_booking(self, booking: Any) -> str:
+        """Create a new booking.
+
+        Args:
+            booking: Booking to create
+
+        Returns:
+            Booking ID
+        """
+        pass
+
+    @abstractmethod
+    def get_booking(self, booking_id: str) -> Optional[Any]:
+        """Get a booking by ID.
+
+        Args:
+            booking_id: Booking ID
+
+        Returns:
+            Booking or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def cancel_booking(self, booking_id: str) -> bool:
+        """Cancel a booking.
+
+        Args:
+            booking_id: Booking ID
+
+        Returns:
+            True if cancellation was successful
+        """
+        pass
+
+    @abstractmethod
+    def get_resource_schedule(
+        self,
+        resource_id: str,
+        start_date: date,
+        end_date: date
+    ) -> List[Any]:
+        """Get a resource's schedule for a date range.
+
+        Args:
+            resource_id: Resource ID
+            start_date: Start date
+            end_date: End date
+
+        Returns:
+            List of bookings in the date range
+        """
+        pass
+
+    @abstractmethod
+    def get_user_bookings(
+        self, user_id: str, include_cancelled: bool = False
+    ) -> List[Any]:
+        """Get all bookings for a user.
+
+        Args:
+            user_id: User ID
+            include_cancelled: Whether to include cancelled bookings
+
+        Returns:
+            List of bookings
         """
         pass

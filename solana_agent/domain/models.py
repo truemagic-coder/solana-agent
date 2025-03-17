@@ -62,3 +62,41 @@ class HandoffEvaluation(BaseModel):
     reason: Optional[str] = Field(None, description="Reason for handoff")
     confidence: float = Field(
         0.0, description="Confidence in the recommendation", ge=0.0, le=1.0)
+
+
+class CriterionEvaluation(BaseModel):
+    """Evaluation of a single approval criterion."""
+    name: str = Field(..., description="Criterion name")
+    score: float = Field(..., description="Score (0-10)", ge=0.0, le=10.0)
+    comments: str = Field("", description="Evaluation comments")
+
+
+class ProjectApprovalResult(BaseModel):
+    """Result of a project approval evaluation."""
+    overall_score: float = Field(...,
+                                 description="Overall project score", ge=0.0, le=10.0)
+    criteria_evaluations: List[CriterionEvaluation] = Field(
+        default_factory=list,
+        description="Evaluations for each criterion"
+    )
+    summary: str = Field(..., description="Evaluation summary")
+    recommendations: List[str] = Field(
+        default_factory=list, description="Recommendations")
+
+
+class QueryAnalysis(BaseModel):
+    """Analysis of a user query for routing purposes."""
+    primary_specialization: str = Field(...,
+                                        description="Main specialization needed")
+    secondary_specializations: List[str] = Field(
+        default_factory=list,
+        description="Other helpful specializations"
+    )
+    complexity_level: int = Field(...,
+                                  description="Complexity level (1-5)", ge=1, le=5)
+    requires_human: bool = Field(
+        False, description="Whether human assistance is likely needed")
+    topics: List[str] = Field(default_factory=list,
+                              description="Key topics in the query")
+    confidence: float = Field(
+        0.0, description="Confidence in the analysis", ge=0.0, le=1.0)
