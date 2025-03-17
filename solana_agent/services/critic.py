@@ -111,29 +111,26 @@ class CriticService(CriticServiceInterface):
         Returns:
             Improvement suggestions
         """
-        prompt = f"""
-        Please suggest specific improvements for this AI assistant response:
-        
-        User query: {query}
-        
-        AI response: {response}
-        
-        Focus on concrete ways to make the response more accurate, relevant, complete,
-        clear, and helpful. Provide specific suggestions, not general feedback.
-        """
-
         try:
-            async for chunk in self.llm_provider.generate_text(
-                user_id="system",
-                prompt=prompt,
-                system_prompt="You are an expert at improving AI responses. Provide specific, actionable suggestions.",
-                model=self.model,
-                stream=False,
-                temperature=0.4
-            ):
-                return chunk
+            suggestions_text = ""
+            prompt = f"""
+            Suggest improvements for this response to the user query.
+            
+            User query: {query}
+            
+            AI response: {response}
+            
+            Provide specific, actionable suggestions to improve this response.
+            """
 
-            return "No suggestions available."
+            async for chunk in self.llm_provider.generate_text(
+                prompt=prompt,
+                system_prompt="You are an expert evaluator. Provide specific suggestions to improve this response.",
+                model=self.model,
+                temperature=0.7
+            ):
+                suggestions_text += chunk
+
+            return suggestions_text
         except Exception as e:
-            print(f"Error generating improvement suggestions: {e}")
             return f"Error: {str(e)}"

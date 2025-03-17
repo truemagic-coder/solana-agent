@@ -6,5 +6,8 @@
     "CodeGPT.apiKey": "Anthropic",
     "[python]": {
         "editor.defaultFormatter": "ms-python.autopep8"
-    }
+    },
+    "python.testing.pytestArgs": [
+        "tests"
+    ]
 }
