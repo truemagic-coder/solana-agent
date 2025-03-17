@@ -35,50 +35,36 @@ class HandoffService(HandoffServiceInterface):
         # Get the LLM provider from the agent service
         self.llm_provider = agent_service.llm_provider
 
-    async def evaluate_handoff_needed(
-        self, query: str, response: str, current_agent: str
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Evaluate if a handoff is needed based on query and response.
-
-        Args:
-            query: User query
-            response: Agent response
-            current_agent: Current agent name
-
-        Returns:
-            Tuple of (handoff_needed, target_agent, reason)
-        """
-        # Skip handoff evaluation for simple queries
-        if len(query.split()) < 5 or "thank" in query.lower():
+    async def evaluate_handoff_needed(self, query: str, response: str, current_agent: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Evaluate if a handoff is needed based on query and response."""
+        # Skip evaluation for very short queries - this logic should be modified
+        # Currently this is skipping normal queries too
+        if len(query.strip()) < 30:  # You might be using a higher threshold
             return False, None, None
-
-        prompt = f"""
-        Evaluate if this conversation needs to be handed off to a different agent:
-        
-        User query: {query}
-        
-        Current agent ({current_agent}) response: {response}
-        
-        Determine if:
-        1. The query is outside the current agent's expertise
-        2. The response indicates inability to help or uncertainty
-        3. The query requires a different specialization
-        4. The query explicitly requests another agent or human help
-        """
 
         try:
+            prompt = f"""
+            Evaluate if this interaction requires a handoff to another agent.
+            
+            User query: {query}
+            Current agent: {current_agent}
+            Agent response: {response}
+            """
+
             evaluation = await self.llm_provider.parse_structured_output(
                 prompt=prompt,
-                system_prompt="Evaluate if agent handoff is needed objectively.",
+                system_prompt="You're an expert at determining when a conversation should be handed off.",
                 model_class=HandoffEvaluation,
-                temperature=0.2
+                temperature=0.3
             )
 
-            if evaluation.handoff_needed:
-                return True, evaluation.target_agent, evaluation.reason
-            return False, None, None
+            return (
+                evaluation.handoff_needed,
+                evaluation.target_agent,
+                evaluation.reason
+            )
         except Exception as e:
-            print(f"Error in handoff evaluation: {e}")
+            print(f"Error evaluating handoff: {str(e)}")
             return False, None, None
 
     async def request_human_help(
@@ -157,86 +143,56 @@ class HandoffService(HandoffServiceInterface):
 
         return True
 
-    async def handle_handoff(
-        self, ticket_id: str, target_agent: str, reason: str
-    ) -> bool:
-        """Handle the handoff to another agent.
-
-        Args:
-            ticket_id: Ticket ID
-            target_agent: Target agent name
-            reason: Reason for the handoff
-
-        Returns:
-            True if handoff was successful
-        """
+    async def handle_handoff(self, ticket_id: str, target_agent: str, reason: str) -> bool:
+        """Handle a handoff to another agent."""
         ticket = self.ticket_repository.get_by_id(ticket_id)
         if not ticket:
             return False
 
-        # Check if target is a human or AI agent
-        target_is_human = False
+        # Check if target is a human agent or human help request
+        if target_agent.lower() in ["human", "human help", "human agent"]:
+            return await self.request_human_help(ticket_id=ticket_id, reason=reason)
 
-        # Use agent service to find the target agent
+        # Check for human agent by ID or name
+        human_agents = self.agent_service.get_all_human_agents()
+        for agent_id, agent in human_agents.items():
+            if agent_id == target_agent or agent.name == target_agent:
+                return await self.request_human_help(ticket_id=ticket_id, reason=reason)
+
+        # Check for AI agent
         ai_agents = self.agent_service.get_all_ai_agents()
-        ai_agent = ai_agents.get(target_agent)
-
-        if not ai_agent:
-            # Check if it's a human agent or a special request
-            if target_agent.lower() in ["human", "human agent", "support"]:
-                # Generic request for human help
-                return await self.request_human_help(ticket_id, reason)
-            else:
-                # Check for human agent by name
-                human_agents = self.agent_service.get_all_human_agents()
-
-                # Find human agent by name (case-insensitive)
-                target_human = None
-                for agent in human_agents.values():
-                    if agent.name.lower() == target_agent.lower():
-                        target_human = agent
-                        break
-
-                if target_human:
-                    target_is_human = True
-                    target_agent = target_human.id  # Use the ID for handoff
-                else:
-                    # Target agent not found
-                    note = TicketNote(
-                        content=f"Handoff failed: Agent '{target_agent}' not found",
-                        type="system",
-                        timestamp=datetime.now()
-                    )
-                    self.ticket_repository.add_note(ticket_id, note)
-                    return False
-
-        # Handle handoff based on agent type
-        if target_is_human:
-            return await self.request_human_help(ticket_id, reason)
-        else:
-            # Handoff to AI agent
-            self.ticket_repository.update(ticket_id, {
-                "assigned_to": target_agent,
-                "status": TicketStatus.ASSIGNED,
-                "updated_at": datetime.now()
-            })
-
+        if target_agent not in ai_agents:
             note = TicketNote(
-                content=f"Handed off to AI agent {target_agent}. Reason: {reason}",
+                content=f"Failed to handoff: Agent {target_agent} not found",
                 type="system",
                 timestamp=datetime.now()
             )
             self.ticket_repository.add_note(ticket_id, note)
+            return False
 
-            # Record the handoff
-            handoff = Handoff(
-                from_agent=ticket.assigned_to or "system",
-                to_agent=target_agent,
-                ticket_id=ticket_id,
-                reason=reason,
-                timestamp=datetime.now(),
-                successful=True
-            )
-            self.handoff_repository.record(handoff)
+        # Handoff to AI agent
+        self.ticket_repository.update(ticket_id, {
+            "assigned_to": target_agent,
+            "status": TicketStatus.ASSIGNED,
+            "updated_at": datetime.now()
+        })
 
-            return True
+        note = TicketNote(
+            content=f"Handed off to AI agent {target_agent}. Reason: {reason}",
+            type="system",
+            timestamp=datetime.now()
+        )
+        self.ticket_repository.add_note(ticket_id, note)
+
+        # Record the handoff
+        handoff = Handoff(
+            from_agent=ticket.assigned_to or "system",
+            to_agent=target_agent,
+            ticket_id=ticket_id,
+            reason=reason,
+            timestamp=datetime.now(),
+            successful=True
+        )
+        self.handoff_repository.record(handoff)
+
+        return True
