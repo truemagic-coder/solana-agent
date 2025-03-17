@@ -2,7 +2,6 @@
 Common enumerations used across the Solana Agent system.
 """
 from enum import Enum
-from typing import List, Optional
 
 
 class TicketStatus(str, Enum):

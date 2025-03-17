@@ -4,7 +4,7 @@ General domain models.
 These models define structures used across the system.
 """
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class MemoryInsightsResponse(BaseModel):
@@ -33,7 +33,7 @@ class ResponseEvaluation(BaseModel):
         description="Suggestions for improving the response"
     )
 
-    @validator('overall_score', pre=True, always=True)
+    @field_validator('overall_score')
     def compute_overall_score(cls, v, values):
         """Compute overall score if not provided."""
         if v is not None:

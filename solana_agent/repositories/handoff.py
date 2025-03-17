@@ -7,14 +7,14 @@ import datetime
 from typing import List, Optional, Any
 
 from solana_agent.interfaces import HandoffRepository
-from solana_agent.interfaces import DBProvider
+from solana_agent.interfaces import DataStorageProvider
 from solana_agent.domains import Handoff
 
 
 class MongoHandoffRepository(HandoffRepository):
     """MongoDB implementation of HandoffRepository."""
 
-    def __init__(self, db_provider: DBProvider):
+    def __init__(self, db_provider: DataStorageProvider):
         """Initialize the handoff repository.
 
         Args:

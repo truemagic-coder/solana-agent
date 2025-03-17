@@ -3,7 +3,7 @@ Dual memory repository implementation.
 
 This repository combines multiple memory repositories for different storage needs.
 """
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 
 from solana_agent.interfaces import MemoryRepository
 from solana_agent.repositories import ZepMemoryRepository

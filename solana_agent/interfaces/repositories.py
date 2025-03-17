@@ -579,8 +579,8 @@ class HandoffRepository(ABC):
     def find_for_agent(
         self,
         agent_name: str,
-        start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> List[Any]:
         """Find handoffs for an agent.
 
@@ -598,8 +598,8 @@ class HandoffRepository(ABC):
     def count_for_agent(
         self,
         agent_name: str,
-        start_date: Optional[datetime.datetime] = None,
-        end_date: Optional[datetime.datetime] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> int:
         """Count handoffs for an agent.
 

@@ -11,7 +11,7 @@ from solana_agent.domains import UserFeedback
 from solana_agent.domains import Ticket, TicketResolution
 from solana_agent.domains import HumanAgent
 from solana_agent.domains import Resource, ResourceBooking
-from solana_agent.domains import ScheduledTask, AgentSchedule, ScheduleConflict
+from solana_agent.domains import ScheduledTask, AgentSchedule, ScheduleConflictType
 from solana_agent.domains import MemoryInsight
 
 
@@ -215,12 +215,12 @@ class SchedulingService(ABC):
         pass
 
     @abstractmethod
-    def detect_conflicts(self, agent_id: str, date: datetime.date) -> List[ScheduleConflict]:
+    def detect_conflicts(self, agent_id: str, date: datetime.date) -> List[ScheduleConflictType]:
         """Detect scheduling conflicts for an agent."""
         pass
 
     @abstractmethod
-    async def resolve_scheduling_conflicts(self, conflicts: List[ScheduleConflict]) -> List[ScheduleConflict]:
+    async def resolve_scheduling_conflicts(self, conflicts: List[ScheduleConflictType]) -> List[ScheduleConflictType]:
         """Attempt to resolve scheduling conflicts."""
         pass
 
