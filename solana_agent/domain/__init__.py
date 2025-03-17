@@ -1,20 +1,77 @@
 """
-Repository implementations for the Solana Agent system.
+Domain models for the Solana Agent system.
 
-These repositories implement the interfaces from solana_agent.interfaces.repositories
-and provide concrete data access layers.
+This package contains all the core domain models that represent the
+business objects and value types in the system.
 """
 
-from solana_agent.repositories.mongo_ticket import MongoTicketRepository
-from solana_agent.repositories.mongo_agent import MongoAgentRepository
-from solana_agent.repositories.mongo_resource import MongoResourceRepository
-from solana_agent.repositories.mongo_scheduling import MongoSchedulingRepository
-from solana_agent.repositories.mongo_memory import MongoMemoryRepository
+# Import and re-export all models from domain files
+from solana_agent.domain.agents import (
+    AgentType,
+    AIAgent,
+    HumanAgent,
+    AgentProfile,
+    AgentSpecialization
+)
 
-__all__ = [
-    "MongoTicketRepository",
-    "MongoAgentRepository",
-    "MongoResourceRepository",
-    "MongoSchedulingRepository",
-    "MongoMemoryRepository",
-]
+from solana_agent.domain.tickets import (
+    Ticket,
+    TicketStatus,
+    TicketInteraction,
+    TicketPriority
+)
+
+from solana_agent.domain.tasks import (
+    ComplexityAssessment,
+    SubtaskModel,
+    TaskBreakdown,
+    TaskBreakdownWithResources,
+    WorkCapacity,
+    PlanStatus,
+    TaskStatus,
+    ResourceRequirement,
+    ResourceAllocation,
+    ResourceAssignment,
+    SubtaskDefinition,
+    SubtaskWithResources
+)
+
+from solana_agent.domain.scheduling import (
+    AgentAvailabilityPattern,
+    ScheduledTask,
+    AgentSchedule,
+    SchedulingEvent,
+    TimeWindow,
+    TimeOffRequest,
+    TimeOffStatus,
+    ScheduledTaskStatus
+)
+
+from solana_agent.domain.projects import (
+    ProjectStatus,
+    Project,
+    ApprovalCriteria,
+    ProjectReview,
+    RiskLevel,
+    Risk,
+    TimelineEstimate,
+    ResourceEstimate,
+    FeasibilityAssessment,
+    ProjectSimulation
+)
+
+from solana_agent.domain.resources import (
+    Resource,
+    ResourceType,
+    ResourceBooking,
+    BookingStatus,
+    AvailabilitySchedule,
+    TimeWindow
+)
+
+from solana_agent.domain.models import (
+    QueryAnalysis
+)
+
+# Version of the domain model
+__version__ = '0.1.0'
