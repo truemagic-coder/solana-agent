@@ -965,3 +965,273 @@ class ResourceService(ABC):
             List of booking and resource information
         """
         pass
+
+
+class ProjectSimulationService(ABC):
+    """Interface for project simulation services."""
+
+    @abstractmethod
+    async def simulate_project(self, project_description: str) -> Dict[str, Any]:
+        """Run a full simulation on a potential project using historical data when available.
+
+        Args:
+            project_description: Description of the project to simulate
+
+        Returns:
+            Simulation results including complexity, timeline, risks, etc.
+        """
+        pass
+
+    @abstractmethod
+    async def _assess_risks(
+        self, project_description: str, similar_projects: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        """Assess potential risks in the project using historical data.
+
+        Args:
+            project_description: Project description
+            similar_projects: Optional list of similar historical projects
+
+        Returns:
+            Risk assessment results
+        """
+        pass
+
+    @abstractmethod
+    async def _estimate_timeline(
+        self,
+        project_description: str,
+        complexity: Dict[str, Any],
+        similar_projects: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        """Estimate timeline with confidence intervals using historical data.
+
+        Args:
+            project_description: Project description
+            complexity: Complexity assessment
+            similar_projects: Optional list of similar historical projects
+
+        Returns:
+            Timeline estimates
+        """
+        pass
+
+    @abstractmethod
+    async def _assess_resource_needs(
+        self, project_description: str, complexity: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Assess resource requirements for the project.
+
+        Args:
+            project_description: Project description
+            complexity: Complexity assessment
+
+        Returns:
+            Resource requirements
+        """
+        pass
+
+
+class SchedulingService(ABC):
+    """Interface for task scheduling and agent coordination services."""
+
+    @abstractmethod
+    async def schedule_task(
+        self,
+        task: Any,
+        preferred_agent_id: str = None
+    ) -> Any:
+        """Schedule a task with optimal time and agent assignment.
+
+        Args:
+            task: Task to schedule
+            preferred_agent_id: Preferred agent ID
+
+        Returns:
+            Scheduled task
+        """
+        pass
+
+    @abstractmethod
+    async def find_optimal_time_slot_with_resources(
+        self,
+        task: Any,
+        resource_service: Any,
+        agent_schedule: Optional[Any] = None
+    ) -> Optional[Any]:
+        """Find the optimal time slot for a task based on both agent and resource availability.
+
+        Args:
+            task: Task to schedule
+            resource_service: Resource service for checking resource availability
+            agent_schedule: Optional cached agent schedule
+
+        Returns:
+            Optimal time window or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def optimize_schedule(self) -> Dict[str, Any]:
+        """Optimize the entire schedule to maximize efficiency.
+
+        Returns:
+            Optimization results
+        """
+        pass
+
+    @abstractmethod
+    async def register_agent_schedule(self, schedule: Any) -> bool:
+        """Register or update an agent's schedule.
+
+        Args:
+            schedule: Agent schedule
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
+    async def get_agent_schedule(self, agent_id: str) -> Optional[Any]:
+        """Get an agent's schedule.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            Agent schedule or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def get_agent_tasks(
+        self,
+        agent_id: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        include_completed: bool = False
+    ) -> List[Any]:
+        """Get all tasks scheduled for an agent within a time range.
+
+        Args:
+            agent_id: Agent ID
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            include_completed: Whether to include completed tasks
+
+        Returns:
+            List of tasks
+        """
+        pass
+
+    @abstractmethod
+    async def mark_task_started(self, task_id: str) -> bool:
+        """Mark a task as started.
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
+    async def mark_task_completed(self, task_id: str) -> bool:
+        """Mark a task as completed.
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            True if successful
+        """
+        pass
+
+    @abstractmethod
+    async def find_available_time_slots(
+        self,
+        agent_id: str,
+        duration_minutes: int,
+        start_after: datetime = None,
+        end_before: datetime = None,
+        count: int = 3,
+        agent_schedule: Optional[Any] = None
+    ) -> List[Any]:
+        """Find available time slots for an agent.
+
+        Args:
+            agent_id: Agent ID
+            duration_minutes: Task duration in minutes
+            start_after: Don't look for slots before this time
+            end_before: Don't look for slots after this time
+            count: Maximum number of slots to return
+            agent_schedule: Optional cached agent schedule
+
+        Returns:
+            List of available time windows
+        """
+        pass
+
+    @abstractmethod
+    async def resolve_scheduling_conflicts(self) -> Dict[str, Any]:
+        """Detect and resolve scheduling conflicts.
+
+        Returns:
+            Conflict resolution results
+        """
+        pass
+
+    @abstractmethod
+    async def request_time_off(
+        self,
+        agent_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        reason: str
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Request time off for a human agent.
+
+        Args:
+            agent_id: Agent ID
+            start_time: Start time
+            end_time: End time
+            reason: Reason for time off
+
+        Returns:
+            Tuple of (success, status, request_id)
+        """
+        pass
+
+    @abstractmethod
+    async def cancel_time_off_request(
+        self,
+        agent_id: str,
+        request_id: str
+    ) -> Tuple[bool, str]:
+        """Cancel a time off request.
+
+        Args:
+            agent_id: Agent ID
+            request_id: Request ID
+
+        Returns:
+            Tuple of (success, status)
+        """
+        pass
+
+    @abstractmethod
+    async def get_agent_time_off_history(
+        self,
+        agent_id: str
+    ) -> List[Dict[str, Any]]:
+        """Get an agent's time off history.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            List of time off requests
+        """
+        pass

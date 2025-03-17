@@ -1,14 +1,38 @@
+"""
+Scheduling service implementation.
+
+This service manages task scheduling, agent availability, and
+coordination of work across the system.
+"""
+import uuid
+import datetime
+from typing import Dict, List, Optional, Any, Tuple
+
+from solana_agent.interfaces.services import SchedulingService as SchedulingServiceInterface
+from solana_agent.interfaces.services import TaskPlanningService, AgentService, ResourceService
+from solana_agent.interfaces.repositories import SchedulingRepository
+from solana_agent.domain.scheduling import (
+    AgentAvailabilityPattern, ScheduledTask, AgentSchedule, SchedulingEvent,
+    TimeWindow, TimeOffRequest, TimeOffStatus
+)
 
 
-class SchedulingService:
+class SchedulingService(SchedulingServiceInterface):
     """Service for intelligent task scheduling and agent coordination."""
 
     def __init__(
         self,
         scheduling_repository: SchedulingRepository,
-        task_planning_service: TaskPlanningService = None,
-        agent_service: AgentService = None
+        task_planning_service: Optional[TaskPlanningService] = None,
+        agent_service: Optional[AgentService] = None
     ):
+        """Initialize the scheduling service.
+
+        Args:
+            scheduling_repository: Repository for scheduling data
+            task_planning_service: Optional task planning service
+            agent_service: Optional agent service
+        """
         self.repository = scheduling_repository
         self.task_planning_service = task_planning_service
         self.agent_service = agent_service
@@ -18,7 +42,15 @@ class SchedulingService:
         task: ScheduledTask,
         preferred_agent_id: str = None
     ) -> ScheduledTask:
-        """Schedule a task with optimal time and agent assignment."""
+        """Schedule a task with optimal time and agent assignment.
+
+        Args:
+            task: Task to schedule
+            preferred_agent_id: Preferred agent ID
+
+        Returns:
+            Scheduled task
+        """
         # First check if task already has a fixed schedule
         if task.scheduled_start and task.scheduled_end and task.assigned_to:
             # Task is already fully scheduled, just save it
@@ -60,7 +92,16 @@ class SchedulingService:
         resource_service: ResourceService,
         agent_schedule: Optional[AgentSchedule] = None
     ) -> Optional[TimeWindow]:
-        """Find the optimal time slot for a task based on both agent and resource availability."""
+        """Find the optimal time slot for a task based on both agent and resource availability.
+
+        Args:
+            task: Task to schedule
+            resource_service: Resource service for checking resource availability
+            agent_schedule: Optional cached agent schedule
+
+        Returns:
+            Optimal time window or None if not found
+        """
         if not task.assigned_to:
             return None
 
@@ -126,7 +167,11 @@ class SchedulingService:
         return agent_slots[0]
 
     async def optimize_schedule(self) -> Dict[str, Any]:
-        """Optimize the entire schedule to maximize efficiency."""
+        """Optimize the entire schedule to maximize efficiency.
+
+        Returns:
+            Optimization results
+        """
         # Get all pending and scheduled tasks
         pending_tasks = self.repository.get_unscheduled_tasks()
         scheduled_tasks = self.repository.get_tasks_by_status("scheduled")
@@ -197,12 +242,28 @@ class SchedulingService:
             # Save changes
             self.repository.update_scheduled_task(task)
 
+        return changes
+
     async def register_agent_schedule(self, schedule: AgentSchedule) -> bool:
-        """Register or update an agent's schedule."""
+        """Register or update an agent's schedule.
+
+        Args:
+            schedule: Agent schedule
+
+        Returns:
+            True if successful
+        """
         return self.repository.save_agent_schedule(schedule)
 
     async def get_agent_schedule(self, agent_id: str) -> Optional[AgentSchedule]:
-        """Get an agent's schedule."""
+        """Get an agent's schedule.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            Agent schedule or None if not found
+        """
         return self.repository.get_agent_schedule(agent_id)
 
     async def get_agent_tasks(
@@ -212,12 +273,29 @@ class SchedulingService:
         end_time: Optional[datetime.datetime] = None,
         include_completed: bool = False
     ) -> List[ScheduledTask]:
-        """Get all tasks scheduled for an agent within a time range."""
+        """Get all tasks scheduled for an agent within a time range.
+
+        Args:
+            agent_id: Agent ID
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            include_completed: Whether to include completed tasks
+
+        Returns:
+            List of tasks
+        """
         status_filter = None if include_completed else "scheduled"
         return self.repository.get_agent_tasks(agent_id, start_time, end_time, status_filter)
 
     async def mark_task_started(self, task_id: str) -> bool:
-        """Mark a task as started."""
+        """Mark a task as started.
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            True if successful
+        """
         task = self.repository.get_scheduled_task(task_id)
         if not task:
             return False
@@ -236,7 +314,14 @@ class SchedulingService:
         return True
 
     async def mark_task_completed(self, task_id: str) -> bool:
-        """Mark a task as completed."""
+        """Mark a task as completed.
+
+        Args:
+            task_id: Task ID
+
+        Returns:
+            True if successful
+        """
         task = self.repository.get_scheduled_task(task_id)
         if not task:
             return False
@@ -280,7 +365,19 @@ class SchedulingService:
         count: int = 3,
         agent_schedule: Optional[AgentSchedule] = None
     ) -> List[TimeWindow]:
-        """Find available time slots for an agent."""
+        """Find available time slots for an agent.
+
+        Args:
+            agent_id: Agent ID
+            duration_minutes: Task duration in minutes
+            start_after: Don't look for slots before this time
+            end_before: Don't look for slots after this time
+            count: Maximum number of slots to return
+            agent_schedule: Optional cached agent schedule
+
+        Returns:
+            List of available time windows
+        """
         # Default time bounds
         if not start_after:
             start_after = datetime.datetime.now(datetime.timezone.utc)
@@ -290,12 +387,94 @@ class SchedulingService:
         # Get agent schedule if not provided
         if not agent_schedule:
             agent_schedule = self.repository.get_agent_schedule(agent_id)
-        if not agent_schedule:
-            return []
 
-        # Rest of method unchanged...
+        if not agent_schedule:
+            # If no schedule exists, assume standard business hours
+            default_schedule = AgentSchedule(
+                agent_id=agent_id,
+                availability_patterns=[
+                    # Monday-Friday, 9am-5pm
+                    AgentAvailabilityPattern(
+                        day_of_week=i,
+                        start_time=datetime.time(9, 0),
+                        end_time=datetime.time(17, 0)
+                    ) for i in range(5)  # 0=Monday through 4=Friday
+                ]
+            )
+            agent_schedule = default_schedule
+
+        # Get all tasks in the time range
+        existing_tasks = self.repository.get_agent_tasks(
+            agent_id,
+            start_after,
+            end_before,
+            "scheduled"
+        )
+
+        # Convert to time windows
+        blocked_windows = []
+        for task in existing_tasks:
+            if task.scheduled_start and task.scheduled_end:
+                blocked_windows.append(TimeWindow(
+                    start=task.scheduled_start,
+                    end=task.scheduled_end
+                ))
+
+        # Find slots with sufficient duration where the agent is available
+        available_slots = []
+        current_time = start_after
+
+        # Look for slots until we have enough or reach end_before
+        while len(available_slots) < count and current_time < end_before:
+            # Check if agent is available at this time according to their schedule
+            if agent_schedule.is_available_at(current_time):
+                # Calculate potential slot end time
+                slot_end = current_time + \
+                    datetime.timedelta(minutes=duration_minutes)
+
+                # Check if slot fits within schedule and before end_before
+                if slot_end <= end_before:
+                    # Check if agent is continuously available during this slot
+                    is_available = True
+
+                    # Check every hour during the slot
+                    check_time = current_time
+                    while check_time <= slot_end:
+                        if not agent_schedule.is_available_at(check_time):
+                            is_available = False
+                            break
+                        check_time += datetime.timedelta(hours=1)
+
+                    # Check if slot overlaps with any blocked windows
+                    if is_available:
+                        potential_slot = TimeWindow(
+                            start=current_time, end=slot_end)
+
+                        for blocked in blocked_windows:
+                            if potential_slot.overlaps_with(blocked):
+                                is_available = False
+                                # Move time pointer to end of this blocked slot
+                                current_time = blocked.end
+                                break
+
+                        if is_available:
+                            available_slots.append(potential_slot)
+                            # Move time pointer to end of this slot for next iteration
+                            current_time = slot_end
+                            continue
+
+            # If we get here, either not available or we found a slot
+            # Increment by 30 minutes and try again
+            current_time += datetime.timedelta(minutes=30)
+
+        return available_slots
+
     async def resolve_scheduling_conflicts(self) -> Dict[str, Any]:
-        """Detect and resolve scheduling conflicts."""
+        """Detect and resolve scheduling conflicts.
+
+        Returns:
+            Conflict resolution results
+        """
         # Get all scheduled tasks
         tasks = self.repository.get_tasks_by_status("scheduled")
 
@@ -356,130 +535,383 @@ class SchedulingService:
 
         return {"conflicts_found": len(conflicts), "conflicts": conflicts}
 
+    async def request_time_off(
+        self,
+        agent_id: str,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        reason: str = ""
+    ) -> Tuple[bool, str, Optional[TimeOffRequest]]:
+        """Request time off for an agent.
+
+        Args:
+            agent_id: Agent ID
+            start_time: Start time
+            end_time: End time
+            reason: Optional reason for time off
+
+        Returns:
+            Tuple of (success, message, request_object)
+        """
+        # Validate time range
+        if start_time >= end_time:
+            return False, "Start time must be before end time", None
+
+        if start_time < datetime.datetime.now(datetime.timezone.utc):
+            return False, "Time off cannot be requested in the past", None
+
+        # Check for conflicts with existing schedules
+        conflicts = self.repository.find_conflicting_tasks(
+            agent_id, start_time, end_time)
+
+        # Create time off request
+        request = TimeOffRequest(
+            id=str(uuid.uuid4()),
+            agent_id=agent_id,
+            start_time=start_time,
+            end_time=end_time,
+            reason=reason,
+            status=TimeOffStatus.PENDING,
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+            conflicts=[task.task_id for task in conflicts]
+        )
+
+        # Store the request
+        success = self.repository.save_time_off_request(request)
+
+        # Log the request
+        self._log_scheduling_event(
+            "time_off_requested",
+            None,
+            agent_id,
+            {
+                "request_id": request.id,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "conflicts": len(conflicts)
+            }
+        )
+
+        # Return result
+        conflict_message = ""
+        if conflicts:
+            conflict_message = f"Warning: Found {len(conflicts)} conflicting tasks."
+        return success, conflict_message, request if success else None
+
+    async def approve_time_off(self, request_id: str) -> bool:
+        """Approve a time off request.
+
+        Args:
+            request_id: Time off request ID
+
+        Returns:
+            True if approval was successful
+        """
+        # Get request
+        request = self.repository.get_time_off_request(request_id)
+        if not request:
+            return False
+
+        # Update status
+        request.status = TimeOffStatus.APPROVED
+        request.processed_at = datetime.datetime.now(datetime.timezone.utc)
+        success = self.repository.save_time_off_request(request)
+
+        if success:
+            # Update agent schedule
+            agent_schedule = self.repository.get_agent_schedule(
+                request.agent_id)
+            if agent_schedule:
+                # Add time off period to agent schedule
+                agent_schedule.time_off_periods.append({
+                    "start": request.start_time,
+                    "end": request.end_time,
+                    "reason": request.reason
+                })
+                self.repository.save_agent_schedule(agent_schedule)
+
+            # Log the approval
+            self._log_scheduling_event(
+                "time_off_approved",
+                None,
+                request.agent_id,
+                {"request_id": request.id}
+            )
+
+        return success
+
+    async def deny_time_off(self, request_id: str, reason: str = "") -> bool:
+        """Deny a time off request.
+
+        Args:
+            request_id: Time off request ID
+            reason: Reason for denial
+
+        Returns:
+            True if denial was successful
+        """
+        # Get request
+        request = self.repository.get_time_off_request(request_id)
+        if not request:
+            return False
+
+        # Update status
+        request.status = TimeOffStatus.DENIED
+        request.processed_at = datetime.datetime.now(datetime.timezone.utc)
+        request.denial_reason = reason
+        success = self.repository.save_time_off_request(request)
+
+        if success:
+            # Log the denial
+            self._log_scheduling_event(
+                "time_off_denied",
+                None,
+                request.agent_id,
+                {"request_id": request.id, "reason": reason}
+            )
+
+        return success
+
+    async def get_time_off_requests(
+        self,
+        agent_id: Optional[str] = None,
+        status: Optional[TimeOffStatus] = None
+    ) -> List[TimeOffRequest]:
+        """Get time off requests, optionally filtered by agent and status.
+
+        Args:
+            agent_id: Optional agent ID filter
+            status: Optional status filter
+
+        Returns:
+            List of time off requests
+        """
+        return self.repository.get_time_off_requests(agent_id, status)
+
     async def _find_optimal_agent(
         self,
         task: ScheduledTask,
-        preferred_agent_id: str = None,
-        excluded_agents: List[str] = None
+        preferred_agent_id: Optional[str] = None
     ) -> Optional[str]:
-        """Find the optimal agent for a task based on specialization and availability."""
-        if not self.agent_service:
-            return preferred_agent_id
+        """Find the optimal agent for a task based on specialization and availability.
 
-        # Initialize excluded agents list if not provided
-        excluded_agents = excluded_agents or []
+        Args:
+            task: Task to assign
+            preferred_agent_id: Optional preferred agent ID
 
-        # Get the specializations required for this task
-        required_specializations = task.specialization_tags
+        Returns:
+            Best agent ID or None if not found
+        """
+        # If there's a preferred agent, check if they're suitable first
+        if preferred_agent_id:
+            # Check agent availability if we have an estimated task duration
+            if task.estimated_minutes and self._is_agent_available_for_task(preferred_agent_id, task):
+                return preferred_agent_id
+            elif not task.estimated_minutes:
+                # No duration info, but still check their current workload
+                # Arbitrary threshold
+                if self._get_agent_current_workload(preferred_agent_id) < 3:
+                    return preferred_agent_id
 
-        # Get all agent specializations
-        agent_specializations = self.agent_service.get_specializations()
+        # Get potential agents based on specialization
+        potential_agents = []
+        specialization = getattr(task, "specialization", None)
 
-        # Start with the preferred agent if specified and not excluded
-        if preferred_agent_id and preferred_agent_id not in excluded_agents:
-            # Check if preferred agent has the required specialization
-            if preferred_agent_id in agent_specializations:
-                agent_spec = agent_specializations[preferred_agent_id]
-                for req_spec in required_specializations:
-                    if req_spec.lower() in agent_spec.lower():
-                        # Check if the agent is available
-                        schedule = self.repository.get_agent_schedule(
-                            preferred_agent_id)
-                        if schedule and (not task.scheduled_start or schedule.is_available_at(task.scheduled_start)):
-                            return preferred_agent_id  # Missing return statement was here
+        if specialization and self.agent_service:
+            potential_agents = self.agent_service.find_agents_by_specialization(
+                specialization)
 
-        # Rank all agents based on specialization match and availability
-        candidates = []
+        if not potential_agents and self.agent_service:
+            # Fall back to all available agents
+            potential_agents = self.agent_service.list_active_agents()
 
-        # First, check AI agents (they typically have higher availability)
-        for agent_id, specialization in agent_specializations.items():
-            # Skip excluded agents
-            if agent_id in excluded_agents:
+        # If we still have no agents, we can't proceed
+        if not potential_agents:
+            return None
+
+        # Score each agent based on multiple factors
+        agent_scores = {}
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        for agent_id in potential_agents:
+            # Skip if agent doesn't exist or is inactive
+            if not self.agent_service.agent_exists(agent_id):
                 continue
 
-            # Skip if we know it's a human agent (they have different availability patterns)
-            is_human = False
-            if self.agent_service.human_agent_registry:
-                human_agents = self.agent_service.human_agent_registry.get_all_human_agents()
-                is_human = agent_id in human_agents
+            # Base score starts at 0
+            score = 0.0
 
-                if is_human:
-                    continue
+            # Factor 1: Specialization match
+            if specialization and self.agent_service.has_specialization(agent_id, specialization):
+                score += 10.0
 
-            # Calculate specialization match score
-            spec_match_score = 0
-            for req_spec in required_specializations:
-                if req_spec.lower() in specialization.lower():
-                    spec_match_score += 1
+            # Factor 2: Current workload
+            workload = self._get_agent_current_workload(agent_id)
+            score -= workload * 2  # Penalty for higher workload
 
-            # Only consider agents with at least some specialization match
-            if spec_match_score > 0:
-                candidates.append({
-                    "agent_id": agent_id,
-                    "score": spec_match_score,
-                    "is_human": is_human
-                })
+            # Factor 3: Availability for this task
+            if task.scheduled_start and task.estimated_minutes:
+                # For tasks with predefined times
+                if self._is_agent_available_for_task(agent_id, task):
+                    score += 5.0
+                else:
+                    # Major penalty for conflicts
+                    score -= 20.0
+            else:
+                # For tasks without scheduled times, check for nearest available slot
+                next_slot = await self._find_next_available_slot(agent_id, task.estimated_minutes or 30)
+                if next_slot:
+                    # Prefer agents who can start sooner
+                    time_until_available = (
+                        next_slot.start - now).total_seconds() / 3600.0  # hours
+                    score -= time_until_available  # Smaller penalty for agents available sooner
+                else:
+                    # No available slots found in the scheduling window
+                    score -= 15.0
 
-        # Then, check human agents (they typically have more limited availability)
-        for agent_id, specialization in agent_specializations.items():
-            # Skip excluded agents
-            if agent_id in excluded_agents:
-                continue
+            # Factor 4: Performance metrics (if tracked)
+            if hasattr(self.agent_service, "get_agent_performance"):
+                try:
+                    performance = await self.agent_service.get_agent_performance(agent_id)
+                    if performance and "success_rate" in performance:
+                        score += performance["success_rate"] * 5.0
+                except Exception:
+                    # Ignore errors in performance tracking
+                    pass
 
-            # Skip if not a human agent
-            is_human = False
-            if self.agent_service.human_agent_registry:
-                human_agents = self.agent_service.human_agent_registry.get_all_human_agents()
-                is_human = agent_id in human_agents
+            # Factor 5: Recent experience with similar tasks
+            if hasattr(self.repository, "get_agent_task_history"):
+                try:
+                    similar_tasks = self.repository.get_agent_task_history(
+                        agent_id,
+                        specialization=specialization,
+                        limit=5
+                    )
+                    if similar_tasks and len(similar_tasks) > 0:
+                        score += len(similar_tasks) * \
+                            0.5  # Bonus for experience
+                except Exception:
+                    # Ignore errors in history tracking
+                    pass
 
-                if not is_human:
-                    continue
+            # Store the final score
+            agent_scores[agent_id] = score
 
-            # Calculate specialization match score
-            spec_match_score = 0
-            for req_spec in required_specializations:
-                if req_spec.lower() in specialization.lower():
-                    spec_match_score += 1
+        # Find the agent with the highest score
+        if not agent_scores:
+            return None
 
-            # Only consider agents with at least some specialization match
-            if spec_match_score > 0:
-                candidates.append({
-                    "agent_id": agent_id,
-                    "score": spec_match_score,
-                    "is_human": is_human
-                })
+        best_agent = max(agent_scores.items(), key=lambda x: x[1])
 
-        # Sort candidates by score (descending)
-        candidates.sort(key=lambda c: c["score"], reverse=True)
+        return best_agent[0]  # Return the agent ID
 
-        # Check availability for each candidate
-        for candidate in candidates:
-            agent_id = candidate["agent_id"]
+    def _get_agent_current_workload(self, agent_id: str) -> int:
+        """Get the current workload for an agent.
 
-            # Check if the agent has a schedule
-            schedule = self.repository.get_agent_schedule(agent_id)
+        Args:
+            agent_id: Agent ID
 
-            # If no schedule or no specific start time yet, assume available
-            if not schedule or not task.scheduled_start:
-                return agent_id
+        Returns:
+            Number of active and scheduled tasks
+        """
+        try:
+            # Count scheduled and in-progress tasks
+            tasks = self.repository.get_agent_tasks(
+                agent_id,
+                start_time=datetime.datetime.now(datetime.timezone.utc),
+                status=None  # Get all statuses
+            )
 
-            # Check availability at the scheduled time
-            if schedule.is_available_at(task.scheduled_start):
-                return agent_id
+            # Only count relevant tasks (not completed or cancelled)
+            active_tasks = [t for t in tasks if t.status in [
+                "scheduled", "in_progress"]]
 
-        # If no good match found, return None
-        return None
+            return len(active_tasks)
+        except Exception as e:
+            print(f"Error getting agent workload: {e}")
+            return 0
+
+    def _is_agent_available_for_task(self, agent_id: str, task: ScheduledTask) -> bool:
+        """Check if an agent is available for a specific task.
+
+        Args:
+            agent_id: Agent ID
+            task: Task to check
+
+        Returns:
+            True if agent is available
+        """
+        if not task.scheduled_start or not task.estimated_minutes:
+            return True  # Can't check without timing info
+
+        start_time = task.scheduled_start
+        end_time = start_time + \
+            datetime.timedelta(minutes=task.estimated_minutes)
+
+        # Check for booking conflicts
+        if self.repository._has_conflicting_bookings(agent_id, start_time, end_time):
+            return False
+
+        # Check agent schedule/availability patterns
+        agent_schedule = self.repository.get_agent_schedule(agent_id)
+        if agent_schedule:
+            # Check each half hour during the task
+            check_time = start_time
+            while check_time < end_time:
+                if not agent_schedule.is_available_at(check_time):
+                    return False
+                check_time += datetime.timedelta(minutes=30)
+
+        return True
+
+    async def _find_next_available_slot(
+        self,
+        agent_id: str,
+        duration_minutes: int
+    ) -> Optional[TimeWindow]:
+        """Find the next available time slot for an agent.
+
+        Args:
+            agent_id: Agent ID
+            duration_minutes: Required duration
+
+        Returns:
+            Next available time slot or None
+        """
+        start_after = datetime.datetime.now(datetime.timezone.utc)
+
+        # Look up to 7 days ahead
+        end_before = start_after + datetime.timedelta(days=7)
+
+        # Use the existing method to find available slots
+        slots = await self.find_available_time_slots(
+            agent_id,
+            duration_minutes,
+            start_after,
+            end_before,
+            count=1
+        )
+
+        return slots[0] if slots else None
 
     async def _find_optimal_time_slot(
         self,
         task: ScheduledTask,
         agent_schedule: Optional[AgentSchedule] = None
     ) -> Optional[TimeWindow]:
-        """Find the optimal time slot for a task based on constraints and agent availability."""
+        """Find the optimal time slot for a task based on constraints and agent availability.
+
+        Args:
+            task: Task to schedule
+            agent_schedule: Optional cached agent schedule
+
+        Returns:
+            Optimal time window or None if not found
+        """
         if not task.assigned_to:
             return None
 
-        agent_id = task.assigned_to
+        # Get estimated duration (default to 30 minutes if not specified)
         duration = task.estimated_minutes or 30
 
         # Start no earlier than now
@@ -493,288 +925,94 @@ class SchedulingService:
                 if constraint_time > start_after:
                     start_after = constraint_time
 
-        # Get available slots - use provided agent_schedule if available
+        # Find available time slots
         available_slots = await self.find_available_time_slots(
-            agent_id,
+            task.assigned_to,
             duration,
-            start_after,
+            start_after=start_after,
             count=1,
             agent_schedule=agent_schedule
         )
 
-        # Return the first available slot, if any
-        return available_slots[0] if available_slots else None
+        if available_slots:
+            return available_slots[0]
+
+        # No suitable slot found
+        return None
 
     def _sort_tasks_by_priority_and_dependencies(self, tasks: List[ScheduledTask]) -> List[ScheduledTask]:
-        """Sort tasks by priority and dependencies."""
-        # First, build dependency graph
-        task_map = {task.task_id: task for task in tasks}
-        dependency_graph = {task.task_id: set(
-            task.dependencies) for task in tasks}
+        """Sort tasks by priority and dependencies.
 
-        # Calculate priority score (higher is more important)
-        def calculate_priority_score(task):
-            base_priority = task.priority or 5
+        Args:
+            tasks: List of tasks to sort
 
-            # Increase priority for tasks with deadlines
-            urgency_bonus = 0
-            if task.scheduled_end:
-                # How soon is the deadline?
-                time_until_deadline = (
-                    task.scheduled_end - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-                # Convert to hours
-                hours_remaining = max(0, time_until_deadline / 3600)
+        Returns:
+            Sorted list of tasks
+        """
+        # Create a copy of the tasks to sort
+        sorted_tasks = tasks.copy()
 
-                # More urgent as deadline approaches
-                if hours_remaining < 24:
-                    urgency_bonus = 5  # Very urgent: <24h
-                elif hours_remaining < 48:
-                    urgency_bonus = 3  # Urgent: 1-2 days
-                elif hours_remaining < 72:
-                    urgency_bonus = 1  # Somewhat urgent: 2-3 days
+        # First sort by priority (higher priority first)
+        sorted_tasks.sort(key=lambda t: -(t.priority or 0))
 
-            # Increase priority for blocking tasks
-            dependency_count = 0
-            for other_task_id, deps in dependency_graph.items():
-                if task.task_id in deps:
-                    dependency_count += 1
+        # Then handle dependencies (this is a simplified approach)
+        # A more complete solution would use topological sorting for the dependency graph
 
-            blocking_bonus = min(dependency_count, 5)  # Cap at +5
+        # Map task_id to its position in the sorted list
+        task_positions = {task.task_id: i for i,
+                          task in enumerate(sorted_tasks)}
 
-            return base_priority + urgency_bonus + blocking_bonus
+        # Track if we've made any swaps
+        made_swaps = True
+        max_iterations = len(sorted_tasks)  # Avoid infinite loop
+        iteration = 0
 
-        # Assign priority scores
-        for task in tasks:
-            task.priority_score = calculate_priority_score(task)
+        while made_swaps and iteration < max_iterations:
+            made_swaps = False
+            iteration += 1
 
-        # Sort by priority score (descending)
-        sorted_tasks = sorted(
-            tasks, key=lambda t: t.priority_score, reverse=True)
+            for i, task in enumerate(sorted_tasks):
+                # Check if this task depends on others
+                for dep_id in task.depends_on:
+                    # Find the dependent task
+                    dep_pos = task_positions.get(dep_id)
+                    if dep_pos is not None and dep_pos > i:
+                        # The dependency is after this task, swap them
+                        sorted_tasks[i], sorted_tasks[dep_pos] = sorted_tasks[dep_pos], sorted_tasks[i]
 
-        # Move tasks with dependencies after their dependencies
-        final_order = []
-        processed = set()
+                        # Update positions
+                        task_positions[task.task_id] = dep_pos
+                        task_positions[sorted_tasks[i].task_id] = i
 
-        def process_task(task_id):
-            if task_id in processed:
-                return
+                        made_swaps = True
 
-            # First process all dependencies
-            for dep_id in dependency_graph.get(task_id, []):
-                if dep_id in task_map:  # Skip if dependency doesn't exist
-                    process_task(dep_id)
-
-            # Now add this task
-            if task_id in task_map:  # Make sure task exists
-                final_order.append(task_map[task_id])
-                processed.add(task_id)
-
-        # Process all tasks
-        for task in sorted_tasks:
-            process_task(task.task_id)
-
-        return final_order
+        return sorted_tasks
 
     def _log_scheduling_event(
         self,
         event_type: str,
-        task_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        details: Dict[str, Any] = None
+        task_id: Optional[str],
+        agent_id: Optional[str],
+        details: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Log a scheduling event."""
+        """Log a scheduling event.
+
+        Args:
+            event_type: Type of event
+            task_id: Optional task ID
+            agent_id: Optional agent ID
+            details: Optional event details
+        """
         event = SchedulingEvent(
+            id=str(uuid.uuid4()),
             event_type=event_type,
             task_id=task_id,
             agent_id=agent_id,
+            timestamp=datetime.datetime.now(datetime.timezone.utc),
             details=details or {}
         )
-        self.repository.log_scheduling_event(event)
 
-    async def request_time_off(
-        self,
-        agent_id: str,
-        start_time: datetime.datetime,
-        end_time: datetime.datetime,
-        reason: str
-    ) -> Tuple[bool, str, Optional[str]]:
-        """
-        Request time off for a human agent.
-
-        Returns:
-            Tuple of (success, status, request_id)
-        """
-        # Create the request object
-        request = TimeOffRequest(
-            agent_id=agent_id,
-            start_time=start_time,
-            end_time=end_time,
-            reason=reason
-        )
-
-        # Store the request
-        self.repository.create_time_off_request(request)
-
-        # Process the request automatically
-        return await self._process_time_off_request(request)
-
-    async def _process_time_off_request(
-        self,
-        request: TimeOffRequest
-    ) -> Tuple[bool, str, Optional[str]]:
-        """
-        Process a time off request automatically.
-
-        Returns:
-            Tuple of (success, status, request_id)
-        """
-        # Get affected tasks during this time period
-        affected_tasks = self.repository.get_agent_tasks(
-            request.agent_id,
-            request.start_time,
-            request.end_time,
-            "scheduled"
-        )
-
-        # Check if we can reassign all affected tasks
-        reassignable_tasks = []
-        non_reassignable_tasks = []
-
-        for task in affected_tasks:
-            # For each affected task, check if we can find another suitable agent
-            alternate_agent = await self._find_optimal_agent(
-                task,
-                excluded_agents=[request.agent_id]
-            )
-
-            if alternate_agent:
-                reassignable_tasks.append((task, alternate_agent))
-            else:
-                non_reassignable_tasks.append(task)
-
-        # Make approval decision
-        approval_threshold = 0.8  # We require 80% of tasks to be reassignable
-
-        if len(affected_tasks) == 0 or (
-            len(reassignable_tasks) / len(affected_tasks) >= approval_threshold
-        ):
-            # Approve the request
-            request.status = TimeOffStatus.APPROVED
-            self.repository.update_time_off_request(request)
-
-            # Create unavailability window in agent's schedule
-            agent_schedule = self.repository.get_agent_schedule(
-                request.agent_id)
-            if agent_schedule:
-                time_off_window = TimeWindow(
-                    start=request.start_time,
-                    end=request.end_time
-                )
-                agent_schedule.availability_exceptions.append(time_off_window)
-                self.repository.save_agent_schedule(agent_schedule)
-
-            # Reassign tasks that can be reassigned
-            for task, new_agent in reassignable_tasks:
-                task.assigned_to = new_agent
-                self.repository.update_scheduled_task(task)
-
-                self._log_scheduling_event(
-                    "task_reassigned_time_off",
-                    task.task_id,
-                    request.agent_id,
-                    {
-                        "original_agent": request.agent_id,
-                        "new_agent": new_agent,
-                        "time_off_request_id": request.request_id
-                    }
-                )
-
-            # For tasks that can't be reassigned, mark them for review
-            for task in non_reassignable_tasks:
-                self._log_scheduling_event(
-                    "task_needs_reassignment",
-                    task.task_id,
-                    request.agent_id,
-                    {
-                        "time_off_request_id": request.request_id,
-                        "reason": "Cannot find suitable replacement agent"
-                    }
-                )
-
-            return (True, "approved", request.request_id)
-        else:
-            # Reject the request
-            request.status = TimeOffStatus.REJECTED
-            request.rejection_reason = f"Cannot reassign {len(non_reassignable_tasks)} critical tasks during requested time period."
-            self.repository.update_time_off_request(request)
-
-            return (False, "rejected", request.request_id)
-
-    async def cancel_time_off_request(
-        self,
-        agent_id: str,
-        request_id: str
-    ) -> Tuple[bool, str]:
-        """
-        Cancel a time off request.
-
-        Returns:
-            Tuple of (success, status)
-        """
-        # Get the request
-        request = self.repository.get_time_off_request(request_id)
-
-        if not request:
-            return (False, "not_found")
-
-        if request.agent_id != agent_id:
-            return (False, "unauthorized")
-
-        if request.status not in [TimeOffStatus.REQUESTED, TimeOffStatus.APPROVED]:
-            return (False, "invalid_status")
-
-        # Check if the time off has already started
-        now = datetime.datetime.now(datetime.timezone.utc)
-        if request.status == TimeOffStatus.APPROVED and request.start_time <= now:
-            return (False, "already_started")
-
-        # Cancel the request
-        request.status = TimeOffStatus.CANCELLED
-        self.repository.update_time_off_request(request)
-
-        # If it was approved, also remove from agent's schedule
-        if request.status == TimeOffStatus.APPROVED:
-            agent_schedule = self.repository.get_agent_schedule(agent_id)
-            if agent_schedule:
-                # Remove the exception for this time off period
-                agent_schedule.availability_exceptions = [
-                    exception for exception in agent_schedule.availability_exceptions
-                    if not (exception.start == request.start_time and
-                            exception.end == request.end_time)
-                ]
-                self.repository.save_agent_schedule(agent_schedule)
-
-        return (True, "cancelled")
-
-    async def get_agent_time_off_history(
-        self,
-        agent_id: str
-    ) -> List[Dict[str, Any]]:
-        """Get an agent's time off history."""
-        requests = self.repository.get_agent_time_off_requests(agent_id)
-
-        # Format for display
-        formatted_requests = []
-        for request in requests:
-            formatted_requests.append({
-                "request_id": request.request_id,
-                "start_time": request.start_time.isoformat(),
-                "end_time": request.end_time.isoformat(),
-                "duration_hours": (request.end_time - request.start_time).total_seconds() / 3600,
-                "reason": request.reason,
-                "status": request.status,
-                "created_at": request.created_at.isoformat(),
-                "rejection_reason": request.rejection_reason
-            })
-
-        return formatted_requests
+        try:
+            self.repository.save_scheduling_event(event)
+        except Exception as e:
+            print(f"Error logging scheduling event: {e}")

@@ -1,22 +1,51 @@
+"""
+Project simulation service implementation.
+
+This service simulates project feasibility, timelines, and outcomes
+using historical data when available.
+"""
+import json
+from typing import Dict, List, Optional, Any
+
+from solana_agent.interfaces.services import ProjectSimulationService as ProjectSimulationServiceInterface
+from solana_agent.interfaces.services import TaskPlanningService
+from solana_agent.interfaces.providers import LLMProvider
+from solana_agent.interfaces.repositories import TicketRepository
+from solana_agent.domain.tickets import TicketStatus
 
 
-class ProjectSimulationService:
+class ProjectSimulationService(ProjectSimulationServiceInterface):
     """Service for simulating project feasibility and requirements using historical data."""
 
     def __init__(
         self,
         llm_provider: LLMProvider,
         task_planning_service: TaskPlanningService,
-        ticket_repository: TicketRepository = None,
-        nps_repository: NPSSurveyRepository = None,
+        ticket_repository: Optional[TicketRepository] = None,
+        nps_repository: Optional[Any] = None,
     ):
+        """Initialize the project simulation service.
+
+        Args:
+            llm_provider: Provider for language model interactions
+            task_planning_service: Service for task planning
+            ticket_repository: Optional repository for historical tickets
+            nps_repository: Optional repository for NPS survey data
+        """
         self.llm_provider = llm_provider
         self.task_planning_service = task_planning_service
         self.ticket_repository = ticket_repository
         self.nps_repository = nps_repository
 
     async def simulate_project(self, project_description: str) -> Dict[str, Any]:
-        """Run a full simulation on a potential project using historical data when available."""
+        """Run a full simulation on a potential project using historical data when available.
+
+        Args:
+            project_description: Description of the project to simulate
+
+        Returns:
+            Simulation results including complexity, timeline, risks, etc.
+        """
         # Get basic complexity assessment
         complexity = await self.task_planning_service._assess_task_complexity(
             project_description
@@ -105,7 +134,15 @@ class ProjectSimulationService:
     def _find_similar_projects(
         self, project_description: str, complexity: Dict[str, Any]
     ) -> List[Dict]:
-        """Find similar historical projects based on semantic similarity and complexity."""
+        """Find similar historical projects based on semantic similarity and complexity.
+
+        Args:
+            project_description: Project description
+            complexity: Complexity assessment
+
+        Returns:
+            List of similar projects
+        """
         if not self.ticket_repository:
             return []
 
@@ -165,7 +202,15 @@ class ProjectSimulationService:
     def _calculate_complexity_similarity(
         self, complexity1: Dict[str, Any], complexity2: Dict[str, Any]
     ) -> float:
-        """Calculate similarity between two complexity measures."""
+        """Calculate similarity between two complexity measures.
+
+        Args:
+            complexity1: First complexity measure
+            complexity2: Second complexity measure
+
+        Returns:
+            Similarity score (0-1)
+        """
         if not complexity1 or not complexity2:
             return 0.0
 
@@ -193,7 +238,14 @@ class ProjectSimulationService:
         return (size_similarity * 0.4) + (points_similarity * 0.6)
 
     def _get_embedding_for_text(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for text using the LLM provider."""
+        """Generate embedding for text using the LLM provider.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector or None if not available
+        """
         try:
             if hasattr(self.llm_provider, "generate_embedding"):
                 return self.llm_provider.generate_embedding(text)
@@ -203,7 +255,11 @@ class ProjectSimulationService:
             return None
 
     def _analyze_current_load(self) -> Dict[str, Any]:
-        """Analyze current system load and agent availability."""
+        """Analyze current system load and agent availability.
+
+        Returns:
+            Load analysis metrics
+        """
         try:
             # Get all AI agents
             ai_agents = self.task_planning_service.agent_service.get_all_ai_agents()
@@ -266,7 +322,14 @@ class ProjectSimulationService:
             }
 
     def _calculate_completion_rate(self, similar_projects: List[Dict]) -> float:
-        """Calculate a sophisticated completion rate based on historical projects."""
+        """Calculate a sophisticated completion rate based on historical projects.
+
+        Args:
+            similar_projects: List of similar historical projects
+
+        Returns:
+            Weighted completion rate (0-1)
+        """
         if not similar_projects:
             return 0.0
 
@@ -336,7 +399,14 @@ class ProjectSimulationService:
         return successful_projects / len(similar_projects) if similar_projects else 0
 
     def _calculate_avg_satisfaction(self, similar_projects: List[Dict]) -> float:
-        """Calculate average satisfaction score for similar projects."""
+        """Calculate average satisfaction score for similar projects.
+
+        Args:
+            similar_projects: List of similar historical projects
+
+        Returns:
+            Average satisfaction score (0-10)
+        """
         if not similar_projects or not self.nps_repository:
             return 0.0
 
@@ -355,9 +425,17 @@ class ProjectSimulationService:
         return sum(scores) / len(scores) if scores else 0
 
     async def _assess_risks(
-        self, project_description: str, similar_projects: List[Dict] = None
+        self, project_description: str, similar_projects: Optional[List[Dict]] = None
     ) -> Dict[str, Any]:
-        """Assess potential risks in the project using historical data."""
+        """Assess potential risks in the project using historical data.
+
+        Args:
+            project_description: Project description
+            similar_projects: Optional list of similar historical projects
+
+        Returns:
+            Risk assessment results
+        """
         # Include historical risk information if available
         historical_context = ""
         if similar_projects:
@@ -413,9 +491,18 @@ class ProjectSimulationService:
         self,
         project_description: str,
         complexity: Dict[str, Any],
-        similar_projects: List[Dict] = None,
+        similar_projects: Optional[List[Dict]] = None,
     ) -> Dict[str, Any]:
-        """Estimate timeline with confidence intervals using historical data."""
+        """Estimate timeline with confidence intervals using historical data.
+
+        Args:
+            project_description: Project description
+            complexity: Complexity assessment
+            similar_projects: Optional list of similar historical projects
+
+        Returns:
+            Timeline estimates
+        """
         # Include historical timeline information if available
         historical_context = ""
         if similar_projects:
@@ -474,10 +561,61 @@ class ProjectSimulationService:
 
         return json.loads(response)
 
-    def _assess_feasibility(
-        self, resource_needs: Dict[str, Any], system_load: Dict[str, Any] = None
+    async def _assess_resource_needs(
+        self, project_description: str, complexity: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Check if we have capacity to take on this project based on current load."""
+        """Assess resource requirements for the project.
+
+        Args:
+            project_description: Project description
+            complexity: Complexity assessment
+
+        Returns:
+            Resource requirements
+        """
+        prompt = f"""
+        Analyze this project and identify required resources and skills:
+        
+        PROJECT: {project_description}
+        
+        COMPLEXITY: {json.dumps(complexity)}
+        
+        Please identify:
+        1. Required agent specializations
+        2. Number of agents needed
+        3. Required skillsets and expertise levels
+        4. External resources or tools needed
+        5. Knowledge domains involved
+        
+        Return as structured JSON.
+        """
+
+        response = ""
+        async for chunk in self.llm_provider.generate_text(
+            "resource_assessor",
+            prompt,
+            system_prompt="You are an expert resource planner for AI and software projects.",
+            stream=False,
+            model="o3-mini",
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        ):
+            response += chunk
+
+        return json.loads(response)
+
+    def _assess_feasibility(
+        self, resource_needs: Dict[str, Any], system_load: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Check if we have capacity to take on this project based on current load.
+
+        Args:
+            resource_needs: Resource requirements
+            system_load: Optional system load metrics
+
+        Returns:
+            Feasibility assessment
+        """
         # Use empty dict if system_load isn't provided (for test compatibility)
         if system_load is None:
             system_load = {}
@@ -514,7 +652,7 @@ class ProjectSimulationService:
             max(len(required_specializations), 1)
         )
 
-        # Factor in system load - NOW ACTUALLY USING IT
+        # Factor in system load
         load_factor = 1.0
         load_percentage = system_load.get("load_percentage", 0)
 
@@ -538,9 +676,8 @@ class ProjectSimulationService:
                 self.task_planning_service.agent_service.get_all_ai_agents()
             ),
             "available_specializations": list(available_specializations),
-            # Include the load percentage in the result
             "system_load_percentage": load_percentage,
-            "load_factor": load_factor,  # Include the calculated load factor for transparency
+            "load_factor": load_factor,
             "assessment": "high"
             if feasibility_score > 80
             else "medium"
@@ -549,49 +686,24 @@ class ProjectSimulationService:
             "feasibility_score": round(feasibility_score, 1),
         }
 
-    async def _assess_resource_needs(
-        self, project_description: str, complexity: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Assess resource requirements for the project."""
-        prompt = f"""
-        Analyze this project and identify required resources and skills:
-        
-        PROJECT: {project_description}
-        
-        COMPLEXITY: {json.dumps(complexity)}
-        
-        Please identify:
-        1. Required agent specializations
-        2. Number of agents needed
-        3. Required skillsets and expertise levels
-        4. External resources or tools needed
-        5. Knowledge domains involved
-        
-        Return as structured JSON.
-        """
-
-        response = ""
-        async for chunk in self.llm_provider.generate_text(
-            "resource_assessor",
-            prompt,
-            system_prompt="You are an expert resource planner for AI and software projects.",
-            stream=False,
-            model="o3-mini",
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        ):
-            response += chunk
-
-        return json.loads(response)
-
     def _generate_recommendation(
         self,
         risks: Dict[str, Any],
         feasibility: Dict[str, Any],
-        similar_projects: List[Dict] = None,
-        system_load: Dict[str, Any] = None,
+        similar_projects: Optional[List[Dict]] = None,
+        system_load: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate an overall recommendation using historical data and current load."""
+        """Generate an overall recommendation using historical data and current load.
+
+        Args:
+            risks: Risk assessment
+            feasibility: Feasibility assessment
+            similar_projects: Optional list of similar historical projects
+            system_load: Optional system load metrics
+
+        Returns:
+            Recommendation text
+        """
         # Get risk level
         risk_level = risks.get("overall_risk", "medium")
 
@@ -618,11 +730,7 @@ class ProjectSimulationService:
             elif load_percentage > 60:
                 load_context = f" Note that the system is moderately loaded ({load_percentage:.0f}%)."
 
-        # For test compatibility - specifically handle the test case with high coverage_score and low risk
-        if feasibility.get("coverage_score", 0) >= 90 and risk_level == "low":
-            return f"RECOMMENDED TO PROCEED:{historical_context} this project has excellent feasibility ({feasibility_score:.1f}%) and low risk."
-
-        # Make more nuanced recommendation based on feasibility score
+        # Make recommendation based on feasibility score
         if feasibility_score > 75 and risk_level in ["low", "medium"]:
             return f"RECOMMENDED TO PROCEED:{historical_context} this project has good feasibility ({feasibility_score:.1f}%) with manageable risk level ({risk_level}).{load_context}"
 
