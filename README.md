@@ -237,16 +237,6 @@ Solana Agent transforms organizations into living systems that continuously lear
     Real-time and asynchronous communication support.  
     Status tracking for notification delivery and response.
 
-- **🏢 Multi-tenant Platform Architecture:**  
-    Complete tenant isolation with separate databases and storage.  
-    Tenant-specific configuration overrides with inheritance from global defaults.  
-    Support for both Qdrant and Pinecone vector databases.  
-    Per-tenant agent specialization and customization.  
-    Centralized management through tenant registry.  
-    Resource sharing with tenant-level permissions.  
-    Standardized interfaces across all tenants.  
-    Efficient multi-tenant scaling with shared infrastructure.
-
 - **🔌 Standard Python Plugin System:**  
     Extensible architecture using Python's native package ecosystem.  
     PyPI-compatible plugin distribution with standard dependency management.  
