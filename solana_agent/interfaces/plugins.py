@@ -48,13 +48,13 @@ class ToolRegistry(ABC):
         pass
 
     @abstractmethod
-    def get_tool(self, name: str) -> Optional[Tool]:
+    def get_tool(self, tool_name: str) -> Optional[Tool]:
         """Get a tool by name."""
         pass
 
     @abstractmethod
     def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
-        """Assign a tool to an agent."""
+        """Give an agent access to a specific tool."""
         pass
 
     @abstractmethod
@@ -64,12 +64,33 @@ class ToolRegistry(ABC):
 
     @abstractmethod
     def list_all_tools(self) -> List[str]:
-        """List names of all registered tools."""
+        """List all registered tools."""
         pass
 
     @abstractmethod
     def configure_all_tools(self, config: Dict[str, Any]) -> None:
-        """Configure all tools with global configuration."""
+        """Configure all registered tools with the same config."""
+        pass
+
+
+class Plugin(ABC):
+    """Interface for plugins that can be loaded by the system."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Get the name of the plugin."""
+        pass
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """Get the description of the plugin."""
+        pass
+
+    @abstractmethod
+    def initialize(self, tool_registry: ToolRegistry) -> bool:
+        """Initialize the plugin and register its tools."""
         pass
 
 
@@ -77,6 +98,21 @@ class PluginManager(ABC):
     """Interface for the plugin manager."""
 
     @abstractmethod
-    def load_all_plugins(self) -> int:
-        """Load all plugins using entry points and apply configuration."""
+    def register_plugin(self, plugin: Plugin) -> bool:
+        """Register a plugin in the manager."""
+        pass
+
+    @abstractmethod
+    def load_plugins(self) -> List[str]:
+        """Load all registered plugins."""
+        pass
+
+    @abstractmethod
+    def get_plugin(self, name: str) -> Optional[Plugin]:
+        """Get a plugin by name."""
+        pass
+
+    @abstractmethod
+    def list_plugins(self) -> List[Dict[str, Any]]:
+        """List all registered plugins with their details."""
         pass

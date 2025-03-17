@@ -4,7 +4,7 @@ Scheduling domain models.
 These models define structures for task scheduling, agent availability,
 and time management.
 """
-from datetime import datetime, time, date, timedelta
+from datetime import datetime, time
 from enum import Enum
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field

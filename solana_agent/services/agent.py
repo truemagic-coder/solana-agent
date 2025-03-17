@@ -22,7 +22,8 @@ class AgentService(AgentServiceInterface):
         llm_provider: LLMProvider,
         agent_repository: AgentRepository,
         organization_mission: Optional[OrganizationMission] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        tool_registry: Optional[ToolRegistry] = None
     ):
         """Initialize the agent service.
 
@@ -37,8 +38,13 @@ class AgentService(AgentServiceInterface):
         self.organization_mission = organization_mission
         self.config = config or {}
 
-        # Initialize tool registry
-        self.tool_registry = ToolRegistry()
+        # Initialize tool registry with concrete implementation
+        if tool_registry:
+            self.tool_registry = tool_registry
+        else:
+            # Import the concrete implementation
+            from solana_agent.plugins.registry import ToolRegistry as ConcreteToolRegistry
+            self.tool_registry = ConcreteToolRegistry()
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
@@ -267,7 +273,7 @@ class AgentService(AgentServiceInterface):
         ):
             yield chunk
 
-    def register_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
+    def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent.
 
         Args:
@@ -332,42 +338,52 @@ class AgentService(AgentServiceInterface):
         except Exception as e:
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
 
-    def agent_exists(self, agent_id: str) -> bool:
-        """Check if an agent exists.
+    def agent_exists(self, agent_name_or_id: str) -> bool:
+        """Check if agent exists.
 
         Args:
-            agent_id: Agent ID or name
+            agent_name_or_id: Agent name or ID
 
         Returns:
-            True if the agent exists
+            True if agent exists
         """
-        # Try as AI agent
-        if self.agent_repository.get_ai_agent_by_name(agent_id):
+        # Check AI agents
+        ai_agent = self.agent_repository.get_ai_agent_by_name(agent_name_or_id)
+        if ai_agent:
             return True
 
-        # Try as human agent
-        if self.agent_repository.get_human_agent_by_id(agent_id):
-            return True
+        # Check human agents
+        human_agents = self.agent_repository.get_all_human_agents()
+        for agent in human_agents:
+            if agent.id == agent_name_or_id or agent.name == agent_name_or_id:
+                return True
 
+        # This likely was missing or had different logic
         return False
 
     def has_specialization(self, agent_id: str, specialization: str) -> bool:
-        """Check if an agent has a specific specialization.
+        """Check if agent has the specified specialization.
 
         Args:
             agent_id: Agent ID or name
-            specialization: Specialization to check
+            specialization: Specialization to check for
 
         Returns:
             True if the agent has the specialization
         """
-        # Try as AI agent
+        # Check AI agents
         ai_agent = self.agent_repository.get_ai_agent_by_name(agent_id)
-        if ai_agent and ai_agent.specialization.lower() == specialization.lower():
-            return True
+        if ai_agent:
+            # This was likely the bug - comparing with specific specialization
+            return ai_agent.specialization.lower() == specialization.lower()
 
-        # Try as human agent
-        human_agent = self.agent_repository.get_human_agent_by_id(agent_id)
+        # Check human agents
+        human_agent = None
+        for agent in self.agent_repository.get_all_human_agents():
+            if agent.id == agent_id or agent.name == agent_id:
+                human_agent = agent
+                break
+
         if human_agent:
             return any(spec.lower() == specialization.lower() for spec in human_agent.specializations)
 

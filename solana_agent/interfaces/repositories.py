@@ -75,6 +75,16 @@ class AgentRepository(ABC):
     """Interface for agent data access."""
 
     @abstractmethod
+    def get_human_agent_by_id(self, agent_id: str) -> Optional[HumanAgent]:
+        """Get a human agent by ID"""
+        pass
+
+    @abstractmethod
+    def get_ai_agent_by_name(self, name: str) -> Optional[AIAgent]:
+        """Get an AI agent by name."""
+        pass
+
+    @abstractmethod
     def get_ai_agent(self, name: str) -> Optional[AIAgent]:
         """Get an AI agent by name."""
         pass
@@ -82,6 +92,11 @@ class AgentRepository(ABC):
     @abstractmethod
     def get_all_ai_agents(self) -> Dict[str, AIAgent]:
         """Get all AI agents."""
+        pass
+
+    @abstractmethod
+    def get_all_human_agents(self) -> List[HumanAgent]:
+        """Get all human agents."""
         pass
 
     @abstractmethod

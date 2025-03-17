@@ -49,7 +49,7 @@ class AgentService(ABC):
         pass
 
     @abstractmethod
-    def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
+    def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent."""
         pass
 

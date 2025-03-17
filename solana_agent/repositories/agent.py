@@ -35,6 +35,12 @@ class MongoAgentRepository(AgentRepository):
         self.db.create_index(self.performance_collection,
                              [("period_start", 1)])
 
+    def get_human_agent_by_id(self, agent_id):
+        return super().get_human_agent_by_id(agent_id)
+
+    def get_ai_agent_by_name(self, name):
+        return super().get_ai_agent_by_name(name)
+
     def get_ai_agent(self, name: str) -> Optional[AIAgent]:
         """Get an AI agent by name."""
         doc = self.db.find_one(self.ai_agents_collection, {"name": name})

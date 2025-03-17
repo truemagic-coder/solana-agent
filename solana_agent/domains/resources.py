@@ -3,9 +3,9 @@ Resource domain models.
 
 These models define structures for resources, bookings, and availability.
 """
-from datetime import datetime, date, time
+from datetime import datetime, time
 from enum import Enum
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
 
@@ -47,40 +47,6 @@ class Resource(BaseModel):
         default_factory=dict, description="Additional attributes")
     availability_schedule: List[Dict[str, Any]] = Field(
         default_factory=list, description="Availability schedule")
-
-    def is_available_at(self, time_window: TimeWindow) -> bool:
-        """Check if resource is available in the time window.
-
-        Args:
-            time_window: Time window to check
-
-        Returns:
-            True if resource is available
-        """
-        # If no schedule is defined, assume always available
-        if not self.availability_schedule:
-            return True
-
-        # Get day of week for start and end times (0=Monday, 6=Sunday)
-        start_day = time_window.start.weekday()
-        end_day = time_window.end.weekday()
-
-        # If spans multiple days, check each day
-        if start_day != end_day:
-            return False  # For simplicity, don't allow multi-day bookings
-
-        # Check if time falls within any availability window for the day
-        for window in self.availability_schedule:
-            if window.get("day_of_week") == start_day:
-                avail_start = datetime.combine(
-                    time_window.start.date(), window.get("start_time"))
-                avail_end = datetime.combine(
-                    time_window.start.date(), window.get("end_time"))
-
-                if avail_start <= time_window.start and avail_end >= time_window.end:
-                    return True
-
-        return False
 
 
 class BookingStatus(str, Enum):
