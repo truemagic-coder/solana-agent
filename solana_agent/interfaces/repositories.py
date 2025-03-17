@@ -558,3 +558,57 @@ class ResourceRepository(ABC):
             List of bookings
         """
         pass
+
+
+class HandoffRepository(ABC):
+    """Interface for handoff repositories."""
+
+    @abstractmethod
+    def record(self, handoff: Any) -> str:
+        """Record a new handoff.
+
+        Args:
+            handoff: Handoff object
+
+        Returns:
+            Handoff ID
+        """
+        pass
+
+    @abstractmethod
+    def find_for_agent(
+        self,
+        agent_name: str,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+    ) -> List[Any]:
+        """Find handoffs for an agent.
+
+        Args:
+            agent_name: Agent name
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+
+        Returns:
+            List of handoff objects
+        """
+        pass
+
+    @abstractmethod
+    def count_for_agent(
+        self,
+        agent_name: str,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
+    ) -> int:
+        """Count handoffs for an agent.
+
+        Args:
+            agent_name: Agent name
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+
+        Returns:
+            Number of handoffs
+        """
+        pass

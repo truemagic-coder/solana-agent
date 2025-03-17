@@ -362,7 +362,7 @@ class NPSService(ABC):
 
 
 class HandoffService(ABC):
-    """Interface for agent handoff services."""
+    """Interface for handoff services."""
 
     @abstractmethod
     async def evaluate_handoff_needed(

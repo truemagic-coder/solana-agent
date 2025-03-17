@@ -7,10 +7,10 @@ from typing import Tuple, Optional, Any
 from datetime import datetime
 
 from solana_agent.interfaces.services import HandoffService as HandoffServiceInterface
-from solana_agent.interfaces.providers import LLMProvider
-from solana_agent.interfaces.repositories import TicketRepository, AgentRepository
+from solana_agent.interfaces.repositories import TicketRepository, HandoffRepository
+from solana_agent.services.agent import AgentService
 from solana_agent.domain.tickets import TicketStatus, TicketNote
-from solana_agent.domain.models import HandoffEvaluation
+from solana_agent.domain.handoff import HandoffEvaluation, Handoff
 
 
 class HandoffService(HandoffServiceInterface):
@@ -18,20 +18,22 @@ class HandoffService(HandoffServiceInterface):
 
     def __init__(
         self,
-        llm_provider: LLMProvider,
+        handoff_repository: HandoffRepository,
         ticket_repository: TicketRepository,
-        agent_repository: AgentRepository
+        agent_service: AgentService,
     ):
         """Initialize the handoff service.
 
         Args:
-            llm_provider: Provider for language model interactions
+            handoff_repository: Repository for handoff records
             ticket_repository: Repository for ticket operations
-            agent_repository: Repository for agent operations
+            agent_service: Service for agent operations
         """
-        self.llm_provider = llm_provider
+        self.handoff_repository = handoff_repository
         self.ticket_repository = ticket_repository
-        self.agent_repository = agent_repository
+        self.agent_service = agent_service
+        # Get the LLM provider from the agent service
+        self.llm_provider = agent_service.llm_provider
 
     async def evaluate_handoff_needed(
         self, query: str, response: str, current_agent: str
@@ -99,12 +101,21 @@ class HandoffService(HandoffServiceInterface):
 
         # Find an available human agent
         available_agents = []
+
+        # Get the agent service to find matching human agents
         if specialization:
-            available_agents = self.agent_repository.get_human_agents_by_specialization(
-                specialization)
+            human_agents = self.agent_service.get_all_human_agents()
+            available_agents = [
+                agent for agent in human_agents.values()
+                if agent.availability and any(spec.lower() == specialization.lower()
+                                              for spec in agent.specializations)
+            ]
 
         if not available_agents:
-            available_agents = self.agent_repository.get_available_human_agents()
+            # Get any available human agent
+            human_agents = self.agent_service.get_all_human_agents()
+            available_agents = [
+                agent for agent in human_agents.values() if agent.availability]
 
         if not available_agents:
             # No humans available, update ticket status
@@ -132,6 +143,18 @@ class HandoffService(HandoffServiceInterface):
         )
         self.ticket_repository.add_note(ticket_id, note)
 
+        # Record the handoff
+        handoff = Handoff(
+            from_agent=ticket.assigned_to or "system",
+            to_agent=human_agent.id,
+            ticket_id=ticket_id,
+            reason=reason,
+            timestamp=datetime.now(),
+            successful=True,
+            notes=f"Human help requested with specialization: {specialization}"
+        )
+        self.handoff_repository.record(handoff)
+
         return True
 
     async def handle_handoff(
@@ -153,7 +176,10 @@ class HandoffService(HandoffServiceInterface):
 
         # Check if target is a human or AI agent
         target_is_human = False
-        ai_agent = self.agent_repository.get_ai_agent(target_agent)
+
+        # Use agent service to find the target agent
+        ai_agents = self.agent_service.get_all_ai_agents()
+        ai_agent = ai_agents.get(target_agent)
 
         if not ai_agent:
             # Check if it's a human agent or a special request
@@ -162,12 +188,18 @@ class HandoffService(HandoffServiceInterface):
                 return await self.request_human_help(ticket_id, reason)
             else:
                 # Check for human agent by name
-                human_agents = self.agent_repository.get_available_human_agents()
-                target_human = next(
-                    (a for a in human_agents if a.name.lower() == target_agent.lower()), None)
+                human_agents = self.agent_service.get_all_human_agents()
+
+                # Find human agent by name (case-insensitive)
+                target_human = None
+                for agent in human_agents.values():
+                    if agent.name.lower() == target_agent.lower():
+                        target_human = agent
+                        break
 
                 if target_human:
                     target_is_human = True
+                    target_agent = target_human.id  # Use the ID for handoff
                 else:
                     # Target agent not found
                     note = TicketNote(
@@ -195,5 +227,16 @@ class HandoffService(HandoffServiceInterface):
                 timestamp=datetime.now()
             )
             self.ticket_repository.add_note(ticket_id, note)
+
+            # Record the handoff
+            handoff = Handoff(
+                from_agent=ticket.assigned_to or "system",
+                to_agent=target_agent,
+                ticket_id=ticket_id,
+                reason=reason,
+                timestamp=datetime.now(),
+                successful=True
+            )
+            self.handoff_repository.record(handoff)
 
             return True
