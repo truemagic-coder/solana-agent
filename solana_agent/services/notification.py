@@ -17,17 +17,6 @@ class NotificationService:
             print(f"Cannot send notification: Agent {recipient_id} not found")
             return False
 
-        # BACKWARD COMPATIBILITY: Check for legacy notification handler
-        if "notification_handler" in agent and agent["notification_handler"]:
-            try:
-                metadata = metadata or {}
-                agent["notification_handler"](message, metadata)
-                return True
-            except Exception as e:
-                print(
-                    f"Error using notification handler for {recipient_id}: {str(e)}")
-                return False
-
         # Get notification channels for this agent
         notification_channels = agent.get("notification_channels", [])
         if not notification_channels:

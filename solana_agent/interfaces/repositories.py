@@ -8,11 +8,13 @@ without changing the business logic.
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator
+from solana_agent.domain.feedback import UserFeedback
 from solana_agent.domain.tickets import Ticket, TicketNote
 from solana_agent.domain.agents import AIAgent, HumanAgent, AgentPerformance
 from solana_agent.domain.resources import Resource, ResourceBooking
 from solana_agent.domain.scheduling import ScheduledTask, AgentSchedule
 from solana_agent.domain.enums import TicketStatus
+from solana_agent.domain.memory import MemoryInsight
 
 
 class TicketRepository(ABC):
@@ -233,4 +235,108 @@ class SchedulingRepository(ABC):
     @abstractmethod
     def save_agent_schedule(self, schedule: AgentSchedule) -> bool:
         """Save an agent's schedule."""
+        pass
+
+
+class MemoryRepository(ABC):
+    """Interface for memory storage and retrieval."""
+
+    @abstractmethod
+    def store_insight(self, user_id: str, insight: MemoryInsight) -> None:
+        """Store a memory insight.
+
+        Args:
+            user_id: ID of the user the insight relates to
+            insight: Memory insight to store
+        """
+        pass
+
+    @abstractmethod
+    def search(self, query: str, limit: int = 5) -> List[Dict]:
+        """Search memory for insights matching a query.
+
+        Args:
+            query: Search query
+            limit: Maximum number of results to return
+
+        Returns:
+            List of matching memory items
+        """
+        pass
+
+    @abstractmethod
+    def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
+        """Get conversation history for a user.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of items to return
+
+        Returns:
+            List of conversation history items
+        """
+        pass
+
+    @abstractmethod
+    def delete_user_memory(self, user_id: str) -> bool:
+        """Delete all memory for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            True if successful
+        """
+        pass
+
+
+class FeedbackRepository(ABC):
+    """Interface for feedback storage and retrieval."""
+
+    @abstractmethod
+    def store_feedback(self, feedback: UserFeedback) -> str:
+        """Store user feedback.
+
+        Args:
+            feedback: Feedback object to store
+
+        Returns:
+            Feedback ID
+        """
+        pass
+
+    @abstractmethod
+    def get_user_feedback(self, user_id: str) -> List[UserFeedback]:
+        """Get all feedback for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            List of feedback items
+        """
+        pass
+
+    @abstractmethod
+    def get_average_nps(self, days: int = 30) -> float:
+        """Calculate average NPS score for a time period.
+
+        Args:
+            days: Number of days to include
+
+        Returns:
+            Average NPS score
+        """
+        pass
+
+    @abstractmethod
+    def get_nps_distribution(self, days: int = 30) -> Dict[int, int]:
+        """Get distribution of NPS scores for a time period.
+
+        Args:
+            days: Number of days to include
+
+        Returns:
+            Dictionary mapping scores to counts
+        """
         pass

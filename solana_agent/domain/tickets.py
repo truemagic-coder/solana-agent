@@ -1,124 +1,66 @@
 """
-Ticket domain models representing support requests and their lifecycle.
+Ticket domain models.
+
+These models define structures for support tickets and related data.
 """
-import datetime
-import uuid
+from datetime import datetime
+from enum import Enum
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
-from solana_agent.domain.enums import TicketStatus, Priority
+
+class TicketStatus(str, Enum):
+    """Status of a support ticket."""
+    NEW = "new"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    WAITING_FOR_USER = "waiting_for_user"
+    WAITING_FOR_HUMAN = "waiting_for_human"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+    STALLED = "stalled"
 
 
-class TicketResolution(BaseModel):
-    """Information about ticket resolution status."""
-    status: str  # "resolved", "needs_followup", or "cannot_determine"
-    confidence: float
-    reasoning: str
-    suggested_actions: List[str] = Field(default_factory=list)
-
-
-class TicketHandoff(BaseModel):
-    """Information about a ticket handoff between agents."""
-    source_agent: str
-    target_agent: str
-    reason: str
-    timestamp: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+class TicketPriority(str, Enum):
+    """Priority of a support ticket."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
 
 
 class TicketNote(BaseModel):
-    """Note added to a ticket by an agent or system."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    ticket_id: str
-    author: str
-    content: str
-    timestamp: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    visibility: str = "internal"  # internal, user, public
-
-
-class ComplexityAssessment(BaseModel):
-    """Assessment of task complexity."""
-    t_shirt_size: str
-    story_points: Optional[int] = None
-    estimated_hours: Optional[float] = None
-    factors: List[str] = Field(default_factory=list)
-    requires_breakdown: bool = False
-    reasoning: str = ""
+    """Note attached to a ticket."""
+    id: str = Field("", description="Unique identifier")
+    content: str = Field(..., description="Note content")
+    type: str = Field("agent", description="Note type (agent, system, user)")
+    created_by: Optional[str] = Field(None, description="ID of the creator")
+    timestamp: datetime = Field(
+        default_factory=datetime.now, description="When the note was created")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata")
 
 
 class Ticket(BaseModel):
-    """Model for a support ticket."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    query: str
-    status: TicketStatus = TicketStatus.NEW
-    assigned_to: str = ""
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    updated_at: Optional[datetime.datetime] = None
-    resolved_at: Optional[datetime.datetime] = None
-    resolution_confidence: Optional[float] = None
-    resolution_reasoning: Optional[str] = None
-    handoff_reason: Optional[str] = None
-    complexity: Optional[ComplexityAssessment] = None
-    agent_context: Optional[Dict[str, Any]] = None
-    priority: Priority = Priority.MEDIUM
-    due_date: Optional[datetime.datetime] = None
-
-    # Task/subtask relationship
-    is_parent: bool = False
-    is_subtask: bool = False
-    parent_id: Optional[str] = None
-    child_tickets: List[str] = Field(default_factory=list)
-
-    # Task specific fields
-    title: Optional[str] = None
-    description: Optional[str] = None
-    scheduled_start: Optional[datetime.datetime] = None
-    scheduled_end: Optional[datetime.datetime] = None
-    required_resources: List[Dict[str, Any]] = Field(default_factory=list)
-    resource_assignments: List[Dict[str, Any]] = Field(default_factory=list)
-
-    # Audit trail
-    handoff_history: List[TicketHandoff] = Field(default_factory=list)
-    notes: List[TicketNote] = Field(default_factory=list)
-
-    def add_note(self, author: str, content: str, visibility: str = "internal") -> None:
-        """Add a note to the ticket."""
-        note = TicketNote(
-            ticket_id=self.id,
-            author=author,
-            content=content,
-            visibility=visibility
-        )
-        self.notes.append(note)
-
-    def record_handoff(self, source_agent: str, target_agent: str, reason: str) -> None:
-        """Record a handoff between agents."""
-        handoff = TicketHandoff(
-            source_agent=source_agent,
-            target_agent=target_agent,
-            reason=reason
-        )
-        self.handoff_history.append(handoff)
-
-    def update_status(self, new_status: TicketStatus) -> None:
-        """Update ticket status with timestamp."""
-        self.status = new_status
-        self.updated_at = datetime.datetime.now(datetime.timezone.utc)
-
-        if new_status == TicketStatus.RESOLVED:
-            self.resolved_at = self.updated_at
-
-
-class NPSSurvey(BaseModel):
-    """Net promoter score survey for ticket resolution."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    ticket_id: str
-    user_id: str
-    created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    completed_at: Optional[datetime.datetime] = None
-    score: Optional[int] = None
-    feedback: Optional[str] = None
+    """Support ticket model."""
+    id: str = Field(..., description="Unique identifier")
+    title: str = Field(..., description="Ticket title")
+    description: str = Field(..., description="Ticket description")
+    user_id: str = Field(...,
+                         description="ID of the user who created the ticket")
+    assigned_to: Optional[str] = Field(
+        None, description="ID of the assigned agent")
+    status: TicketStatus = Field(TicketStatus.NEW, description="Ticket status")
+    priority: TicketPriority = Field(
+        TicketPriority.MEDIUM, description="Ticket priority")
+    created_at: datetime = Field(
+        default_factory=datetime.now, description="When the ticket was created")
+    updated_at: datetime = Field(
+        default_factory=datetime.now, description="When the ticket was last updated")
+    closed_at: Optional[datetime] = Field(
+        None, description="When the ticket was closed")
+    tags: List[str] = Field(default_factory=list, description="Ticket tags")
+    notes: List[TicketNote] = Field(
+        default_factory=list, description="Ticket notes")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata")

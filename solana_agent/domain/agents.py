@@ -120,3 +120,38 @@ class AgentPerformance(BaseModel):
     avg_resolution_time: Optional[float] = None  # minutes
     satisfaction_score: Optional[float] = None  # 0-10
     handoff_rate: Optional[float] = None  # percentage
+
+
+class AgentType(str, Enum):
+    """Type of agent."""
+    AI = "ai"
+    HUMAN = "human"
+    SYSTEM = "system"
+
+
+class AIAgent(BaseModel):
+    """AI agent model."""
+    name: str = Field(..., description="Agent name")
+    instructions: str = Field(..., description="Agent instructions")
+    specialization: str = Field(..., description="Agent specialization area")
+    model: str = Field(
+        "gpt-4o-mini", description="Language model used by the agent")
+    created_at: datetime = Field(
+        default_factory=datetime.now, description="When the agent was created")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata")
+
+
+class HumanAgent(BaseModel):
+    """Human agent model."""
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Agent name")
+    email: str = Field(..., description="Agent email")
+    specializations: List[str] = Field(
+        default_factory=list, description="Agent specialization areas")
+    availability: bool = Field(
+        True, description="Whether the agent is available")
+    created_at: datetime = Field(
+        default_factory=datetime.now, description="When the agent was created")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata")
