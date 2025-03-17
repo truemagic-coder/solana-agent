@@ -24,18 +24,18 @@ class Tool(ABC):
         pass
 
     @abstractmethod
-    def get_schema(self) -> Dict[str, Any]:
-        """Get the schema for the tool."""
-        pass
-
-    @abstractmethod
-    def execute(self, **kwargs) -> Dict[str, Any]:
-        """Execute the tool with the given parameters."""
-        pass
-
-    @abstractmethod
     def configure(self, config: Dict[str, Any]) -> None:
         """Configure the tool with global configuration."""
+        pass
+
+    @abstractmethod
+    def get_schema(self) -> Dict[str, Any]:
+        """Get the schema for the tool parameters."""
+        pass
+
+    @abstractmethod
+    def execute(self, **params) -> Dict[str, Any]:
+        """Execute the tool with the given parameters."""
         pass
 
 
@@ -59,7 +59,7 @@ class ToolRegistry(ABC):
 
     @abstractmethod
     def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
-        """Get all tools available to a specific agent."""
+        """Get all tools available to an agent."""
         pass
 
     @abstractmethod
@@ -78,30 +78,5 @@ class PluginManager(ABC):
 
     @abstractmethod
     def load_all_plugins(self) -> int:
-        """Load all plugins and return the number loaded."""
-        pass
-
-    @abstractmethod
-    def register_plugin(self, name: str, plugin_info: Dict[str, Any]) -> bool:
-        """Register a plugin."""
-        pass
-
-    @abstractmethod
-    def get_plugin(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get a plugin by name."""
-        pass
-
-    @abstractmethod
-    def list_plugins(self) -> List[str]:
-        """List names of all loaded plugins."""
-        pass
-
-    @abstractmethod
-    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
-        """Execute a tool with the given parameters."""
-        pass
-
-    @abstractmethod
-    def configure(self, config: Dict[str, Any]) -> None:
-        """Configure the plugin manager and all plugins."""
+        """Load all plugins using entry points and apply configuration."""
         pass
