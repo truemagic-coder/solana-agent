@@ -19,6 +19,7 @@ class TicketStatus(str, Enum):
     RESOLVED = "resolved"
     CLOSED = "closed"
     STALLED = "stalled"
+    PLANNING = "planning"
 
 
 class TicketPriority(str, Enum):

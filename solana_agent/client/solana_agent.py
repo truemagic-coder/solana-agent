@@ -49,7 +49,7 @@ class SolanaAgent:
         Returns:
             Async generator yielding response chunks
         """
-        async for chunk in self.query_service.process_query(user_id, message):
+        async for chunk in self.query_service.process(user_id, message):
             yield chunk
 
     def register_agent(

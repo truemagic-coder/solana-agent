@@ -91,6 +91,8 @@ class SubtaskModel(BaseModel):
         default_factory=lambda: datetime.now(), description="Creation timestamp")
     updated_at: Optional[datetime] = Field(
         None, description="Last update timestamp")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata")
 
 
 class PlanStatus(BaseModel):

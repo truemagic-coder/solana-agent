@@ -4,7 +4,6 @@ Task planning service implementation.
 This service manages complex task planning, breakdown into subtasks,
 and resource allocation.
 """
-import json
 import uuid
 import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -234,13 +233,19 @@ class TaskPlanningService(TaskPlanningServiceInterface):
             "status": TicketStatus.PLANNING,
         })
 
+        # Always initialize the result structure even if there are no subtasks
+        result = {
+            "assigned": [],
+            "unassigned": []
+        }
+
         if not subtasks:
-            return {}
+            return result
 
         # Find available agents
         available_agents = self.get_available_agents()
         if not available_agents:
-            return {}
+            return result
 
         # Simple round-robin assignment
         assignments = {agent_id: [] for agent_id in available_agents}
@@ -254,7 +259,7 @@ class TaskPlanningService(TaskPlanningServiceInterface):
             self.ticket_repository.update(
                 subtask.id, {
                     "assigned_to": agent_id,
-                    "status": TicketStatus.ACTIVE,
+                    "status": TicketStatus.IN_PROGRESS,
                     "updated_at": datetime.datetime.now(datetime.timezone.utc)
                 }
             )
@@ -266,78 +271,81 @@ class TaskPlanningService(TaskPlanningServiceInterface):
             # Move to next agent in round-robin
             agent_idx = (agent_idx + 1) % len(available_agents)
 
-        return assignments
+        return {
+            "assigned": [item for agent_list in assignments.values() for item in agent_list],
+            "unassigned": []
+        }
 
-    async def get_plan_status(self, parent_ticket_id: str) -> PlanStatus:
-        """Get the status of a task plan."""
-        # Get parent ticket
-        parent = self.ticket_repository.get_by_id(parent_ticket_id)
-        if not parent or not getattr(parent, "is_parent", False):
-            raise ValueError(
-                f"Parent ticket {parent_ticket_id} not found or is not a parent")
+    async def get_plan_status(self, ticket_id: str) -> PlanStatus:
+        """Get the status of a plan, including progress and visualization."""
+        # Get the ticket
+        ticket = self.ticket_repository.get_by_id(ticket_id)
+        if not ticket or not getattr(ticket, "is_parent", False):
+            raise ValueError(f"Ticket {ticket_id} is not a parent task")
 
         # Get all subtasks
-        subtasks = self.ticket_repository.find({
-            "parent_id": parent_ticket_id,
-            "is_subtask": True
-        })
+        subtasks = self.ticket_repository.find({"parent_id": ticket_id})
+        total_count = len(subtasks)
 
-        subtask_count = len(subtasks)
-        if subtask_count == 0:
+        if total_count == 0:
             return PlanStatus(
-                visualization="No subtasks found",
+                status="not started",
                 progress=0,
-                status="unknown",
-                estimated_completion="unknown",
-                subtask_count=0,
+                visualization=f"No subtasks found for {ticket.title}",
+                subtask_count=0
             )
 
-        # Count completed tasks
-        completed = sum(1 for task in subtasks if task.status ==
-                        TicketStatus.RESOLVED)
+        # Count tasks in each status
+        status_counts = {}
+        for subtask in subtasks:
+            status = getattr(subtask, "status", None)
+            if status not in status_counts:
+                status_counts[status] = 0
+            status_counts[status] += 1
 
-        # Calculate progress percentage
-        progress = int((completed / subtask_count) *
-                       100) if subtask_count > 0 else 0
+        # Calculate progress - FIX THE DOUBLE COUNTING
+        completed_count = 0
+        # Find all statuses that indicate completion
+        completed_statuses = ["completed", "resolved", "closed"]
 
-        # Determine status
+        # Rather than adding counts for each status, count each subtask only once
+        for subtask in subtasks:
+            status = getattr(subtask, "status", "")
+            # Check if the status is in our list of completed statuses
+            # Convert to string in case it's an enum
+            status_str = status.value if hasattr(
+                status, "value") else str(status).lower()
+            if status_str in completed_statuses:
+                completed_count += 1
+
+        progress = (completed_count / total_count *
+                    100) if total_count > 0 else 0
+
+        # Determine overall status
         if progress == 100:
             status = "completed"
-        elif progress == 0:
-            status = "not started"
-        else:
+        elif progress > 0:
             status = "in progress"
+        else:
+            status = "not started"
 
         # Create visualization
-        bars = "█" * (progress // 10) + "░" * (10 - (progress // 10))
-        visualization = f"Progress: {progress}% [{bars}] ({completed}/{subtask_count} subtasks complete)"
+        bars = 10
+        filled = int(progress / 100 * bars)
+        visualization = f"Progress: {int(progress)}% [{'█' * filled}{'░' * (bars - filled)}] ({completed_count}/{total_count} subtasks complete)"
 
-        # Estimate completion time
-        if status == "completed":
+        estimated_completion = "Not started"
+        if progress > 0 and progress < 100:
+            estimated_completion = "In progress"
+        elif progress == 100:
             estimated_completion = "Completed"
-        elif status == "not started":
-            estimated_completion = "Not started"
-        else:
-            # Simple linear projection based on progress
-            if progress > 0:
-                first_subtask = min(subtasks, key=lambda t: t.created_at)
-                start_time = first_subtask.created_at
-                time_elapsed = (datetime.datetime.now(
-                    datetime.timezone.utc) - start_time).total_seconds()
-                time_remaining = (time_elapsed / progress) * (100 - progress)
-                completion_time = datetime.datetime.now(
-                    datetime.timezone.utc) + datetime.timedelta(seconds=time_remaining)
-                estimated_completion = completion_time.strftime(
-                    "%Y-%m-%d %H:%M")
-            else:
-                estimated_completion = "Unknown"
 
         return PlanStatus(
-            visualization=visualization,
-            progress=progress,
             status=status,
-            estimated_completion=estimated_completion,
-            subtask_count=subtask_count,
+            progress=progress,
+            visualization=visualization,
+            subtask_count=total_count,
+            estimated_completion=estimated_completion
         )
 
     async def generate_subtasks_with_resources(
