@@ -20,6 +20,8 @@ class FeedbackType(str, Enum):
 class NPSRating(BaseModel):
     """Net Promoter Score rating."""
     score: int = Field(..., description="NPS score (0-10)", ge=0, le=10)
+    reason: Optional[str] = Field(
+        None, description="Reason for the score provided")
 
     @property
     def category(self) -> str:
