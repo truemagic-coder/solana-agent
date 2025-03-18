@@ -688,6 +688,106 @@ class SchedulingService(SchedulingServiceInterface):
         """
         return self.repository.get_time_off_requests(agent_id, status)
 
+    async def cancel_time_off_request(self, request_id: str, reason: str = "") -> bool:
+        """Cancel a pending time off request.
+
+        Args:
+            request_id: Time off request ID
+            reason: Optional reason for cancellation
+
+        Returns:
+            True if cancellation was successful
+        """
+        # Get the request
+        request = self.repository.get_time_off_request(request_id)
+        if not request:
+            return False
+
+        # Can only cancel pending requests
+        if request.status != TimeOffStatus.PENDING:
+            return False
+
+        # Update status
+        request.status = TimeOffStatus.CANCELLED
+        request.processed_at = datetime.datetime.now(datetime.timezone.utc)
+        request.cancellation_reason = reason
+        success = self.repository.save_time_off_request(request)
+
+        if success:
+            # Log the cancellation
+            self._log_scheduling_event(
+                "time_off_cancelled",
+                None,
+                request.agent_id,
+                {"request_id": request.id, "reason": reason}
+            )
+
+        return success
+
+    async def get_agent_time_off_history(
+        self,
+        agent_id: str,
+        start_date: Optional[datetime.date] = None,
+        end_date: Optional[datetime.date] = None,
+        include_denied: bool = False,
+        include_cancelled: bool = False
+    ) -> List[TimeOffRequest]:
+        """Get time off history for an agent with filtering options.
+
+        Args:
+            agent_id: Agent ID
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            include_denied: Whether to include denied requests
+            include_cancelled: Whether to include cancelled requests
+
+        Returns:
+            List of time off requests matching the criteria
+        """
+        # Get all time off requests for the agent
+        all_requests = self.repository.get_time_off_requests(agent_id, None)
+
+        # Filter by date if needed
+        if start_date or end_date:
+            filtered_requests = []
+
+            for request in all_requests:
+                request_start_date = request.start_time.date()
+                request_end_date = request.end_time.date()
+
+                # Filter by start date
+                if start_date and request_end_date < start_date:
+                    continue
+
+                # Filter by end date
+                if end_date and request_start_date > end_date:
+                    continue
+
+                filtered_requests.append(request)
+
+            all_requests = filtered_requests
+
+        # Filter by status
+        status_filtered_requests = []
+        for request in all_requests:
+            # Always include approved and pending requests
+            if request.status in [TimeOffStatus.APPROVED, TimeOffStatus.PENDING]:
+                status_filtered_requests.append(request)
+            # Include denied requests if requested
+            elif request.status == TimeOffStatus.DENIED and include_denied:
+                status_filtered_requests.append(request)
+            # Include cancelled requests if requested
+            elif request.status == TimeOffStatus.CANCELLED and include_cancelled:
+                status_filtered_requests.append(request)
+
+        # Sort by start date, most recent first
+        status_filtered_requests.sort(
+            key=lambda r: r.start_time,
+            reverse=True
+        )
+
+        return status_filtered_requests
+
     async def _find_optimal_agent(
         self,
         task: ScheduledTask,

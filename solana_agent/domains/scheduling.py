@@ -61,6 +61,8 @@ class ScheduledTask(BaseModel):
         default_factory=list, description="Scheduling constraints")
     metadata: Dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata")
+    required_resources: List[str] = Field(
+        default_factory=list, description="IDs of required resources")
 
 
 class AgentAvailabilityPattern(BaseModel):
@@ -155,6 +157,8 @@ class TimeOffRequest(BaseModel):
         None, description="Reason for denial if denied")
     conflicts: List[str] = Field(
         default_factory=list, description="Conflicting task IDs")
+    cancellation_reason: Optional[str] = Field(
+        None, description="Reason for cancellation if cancelled")
 
 
 class SchedulingEvent(BaseModel):
