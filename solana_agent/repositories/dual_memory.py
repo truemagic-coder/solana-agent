@@ -51,45 +51,52 @@ class DualMemoryRepository(MemoryRepository):
         Returns:
             List of matching memory items
         """
-        # Prefer Zep for semantic search
-        results = await self.zep.search(query, limit)
+        try:
+            # Prefer Zep for semantic search
+            results = await self.zep.search(query, limit)
+            if results:
+                return results
+        except Exception:
+            # Fall back to MongoDB if Zep fails
+            pass
 
-        # Fall back to MongoDB if Zep search fails or returns no results
-        if not results:
-            results = self.mongo.search(query, limit)
-
-        return results
+        # Fall back to MongoDB if Zep returns no results or fails
+        return self.mongo.search(query, limit)
 
     async def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
-        """Get conversation history using MongoDB's structured storage.
+        """Get user interaction history.
 
         Args:
-            user_id: User ID
-            limit: Maximum number of items to return
+            user_id: User identifier
+            limit: Maximum number of history entries to return
 
         Returns:
-            List of conversation history items
+            List of user interaction records
         """
-        # Get from MongoDB for consistent history
-        history = self.mongo.get_user_history(user_id, limit)
+        try:
+            # Prefer MongoDB for structured history retrieval
+            history = self.mongo.get_user_history(user_id, limit)
+            if history:
+                return history
+        except Exception:
+            # Fall back to Zep if MongoDB fails
+            pass
 
-        # If MongoDB has no history, try Zep
-        if not history:
-            history = await self.zep.get_user_history(user_id, limit)
-
-        return history
+        # Fall back to Zep if MongoDB returns no results or fails
+        return await self.zep.get_user_history(user_id, limit)
 
     async def delete_user_memory(self, user_id: str) -> bool:
-        """Delete all memory from both repositories.
+        """Delete all memory for a user.
 
         Args:
-            user_id: User ID
+            user_id: User identifier
 
         Returns:
-            True if successful
+            True if successful, False otherwise
         """
-        # Delete from both sources
+        # Delete from both repositories
         zep_success = await self.zep.delete_user_memory(user_id)
         mongo_success = self.mongo.delete_user_memory(user_id)
 
+        # Only return True if both operations succeeded
         return zep_success and mongo_success
