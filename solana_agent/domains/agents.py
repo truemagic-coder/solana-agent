@@ -58,6 +58,8 @@ class AIAgent(BaseModel):
         default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(
         default_factory=datetime.now, description="Last update timestamp")
+    description: Optional[str] = Field(
+        None, description="Agent description or summary")
 
     @field_validator("name", "specialization")
     @classmethod
@@ -111,6 +113,14 @@ class HumanAgent(BaseModel):
             raise ValueError("At least one specialization is required")
         return v
 
+    def is_available_now(self) -> bool:
+        """Check if the agent is currently available.
+
+        Returns:
+            bool: True if the agent is available, False otherwise
+        """
+        return self.availability
+
 
 class AgentPerformance(BaseModel):
     """Performance metrics for an agent."""
@@ -119,6 +129,12 @@ class AgentPerformance(BaseModel):
 
     agent_id: str = Field(..., description="ID or name of the agent")
     agent_type: str = Field(..., description="Type of agent (AI or Human)")
+
+    # Period metrics
+    period_start: datetime = Field(
+        default_factory=datetime.now, description="Start of performance period")
+    period_end: datetime = Field(
+        default_factory=datetime.now, description="End of performance period")
 
     # Core performance metrics
     avg_response_time: Optional[float] = Field(

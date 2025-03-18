@@ -111,29 +111,15 @@ class SolanaAgentFactory:
         handoff_repo = MongoHandoffRepository(db_adapter)
 
         # Create services
-        agent_service = AgentService(
-            llm_provider=llm_adapter,
-            agent_repository=agent_repo,
-            organization_mission=organization_mission,
-            config=config
-        )
+        agent_service = AgentService()
 
         # Debug the agent service tool registry to confirm tools were registered
         print(
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
-        routing_service = RoutingService(
-            llm_provider=llm_adapter,
-            agent_service=agent_service,
-            router_model=config.get("router_model", "gpt-4o-mini"),
-        )
-
         ticket_service = TicketService(ticket_repo)
-        handoff_service = HandoffService(
-            handoff_repository=handoff_repo,
-            ticket_repository=ticket_repo,
-            agent_service=agent_service
-        )
+        handoff_service = HandoffService()
+
         memory_service = MemoryService(memory_repo, llm_adapter)
         nps_service = NPSService(nps_repo, ticket_repo)
 
@@ -177,6 +163,13 @@ class SolanaAgentFactory:
             scheduling_repository=scheduling_repository,
             task_planning_service=task_planning_service,
             agent_service=agent_service
+        )
+
+        routing_service = RoutingService(
+            llm_provider=llm_adapter,
+            agent_service=agent_service,
+            ticket_service=ticket_service,
+            scheduling_service=scheduling_service,
         )
 
         # Update task_planning_service with scheduling_service if needed

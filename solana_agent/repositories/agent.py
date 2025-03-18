@@ -58,6 +58,9 @@ class MongoAgentRepository(AgentRepository):
             for doc in docs
         }
 
+    def get_all_human_agents(self):
+        return super().get_all_human_agents()
+
     def save_ai_agent(self, agent: AIAgent) -> bool:
         """Save an AI agent."""
         doc = agent.model_dump()
