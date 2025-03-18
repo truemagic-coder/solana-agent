@@ -10,7 +10,7 @@ from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
 from solana_agent.domains import UserFeedback
 from solana_agent.domains import Ticket, TicketResolution
 from solana_agent.domains import HumanAgent
-from solana_agent.domains import Resource, ResourceBooking
+from solana_agent.domains import Resource, ResourceBooking, TimeWindow
 from solana_agent.domains import ScheduledTask, AgentSchedule, ScheduleConflictType
 from solana_agent.domains import MemoryInsight
 

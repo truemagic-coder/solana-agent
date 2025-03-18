@@ -13,6 +13,8 @@ exclude_lines =
     raise NotImplementedError
     if __name__ == .__main__.:
     pass
+    def _.*
+    async def _.*
     raise ImportError
     except ImportError:
     def __str__

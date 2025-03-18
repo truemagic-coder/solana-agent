@@ -148,3 +148,6 @@ cython_debug/
 
 # Chroma
 .chroma/
+
+# tests
+coverage_html_report/
