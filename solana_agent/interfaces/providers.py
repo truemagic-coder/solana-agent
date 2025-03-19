@@ -4,7 +4,6 @@ Provider interfaces for external service adapters.
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, List, Optional, Any, TypeVar, Type
 from pydantic import BaseModel
-from datetime import datetime
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -14,7 +13,11 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def generate_text(
-        self, user_id: str, prompt: str, **kwargs
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        needs_search: bool = False,
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
         """Generate text from the language model."""
         pass

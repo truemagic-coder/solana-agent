@@ -12,6 +12,13 @@ from solana_agent.domains import HumanAgent
 from solana_agent.domains import MemoryInsight
 
 
+class HandoffObserver(ABC):
+    @abstractmethod
+    def on_handoff(self, handoff_data: Dict[str, Any]) -> None:
+        """Called when a handoff is initiated."""
+        pass
+
+
 class AgentService(ABC):
     """Interface for agent management and response generation."""
 

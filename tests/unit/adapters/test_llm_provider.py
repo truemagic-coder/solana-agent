@@ -147,7 +147,6 @@ async def test_generate_text_streaming(openai_adapter):
             {"role": "system", "content": "Be funny"},
             {"role": "user", "content": "Tell me a joke"}
         ],
-        stream=True,
         temperature=0.7,
         max_tokens=None,
         response_format=None

@@ -3,17 +3,18 @@ Handoff service implementation.
 
 This service manages agent handoffs and escalations between AI and human agents.
 """
-from typing import Tuple, Optional, Any
+from typing import Dict, Tuple, Optional, Any
 from datetime import datetime
 
 from solana_agent.interfaces import HandoffService as HandoffServiceInterface
+from solana_agent.interfaces import HandoffObserver
 from solana_agent.interfaces import TicketRepository, HandoffRepository
 from solana_agent.services import AgentService
 from solana_agent.domains import TicketStatus, TicketNote
 from solana_agent.domains import HandoffEvaluation, Handoff
 
 
-class HandoffService(HandoffServiceInterface):
+class HandoffService(HandoffServiceInterface, HandoffObserver):
     """Service for managing handoffs between agents."""
 
     def __init__(
@@ -34,6 +35,15 @@ class HandoffService(HandoffServiceInterface):
         self.agent_service = agent_service
         # Get the LLM provider from the agent service
         self.llm_provider = agent_service.llm_provider
+
+    def on_handoff(self, handoff_data: Dict[str, Any]) -> None:
+        """Handle handoff notifications from AgentService."""
+        ticket_id = handoff_data.get("ticket_id")
+        target_agent = handoff_data.get("target_agent")
+        reason = handoff_data.get("reason", "No reason provided")
+
+        if ticket_id and target_agent:
+            self.handle_handoff(ticket_id, target_agent, reason)
 
     async def evaluate_handoff_needed(self, query: str, response: str, current_agent: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """Evaluate if a handoff is needed based on query and response."""

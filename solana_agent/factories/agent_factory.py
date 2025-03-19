@@ -112,7 +112,7 @@ class SolanaAgentFactory:
         agent_service = AgentService(
             agent_repository=agent_repo,
             llm_provider=llm_adapter,
-            organization_mission=organization_mission
+            organization_mission=organization_mission,
         )
 
         # Debug the agent service tool registry
@@ -127,6 +127,9 @@ class SolanaAgentFactory:
             ticket_repository=ticket_repo,
             agent_service=agent_service
         )
+
+        # Register handoff service as observer
+        agent_service.add_handoff_observer(handoff_service)
 
         memory_service = MemoryService(memory_repo, llm_adapter)
         nps_service = NPSService(nps_repo)

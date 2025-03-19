@@ -14,6 +14,7 @@ from solana_agent.interfaces import LLMProvider
 from solana_agent.interfaces import AgentRepository
 from solana_agent.interfaces import ToolRegistry
 from solana_agent.domains import AIAgent, HumanAgent, OrganizationMission
+from solana_agent.interfaces.services import HandoffObserver
 
 
 class AgentService(AgentServiceInterface):
@@ -25,7 +26,7 @@ class AgentService(AgentServiceInterface):
         agent_repository: AgentRepository,
         organization_mission: Optional[OrganizationMission] = None,
         config: Optional[Dict[str, Any]] = None,
-        tool_registry: Optional[ToolRegistry] = None
+        tool_registry: Optional[ToolRegistry] = None,
     ):
         """Initialize the agent service.
 
@@ -50,6 +51,17 @@ class AgentService(AgentServiceInterface):
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
+
+        self._handoff_observers: List[HandoffObserver] = []
+
+    def add_handoff_observer(self, observer: HandoffObserver) -> None:
+        """Add a handoff observer."""
+        self._handoff_observers.append(observer)
+
+    def _notify_handoff(self, handoff_data: Dict[str, Any]) -> None:
+        """Notify observers of a handoff."""
+        for observer in self._handoff_observers:
+            observer.on_handoff(handoff_data)
 
     def register_ai_agent(
         self, name: str, instructions: str, specialization: str, model: str = "gpt-4o-mini"
@@ -373,6 +385,34 @@ class AgentService(AgentServiceInterface):
         # If no handoff service is available, assume no pending handoffs
         return False
 
+    def clear_pending_handoff(self, agent_name: str) -> bool:
+        """Clear any pending handoffs for an agent.
+
+        Args:
+            agent_name: Name or ID of the agent whose handoffs should be cleared
+
+        Returns:
+            bool: True if handoffs were cleared successfully, False otherwise
+        """
+        try:
+            # Check if handoff service is available
+            if hasattr(self, 'handoff_service') and self.handoff_service:
+                # Delegate to handoff service to clear pending handoffs
+                return self.handoff_service.clear_pending_handoffs_for_agent(agent_name)
+
+            # If we get here with no handoff service, log warning and return True
+            # since there can't be pending handoffs without a service
+            print(
+                f"Warning: No handoff service available when clearing handoffs for agent: {agent_name}")
+            return True
+
+        except Exception as e:
+            print(
+                f"Error clearing pending handoffs for agent {agent_name}: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+
     async def generate_response(
         self,
         agent_name: str,
@@ -381,107 +421,66 @@ class AgentService(AgentServiceInterface):
         memory_context: str = "",
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """Generate a response from an agent with JSON-based tool execution."""
+        """Generate a response with handoff support."""
         agent = self.agent_repository.get_ai_agent_by_name(agent_name)
         if not agent:
             yield f"Agent '{agent_name}' not found."
             return
 
-        # Get system prompt
+        # Get system prompt with tools and handoff instructions
         system_prompt = self.get_agent_system_prompt(agent_name)
-
-        # Add tool usage prompt if tools are available
-        if self.tool_registry:
-            tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
-            if tool_usage_prompt:
-                system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
 
         # Add memory context
         if memory_context:
-            system_prompt += f"\n\nUser context and history:\n{memory_context}"
-
-        # Add critical instruction for JSON formatting
-        system_prompt += "\n\nCRITICAL: When using tools, ALWAYS respond with properly formatted JSON as instructed."
-
-        # Generate response
-        model = agent.model
-        tool_json_found = False
-        full_response = ""
+            system_prompt += f"\n\nContext: {memory_context}"
 
         try:
+            # Generate initial response
+            full_response = ""
+            json_response = ""
+            is_json = False
+
             async for chunk in self.llm_provider.generate_text(
                 user_id=user_id,
                 prompt=query,
                 system_prompt=system_prompt,
-                model=model,
+                model=agent.model,
+                needs_search=True,  # Enable web search by default
                 **kwargs
             ):
-                # Add to full response
-                full_response += chunk
-
-                # Check if this might be JSON
-                if full_response.strip().startswith("{") and not tool_json_found:
-                    tool_json_found = True
-                    print(
-                        f"Detected potential JSON response: {full_response[:50]}...")
+                # Check for JSON start
+                if chunk.strip().startswith("{"):
+                    is_json = True
+                    json_response = chunk
                     continue
 
-                # If not JSON, yield the chunk
-                if not tool_json_found:
+                # Collect JSON or yield normal text
+                if is_json:
+                    json_response += chunk
+                    try:
+                        # Try to parse complete JSON
+                        data = json.loads(json_response)
+
+                        # Handle handoff
+                        if "handoff" in data:
+                            handoff_data = data["handoff"]
+                            # Store handoff data for query service
+                            self._last_handoff = {
+                                "target_agent": handoff_data.get("target_agent"),
+                                "reason": handoff_data.get("reason", "No reason provided"),
+                                "ticket_id": kwargs.get("ticket_id")
+                            }
+                            return
+
+                        # If valid JSON but not handoff, yield it
+                        yield json_response
+                        break
+                    except json.JSONDecodeError:
+                        # Not complete JSON yet, keep collecting
+                        continue
+                else:
+                    full_response += chunk
                     yield chunk
-
-            # Process JSON if found
-            if tool_json_found:
-                try:
-                    print(
-                        f"Processing JSON response: {full_response[:100]}...")
-                    data = json.loads(full_response.strip())
-                    print(
-                        f"Successfully parsed JSON with keys: {list(data.keys())}")
-
-                    # Handle tool call
-                    if "tool_call" in data:
-                        tool_data = data["tool_call"]
-                        tool_name = tool_data.get("name")
-                        parameters = tool_data.get("parameters", {})
-
-                        print(
-                            f"Processing tool call: {tool_name} with parameters: {parameters}")
-
-                        if tool_name:
-                            try:
-                                # Execute tool
-                                print(f"Executing tool: {tool_name}")
-                                result = self.execute_tool(
-                                    agent_name, tool_name, parameters)
-                                print(
-                                    f"Tool execution result: {result.get('status')}")
-
-                                if result.get("status") == "success":
-                                    # Generate follow-up response based on tool results
-                                    follow_up_prompt = f"Based on the search for '{parameters.get('query', 'information')}', here are the results: {json.dumps(result)}. Provide a comprehensive, informative response based on these results WITHOUT mentioning that you used any tool or performed a search."
-
-                                    async for follow_up_chunk in self.llm_provider.generate_text(
-                                        user_id=user_id,
-                                        prompt=follow_up_prompt,
-                                        system_prompt=system_prompt,
-                                        model=model,
-                                        **kwargs
-                                    ):
-                                        yield follow_up_chunk
-                                else:
-                                    yield f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
-                            except Exception as e:
-                                print(f"Tool execution error: {str(e)}")
-                                yield f"I apologize, but I encountered an error executing the tool: {str(e)}"
-                    else:
-                        # If JSON but not a tool call, yield as text
-                        yield full_response
-
-                except json.JSONDecodeError as e:
-                    # Not valid JSON, yield as is
-                    print(f"JSON parse error: {str(e)} - yielding as text")
-                    yield full_response
 
         except Exception as e:
             print(f"Error in generate_response: {str(e)}")
@@ -490,42 +489,81 @@ class AgentService(AgentServiceInterface):
             yield f"I apologize, but I encountered an error: {str(e)}"
 
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
-        """Generate JSON-based tool usage instructions."""
+        """Generate JSON-based instructions for tool usage and handoffs."""
         # Get tools assigned to this agent
         tools = self.get_agent_tools(agent_name)
-        if not tools:
-            return ""
 
-        tools_json = json.dumps(tools, indent=2)
+        # Get available agents for handoff
+        available_agents = [agent.name for agent in self.agent_repository.get_all_ai_agents()
+                            if agent.name != agent_name]
+
+        # Build the prompt with both tool and handoff instructions
+        tools_section = ""
+        if tools:
+            # Get actual tool names
+            available_tool_names = [tool.get("name", "") for tool in tools]
+            tools_json = json.dumps(tools, indent=2)
+
+            # Only show example with actually available tools
+            tool_example = ""
+            if "search_internet" in available_tool_names:
+                tool_example = """
+        For latest news query:
+        {
+            "tool_call": {
+                "name": "search_internet",
+                "parameters": {
+                    "query": "latest Solana blockchain news March 2025"
+                }
+            }
+        }"""
+
+            tools_section = f"""
+        AVAILABLE TOOLS:
+        {tools_json}
+        
+        TOOL USAGE FORMAT:
+        {{
+            "tool_call": {{
+                "name": "<one_of:{', '.join(available_tool_names)}>",
+                "parameters": {{
+                    // parameters as specified in tool definition above
+                }}
+            }}
+        }}
+        
+        {tool_example if tool_example else ''}"""
+
+        handoff_section = f"""
+        HANDOFF FORMAT:
+        {{
+            "handoff": {{
+                "target_agent": "<one_of:{', '.join(available_agents)}>",
+                "reason": "detailed reason for handoff"
+            }}
+        }}
+        
+        AVAILABLE AGENTS FOR HANDOFF:
+        {', '.join(available_agents)}"""
+
         return f"""
-    AVAILABLE TOOLS:
-    {tools_json}
-
-    TOOL USAGE INSTRUCTIONS:
-    When you need to use a tool, respond with ONLY a JSON object in this exact format:
-
-    {{
-    "tool_call": {{
-        "name": "search_internet",
-        "parameters": {{
-        "query": "your search query including March 2025 for current info"
-        }}
-    }}
-    }}
-
-    EXAMPLE RESPONSES:
-    For "What's the latest Solana news?":
-    {{
-    "tool_call": {{
-        "name": "search_internet",
-        "parameters": {{
-        "query": "latest Solana blockchain news March 2025"
-        }}
-    }}
-    }}
-
-    IMPORTANT:
-    - ALWAYS include "March 2025" in queries for current information
-    - Return ONLY the JSON object - no explanation text before or after
-    - Use exact tool names as shown in the tools list above
-    """
+        {tools_section}
+        
+        {handoff_section}
+        
+        RESPONSE RULES:
+        1. For specialized queries beyond your expertise:
+           - Use the handoff format to transfer to appropriate agent
+           - Only use agents from the available agents list
+           - Provide clear handoff reason
+        
+        2. For tool usage:
+           - Only use tools from the AVAILABLE TOOLS list above
+           - Follow the exact parameter format shown in the tool definition
+        
+        3. Format Requirements:
+           - Return ONLY the JSON object
+           - No explanation text before or after
+           - Use exact tool names as shown in AVAILABLE TOOLS
+           - Use exact agent names as shown in AVAILABLE AGENTS
+        """

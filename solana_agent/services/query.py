@@ -317,17 +317,7 @@ class QueryService(QueryServiceInterface):
         user_id: str,
         user_text: str,
     ) -> AsyncGenerator[str, None]:
-        """Process a message creating a new ticket.
-
-        Args:
-            user_id: User ID
-            user_text: User query text
-            complexity: Complexity assessment of the task
-            timezone: Optional user timezone
-
-        Yields:
-            Response text chunks
-        """
+        """Process a new ticket with improved handoff handling."""
         # Route query to appropriate agent
         agent_name, ticket = await self.routing_service.route_query(user_id, user_text)
 
@@ -336,90 +326,61 @@ class QueryService(QueryServiceInterface):
         if self.memory_provider:
             memory_context = await self.memory_provider.retrieve(user_id)
 
-        # Generate initial response with streaming
         full_response = ""
-        handoff_detected = False
+        current_agent = agent_name
 
-        try:
-            # Generate response with streaming
-            async for chunk in self.agent_service.generate_response(
-                agent_name, user_id, user_text, memory_context, temperature=0.7
-            ):
-                # Check if this looks like a JSON handoff
-                if chunk.strip().startswith("{") and not handoff_detected:
-                    handoff_detected = True
-                    full_response += chunk
-                    continue
-
-                # Only yield if not a JSON chunk
-                if not handoff_detected:
+        while True:  # Handle potential chain of handoffs
+            try:
+                async for chunk in self.agent_service.generate_response(
+                    agent_name=current_agent,
+                    user_id=user_id,
+                    query=user_text,
+                    memory_context=memory_context,
+                    ticket_id=ticket.id,  # Pass ticket ID for handoff context
+                ):
                     yield chunk
                     full_response += chunk
 
-            # Handle handoff if detected
-            if handoff_detected or self.agent_service.has_pending_handoff(agent_name):
-                handoff_data = self.agent_service.has_pending_handoff(
-                    agent_name)
-                if handoff_data:
-                    target_agent = handoff_data.get("target_agent")
+                # Check for handoff after response completion
+                handoff_data = self.agent_service._last_handoff
+                if handoff_data and handoff_data.get("target_agent"):
+                    target_agent = handoff_data["target_agent"]
                     reason = handoff_data.get("reason", "No reason provided")
 
-                    if target_agent:
-                        # Process handoff and update ticket
-                        await self.handoff_service.process_handoff(
-                            ticket.id,
-                            agent_name,
-                            target_agent,
-                            reason,
-                        )
+                    # Process handoff
+                    success = await self.handoff_service.process_handoff(
+                        ticket.id,
+                        current_agent,
+                        target_agent,
+                        reason
+                    )
 
-                        # Generate response from new agent
-                        new_response = ""
-                        async for chunk in self.agent_service.generate_response(
-                            target_agent,
-                            user_id,
-                            user_text,
-                            memory_context,
-                            temperature=0.7
-                        ):
-                            yield chunk
-                            new_response += chunk
+                    if success:
+                        # Update current agent and continue loop
+                        current_agent = target_agent
+                        # Clear the handoff data
+                        self.agent_service._last_handoff = None
+                        continue
 
-                        # Update full response for storage
-                        full_response = new_response
+                # No handoff, break the loop
+                break
 
-                # Clear pending handoff
-                self.agent_service.clear_pending_handoff(agent_name)
+            except Exception as e:
+                print(f"Error in _process_new_ticket: {str(e)}")
+                yield f"I apologize, but I encountered an error: {str(e)}"
+                break
 
-            # Check if ticket can be considered resolved
+        # Handle ticket resolution and cleanup
+        try:
             resolution = await self._check_ticket_resolution(full_response, user_text)
-
             if resolution.status == "resolved" and resolution.confidence >= 0.7:
                 self.ticket_service.mark_ticket_resolved(
                     ticket.id,
                     confidence=resolution.confidence,
                     reasoning=resolution.reasoning
                 )
-
-                # Create NPS survey
-                self.nps_service.create_survey(user_id, ticket.id, agent_name)
-
-            # Store in memory provider
-            if self.memory_provider:
-                await self._store_conversation(user_id, user_text, full_response)
-
-            # Extract and store insights in background
-            if full_response:
-                asyncio.create_task(
-                    self._extract_and_store_insights(
-                        user_id, {"message": user_text,
-                                  "response": full_response}
-                    )
-                )
-
         except Exception as e:
-            print(f"Error in _process_new_ticket: {str(e)}")
-            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
+            print(f"Error handling ticket resolution: {str(e)}")
 
     async def _check_ticket_resolution(
         self, response: str, query: str
@@ -433,9 +394,6 @@ class QueryService(QueryServiceInterface):
         Returns:
             Resolution assessment
         """
-        # Get the model to use for analysis
-        model = self.agent_service.get_default_model()
-
         prompt = f"""
         Analyze this conversation and determine if the user query has been fully resolved.
         
