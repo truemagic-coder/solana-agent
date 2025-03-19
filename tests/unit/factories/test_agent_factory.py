@@ -118,15 +118,38 @@ class MockPluginManager:
 @patch('solana_agent.factories.agent_factory.MongoDBAdapter')
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_create_from_minimal_config(mock_query_service, mock_openai, mock_mongo, minimal_config):
+# Mock HandoffService
+@patch('solana_agent.factories.agent_factory.HandoffService')
+@patch('solana_agent.factories.agent_factory.MongoTicketRepository')
+@patch('solana_agent.factories.agent_factory.MongoHandoffRepository')
+@patch('solana_agent.factories.agent_factory.AgentService')  # Add AgentService
+def test_create_from_minimal_config(mock_agent_service, mock_handoff_repo, mock_ticket_repo,
+                                    mock_handoff_service, mock_query_service, mock_openai,
+                                    mock_mongo, minimal_config):
     """Test factory creates components with minimal config."""
     # Configure mocks
     mock_mongo.return_value = MagicMock()
     mock_openai.return_value = MagicMock()
     mock_query_service.return_value = MagicMock()
+    mock_handoff_service.return_value = MagicMock()
+    mock_ticket_repo.return_value = MagicMock()
+    mock_handoff_repo.return_value = MagicMock()
+    mock_agent_service.return_value = MagicMock()
+    mock_agent_service.return_value.tool_registry = MagicMock()
+    mock_agent_service.return_value.tool_registry.list_all_tools.return_value = []
 
     # Execute
-    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
+    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.NotificationService'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
         result = SolanaAgentFactory.create_from_config(minimal_config)
 
     # Assertions
@@ -137,6 +160,7 @@ def test_create_from_minimal_config(mock_query_service, mock_openai, mock_mongo,
 
     mock_openai.assert_called_once()
     mock_query_service.assert_called_once()
+    mock_handoff_service.assert_called_once()  # Verify HandoffService was called
 
     assert result is not None
     assert result == mock_query_service.return_value
@@ -148,8 +172,12 @@ def test_create_from_minimal_config(mock_query_service, mock_openai, mock_mongo,
 @patch('solana_agent.factories.agent_factory.QdrantAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_create_from_full_config(mock_query_service, mock_agent_service, mock_qdrant,
-                                 mock_zep, mock_openai, mock_mongo, full_config):
+# Mock HandoffService
+@patch('solana_agent.factories.agent_factory.HandoffService')
+# Mock NotificationService
+@patch('solana_agent.factories.agent_factory.NotificationService')
+def test_create_from_full_config(mock_notification, mock_handoff, mock_query_service, mock_agent_service,
+                                 mock_qdrant, mock_zep, mock_openai, mock_mongo, full_config):
     """Test factory creates all components with full config."""
     # Configure mocks
     mock_mongo.return_value = MagicMock()
@@ -159,11 +187,28 @@ def test_create_from_full_config(mock_query_service, mock_agent_service, mock_qd
     mock_agent_service.return_value = MagicMock()
     mock_agent_service.return_value.tool_registry = MagicMock()
     mock_agent_service.return_value.tool_registry.list_all_tools.return_value = [
-        "websearch", "documentation", "calculator"]
+        "websearch", "documentation", "calculator", "code_executor", "diagram_generator"]
     mock_query_service.return_value = MagicMock()
+    mock_handoff.return_value = MagicMock()
+    mock_notification.return_value = MagicMock()
 
     # Execute
-    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
+    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoFeedbackRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoMemoryRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoAgentRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoSchedulingRepository'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
         result = SolanaAgentFactory.create_from_config(full_config)
 
     # Assertions
@@ -175,6 +220,8 @@ def test_create_from_full_config(mock_query_service, mock_agent_service, mock_qd
     mock_zep.assert_called_once()
     mock_qdrant.assert_called_once()
     mock_agent_service.assert_called_once()
+    mock_handoff.assert_called_once()  # Verify HandoffService was called
+    mock_notification.assert_called_once()  # Verify NotificationService was called
     mock_query_service.assert_called_once()
 
     # Check that agent registration was called
@@ -188,7 +235,10 @@ def test_create_from_full_config(mock_query_service, mock_agent_service, mock_qd
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.PineconeAdapter')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_create_with_pinecone(mock_query_service, mock_pinecone, mock_openai, mock_mongo):
+@patch('solana_agent.factories.agent_factory.HandoffService')
+@patch('solana_agent.factories.agent_factory.AgentService')
+def test_create_with_pinecone(mock_agent_service, mock_handoff, mock_query_service,
+                              mock_pinecone, mock_openai, mock_mongo):
     """Test factory creates with Pinecone vector store."""
     # Create config with Pinecone
     config = {
@@ -211,9 +261,25 @@ def test_create_with_pinecone(mock_query_service, mock_pinecone, mock_openai, mo
     mock_openai.return_value = MagicMock()
     mock_pinecone.return_value = MagicMock()
     mock_query_service.return_value = MagicMock()
+    mock_handoff.return_value = MagicMock()
+    mock_agent_service.return_value = MagicMock()
+    mock_agent_service.return_value.tool_registry = MagicMock()
+    mock_agent_service.return_value.tool_registry.list_all_tools.return_value = []
 
     # Execute
-    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
+    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
+            patch('solana_agent.factories.agent_factory.NotificationService'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
         result = SolanaAgentFactory.create_from_config(config)
 
     # Assertions
@@ -229,7 +295,9 @@ def test_create_with_pinecone(mock_query_service, mock_pinecone, mock_openai, mo
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_organization_mission_creation(mock_query_service, mock_agent_service, mock_openai, mock_mongo):
+@patch('solana_agent.factories.agent_factory.HandoffService')
+def test_organization_mission_creation(mock_handoff, mock_query_service, mock_agent_service,
+                                       mock_openai, mock_mongo):
     """Test organization mission is correctly created from config."""
     # Create config with organization mission
     config = {
@@ -256,11 +324,24 @@ def test_organization_mission_creation(mock_query_service, mock_agent_service, m
     mock_agent_service.return_value = MagicMock()
     mock_agent_service.return_value.tool_registry = MagicMock()
     mock_query_service.return_value = MagicMock()
+    mock_handoff.return_value = MagicMock()
 
     # Execute
-    with patch('solana_agent.factories.agent_factory.OrganizationMission') as mock_mission:
-        with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
-            result = SolanaAgentFactory.create_from_config(config)
+    with patch('solana_agent.factories.agent_factory.OrganizationMission') as mock_mission, \
+            patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
+            patch('solana_agent.factories.agent_factory.NotificationService'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
+        result = SolanaAgentFactory.create_from_config(config)
 
     # Assertions
     mock_mission.assert_called_once_with(
@@ -280,7 +361,12 @@ def test_organization_mission_creation(mock_query_service, mock_agent_service, m
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_agent_tool_registration(mock_query_service, mock_agent_service, mock_openai, mock_mongo, full_config):
+# Mock HandoffService
+@patch('solana_agent.factories.agent_factory.HandoffService')
+# Mock NotificationService
+@patch('solana_agent.factories.agent_factory.NotificationService')
+def test_agent_tool_registration(mock_notification, mock_handoff, mock_query_service,
+                                 mock_agent_service, mock_openai, mock_mongo, full_config):
     """Test agent tools are correctly registered."""
     # Configure mocks
     mock_mongo.return_value = MagicMock()
@@ -291,9 +377,26 @@ def test_agent_tool_registration(mock_query_service, mock_agent_service, mock_op
         "websearch", "documentation", "calculator", "code_executor", "diagram_generator"
     ]
     mock_query_service.return_value = MagicMock()
+    mock_handoff.return_value = MagicMock()
+    mock_notification.return_value = MagicMock()
 
     # Execute
-    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
+    with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoFeedbackRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoMemoryRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoAgentRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoSchedulingRepository'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
         result = SolanaAgentFactory.create_from_config(full_config)
 
     # Assertions
@@ -308,7 +411,12 @@ def test_agent_tool_registration(mock_query_service, mock_agent_service, mock_op
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-def test_agent_deletion_sync(mock_query_service, mock_agent_service, mock_openai, mock_mongo):
+# Mock HandoffService
+@patch('solana_agent.factories.agent_factory.HandoffService')
+# Mock NotificationService
+@patch('solana_agent.factories.agent_factory.NotificationService')
+def test_agent_deletion_sync(mock_notification, mock_handoff, mock_query_service,
+                             mock_agent_service, mock_openai, mock_mongo):
     """Test agents not in config are deleted from repository."""
     config = {
         "mongo": {
@@ -332,6 +440,8 @@ def test_agent_deletion_sync(mock_query_service, mock_agent_service, mock_openai
     mock_openai.return_value = MagicMock()
     mock_agent_service.return_value = MagicMock()
     mock_agent_service.return_value.tool_registry = MagicMock()
+    mock_handoff.return_value = MagicMock()
+    mock_notification.return_value = MagicMock()
 
     # Create mock agent repository with extra agents
     mock_agent_repo = MagicMock()
@@ -346,10 +456,24 @@ def test_agent_deletion_sync(mock_query_service, mock_agent_service, mock_openai
     mock_agent_repo.get_all_ai_agents.return_value = [mock_agent1, mock_agent2]
 
     # Patch the agent repository creation
-    with patch('solana_agent.factories.agent_factory.MongoAgentRepository', return_value=mock_agent_repo):
+    with patch('solana_agent.factories.agent_factory.MongoAgentRepository', return_value=mock_agent_repo), \
+            patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
+            patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoFeedbackRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoMemoryRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
+            patch('solana_agent.factories.agent_factory.MongoSchedulingRepository'), \
+            patch('solana_agent.factories.agent_factory.MemoryService'), \
+            patch('solana_agent.factories.agent_factory.NPSService'), \
+            patch('solana_agent.factories.agent_factory.CommandService'), \
+            patch('solana_agent.factories.agent_factory.CriticService'), \
+            patch('solana_agent.factories.agent_factory.TaskPlanningService'), \
+            patch('solana_agent.factories.agent_factory.ProjectApprovalService'), \
+            patch('solana_agent.factories.agent_factory.ProjectSimulationService'), \
+            patch('solana_agent.factories.agent_factory.SchedulingService'), \
+            patch('solana_agent.factories.agent_factory.RoutingService'):
         # Execute
-        with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()):
-            result = SolanaAgentFactory.create_from_config(config)
+        result = SolanaAgentFactory.create_from_config(config)
 
     # Assertions - should delete Agent2
     mock_agent_repo.delete_ai_agent.assert_called_once_with("Agent2")

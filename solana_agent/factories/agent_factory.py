@@ -6,33 +6,39 @@ services and components used in the system.
 """
 from typing import Dict, Any
 
-from solana_agent.services import QueryService
-from solana_agent.services import AgentService
-from solana_agent.services import RoutingService
-from solana_agent.services import TicketService
-from solana_agent.services import HandoffService
-from solana_agent.services import MemoryService
-from solana_agent.services import NPSService
-from solana_agent.services import CriticService
-from solana_agent.services import TaskPlanningService
-from solana_agent.services import ProjectApprovalService
-from solana_agent.services import ProjectSimulationService
-from solana_agent.services import NotificationService
-from solana_agent.services import SchedulingService
-from solana_agent.services import CommandService
+# Service imports
+from solana_agent.services.query import QueryService
+from solana_agent.services.agent import AgentService
+from solana_agent.services.routing import RoutingService
+from solana_agent.services.ticket import TicketService
+# Import concrete implementation
+from solana_agent.services.handoff import HandoffService
+from solana_agent.services.memory import MemoryService
+from solana_agent.services.nps import NPSService
+from solana_agent.services.critic import CriticService
+from solana_agent.services.task_planning import TaskPlanningService
+from solana_agent.services.project_approval import ProjectApprovalService
+from solana_agent.services.project_simulation import ProjectSimulationService
+from solana_agent.services.notification import NotificationService
+from solana_agent.services.scheduling import SchedulingService
+from solana_agent.services.command import CommandService
 
-from solana_agent.repositories import MongoTicketRepository
-from solana_agent.repositories import MongoFeedbackRepository
-from solana_agent.repositories import MongoMemoryRepository
-from solana_agent.repositories import MongoAgentRepository
-from solana_agent.repositories import SchedulingRepository
-from solana_agent.repositories import MongoHandoffRepository
+# Repository imports
+from solana_agent.repositories.ticket import MongoTicketRepository
+from solana_agent.repositories.feedback import MongoFeedbackRepository
+from solana_agent.repositories.mongo_memory import MongoMemoryRepository
+from solana_agent.repositories.agent import MongoAgentRepository
+# Fixed repository name
+from solana_agent.repositories.scheduling import MongoSchedulingRepository
+from solana_agent.repositories.handoff import MongoHandoffRepository
 
-from solana_agent.adapters import OpenAIAdapter
-from solana_agent.adapters import MongoDBAdapter
-from solana_agent.adapters import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
-from solana_agent.adapters import QdrantAdapter, PineconeAdapter
+# Adapter imports
+from solana_agent.adapters.llm_adapter import OpenAIAdapter
+from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
+from solana_agent.adapters.memory_adapter import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
+from solana_agent.adapters.vector_adapter import QdrantAdapter, PineconeAdapter
 
+# Domain and plugin imports
 from solana_agent.domains import OrganizationMission
 from solana_agent.plugins import PluginManager
 
@@ -83,7 +89,7 @@ class SolanaAgentFactory:
                 embedding_model=config["qdrant"].get(
                     "embedding_model", "text-embedding-3-small"),
             )
-        if "pinecone" in config:
+        elif "pinecone" in config:
             vector_provider = PineconeAdapter(
                 api_key=config["pinecone"]["api_key"],
                 index_name=config["pinecone"]["index"],
@@ -109,19 +115,33 @@ class SolanaAgentFactory:
         memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
         agent_repo = MongoAgentRepository(db_adapter)
         handoff_repo = MongoHandoffRepository(db_adapter)
+        scheduling_repo = MongoSchedulingRepository(db_adapter)
 
-        # Create services
-        agent_service = AgentService()
+        # Create primary services
+        agent_service = AgentService(
+            agent_repository=agent_repo,
+            llm_provider=llm_adapter,
+            organization_mission=organization_mission
+        )
 
-        # Debug the agent service tool registry to confirm tools were registered
+        # Debug the agent service tool registry
         print(
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
         ticket_service = TicketService(ticket_repo)
-        handoff_service = HandoffService()
+
+        # Create notification service first as other services depend on it
+        notification_service = NotificationService()
+
+        # Create handoff service with correct dependencies
+        handoff_service = HandoffService(
+            handoff_repository=handoff_repo,
+            ticket_repository=ticket_repo,
+            agent_service=agent_service
+        )
 
         memory_service = MemoryService(memory_repo, llm_adapter)
-        nps_service = NPSService(nps_repo, ticket_repo)
+        nps_service = NPSService(nps_repo)
 
         # Create command service
         command_service = CommandService(
@@ -141,30 +161,26 @@ class SolanaAgentFactory:
             agent_service=agent_service
         )
 
-        notification_service = NotificationService(
-            agent_repository=agent_repo,  # Use single agent repository
-            tool_registry=agent_service.tool_registry
-        )
-
+        # Create project services
         project_approval_service = ProjectApprovalService(
             ticket_repository=ticket_repo,
-            agent_repository=agent_repo,  # Use single agent repository
+            agent_repository=agent_repo,
             notification_service=notification_service
         )
+
         project_simulation_service = ProjectSimulationService(
             llm_provider=llm_adapter,
             task_planning_service=task_planning_service
         )
 
-        # Create scheduling repository and service
-        scheduling_repository = SchedulingRepository(db_adapter)
-
+        # Create scheduling service
         scheduling_service = SchedulingService(
-            scheduling_repository=scheduling_repository,
+            scheduling_repository=scheduling_repo,
             task_planning_service=task_planning_service,
             agent_service=agent_service
         )
 
+        # Create routing service
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
@@ -172,37 +188,29 @@ class SolanaAgentFactory:
             scheduling_service=scheduling_service,
         )
 
-        # Update task_planning_service with scheduling_service if needed
-        if task_planning_service:
-            task_planning_service.scheduling_service = scheduling_service
+        # Update task_planning_service with scheduling_service
+        task_planning_service.scheduling_service = scheduling_service
 
-        # Initialize plugin system if plugins directory is configured
+        # Initialize plugin system
         agent_service.plugin_manager = PluginManager()
         loaded_plugins = agent_service.plugin_manager.load_all_plugins()
         print(f"Loaded {loaded_plugins} plugins")
 
-        # Get list of all agents defined in config
+        # Sync MongoDB with config-defined agents
         config_defined_agents = [agent["name"]
                                  for agent in config.get("ai_agents", [])]
-
-        # Sync MongoDB with config-defined agents (delete any agents not in config)
-        # Fixed method call on unified repo
         all_db_agents = agent_repo.get_all_ai_agents()
-        # Access name property on agent objects
         db_agent_names = [agent.name for agent in all_db_agents]
 
-        # Find agents that exist in DB but not in config
+        # Delete agents not in config
         agents_to_delete = [
             name for name in db_agent_names if name not in config_defined_agents]
-
-        # Delete those agents
         for agent_name in agents_to_delete:
             print(
                 f"Deleting agent '{agent_name}' from MongoDB - no longer defined in config")
-            # Use repository method to delete
             agent_repo.delete_ai_agent(agent_name)
 
-        # Register predefined agents if any
+        # Register predefined agents
         for agent_config in config.get("ai_agents", []):
             agent_service.register_ai_agent(
                 name=agent_config["name"],
@@ -211,10 +219,9 @@ class SolanaAgentFactory:
                 model=agent_config.get("model", "gpt-4o-mini"),
             )
 
-            # Register tools for this agent if specified
+            # Register tools for this agent
             if "tools" in agent_config:
                 for tool_name in agent_config["tools"]:
-                    # Print available tools before registering
                     print(
                         f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
                     try:
@@ -227,7 +234,7 @@ class SolanaAgentFactory:
                         print(
                             f"Error registering tool {tool_name} for agent {agent_config['name']}: {e}")
 
-        # Also support global tool registrations
+        # Global tool registrations
         if "agent_tools" in config:
             for agent_name, tools in config["agent_tools"].items():
                 for tool_name in tools:
@@ -237,7 +244,7 @@ class SolanaAgentFactory:
                     except ValueError as e:
                         print(f"Error registering tool: {e}")
 
-        # Create the query service
+        # Create and return the query service
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,

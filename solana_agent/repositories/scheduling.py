@@ -155,18 +155,14 @@ class MongoSchedulingRepository(SchedulingRepository):
 
         doc = self.db.find_one(
             self.schedules_collection,
-            {"agent_id": agent_id, "date": date_str}
+            {"agent_id": agent_id, "working_hours.schedule_date": date_str}
         )
 
         if not doc:
             return None
 
-        # Convert date string back to date
-        doc["date"] = datetime.date.fromisoformat(doc["date"])
-
-        # Convert task dates
-        for task in doc.get("tasks", []):
-            self._convert_task_dates(task)
+        # Process availability patterns
+        self._convert_schedule_times(doc)
 
         return AgentSchedule.model_validate(doc)
 
@@ -174,17 +170,12 @@ class MongoSchedulingRepository(SchedulingRepository):
         """Get schedules for all agents on a specific date."""
         date_str = date.isoformat()
 
-        docs = self.db.find(self.schedules_collection, {"date": date_str})
+        docs = self.db.find(self.schedules_collection, {
+                            "working_hours.schedule_date": date_str})
 
         schedules = []
         for doc in docs:
-            # Convert date string back to date
-            doc["date"] = datetime.date.fromisoformat(doc["date"])
-
-            # Convert task dates
-            for task in doc.get("tasks", []):
-                self._convert_task_dates(task)
-
+            self._convert_schedule_times(doc)
             schedules.append(AgentSchedule.model_validate(doc))
 
         return schedules
@@ -192,29 +183,27 @@ class MongoSchedulingRepository(SchedulingRepository):
     def save_agent_schedule(self, schedule: AgentSchedule) -> bool:
         """Save an agent's schedule."""
         doc = schedule.model_dump()
+        schedule_date = doc["working_hours"]["schedule_date"]
 
-        # Convert date to string
-        doc["date"] = doc["date"].isoformat()
+        # Prepare data
+        for pattern in doc["availability_patterns"]:
+            pattern["start_time"] = pattern["start_time"].isoformat()
+            pattern["end_time"] = pattern["end_time"].isoformat()
 
-        # Convert task dates
-        for task in doc.get("tasks", []):
-            self._prepare_task_dates(task)
-
-        # Check if schedule already exists
+        # Check if schedule exists
         existing = self.db.find_one(
             self.schedules_collection,
-            {"agent_id": schedule.agent_id, "date": doc["date"]}
+            {"agent_id": doc["agent_id"],
+                "working_hours.schedule_date": schedule_date}
         )
 
         if existing:
-            # Update existing schedule
             return self.db.update_one(
                 self.schedules_collection,
                 {"_id": existing["_id"]},
                 {"$set": doc}
             )
         else:
-            # Create new schedule
             self.db.insert_one(self.schedules_collection, doc)
             return True
 
@@ -235,3 +224,24 @@ class MongoSchedulingRepository(SchedulingRepository):
 
         if task_doc.get("scheduled_end") and isinstance(task_doc["scheduled_end"], datetime):
             task_doc["scheduled_end"] = task_doc["scheduled_end"].isoformat()
+
+    def _convert_schedule_times(self, schedule_doc: Dict[str, Any]) -> None:
+        """Convert string times to time objects in a schedule document."""
+        from datetime import time
+
+        # Convert availability pattern times
+        if "availability_patterns" in schedule_doc:
+            for pattern in schedule_doc["availability_patterns"]:
+                if pattern.get("start_time") and isinstance(pattern["start_time"], str):
+                    # Parse time from format like "08:00:00"
+                    hours, minutes, seconds = map(
+                        int, pattern["start_time"].split(":"))
+                    pattern["start_time"] = time(hours, minutes, seconds)
+
+                if pattern.get("end_time") and isinstance(pattern["end_time"], str):
+                    hours, minutes, seconds = map(
+                        int, pattern["end_time"].split(":"))
+                    pattern["end_time"] = time(hours, minutes, seconds)
+
+        # Keep working_hours times as strings since they're expected that way
+        # in the model (based on the sample_schedule fixture)

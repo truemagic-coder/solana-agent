@@ -4,9 +4,8 @@ Tests for feedback repository implementations.
 This module contains unit tests for MongoFeedbackRepository.
 """
 import pytest
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 from datetime import datetime, timedelta
-import uuid
 
 from solana_agent.repositories.feedback import MongoFeedbackRepository
 from solana_agent.domains import UserFeedback, FeedbackType, NPSRating

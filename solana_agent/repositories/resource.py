@@ -175,3 +175,89 @@ class MongoResourceRepository(ResourceRepository):
     def delete_booking(self, booking_id: str) -> bool:
         """Delete a booking."""
         return self.db.delete_one(self.bookings_collection, {"id": booking_id})
+
+    def cancel_booking(self, booking_id: str, reason: Optional[str] = None) -> bool:
+        """Cancel an existing booking.
+
+        Args:
+            booking_id: ID of the booking to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            True if successful, False otherwise
+        """
+        updates = {
+            "status": "cancelled",
+            "cancelled_at": datetime.now().isoformat()
+        }
+
+        if reason:
+            updates["cancellation_reason"] = reason
+
+        return self.update_booking(booking_id, updates)
+
+    def get_resource_schedule(self, resource_id: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+        """Get the schedule for a resource within a time period.
+
+        Args:
+            resource_id: ID of the resource
+            start_date: Start date of the period
+            end_date: End date of the period
+
+        Returns:
+            Dictionary with resource details and its bookings
+        """
+        # Get the resource
+        resource = self.get_resource(resource_id)
+        if not resource:
+            return {}
+
+        # Get bookings for the resource in the time period
+        bookings = self.get_resource_bookings(
+            resource_id, start_date, end_date)
+
+        # Format the response
+        return {
+            "resource": resource.model_dump(),
+            "bookings": [booking.model_dump() for booking in bookings],
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat()
+        }
+
+    def get_user_bookings(self, user_id: str, include_past: bool = False) -> List[ResourceBooking]:
+        """Get all bookings for a specific user.
+
+        Args:
+            user_id: ID of the user
+            include_past: Whether to include past bookings
+
+        Returns:
+            List of bookings for the user
+        """
+        query = {"user_id": user_id}
+
+        if not include_past:
+            # Only include current and future bookings
+            query["end_time"] = {"$gte": datetime.now().isoformat()}
+
+        return self.find_bookings(query)
+
+    def list_resources(self, resource_type: Optional[str] = None, status: Optional[str] = None) -> List[Resource]:
+        """List all resources, optionally filtered by type and status.
+
+        Args:
+            resource_type: Optional filter by resource type
+            status: Optional filter by status
+
+        Returns:
+            List of resources matching the criteria
+        """
+        query = {}
+
+        if resource_type:
+            query["type"] = resource_type
+
+        if status:
+            query["status"] = status
+
+        return self.find_resources(query)

@@ -130,3 +130,4 @@ class ResourceBooking(BaseModel):
                                  description="When the booking was created")
     cancelled_at: Optional[datetime] = Field(
         None, description="When the booking was cancelled")
+    purpose: Optional[str] = Field(None, description="Booking purpose")

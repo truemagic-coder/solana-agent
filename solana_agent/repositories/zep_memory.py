@@ -103,36 +103,44 @@ class ZepMemoryRepository(MemoryRepository):
             print(f"Error searching Zep memory: {e}")
             return []
 
-    async def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
-        """Get conversation history for a user from Zep.
+    async def get_user_history(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get conversation history for a user.
 
         Args:
             user_id: User ID
-            limit: Maximum number of items to return
+            limit: Maximum number of exchanges to return
 
         Returns:
-            List of conversation history items
+            List of conversation exchanges
         """
         try:
-            # Get memory session
-            memory = await self.client.memory.get_session(user_id)
+            # Get session data from Zep
+            session = await self.client.memory.get_session(user_id)
 
-            # Format conversation history
-            history = []
-            for i, message in enumerate(memory.messages[-limit:] if memory.messages else []):
-                if message.role == "user":
-                    user_msg = message.content
-                    asst_msg = memory.messages[i+1].content if i + \
-                        1 < len(memory.messages) else ""
-                    history.append({
-                        "user_message": user_msg,
-                        "assistant_message": asst_msg,
-                        "timestamp": datetime.now()  # Zep doesn't provide timestamps directly
+            # Process messages into exchanges (user + assistant pairs)
+            exchanges = []
+            messages = session.messages
+
+            # Messages might be in reverse chronological order, so we need to process them differently
+            # Group user and assistant messages correctly
+            i = 0
+            while i < len(messages) - 1 and len(exchanges) < limit:
+                # Find a user message followed by an assistant message
+                if messages[i].role == "user" and messages[i+1].role == "assistant":
+                    exchanges.append({
+                        "user_message": messages[i].content,
+                        "assistant_message": messages[i+1].content,
+                        "timestamp": datetime.now()
                     })
+                    i += 2  # Move to the next potential pair
+                else:
+                    i += 1  # Skip this message if it doesn't form a valid pair
 
-            return history
+            return exchanges
+
         except Exception as e:
-            print(f"Error retrieving user history from Zep: {e}")
+            # Handle errors and log them
+            print(f"Error retrieving user history: {str(e)}")
             return []
 
     async def delete_user_memory(self, user_id: str) -> bool:

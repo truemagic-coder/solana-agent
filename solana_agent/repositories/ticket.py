@@ -2,11 +2,9 @@
 MongoDB implementation of the ticket repository.
 """
 from datetime import datetime
-from typing import Dict, List, Optional, Any, AsyncGenerator
-import json
+from typing import Dict, List, Optional, Any
 
-from solana_agent.domains import Ticket, TicketNote
-from solana_agent.domains import TicketStatus
+from solana_agent.domains import Ticket, TicketNote, TicketStatus, TicketPriority
 from solana_agent.interfaces import TicketRepository
 
 
@@ -49,10 +47,14 @@ class MongoTicketRepository(TicketRepository):
 
     def get_active_for_user(self, user_id: str) -> Optional[Ticket]:
         """Get active ticket for a user."""
+        # Update to use the correct status values from the domain model
         active_statuses = [
             TicketStatus.NEW.value,
-            TicketStatus.ACTIVE.value,
-            TicketStatus.PENDING.value
+            TicketStatus.ASSIGNED.value,
+            TicketStatus.IN_PROGRESS.value,
+            TicketStatus.WAITING_FOR_USER.value,
+            TicketStatus.WAITING_FOR_HUMAN.value,
+            TicketStatus.PLANNING.value
         ]
 
         doc = self.db.find_one(
@@ -117,21 +119,27 @@ class MongoTicketRepository(TicketRepository):
 
     def add_note(self, ticket_id: str, note: TicketNote) -> bool:
         """Add a note to a ticket."""
+        # Convert the note to a dictionary
         note_dict = note.model_dump()
 
+        # Update the ticket with the new note and update the updated_at field
         return self.db.update_one(
             self.collection,
             {"id": ticket_id},
-            {"$push": {"notes": note_dict}}
+            {
+                "$push": {"notes": note_dict},
+                "$set": {"updated_at": datetime.now()}
+            }
         )
 
     def get_subtasks(self, parent_id: str) -> List[Ticket]:
         """Get all subtasks for a parent ticket."""
+        # SHOULD BE: Use metadata fields instead of direct properties
         docs = self.db.find(
             self.collection,
             {
-                "parent_id": parent_id,
-                "is_subtask": True
+                "metadata.parent_id": parent_id,
+                "metadata.is_subtask": True
             }
         )
 
@@ -141,8 +149,13 @@ class MongoTicketRepository(TicketRepository):
         """Get the parent ticket for a subtask."""
         # First get the subtask to find its parent_id
         subtask = self.get_by_id(subtask_id)
-        if not subtask or not subtask.parent_id:
+        if not subtask:
+            return None
+
+        # Check if parent_id exists in metadata
+        parent_id = subtask.metadata.get("parent_id")
+        if not parent_id:
             return None
 
         # Then get the parent
-        return self.get_by_id(subtask.parent_id)
+        return self.get_by_id(parent_id)

@@ -5,8 +5,7 @@ This module contains unit tests for the dual memory repository
 which combines ZepMemoryRepository and MongoMemoryRepository.
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, List, Any
+from unittest.mock import Mock, AsyncMock
 
 from solana_agent.repositories.dual_memory import DualMemoryRepository
 from solana_agent.domains import MemoryInsight
