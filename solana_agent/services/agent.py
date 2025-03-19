@@ -6,6 +6,7 @@ and response generation.
 """
 import datetime as main_datetime
 from datetime import datetime
+import json
 from typing import AsyncGenerator, Dict, List, Optional, Any
 
 from solana_agent.interfaces import AgentService as AgentServiceInterface
@@ -220,108 +221,6 @@ class AgentService(AgentServiceInterface):
 
         return agent_ids
 
-    async def generate_response(
-        self,
-        agent_name: str,
-        user_id: str,
-        query: str,
-        memory_context: str = "",
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """Generate a response from an agent with tool execution support."""
-        agent = self.agent_repository.get_ai_agent_by_name(agent_name)
-        if not agent:
-            yield f"Agent '{agent_name}' not found."
-            return
-
-        # Get system prompt
-        system_prompt = self.get_agent_system_prompt(agent_name)
-
-        # Add tool usage prompt if tools are available
-        if self.tool_registry:
-            tool_usage_prompt = self.get_tool_usage_prompt(agent_name)
-            if "You don't have any tools available." not in tool_usage_prompt:
-                system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
-
-        # Add memory context if available
-        if memory_context:
-            prompt = f"Memory context:\n{memory_context}\n\nUser query: {query}"
-        else:
-            prompt = query
-
-        # Get agent tools if available
-        tools = None
-        if self.tool_registry:
-            agent_tools = self.tool_registry.get_agent_tools(agent_name)
-            if agent_tools:
-                tools = agent_tools
-
-        # Generate response using LLM provider
-        model = agent.model
-
-        # Pass tools if available
-        if tools:
-            kwargs["tools"] = tools
-
-            # Add a stronger directive in the prompt
-            if not memory_context:
-                prompt = query
-            else:
-                prompt = f"Memory context:\n{memory_context}\n\n User Query: {query}"
-
-        # For collecting the response
-        collected_response = ""
-        tool_pattern = r'<tool name="([^"]+)" parameters=(\{.+?\})>'
-        import re
-        import json
-
-        # Generate and process the response
-        async for chunk in self.llm_provider.generate_text(
-            user_id=user_id,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model=model,
-            **kwargs
-        ):
-            collected_response += chunk
-            yield chunk
-
-            # Look for tool invocation pattern
-            if "<tool name=" in collected_response:
-                match = re.search(tool_pattern, collected_response)
-                if match:
-                    # Extract tool name and parameters
-                    tool_name = match.group(1)
-                    try:
-                        parameters = json.loads(match.group(2))
-
-                        # Execute the tool
-                        result = self.execute_tool(
-                            agent_name, tool_name, parameters)
-
-                        # Yield the tool result
-                        tool_result_text = f"\n\nTool Result: {json.dumps(result, indent=2)}\n\n"
-                        yield tool_result_text
-
-                        # Continue with the LLM to process the tool result
-                        follow_up_prompt = f"I used the {tool_name} tool and got this result: {json.dumps(result)}. Please continue your response based on this information."
-
-                        async for follow_up_chunk in self.llm_provider.generate_text(
-                            user_id=user_id,
-                            prompt=follow_up_prompt,
-                            system_prompt=system_prompt,
-                            model=model,
-                            **kwargs
-                        ):
-                            yield follow_up_chunk
-
-                        # Break the outer loop since we've handled the tool
-                        break
-
-                    except json.JSONDecodeError:
-                        # If parameters aren't valid JSON yet, continue collecting response
-                        pass
-
     def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent.
 
@@ -474,88 +373,159 @@ class AgentService(AgentServiceInterface):
         # If no handoff service is available, assume no pending handoffs
         return False
 
-    def get_tool_usage_prompt(self, agent_name: str) -> str:
-        """Generate a prompt instructing the agent to use its available tools."""
-        # Get tools assigned to this agent
-        agent_tools = self.get_tools_for_agent(agent_name)
+    async def generate_response(
+        self,
+        agent_name: str,
+        user_id: str,
+        query: str,
+        memory_context: str = "",
+        **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """Generate a response from an agent with JSON-based tool execution."""
+        agent = self.agent_repository.get_ai_agent_by_name(agent_name)
+        if not agent:
+            yield f"Agent '{agent_name}' not found."
+            return
 
-        if not agent_tools:
-            return "You don't have any tools available."
+        # Get system prompt
+        system_prompt = self.get_agent_system_prompt(agent_name)
 
-        # Generate the tool descriptions
-        tool_descriptions = []
-        for tool_name in agent_tools:
-            tool = self.tool_registry.get_tool(tool_name)
-            if tool:
-                # Format: tool_name - description
-                description = getattr(
-                    tool, 'description', 'No description available')
-                parameters = getattr(tool, 'parameters_schema', {})
-                param_desc = ""
-                if parameters:
-                    param_desc = "\n    Parameters:\n"
-                    for param_name, param_info in parameters.items():
-                        param_type = param_info.get('type', 'any')
-                        param_description = param_info.get(
-                            'description', 'No description')
-                        param_desc += f"    - {param_name} ({param_type}): {param_description}\n"
-
-                tool_descriptions.append(
-                    f"- {tool_name}: {description}{param_desc}")
-
-        # Create the prompt with VERY strong emphasis on direct tool usage and current information
-        prompt = f"""
-    AVAILABLE TOOLS:
-    You have access to the following tools:
-
-    {chr(10).join(tool_descriptions)}
-
-    MANDATORY TOOL USAGE INSTRUCTIONS:
-    - NEVER explain what you're going to do before using a tool
-    - NEVER say phrases like "I'll search for" or "Let me check" or "I'll use the tool"
-    - When asked for current information, ALWAYS include "latest" and "current" and today's year in your search
-    - NEVER include past years like "2023" in your search queries unless specifically asked
-    - Format tool usage EXACTLY like this: <tool name="tool_name" parameters={{"param1": "value1"}}>
-    - The current year is 2025 - use this in your queries for current information
-
-    EXAMPLES OF INCORRECT RESPONSES:
-    User: "What's the latest news about Solana?"
-    ❌ "I'll search for the latest news on Solana."
-    ❌ <tool name="search_internet" parameters={{"query": "latest Solana blockchain news October 2023"}}>
-
-    EXAMPLES OF CORRECT RESPONSES:
-    User: "What's the latest news about Solana?"
-    ✓ <tool name="search_internet" parameters={{"query": "latest Solana blockchain news March 2025"}}>
-
-    User: "Tell me about recent Solana DeFi developments"
-    ✓ <tool name="search_internet" parameters={{"query": "latest Solana DeFi developments 2025"}}>
-    """
-
-        return prompt
-
-    def get_tools_for_agent(self, agent_name: str) -> List[str]:
-        """Get the tools assigned to a specific agent.
-
-        Args:
-            agent_name: Name of the agent
-
-        Returns:
-            List of tool names assigned to the agent
-        """
-        # First check if the agent exists
-        ai_agent = self.agent_repository.get_ai_agent_by_name(agent_name)
-        if not ai_agent:
-            return []
-
-        # Get tools from agent if they're stored there
-        if hasattr(ai_agent, 'tools') and ai_agent.tools:
-            return ai_agent.tools
-
-        # Otherwise check in the tool_registry for assignments
+        # Add tool usage prompt if tools are available
         if self.tool_registry:
-            # Get tool dictionaries from registry
-            tool_dicts = self.tool_registry.get_agent_tools(agent_name)
-            # Extract just the tool names
-            return [tool_dict["name"] for tool_dict in tool_dicts] if tool_dicts else []
+            tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
+            if tool_usage_prompt:
+                system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
 
-        return []
+        # Add memory context
+        if memory_context:
+            system_prompt += f"\n\nUser context and history:\n{memory_context}"
+
+        # Add critical instruction for JSON formatting
+        system_prompt += "\n\nCRITICAL: When using tools, ALWAYS respond with properly formatted JSON as instructed."
+
+        # Generate response
+        model = agent.model
+        tool_json_found = False
+        full_response = ""
+
+        try:
+            async for chunk in self.llm_provider.generate_text(
+                user_id=user_id,
+                prompt=query,
+                system_prompt=system_prompt,
+                model=model,
+                **kwargs
+            ):
+                # Add to full response
+                full_response += chunk
+
+                # Check if this might be JSON
+                if full_response.strip().startswith("{") and not tool_json_found:
+                    tool_json_found = True
+                    print(
+                        f"Detected potential JSON response: {full_response[:50]}...")
+                    continue
+
+                # If not JSON, yield the chunk
+                if not tool_json_found:
+                    yield chunk
+
+            # Process JSON if found
+            if tool_json_found:
+                try:
+                    print(
+                        f"Processing JSON response: {full_response[:100]}...")
+                    data = json.loads(full_response.strip())
+                    print(
+                        f"Successfully parsed JSON with keys: {list(data.keys())}")
+
+                    # Handle tool call
+                    if "tool_call" in data:
+                        tool_data = data["tool_call"]
+                        tool_name = tool_data.get("name")
+                        parameters = tool_data.get("parameters", {})
+
+                        print(
+                            f"Processing tool call: {tool_name} with parameters: {parameters}")
+
+                        if tool_name:
+                            try:
+                                # Execute tool
+                                print(f"Executing tool: {tool_name}")
+                                result = self.execute_tool(
+                                    agent_name, tool_name, parameters)
+                                print(
+                                    f"Tool execution result: {result.get('status')}")
+
+                                if result.get("status") == "success":
+                                    # Generate follow-up response based on tool results
+                                    follow_up_prompt = f"Based on the search for '{parameters.get('query', 'information')}', here are the results: {json.dumps(result)}. Provide a comprehensive, informative response based on these results WITHOUT mentioning that you used any tool or performed a search."
+
+                                    async for follow_up_chunk in self.llm_provider.generate_text(
+                                        user_id=user_id,
+                                        prompt=follow_up_prompt,
+                                        system_prompt=system_prompt,
+                                        model=model,
+                                        **kwargs
+                                    ):
+                                        yield follow_up_chunk
+                                else:
+                                    yield f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
+                            except Exception as e:
+                                print(f"Tool execution error: {str(e)}")
+                                yield f"I apologize, but I encountered an error executing the tool: {str(e)}"
+                    else:
+                        # If JSON but not a tool call, yield as text
+                        yield full_response
+
+                except json.JSONDecodeError as e:
+                    # Not valid JSON, yield as is
+                    print(f"JSON parse error: {str(e)} - yielding as text")
+                    yield full_response
+
+        except Exception as e:
+            print(f"Error in generate_response: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"I apologize, but I encountered an error: {str(e)}"
+
+    def _get_tool_usage_prompt(self, agent_name: str) -> str:
+        """Generate JSON-based tool usage instructions."""
+        # Get tools assigned to this agent
+        tools = self.get_agent_tools(agent_name)
+        if not tools:
+            return ""
+
+        tools_json = json.dumps(tools, indent=2)
+        return f"""
+    AVAILABLE TOOLS:
+    {tools_json}
+
+    TOOL USAGE INSTRUCTIONS:
+    When you need to use a tool, respond with ONLY a JSON object in this exact format:
+
+    {{
+    "tool_call": {{
+        "name": "search_internet",
+        "parameters": {{
+        "query": "your search query including March 2025 for current info"
+        }}
+    }}
+    }}
+
+    EXAMPLE RESPONSES:
+    For "What's the latest Solana news?":
+    {{
+    "tool_call": {{
+        "name": "search_internet",
+        "parameters": {{
+        "query": "latest Solana blockchain news March 2025"
+        }}
+    }}
+    }}
+
+    IMPORTANT:
+    - ALWAYS include "March 2025" in queries for current information
+    - Return ONLY the JSON object - no explanation text before or after
+    - Use exact tool names as shown in the tools list above
+    """

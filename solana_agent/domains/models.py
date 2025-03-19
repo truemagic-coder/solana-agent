@@ -94,3 +94,9 @@ class QueryAnalysis(BaseModel):
                                  description="Whether human assistance is likely needed")
     topics: List[str] = Field(..., description="Key topics in the query")
     confidence: float = Field(..., description="Confidence in the analysis")
+
+
+class ToolUsage(BaseModel):
+    use_tool: bool
+    tool_name: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None

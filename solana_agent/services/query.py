@@ -269,7 +269,7 @@ class QueryService(QueryServiceInterface):
                 not full_response.strip() and
                 self.agent_service.has_pending_handoff(agent_name)
             ):
-                handoff_data = self.agent_service.get_pending_handoff(
+                handoff_data = self.agent_service.has_pending_handoff(
                     agent_name)
                 if handoff_data:
                     target_agent = handoff_data.get("target_agent")
@@ -358,7 +358,7 @@ class QueryService(QueryServiceInterface):
 
             # Handle handoff if detected
             if handoff_detected or self.agent_service.has_pending_handoff(agent_name):
-                handoff_data = self.agent_service.get_pending_handoff(
+                handoff_data = self.agent_service.has_pending_handoff(
                     agent_name)
                 if handoff_data:
                     target_agent = handoff_data.get("target_agent")
