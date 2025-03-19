@@ -4,81 +4,62 @@ Notification adapters for the Solana Agent system.
 These adapters implement notification services for sending alerts to users and agents.
 """
 import datetime
-import smtplib
-from email.mime.text import MIMEText
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any
 
 from solana_agent.interfaces import NotificationProvider
 
 
-class EmailNotificationAdapter(NotificationProvider):
-    """Email-based notification provider."""
+class NullNotificationProvider(NotificationProvider):
+    """Null implementation of the NotificationProvider interface.
 
-    def __init__(
-        self,
-        smtp_server: str,
-        smtp_port: int,
-        sender_email: str,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        use_tls: bool = True
-    ):
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        self.sender_email = sender_email
-        self.username = username or sender_email
-        self.password = password
-        self.use_tls = use_tls
-        self._scheduled_notifications = {}  # id -> notification details
+    This provider satisfies the interface but doesn't actually send any notifications.
+    It's useful when notifications aren't needed or when running tests.
+    """
+
+    def __init__(self):
+        """Initialize the null notification provider."""
+        self._scheduled_notifications = {}  # Empty dict for compatibility
 
     async def send_notification(self, user_id: str, message: str, channel: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """Send a notification to a user via email."""
-        if channel != "email" or "@" not in user_id:
-            return False
+        """Pretend to send a notification.
 
-        try:
-            # Create message
-            msg = MIMEText(message)
-            msg["Subject"] = metadata.get(
-                "subject", "Notification from Solana Agent") if metadata else "Notification from Solana Agent"
-            msg["From"] = self.sender_email
-            msg["To"] = user_id
+        Args:
+            user_id: ID of the user (ignored)
+            message: Message content (ignored)
+            channel: Channel to use (ignored)
+            metadata: Optional metadata (ignored)
 
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                if self.use_tls:
-                    server.starttls()
-
-                if self.password:
-                    server.login(self.username, self.password)
-
-                server.send_message(msg)
-
-            return True
-        except Exception as e:
-            print(f"Error sending email notification: {e}")
-            return False
+        Returns:
+            Always returns True
+        """
+        # Do nothing, just return success
+        return True
 
     async def send_scheduled_notification(self, user_id: str, message: str, channel: str, schedule_time: datetime, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """Schedule a notification to be sent later."""
-        notification_id = f"notification_{len(self._scheduled_notifications) + 1}"
+        """Pretend to schedule a notification.
 
-        self._scheduled_notifications[notification_id] = {
-            "user_id": user_id,
-            "message": message,
-            "channel": channel,
-            "schedule_time": schedule_time,
-            "metadata": metadata or {}
-        }
+        Args:
+            user_id: ID of the user (ignored)
+            message: Message content (ignored)
+            channel: Channel to use (ignored)
+            schedule_time: Time to send (ignored)
+            metadata: Optional metadata (ignored)
 
-        # In a real implementation, you would use a task scheduler like APScheduler
-        # For now, we just store it in memory
-
+        Returns:
+            A dummy notification ID
+        """
+        # Generate a dummy notification ID
+        notification_id = f"null_notification_{datetime.datetime.now().timestamp()}"
         return notification_id
 
     async def cancel_scheduled_notification(self, schedule_id: str) -> bool:
-        """Cancel a scheduled notification."""
-        if schedule_id in self._scheduled_notifications:
-            del self._scheduled_notifications[schedule_id]
-            return True
-        return False
+        """Pretend to cancel a scheduled notification.
+
+        Args:
+            schedule_id: ID of the notification to cancel (ignored)
+
+        Returns:
+            Always returns True
+        """
+        # Do nothing, just return success
+        return True

@@ -1,268 +1,137 @@
 """
 Tests for notification adapter implementations.
 
-This module contains unit tests for EmailNotificationAdapter.
+This module contains unit tests for the NotificationProvider implementations.
 """
 import pytest
 import datetime
-from unittest.mock import patch, MagicMock, call
-from email.mime.text import MIMEText
+from unittest.mock import MagicMock
 
-from solana_agent.adapters.notification_adapter import EmailNotificationAdapter
+from solana_agent.adapters.notification_adapter import NullNotificationProvider
 
 
 @pytest.fixture
-def email_adapter():
-    """Create an email notification adapter for testing."""
-    return EmailNotificationAdapter(
-        smtp_server="smtp.example.com",
-        smtp_port=587,
-        sender_email="sender@example.com",
-        username="username",
-        password="password",
-        use_tls=True
-    )
+def null_provider():
+    """Create a null notification provider for testing."""
+    return NullNotificationProvider()
 
 
-@pytest.mark.asyncio
-async def test_init():
-    """Test EmailNotificationAdapter initialization."""
-    # Test with all parameters
-    adapter = EmailNotificationAdapter(
-        smtp_server="smtp.example.com",
-        smtp_port=587,
-        sender_email="sender@example.com",
-        username="username",
-        password="password",
-        use_tls=True
-    )
+class TestNullNotificationProvider:
+    """Tests for the NullNotificationProvider."""
 
-    assert adapter.smtp_server == "smtp.example.com"
-    assert adapter.smtp_port == 587
-    assert adapter.sender_email == "sender@example.com"
-    assert adapter.username == "username"
-    assert adapter.password == "password"
-    assert adapter.use_tls is True
+    def test_init(self):
+        """Test initialization of NullNotificationProvider."""
+        provider = NullNotificationProvider()
+        assert provider._scheduled_notifications == {}
 
-    # Test with default username (uses sender_email)
-    adapter = EmailNotificationAdapter(
-        smtp_server="smtp.example.com",
-        smtp_port=587,
-        sender_email="sender@example.com",
-        password="password"
-    )
+    @pytest.mark.asyncio
+    async def test_send_notification(self, null_provider):
+        """Test sending a notification."""
+        result = await null_provider.send_notification(
+            user_id="test_user",
+            message="Test message",
+            channel="test_channel"
+        )
 
-    assert adapter.username == "sender@example.com"
-    assert adapter._scheduled_notifications == {}
-
-
-@pytest.mark.asyncio
-async def test_send_notification_success(email_adapter):
-    """Test sending a notification successfully."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test notification message"
-    channel = "email"
-    metadata = {"subject": "Test Subject"}
-
-    # Mock SMTP server
-    mock_server = MagicMock()
-
-    # Mock context manager returned by SMTP constructor
-    mock_context = MagicMock()
-    mock_context.__enter__.return_value = mock_server
-
-    # Patch SMTP constructor to return our mock
-    with patch('smtplib.SMTP', return_value=mock_context) as mock_smtp:
-        # Call the method
-        result = await email_adapter.send_notification(user_id, message, channel, metadata)
-
-        # Verify the result
+        # Should always return True without doing anything
         assert result is True
 
-        # Verify SMTP was initialized correctly
-        mock_smtp.assert_called_once_with("smtp.example.com", 587)
+    @pytest.mark.asyncio
+    async def test_send_notification_with_metadata(self, null_provider):
+        """Test sending a notification with metadata."""
+        metadata = {"priority": "high", "category": "alert"}
 
-        # Verify TLS was started
-        mock_server.starttls.assert_called_once()
+        result = await null_provider.send_notification(
+            user_id="test_user",
+            message="Test message with metadata",
+            channel="test_channel",
+            metadata=metadata
+        )
 
-        # Verify login was called
-        mock_server.login.assert_called_once_with("username", "password")
-
-        # Verify message was sent
-        mock_server.send_message.assert_called_once()
-
-        # Get the message that was sent
-        sent_message = mock_server.send_message.call_args[0][0]
-
-        # Verify message contents
-        assert sent_message["From"] == "sender@example.com"
-        assert sent_message["To"] == "user@example.com"
-        assert sent_message["Subject"] == "Test Subject"
-        assert sent_message.get_payload() == "Test notification message"
-
-
-@pytest.mark.asyncio
-async def test_send_notification_wrong_channel(email_adapter):
-    """Test sending a notification with wrong channel."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test notification message"
-    channel = "sms"  # Not email
-
-    # Mock SMTP server to ensure it's not called
-    with patch('smtplib.SMTP') as mock_smtp:
-        # Call the method
-        result = await email_adapter.send_notification(user_id, message, channel)
-
-        # Verify the result
-        assert result is False
-
-        # Verify SMTP was not initialized
-        mock_smtp.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_send_notification_invalid_email(email_adapter):
-    """Test sending a notification to invalid email."""
-    # Setup test data
-    user_id = "invalid-email"  # No @ symbol
-    message = "Test notification message"
-    channel = "email"
-
-    # Mock SMTP server to ensure it's not called
-    with patch('smtplib.SMTP') as mock_smtp:
-        # Call the method
-        result = await email_adapter.send_notification(user_id, message, channel)
-
-        # Verify the result
-        assert result is False
-
-        # Verify SMTP was not initialized
-        mock_smtp.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_send_notification_default_subject(email_adapter):
-    """Test sending a notification with default subject."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test notification message"
-    channel = "email"
-
-    # Mock SMTP server
-    mock_server = MagicMock()
-    mock_context = MagicMock()
-    mock_context.__enter__.return_value = mock_server
-
-    # Patch SMTP constructor
-    with patch('smtplib.SMTP', return_value=mock_context) as _:
-        # Call the method with no metadata
-        result = await email_adapter.send_notification(user_id, message, channel)
-
-        # Verify the result
+        # Should always return True without doing anything
         assert result is True
 
-        # Get the message that was sent
-        sent_message = mock_server.send_message.call_args[0][0]
+    @pytest.mark.asyncio
+    async def test_send_scheduled_notification(self, null_provider):
+        """Test scheduling a notification."""
+        schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
 
-        # Verify default subject
-        assert sent_message["Subject"] == "Notification from Solana Agent"
+        notification_id = await null_provider.send_scheduled_notification(
+            user_id="test_user",
+            message="Scheduled test message",
+            channel="test_channel",
+            schedule_time=schedule_time
+        )
 
+        # Should generate a notification ID with expected format
+        assert notification_id.startswith("null_notification_")
+        # Should contain a timestamp
+        assert "_" in notification_id
+        timestamp_part = notification_id.split("_")[-1]
+        # Verify it's a valid float (timestamp)
+        assert float(timestamp_part)
 
-@pytest.mark.asyncio
-async def test_send_notification_smtp_error(email_adapter):
-    """Test sending a notification with SMTP error."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test notification message"
-    channel = "email"
+    @pytest.mark.asyncio
+    async def test_send_scheduled_notification_with_metadata(self, null_provider):
+        """Test scheduling a notification with metadata."""
+        schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
+        metadata = {"priority": "high", "category": "reminder"}
 
-    # Patch SMTP constructor to raise exception
-    with patch('smtplib.SMTP', side_effect=Exception("SMTP Error")) as _:
-        # Call the method
-        result = await email_adapter.send_notification(user_id, message, channel)
+        notification_id = await null_provider.send_scheduled_notification(
+            user_id="test_user",
+            message="Scheduled test message with metadata",
+            channel="test_channel",
+            schedule_time=schedule_time,
+            metadata=metadata
+        )
 
-        # Verify the result
-        assert result is False
+        # Should generate a notification ID with expected format
+        assert notification_id.startswith("null_notification_")
 
+    @pytest.mark.asyncio
+    async def test_cancel_scheduled_notification(self, null_provider):
+        """Test canceling a scheduled notification."""
+        # First schedule a notification
+        schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
+        notification_id = await null_provider.send_scheduled_notification(
+            user_id="test_user",
+            message="Will be canceled",
+            channel="test_channel",
+            schedule_time=schedule_time
+        )
 
-@pytest.mark.asyncio
-async def test_schedule_notification(email_adapter):
-    """Test scheduling a notification."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test scheduled message"
-    channel = "email"
-    schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
-    metadata = {"subject": "Scheduled Test"}
+        # Now cancel it
+        result = await null_provider.cancel_scheduled_notification(notification_id)
 
-    # Call the method
-    notification_id = await email_adapter.send_scheduled_notification(
-        user_id, message, channel, schedule_time, metadata
-    )
+        # Should always return True
+        assert result is True
 
-    # Verify the result
-    assert notification_id.startswith("notification_")
-    assert notification_id in email_adapter._scheduled_notifications
+    @pytest.mark.asyncio
+    async def test_cancel_nonexistent_notification(self, null_provider):
+        """Test canceling a notification that doesn't exist."""
+        result = await null_provider.cancel_scheduled_notification("nonexistent_id")
 
-    # Verify the stored notification details
-    notification = email_adapter._scheduled_notifications[notification_id]
-    assert notification["user_id"] == user_id
-    assert notification["message"] == message
-    assert notification["channel"] == channel
-    assert notification["schedule_time"] == schedule_time
-    assert notification["metadata"] == metadata
+        # Should still return True since this is a null implementation
+        assert result is True
 
+    @pytest.mark.asyncio
+    async def test_different_notification_ids(self, null_provider):
+        """Test that different notification IDs are generated."""
+        schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
 
-@pytest.mark.asyncio
-async def test_schedule_notification_default_metadata(email_adapter):
-    """Test scheduling a notification without metadata."""
-    # Setup test data
-    user_id = "user@example.com"
-    message = "Test scheduled message"
-    channel = "email"
-    schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
+        notification_id1 = await null_provider.send_scheduled_notification(
+            user_id="test_user",
+            message="First message",
+            channel="test_channel",
+            schedule_time=schedule_time
+        )
 
-    # Call the method without metadata
-    notification_id = await email_adapter.send_scheduled_notification(
-        user_id, message, channel, schedule_time
-    )
+        notification_id2 = await null_provider.send_scheduled_notification(
+            user_id="test_user",
+            message="Second message",
+            channel="test_channel",
+            schedule_time=schedule_time
+        )
 
-    # Verify the result
-    assert notification_id in email_adapter._scheduled_notifications
-
-    # Verify empty metadata
-    notification = email_adapter._scheduled_notifications[notification_id]
-    assert notification["metadata"] == {}
-
-
-@pytest.mark.asyncio
-async def test_cancel_scheduled_notification_existing(email_adapter):
-    """Test canceling an existing scheduled notification."""
-    # Schedule a notification first
-    user_id = "user@example.com"
-    message = "Test scheduled message"
-    channel = "email"
-    schedule_time = datetime.datetime.now() + datetime.timedelta(hours=1)
-
-    notification_id = await email_adapter.send_scheduled_notification(
-        user_id, message, channel, schedule_time
-    )
-
-    # Now cancel it
-    result = await email_adapter.cancel_scheduled_notification(notification_id)
-
-    # Verify the result
-    assert result is True
-    assert notification_id not in email_adapter._scheduled_notifications
-
-
-@pytest.mark.asyncio
-async def test_cancel_scheduled_notification_nonexistent(email_adapter):
-    """Test canceling a non-existent scheduled notification."""
-    # Try to cancel a notification that doesn't exist
-    result = await email_adapter.cancel_scheduled_notification("nonexistent_id")
-
-    # Verify the result
-    assert result is False
+        # IDs should be different
+        assert notification_id1 != notification_id2

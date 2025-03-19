@@ -9,6 +9,7 @@ from solana_agent.repositories.agent import *
 from solana_agent.repositories.feedback import *
 from solana_agent.repositories.handoff import *
 from solana_agent.repositories.mongo_memory import *
+from solana_agent.repositories.project import *
 from solana_agent.repositories.resource import *
 from solana_agent.repositories.scheduling import *
 from solana_agent.repositories.ticket import *

@@ -373,18 +373,6 @@ class ProjectRepository(ABC):
         pass
 
     @abstractmethod
-    def get_by_id(self, project_id: str) -> Optional[Any]:
-        """Get a project by ID.
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            Project or None if not found
-        """
-        pass
-
-    @abstractmethod
     def update(self, project_id: str, project: Any) -> bool:
         """Update a project.
 

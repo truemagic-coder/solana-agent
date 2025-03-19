@@ -11,7 +11,6 @@ from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.services.ticket import TicketService
-# Import concrete implementation
 from solana_agent.services.handoff import HandoffService
 from solana_agent.services.memory import MemoryService
 from solana_agent.services.nps import NPSService
@@ -28,7 +27,7 @@ from solana_agent.repositories.ticket import MongoTicketRepository
 from solana_agent.repositories.feedback import MongoFeedbackRepository
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
 from solana_agent.repositories.agent import MongoAgentRepository
-# Fixed repository name
+from solana_agent.repositories.project import MongoProjectRepository
 from solana_agent.repositories.scheduling import MongoSchedulingRepository
 from solana_agent.repositories.handoff import MongoHandoffRepository
 
@@ -116,6 +115,7 @@ class SolanaAgentFactory:
         agent_repo = MongoAgentRepository(db_adapter)
         handoff_repo = MongoHandoffRepository(db_adapter)
         scheduling_repo = MongoSchedulingRepository(db_adapter)
+        project_repo = MongoProjectRepository(db_adapter)
 
         # Create primary services
         agent_service = AgentService(
@@ -129,9 +129,6 @@ class SolanaAgentFactory:
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
         ticket_service = TicketService(ticket_repo)
-
-        # Create notification service first as other services depend on it
-        notification_service = NotificationService()
 
         # Create handoff service with correct dependencies
         handoff_service = HandoffService(
@@ -163,9 +160,10 @@ class SolanaAgentFactory:
 
         # Create project services
         project_approval_service = ProjectApprovalService(
-            ticket_repository=ticket_repo,
-            agent_repository=agent_repo,
-            notification_service=notification_service
+            project_repository=project_repo,
+            llm_provider=llm_adapter,
+            require_human_approval=config.get(
+                "project_require_human_approval", True)
         )
 
         project_simulation_service = ProjectSimulationService(
