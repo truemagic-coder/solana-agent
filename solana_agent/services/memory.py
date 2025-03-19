@@ -125,12 +125,24 @@ class MemoryService(MemoryServiceInterface):
             print(f"Error summarizing history: {e}")
             return "Error generating conversation summary."
 
-    async def get_paginated_history(
+    async def get_user_history(self, user_id, limit=20):
+        """Get a user's conversation history.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of history items to return
+
+        Returns:
+            List of conversation history items
+        """
+        return self.memory_repository.get_user_history(user_id, limit)
+
+    async def get_user_history_paginated(
         self,
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """Get paginated message history for a user.
 

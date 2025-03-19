@@ -100,3 +100,59 @@ class DualMemoryRepository(MemoryRepository):
 
         # Only return True if both operations succeeded
         return zep_success and mongo_success
+
+    async def count_user_history(self, user_id):
+        """Count the number of history items for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Number of history items
+        """
+        try:
+            # Prefer MongoDB for structured history retrieval
+            count = self.mongo.count_user_history(user_id)
+            if count:
+                return count
+        except Exception:
+            pass
+
+    async def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
+        """Get conversation history for a user.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of items to return"
+            """
+        try:
+            # Prefer MongoDB for structured history retrieval
+            history = self.mongo.get_user_history(user_id, limit)
+            if history:
+                return history
+        except Exception:
+            pass
+
+    async def get_user_history_paginated(
+        self,
+        user_id: str,
+        page_num: int = 1,
+        page_size: int = 20,
+        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+    ) -> Dict[str, Any]:
+        """Get paginated message history for a user.
+
+        Args:
+            user_id: User ID
+            page_num: Page number (starting from 1)
+            page_size: Number of messages per page
+            sort_order: Sort order ("asc" or "desc")
+
+        Returns:
+            Dictionary with paginated results and metadata
+        """
+        try:
+            # Prefer MongoDB for structured history retrieval
+            return self.mongo.get_user_history_paginated(user_id, page_num, page_size, sort_order)
+        except Exception:
+            pass

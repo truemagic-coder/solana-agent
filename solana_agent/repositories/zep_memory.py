@@ -103,46 +103,6 @@ class ZepMemoryRepository(MemoryRepository):
             print(f"Error searching Zep memory: {e}")
             return []
 
-    async def get_user_history(self, user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get conversation history for a user.
-
-        Args:
-            user_id: User ID
-            limit: Maximum number of exchanges to return
-
-        Returns:
-            List of conversation exchanges
-        """
-        try:
-            # Get session data from Zep
-            session = await self.client.memory.get_session(user_id)
-
-            # Process messages into exchanges (user + assistant pairs)
-            exchanges = []
-            messages = session.messages
-
-            # Messages might be in reverse chronological order, so we need to process them differently
-            # Group user and assistant messages correctly
-            i = 0
-            while i < len(messages) - 1 and len(exchanges) < limit:
-                # Find a user message followed by an assistant message
-                if messages[i].role == "user" and messages[i+1].role == "assistant":
-                    exchanges.append({
-                        "user_message": messages[i].content,
-                        "assistant_message": messages[i+1].content,
-                        "timestamp": datetime.now()
-                    })
-                    i += 2  # Move to the next potential pair
-                else:
-                    i += 1  # Skip this message if it doesn't form a valid pair
-
-            return exchanges
-
-        except Exception as e:
-            # Handle errors and log them
-            print(f"Error retrieving user history: {str(e)}")
-            return []
-
     async def delete_user_memory(self, user_id: str) -> bool:
         """Delete all memory for a user from Zep.
 
@@ -163,3 +123,18 @@ class ZepMemoryRepository(MemoryRepository):
         except Exception as e:
             print(f"Error deleting memory from Zep: {e}")
             return False
+
+    async def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
+        return [{}]
+
+    async def count_user_history(self, user_id) -> int:
+        return 0
+
+    async def get_user_history_paginated(self, user_id, page_num, page_size) -> Dict[str, Any]:
+        return {
+            "data": [],
+            "total": 0,
+            "page": page_num,
+            "page_size": page_size,
+            "total_pages": 0
+        }

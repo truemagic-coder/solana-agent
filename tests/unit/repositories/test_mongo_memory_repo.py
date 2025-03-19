@@ -79,7 +79,7 @@ class TestMongoMemoryRepository:
         # Verify collections are created
         mock_db_adapter.create_collection.assert_any_call("memory_insights")
         mock_db_adapter.create_collection.assert_any_call(
-            "conversation_history")
+            "messages")
         assert mock_db_adapter.create_collection.call_count == 2
 
         # Verify indexes are created
@@ -89,9 +89,9 @@ class TestMongoMemoryRepository:
         mock_db_adapter.create_index.assert_any_call(
             "memory_insights", [("created_at", -1)])
         mock_db_adapter.create_index.assert_any_call(
-            "conversation_history", [("user_id", 1)])
+            "messages", [("user_id", 1)])
         mock_db_adapter.create_index.assert_any_call(
-            "conversation_history", [("timestamp", -1)])
+            "messages", [("timestamp", -1)])
 
     def test_store_insight_basic(self, memory_repo, mock_db_adapter, sample_insight):
         """Test storing an insight without vector store."""
@@ -271,7 +271,7 @@ class TestMongoMemoryRepository:
         args, kwargs = mock_db_adapter.find.call_args
         collection, query = args
 
-        assert collection == "conversation_history"
+        assert collection == "messages"
         assert query == {"user_id": user_id}
         assert kwargs.get("limit") == limit
         assert kwargs.get("sort") == [("timestamp", -1)]
@@ -293,7 +293,7 @@ class TestMongoMemoryRepository:
         mock_db_adapter.delete_one.assert_any_call(
             "memory_insights", {"user_id": user_id})
         mock_db_adapter.delete_one.assert_any_call(
-            "conversation_history", {"user_id": user_id})
+            "messages", {"user_id": user_id})
 
         # Verify result
         assert result is True
@@ -326,7 +326,7 @@ class TestMongoMemoryRepository:
         mock_db_adapter.insert_one.assert_called_once()
         collection, data = mock_db_adapter.insert_one.call_args[0]
 
-        assert collection == "conversation_history"
+        assert collection == "messages"
         assert data["user_id"] == user_id
         assert data["user_message"] == user_message
         assert data["assistant_message"] == assistant_message
@@ -374,3 +374,206 @@ class TestMongoMemoryRepository:
         # Verify results from fallback
         assert len(results) == 1
         assert results[0]["content"] == "Fallback result"
+
+    def test_count_user_history_success(self, memory_repo, mock_db_adapter):
+        """Test counting user conversation history entries successfully."""
+        user_id = "user123"
+        expected_count = 15
+
+        # Configure mock to return a specific count
+        mock_db_adapter.count_documents = Mock(return_value=expected_count)
+
+        # Get count
+        count = memory_repo.count_user_history(user_id)
+
+        # Verify DB query - now expecting the role filter
+        mock_db_adapter.count_documents.assert_called_once_with(
+            "messages",
+            {"user_id": user_id, "role": "user"}
+        )
+
+        # Verify result
+        assert count == expected_count
+
+    def test_get_user_history_paginated_default_params(self, memory_repo, mock_db_adapter):
+        """Test getting paginated user history with default parameters."""
+        user_id = "user123"
+
+        # Mock conversation data with new schema (separate user and assistant messages)
+        mock_conversations = [
+            {
+                "user_id": user_id,
+                "role": "user",
+                "content": "How do I stake SOL?",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg1"
+            },
+            {
+                "user_id": user_id,
+                "role": "assistant",
+                "content": "You can stake using validators or delegation.",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg2"
+            },
+            {
+                "user_id": user_id,
+                "role": "user",
+                "content": "Which wallet should I use?",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg3"
+            },
+            {
+                "user_id": user_id,
+                "role": "assistant",
+                "content": "Phantom is a popular choice for Solana.",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg4"
+            }
+        ]
+
+        # Configure mock to return the data
+        mock_db_adapter.find.return_value = mock_conversations
+
+        # Get paginated history
+        results = memory_repo.get_user_history_paginated(user_id)
+
+        # Verify DB query - expecting doubled limit
+        mock_db_adapter.find.assert_called_once()
+        args, kwargs = mock_db_adapter.find.call_args
+
+        # Check collection and query
+        assert args[0] == "messages"
+        assert args[1] == {"user_id": user_id}
+
+        # Check pagination parameters - limit should be doubled
+        assert kwargs.get("sort") == [("timestamp", -1)]  # desc is default
+        assert kwargs.get("skip") == 0  # default skip
+        assert kwargs.get("limit") == 40  # 2x default limit
+
+        # Verify results are properly paired
+        assert len(results) == 2  # Should return 2 conversation pairs
+        assert results[0]["user_message"] == "How do I stake SOL?"
+        assert results[0]["assistant_message"] == "You can stake using validators or delegation."
+        assert results[0]["user_message_id"] == "msg1"
+        assert results[0]["assistant_message_id"] == "msg2"
+
+        assert results[1]["user_message"] == "Which wallet should I use?"
+        assert results[1]["assistant_message"] == "Phantom is a popular choice for Solana."
+
+    def test_get_user_history_paginated_custom_params(self, memory_repo, mock_db_adapter):
+        """Test getting paginated user history with custom parameters."""
+        user_id = "user123"
+        skip = 20
+        limit = 10
+        sort_order = "asc"
+
+        # Mock conversation data with new schema
+        mock_conversations = [
+            {
+                "user_id": user_id,
+                "role": "user",
+                "content": "Earlier message",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg1"
+            },
+            {
+                "user_id": user_id,
+                "role": "assistant",
+                "content": "Response to earlier message",
+                "timestamp": datetime.now().replace(microsecond=0),
+                "_id": "msg2"
+            }
+        ]
+
+        # Configure mock to return the data
+        mock_db_adapter.find.return_value = mock_conversations
+
+        # Get paginated history with custom parameters
+        results = memory_repo.get_user_history_paginated(
+            user_id=user_id,
+            skip=skip,
+            limit=limit,
+            sort_order=sort_order
+        )
+
+        # Verify DB query with doubled limit
+        mock_db_adapter.find.assert_called_once()
+        args, kwargs = mock_db_adapter.find.call_args
+
+        # Check pagination parameters
+        assert kwargs.get("sort") == [("timestamp", 1)]  # Ascending sort
+        assert kwargs.get("skip") == skip
+        assert kwargs.get("limit") == 20  # 2x the requested limit
+
+        # Verify results
+        assert len(results) == 1
+        assert results[0]["user_message"] == "Earlier message"
+        assert results[0]["assistant_message"] == "Response to earlier message"
+
+    def test_get_user_history_paginated_empty_results(self, memory_repo, mock_db_adapter):
+        """Test getting paginated user history when no results exist."""
+        user_id = "empty_user"
+
+        # Configure mock to return empty list
+        mock_db_adapter.find.return_value = []
+
+        # Get paginated history
+        results = memory_repo.get_user_history_paginated(user_id)
+
+        # Verify DB query
+        mock_db_adapter.find.assert_called_once()
+
+        # Verify empty results
+        assert len(results) == 0
+        assert isinstance(results, list)
+
+    def test_count_user_history_error(self, memory_repo, mock_db_adapter):
+        """Test error handling when counting user history fails."""
+        user_id = "user123"
+
+        # Configure mock to raise an exception
+        mock_db_adapter.count_documents = Mock(
+            side_effect=Exception("Database error"))
+
+        # Get count - should not raise the exception
+        count = memory_repo.count_user_history(user_id)
+
+        # Verify DB query was attempted
+        mock_db_adapter.count_documents.assert_called_once()
+
+        # Verify method returns 0 on error
+        assert count == 0
+
+    def test_get_user_history_paginated_empty_results(self, memory_repo, mock_db_adapter):
+        """Test getting paginated user history when no results exist."""
+        user_id = "empty_user"
+
+        # Configure mock to return empty list
+        mock_db_adapter.find.return_value = []
+
+        # Get paginated history
+        results = memory_repo.get_user_history_paginated(user_id)
+
+        # Verify DB query
+        mock_db_adapter.find.assert_called_once()
+
+        # Verify empty results
+        assert len(results) == 0
+        assert isinstance(results, list)
+
+    def test_get_user_history_paginated_error_handling(self, memory_repo, mock_db_adapter):
+        """Test error handling when getting paginated user history fails."""
+        user_id = "user123"
+
+        # Configure mock to raise exception
+        mock_db_adapter.find.side_effect = Exception("Database error")
+
+        # Get paginated history - should not propagate the exception
+        results = memory_repo.get_user_history_paginated(user_id)
+
+        # Verify DB query was attempted
+        mock_db_adapter.find.assert_called_once()
+
+        # Verify empty list is returned on error
+        assert len(results) == 0
+        assert isinstance(results, list)

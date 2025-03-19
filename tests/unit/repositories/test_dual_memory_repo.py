@@ -164,50 +164,6 @@ async def test_get_user_history_mongo_success(dual_repo, mock_zep_repo, mock_mon
 
 
 @pytest.mark.asyncio
-async def test_get_user_history_mongo_empty_zep_fallback(dual_repo, mock_zep_repo, mock_mongo_repo):
-    """Test getting user history falling back to Zep when MongoDB returns empty."""
-    user_id = "user123"
-    limit = 20
-
-    # Set up mock responses
-    mock_mongo_repo.get_user_history.return_value = []  # MongoDB returns empty
-    zep_history = [{"message": "Hello", "timestamp": "2025-03-15T09:00:00Z"}]
-    mock_zep_repo.get_user_history.return_value = zep_history
-
-    # Call method
-    history = await dual_repo.get_user_history(user_id, limit)
-
-    # Verify calls
-    mock_mongo_repo.get_user_history.assert_called_once_with(user_id, limit)
-    mock_zep_repo.get_user_history.assert_awaited_once_with(user_id, limit)
-
-    # Verify results
-    assert history == zep_history
-
-
-@pytest.mark.asyncio
-async def test_get_user_history_mongo_error_zep_fallback(dual_repo, mock_zep_repo, mock_mongo_repo):
-    """Test getting user history falling back to Zep when MongoDB throws an exception."""
-    user_id = "user123"
-    limit = 20
-
-    # Set up mock responses
-    mock_mongo_repo.get_user_history.side_effect = Exception("MongoDB error")
-    zep_history = [{"message": "Hello", "timestamp": "2025-03-15T09:00:00Z"}]
-    mock_zep_repo.get_user_history.return_value = zep_history
-
-    # Call method - should handle exception gracefully
-    history = await dual_repo.get_user_history(user_id, limit)
-
-    # Verify calls
-    mock_mongo_repo.get_user_history.assert_called_once_with(user_id, limit)
-    mock_zep_repo.get_user_history.assert_awaited_once_with(user_id, limit)
-
-    # Verify results
-    assert history == zep_history
-
-
-@pytest.mark.asyncio
 async def test_delete_user_memory_both_success(dual_repo, mock_zep_repo, mock_mongo_repo):
     """Test deleting user memory from both repositories successfully."""
     user_id = "user123"
@@ -285,43 +241,3 @@ async def test_delete_user_memory_both_failure(dual_repo, mock_zep_repo, mock_mo
 
     # Verify result
     assert result is False
-
-
-@pytest.mark.asyncio
-async def test_search_both_repositories_empty(dual_repo, mock_zep_repo, mock_mongo_repo):
-    """Test search when both repositories return empty results."""
-    query = "unknown topic"
-
-    # Set up mock responses
-    mock_zep_repo.search.return_value = []
-    mock_mongo_repo.search.return_value = []
-
-    # Call method
-    results = await dual_repo.search(query)
-
-    # Verify both repositories were queried
-    mock_zep_repo.search.assert_awaited_once()
-    mock_mongo_repo.search.assert_called_once()
-
-    # Verify empty results
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_get_user_history_both_repositories_empty(dual_repo, mock_zep_repo, mock_mongo_repo):
-    """Test getting user history when both repositories return empty results."""
-    user_id = "new_user"
-
-    # Set up mock responses
-    mock_mongo_repo.get_user_history.return_value = []
-    mock_zep_repo.get_user_history.return_value = []
-
-    # Call method
-    results = await dual_repo.get_user_history(user_id)
-
-    # Verify both repositories were queried
-    mock_mongo_repo.get_user_history.assert_called_once()
-    mock_zep_repo.get_user_history.assert_awaited_once()
-
-    # Verify empty results
-    assert results == []

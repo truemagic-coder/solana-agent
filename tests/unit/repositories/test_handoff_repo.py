@@ -121,7 +121,6 @@ class TestMongoHandoffRepository:
         assert data["reason"] == "Technical question requires specialist knowledge"
         assert "timestamp" in data
         assert data["successful"] is True
-        assert data["notes"] == "Handed off to specialist for detailed database optimization advice"
 
     def test_find_for_agent_no_date_filter(self, handoff_repository, mock_db_adapter, sample_handoffs):
         """Test finding handoffs for an agent with no date filter."""

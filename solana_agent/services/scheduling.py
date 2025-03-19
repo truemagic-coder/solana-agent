@@ -284,8 +284,7 @@ class SchedulingService(SchedulingServiceInterface):
         Returns:
             List of tasks
         """
-        status_filter = None if include_completed else "scheduled"
-        return self.repository.get_agent_tasks(agent_id, start_time, end_time, status_filter)
+        return self.repository.get_agent_tasks(agent_id=agent_id, start_time=start_time, end_time=end_time, include_completed=include_completed)
 
     async def mark_task_started(self, task_id: str) -> bool:
         """Mark a task as started.
@@ -408,7 +407,6 @@ class SchedulingService(SchedulingServiceInterface):
             agent_id,
             start_after,
             end_before,
-            "scheduled"
         )
 
         # Convert to time windows
@@ -920,7 +918,6 @@ class SchedulingService(SchedulingServiceInterface):
             tasks = self.repository.get_agent_tasks(
                 agent_id,
                 start_time=datetime.datetime.now(datetime.timezone.utc),
-                status=None  # Get all statuses
             )
 
             # Only count relevant tasks (not completed or cancelled)

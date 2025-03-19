@@ -40,12 +40,15 @@ class MongoDBAdapter(DataStorageProvider):
         query: Dict,
         sort: Optional[List[Tuple]] = None,
         limit: int = 0,
+        skip: int = 0
     ) -> List[Dict]:
         cursor = self.db[collection].find(query)
         if sort:
             cursor = cursor.sort(sort)
         if limit > 0:
             cursor = cursor.limit(limit)
+        if skip > 0:
+            cursor = cursor.skip(skip)
         return list(cursor)
 
     def update_one(self, collection: str, query: Dict, update: Dict, upsert: bool = False) -> bool:
@@ -64,3 +67,6 @@ class MongoDBAdapter(DataStorageProvider):
 
     def create_index(self, collection: str, keys: List[Tuple], **kwargs) -> None:
         self.db[collection].create_index(keys, **kwargs)
+
+    def count_documents(self, collection: str, query: Dict) -> int:
+        return self.db[collection].count_documents(query)

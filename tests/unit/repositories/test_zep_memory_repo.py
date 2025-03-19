@@ -204,45 +204,6 @@ class TestZepMemoryRepository:
         mock_zep_client.memory.search.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_user_history(self, memory_repo, mock_zep_client):
-        """Test retrieving user conversation history."""
-        # Setup mock response
-        memory_response = MockMemoryResponse(messages=[
-            Mock(role="user", content="What's the weather today?"),
-            Mock(role="assistant", content="The weather is sunny."),
-            Mock(role="user", content="Thank you!"),
-            Mock(role="assistant", content="You're welcome!")
-        ])
-        mock_zep_client.memory.get_session.return_value = memory_response
-
-        # Call method
-        history = await memory_repo.get_user_history("user_123", limit=2)
-
-        # Verify Zep client was called correctly
-        mock_zep_client.memory.get_session.assert_called_once_with("user_123")
-
-        # Verify results
-        assert len(history) == 2
-        assert history[0]["user_message"] == "What's the weather today?"
-        assert history[0]["assistant_message"] == "The weather is sunny."
-        assert history[1]["user_message"] == "Thank you!"
-        assert history[1]["assistant_message"] == "You're welcome!"
-
-    @pytest.mark.asyncio
-    async def test_get_user_history_exception(self, memory_repo, mock_zep_client):
-        """Test handling exceptions when retrieving history."""
-        # Setup mock to raise exception
-        mock_zep_client.memory.get_session.side_effect = Exception(
-            "Session not found")
-
-        # Call method
-        history = await memory_repo.get_user_history("user_123")
-
-        # Verify empty result
-        assert history == []
-        mock_zep_client.memory.get_session.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_delete_user_memory(self, memory_repo, mock_zep_client):
         """Test deleting user memory."""
         # Setup mock responses

@@ -135,12 +135,12 @@ class SolanaAgent:
         # Process the survey response
         return self.query_service.nps_service.process_response(survey_id, score, feedback)
 
-    async def get_paginated_history(
+    async def get_user_history_paginated(
         self,
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """
         Get paginated message history for a user.
@@ -166,6 +166,6 @@ class SolanaAgent:
             }
 
         # Use the memory service to get the paginated history
-        return await self.query_service.memory_service.get_paginated_history(
+        return await self.query_service.memory_service.get_user_history_paginated(
             user_id, page_num, page_size, sort_order
         )

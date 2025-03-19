@@ -92,23 +92,3 @@ class OpenAIAdapter(LLMProvider):
             return completion.choices[0].message.parsed
         except Exception as e:
             print(f"Error with beta.parse method: {e}")
-
-            # Fallback to manual parsing with Pydantic
-            try:
-                response = self.client.chat.completions.create(
-                    model=kwargs.get("model", self.model),
-                    messages=messages,
-                    temperature=kwargs.get("temperature", 0.2),
-                    response_format={"type": "json_object"},
-                )
-                response_text = response.choices[0].message.content
-
-                if response_text:
-                    # Use Pydantic's model validation
-                    return model_class.model_validate_json(response_text)
-
-            except Exception as e:
-                print(f"Error parsing structured output with Pydantic: {e}")
-
-            # Return default instance as fallback
-            return model_class()

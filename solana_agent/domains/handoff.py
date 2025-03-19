@@ -15,11 +15,8 @@ class Handoff(BaseModel):
     to_agent: str = Field(..., description="Agent receiving handoff")
     ticket_id: str = Field(..., description="Related ticket ID")
     reason: str = Field(..., description="Reason for handoff")
-    timestamp: datetime = Field(
-        default_factory=datetime.now, description="Handoff time")
-    successful: bool = Field(
-        True, description="Whether handoff was successful")
-    notes: Optional[str] = Field(None, description="Additional notes")
+    timestamp: datetime = Field(..., description="Handoff time")
+    successful: bool = Field(..., description="Whether handoff was successful")
 
 
 class HandoffEvaluation(BaseModel):
@@ -30,4 +27,4 @@ class HandoffEvaluation(BaseModel):
     reason: Optional[str] = Field(
         None, description="Reason for handoff recommendation")
     confidence: float = Field(...,
-                              description="Confidence in recommendation (0-1)", ge=0, le=1)
+                              description="Confidence in recommendation (0-1)")

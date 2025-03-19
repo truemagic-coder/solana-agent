@@ -189,7 +189,10 @@ class SolanaAgentFactory:
         task_planning_service.scheduling_service = scheduling_service
 
         # Initialize plugin system
-        agent_service.plugin_manager = PluginManager()
+        agent_service.plugin_manager = PluginManager(
+            config=config,
+            tool_registry=agent_service.tool_registry
+        )
         loaded_plugins = agent_service.plugin_manager.load_plugins()
         print(f"Loaded {loaded_plugins} plugins")
 

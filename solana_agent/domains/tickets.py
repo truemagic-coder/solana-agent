@@ -83,14 +83,12 @@ class TicketResolution(BaseModel):
     confidence: float = Field(
         ...,
         description="Confidence in the resolution assessment (0-1)",
-        ge=0.0,
-        le=1.0
     )
     reasoning: str = Field(
         ...,
         description="Reasoning for the resolution assessment"
     )
     suggested_actions: List[str] = Field(
-        default_factory=list,
+        ...,
         description="Suggested actions based on resolution status"
     )

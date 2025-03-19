@@ -68,7 +68,7 @@ def mock_agent_factory():
 
         # Setup memory service
         mock_query_service.memory_service = MagicMock()
-        mock_query_service.memory_service.get_paginated_history = AsyncMock(return_value={
+        mock_query_service.memory_service.get_user_history_paginated = AsyncMock(return_value={
             "data": [{"message": "Hello"}, {"message": "World"}],
             "total": 2,
             "page": 1,
@@ -357,20 +357,20 @@ async def test_submit_survey_response_no_nps_service(mock_agent_factory, sample_
 # --------------------------
 
 @pytest.mark.asyncio
-async def test_get_paginated_history(mock_agent_factory, sample_config):
+async def test_get_user_history_paginated(mock_agent_factory, sample_config):
     """Test getting paginated history."""
     agent = SolanaAgent(config=sample_config)
 
     # Get paginated history
-    history = await agent.get_paginated_history(
+    history = await agent.get_user_history_paginated(
         "user-123",
         page_num=2,
         page_size=10,
         sort_order="desc"
     )
 
-    # Check that get_paginated_history was called with the right arguments
-    agent.query_service.memory_service.get_paginated_history.assert_called_once_with(
+    # Check that get_user_history was called with the right arguments
+    agent.query_service.memory_service.get_user_history_paginated.assert_called_once_with(
         "user-123", 2, 10, "desc"
     )
 
@@ -385,7 +385,7 @@ async def test_get_paginated_history(mock_agent_factory, sample_config):
 
 
 @pytest.mark.asyncio
-async def test_get_paginated_history_no_memory_service(mock_agent_factory, sample_config):
+async def test_get_user_history_no_memory_service(mock_agent_factory, sample_config):
     """Test getting paginated history when memory service is not available."""
     agent = SolanaAgent(config=sample_config)
 
@@ -393,7 +393,7 @@ async def test_get_paginated_history_no_memory_service(mock_agent_factory, sampl
     delattr(agent.query_service, "memory_service")
 
     # Get paginated history should return an error message
-    history = await agent.get_paginated_history("user-123")
+    history = await agent.get_user_history_paginated("user-123")
 
     # Check that the history contains an error
     assert "error" in history

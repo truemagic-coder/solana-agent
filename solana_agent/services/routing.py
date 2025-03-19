@@ -25,7 +25,6 @@ class RoutingService(RoutingServiceInterface):
         agent_service: AgentService,
         ticket_service: TicketService,
         scheduling_service: SchedulingService = None,  # Add scheduling service
-        default_agent: str = "general"
     ):
         """Initialize the routing service.
 
@@ -33,14 +32,11 @@ class RoutingService(RoutingServiceInterface):
             llm_provider: Provider for language model interactions
             agent_service: Service for agent management
             ticket_service: Service for ticket management
-            scheduling_service: Optional service for intelligent scheduling
-            default_agent: Default agent name for fallback
         """
         self.llm_provider = llm_provider
         self.agent_service = agent_service
         self.ticket_service = ticket_service
         self.scheduling_service = scheduling_service  # Store scheduling service
-        self.default_agent = default_agent
 
     async def analyze_query(self, query: str) -> Dict[str, Any]:
         """Analyze a query to determine routing information.
@@ -141,10 +137,6 @@ class RoutingService(RoutingServiceInterface):
                 analysis["complexity_level"]
             )
 
-        # Fall back to default if needed
-        if not selected_agent:
-            selected_agent = self.default_agent
-
         # Assign ticket to selected agent
         if ticket.status == "new":
             self.ticket_service.assign_ticket(ticket.id, selected_agent)
@@ -208,23 +200,42 @@ class RoutingService(RoutingServiceInterface):
 
         return success
 
+    def _get_priority_from_complexity(self, complexity_level: int) -> int:
+        """Convert complexity level to priority.
+
+        Args:
+            complexity_level: Complexity level (1-5)
+
+        Returns:
+            Priority value
+        """
+        # Map complexity to priority (higher complexity = higher priority)
+        # Priority scale can be adjusted as needed
+        priority_map = {
+            1: 1,  # Low complexity = low priority
+            2: 2,
+            3: 5,  # Medium complexity = medium priority
+            4: 8,
+            5: 10  # High complexity = high priority
+        }
+        # Default to medium priority
+        return priority_map.get(complexity_level, 5)
+
     async def _find_best_human_agent(
         self,
         primary_specialization: str,
         secondary_specializations: List[str],
-        ticket: Ticket
     ) -> Optional[str]:
         """Find the best human agent for a query based on specialization and availability.
 
         Args:
             primary_specialization: Primary specialization needed
             secondary_specializations: Secondary specializations
-            ticket: Ticket to assign
 
         Returns:
             Best human agent name or None if not found
         """
-        human_agents = getattr(self.agent_service, "_human_agents", {})
+        human_agents = self.agent_service.get_all_human_agents()
         if not human_agents:
             return None
 
@@ -235,6 +246,25 @@ class RoutingService(RoutingServiceInterface):
             # Skip if agent isn't available
             if not agent.availability:
                 continue
+
+            # Check schedule if scheduling service is available
+            if self.scheduling_service:
+                try:
+                    # Get agent's schedule for today
+                    today = datetime.datetime.now(datetime.timezone.utc).date()
+                    agent_schedule = await self.scheduling_service.get_agent_schedule(agent_id, today)
+
+                    # Skip if agent has no available hours today
+                    if agent_schedule and hasattr(agent_schedule, 'has_availability_today') and not agent_schedule.has_availability_today():
+                        continue
+
+                    # Check if agent is currently available based on schedule
+                    current_time = datetime.datetime.now(
+                        datetime.timezone.utc).time()
+                    if agent_schedule and hasattr(agent_schedule, 'is_available_at') and not agent_schedule.is_available_at(current_time):
+                        continue
+                except Exception as e:
+                    print(f"Error checking agent schedule: {e}")
 
             # Base score
             score = 0
@@ -256,7 +286,7 @@ class RoutingService(RoutingServiceInterface):
                     # Get agent's current tasks
                     tasks = await self.scheduling_service.get_agent_tasks(
                         agent_id,
-                        start_time=datetime.datetime.now(
+                        start_date=datetime.datetime.now(
                             datetime.timezone.utc),
                         include_completed=False
                     )
@@ -281,89 +311,49 @@ class RoutingService(RoutingServiceInterface):
         self,
         primary_specialization: str,
         secondary_specializations: List[str],
-        ticket: Ticket,
-        complexity_level: int
     ) -> Tuple[Optional[str], bool, Optional[ScheduledTask]]:
-        """Find the best AI agent for a query, potentially scheduling for later.
+        """Find the best AI agent for a query. AI agents are not scheduled.
 
         Args:
             primary_specialization: Primary specialization needed
             secondary_specializations: Secondary specializations
-            ticket: Ticket to assign
-            complexity_level: Query complexity level
 
         Returns:
             Tuple of (agent_name, is_scheduled, scheduled_task)
         """
-        # Start with direct specialization matching
-        ai_agents = getattr(self.agent_service, "_ai_agents", {})
+        # Get all AI agents
+        ai_agents = self.agent_service.get_all_ai_agents()
+        if not ai_agents:
+            return None, False, None
 
-        # If no scheduling service, fall back to simple matching
-        if not self.scheduling_service:
-            for name, agent in ai_agents.items():
-                if agent.specialization.lower() == primary_specialization.lower():
-                    return name, False, None
-            return self.default_agent, False, None
+        # Create a list to score agents
+        agent_scores = []
 
-        # With scheduling service, do more sophisticated matching
+        for agent_id, agent in ai_agents.items():
+            # Base score
+            score = 0
 
-        # 1. Create a task for the ticket
-        estimated_minutes = complexity_level * 15  # Simple estimate based on complexity
-
-        task = ScheduledTask(
-            task_id=f"ticket_{ticket.id}",
-            title=f"Handle ticket: {ticket.title}",
-            description=ticket.description,
-            status=ScheduledTaskStatus.PENDING,
-            priority=self._get_priority_from_complexity(complexity_level),
-            estimated_minutes=estimated_minutes,
-            metadata={
-                "ticket_id": ticket.id,
-                "primary_specialization": primary_specialization,
-                "secondary_specializations": secondary_specializations,
-                "complexity_level": complexity_level
-            }
-        )
-
-        # 2. Try to find an optimal agent and time slot
-        try:
-            # Schedule the task using the scheduling service
-            scheduled_task = await self.scheduling_service.schedule_task(task)
-
-            # Check if it was scheduled successfully
-            if scheduled_task and scheduled_task.assigned_to:
-                # Task was scheduled for immediate or future handling
-                is_scheduled = scheduled_task.scheduled_start is not None
-                return scheduled_task.assigned_to, is_scheduled, scheduled_task
-
-        except Exception as e:
-            print(f"Error scheduling task: {e}")
-
-        # 3. Fall back to simple matching if scheduling fails
-        for name, agent in ai_agents.items():
+            # Check primary specialization
             if agent.specialization.lower() == primary_specialization.lower():
-                return name, False, None
+                score += 10
 
-        # Use default agent as last resort
-        return self.default_agent, False, None
+            # Check secondary specializations (if AI agents support multiple specializations)
+            if hasattr(agent, 'secondary_specializations'):
+                for sec_spec in secondary_specializations:
+                    if sec_spec.lower() in [s.lower() for s in agent.secondary_specializations]:
+                        score += 3
 
-    def _get_priority_from_complexity(self, complexity_level: int) -> int:
-        """Convert complexity level to priority.
+            agent_scores.append((agent_id, score))
 
-        Args:
-            complexity_level: Complexity level (1-5)
+        # Sort by score
+        agent_scores.sort(key=lambda x: x[1], reverse=True)
 
-        Returns:
-            Priority value
-        """
-        # Map complexity to priority (higher complexity = higher priority)
-        # Priority scale can be adjusted as needed
-        priority_map = {
-            1: 1,  # Low complexity = low priority
-            2: 2,
-            3: 5,  # Medium complexity = medium priority
-            4: 8,
-            5: 10  # High complexity = high priority
-        }
-        # Default to medium priority
-        return priority_map.get(complexity_level, 5)
+        # Return the highest scoring agent, if any
+        if agent_scores and agent_scores[0][1] > 0:
+            return agent_scores[0][0], False, None
+
+        # If no good match, return the first AI agent as fallback
+        if ai_agents:
+            return next(iter(ai_agents.keys())), False, None
+
+        return None, False, None

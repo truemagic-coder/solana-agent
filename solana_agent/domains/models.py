@@ -9,10 +9,9 @@ from pydantic import BaseModel, Field, field_validator
 
 class MemoryInsightsResponse(BaseModel):
     """Response format for memory insights extraction."""
-    insights: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="List of extracted insights"
-    )
+    insights: List[Dict[str, Any]] = Field(...,
+                                           description="List of extracted insights"
+                                           )
 
 
 class ResponseEvaluation(BaseModel):
@@ -28,10 +27,9 @@ class ResponseEvaluation(BaseModel):
     overall_score: float = Field(...,
                                  description="Overall quality score", ge=0.0, le=10.0)
     feedback: str = Field(..., description="Detailed evaluation feedback")
-    improvement_suggestions: List[str] = Field(
-        default_factory=list,
-        description="Suggestions for improving the response"
-    )
+    improvement_suggestions: List[str] = Field(...,
+                                               description="Suggestions for improving the response"
+                                               )
 
     @field_validator('overall_score')
     def compute_overall_score(cls, v, values):
@@ -57,24 +55,24 @@ class HandoffEvaluation(BaseModel):
     """Evaluation of whether a handoff is needed."""
     handoff_needed: bool = Field(...,
                                  description="Whether a handoff is needed")
-    target_agent: Optional[str] = Field(
-        None, description="Agent to hand off to")
-    reason: Optional[str] = Field(None, description="Reason for handoff")
-    confidence: float = Field(
-        0.0, description="Confidence in the recommendation", ge=0.0, le=1.0)
+    target_agent: Optional[str] = Field(...,
+                                        description="Agent to hand off to")
+    reason: Optional[str] = Field(..., description="Reason for handoff")
+    confidence: float = Field(...,
+                              description="Confidence in the recommendation")
 
 
 class CriterionEvaluation(BaseModel):
     """Evaluation of a single approval criterion."""
     name: str = Field(..., description="Criterion name")
-    score: float = Field(..., description="Score (0-10)", ge=0.0, le=10.0)
+    score: float = Field(..., description="Score (0-10)")
     comments: str = Field("", description="Evaluation comments")
 
 
 class ProjectApprovalResult(BaseModel):
     """Result of a project approval evaluation."""
     overall_score: float = Field(...,
-                                 description="Overall project score", ge=0.0, le=10.0)
+                                 description="Overall project score")
     criteria_evaluations: List[CriterionEvaluation] = Field(
         default_factory=list,
         description="Evaluations for each criterion"
@@ -89,14 +87,10 @@ class QueryAnalysis(BaseModel):
     primary_specialization: str = Field(...,
                                         description="Main specialization needed")
     secondary_specializations: List[str] = Field(
-        default_factory=list,
-        description="Other helpful specializations"
-    )
+        ..., description="Other helpful specializations")
     complexity_level: int = Field(...,
-                                  description="Complexity level (1-5)", ge=1, le=5)
-    requires_human: bool = Field(
-        False, description="Whether human assistance is likely needed")
-    topics: List[str] = Field(default_factory=list,
-                              description="Key topics in the query")
-    confidence: float = Field(
-        0.0, description="Confidence in the analysis", ge=0.0, le=1.0)
+                                  description="Complexity level (1-5)")
+    requires_human: bool = Field(...,
+                                 description="Whether human assistance is likely needed")
+    topics: List[str] = Field(..., description="Key topics in the query")
+    confidence: float = Field(..., description="Confidence in the analysis")

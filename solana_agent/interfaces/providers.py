@@ -76,7 +76,7 @@ class DataStorageProvider(ABC):
 
     @abstractmethod
     def find(
-        self, collection: str, query: Dict, sort: Optional[List] = None, limit: int = 0
+        self, collection: str, query: Dict, sort: Optional[List] = None, limit: int = 0, skip: int = 0
     ) -> List[Dict]:
         """Find documents matching query."""
         pass
@@ -94,6 +94,11 @@ class DataStorageProvider(ABC):
     @abstractmethod
     def create_index(self, collection: str, keys: List, **kwargs) -> None:
         """Create an index."""
+        pass
+
+    @abstractmethod
+    def count_documents(self, collection: str, query: Dict) -> int:
+        """Count documents matching query."""
         pass
 
 

@@ -388,8 +388,7 @@ def test_agent_tool_registration(mock_handoff, mock_query_service, mock_agent_se
         result = SolanaAgentFactory.create_from_config(full_config)
 
     # Assertions
-    # Check that register_tool_for_agent was called for all tools
-    register_tool_calls = mock_agent_service.return_value.register_tool_for_agent.call_count
+    register_tool_calls = mock_agent_service.return_value.assign_tool_for_agent.call_count
 
     # Should have 2 from agent1 + 1 from agent2 + 2 from agent_tools = 5 calls
     assert register_tool_calls == 5

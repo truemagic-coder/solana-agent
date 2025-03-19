@@ -415,3 +415,121 @@ class TestMongoTicketRepository:
 
         # Verify result
         assert result is None
+
+
+def test_find_tickets_by_criteria_status_only(ticket_repo, mock_db_adapter, sample_ticket):
+    """Test finding tickets by status criteria only."""
+    # Setup
+    statuses = [TicketStatus.NEW.value, TicketStatus.IN_PROGRESS.value]
+    mock_db_adapter.find.return_value = [sample_ticket.model_dump()]
+
+    # Execute
+    results = ticket_repo.find_tickets_by_criteria(status_in=statuses)
+
+    # Verify DB query
+    mock_db_adapter.find.assert_called_once()
+    collection, query = mock_db_adapter.find.call_args[0]
+    assert collection == "tickets"
+    assert "status" in query
+    assert "$in" in query["status"]
+    assert query["status"]["$in"] == statuses
+    assert "updated_at" not in query
+
+    # Verify results
+    assert len(results) == 1
+    assert isinstance(results[0], Ticket)
+    assert results[0].id == sample_ticket.id
+
+
+def test_find_tickets_by_criteria_updated_before_only(ticket_repo, mock_db_adapter, sample_ticket):
+    """Test finding tickets by update time criteria only."""
+    # Setup
+    cutoff_time = datetime.now() - timedelta(hours=24)
+    mock_db_adapter.find.return_value = [sample_ticket.model_dump()]
+
+    # Execute
+    results = ticket_repo.find_tickets_by_criteria(updated_before=cutoff_time)
+
+    # Verify DB query
+    mock_db_adapter.find.assert_called_once()
+    collection, query = mock_db_adapter.find.call_args[0]
+    assert collection == "tickets"
+    assert "status" not in query
+    assert "updated_at" in query
+    assert "$lt" in query["updated_at"]
+    assert query["updated_at"]["$lt"] == cutoff_time
+
+    # Verify results
+    assert len(results) == 1
+    assert isinstance(results[0], Ticket)
+    assert results[0].id == sample_ticket.id
+
+
+def test_find_tickets_by_criteria_both_filters(ticket_repo, mock_db_adapter, sample_ticket):
+    """Test finding tickets using both status and time criteria."""
+    # Setup
+    statuses = [TicketStatus.ASSIGNED.value,
+                TicketStatus.WAITING_FOR_USER.value]
+    cutoff_time = datetime.now() - timedelta(hours=48)
+    mock_db_adapter.find.return_value = [sample_ticket.model_dump()]
+
+    # Execute
+    results = ticket_repo.find_tickets_by_criteria(
+        status_in=statuses,
+        updated_before=cutoff_time
+    )
+
+    # Verify DB query
+    mock_db_adapter.find.assert_called_once()
+    collection, query = mock_db_adapter.find.call_args[0]
+    assert collection == "tickets"
+    assert "status" in query
+    assert "$in" in query["status"]
+    assert query["status"]["$in"] == statuses
+    assert "updated_at" in query
+    assert "$lt" in query["updated_at"]
+    assert query["updated_at"]["$lt"] == cutoff_time
+
+    # Verify results
+    assert len(results) == 1
+    assert isinstance(results[0], Ticket)
+    assert results[0].id == sample_ticket.id
+
+
+def test_find_tickets_by_criteria_no_matches(ticket_repo, mock_db_adapter):
+    """Test finding tickets when no tickets match criteria."""
+    # Setup
+    statuses = [TicketStatus.STALLED.value]
+    mock_db_adapter.find.return_value = []
+
+    # Execute
+    results = ticket_repo.find_tickets_by_criteria(status_in=statuses)
+
+    # Verify DB query
+    mock_db_adapter.find.assert_called_once()
+
+    # Verify results
+    assert len(results) == 0
+    assert isinstance(results, list)
+
+
+def test_find_tickets_by_criteria_no_filters(ticket_repo, mock_db_adapter, sample_ticket):
+    """Test finding tickets with no filter criteria (should return all)."""
+    # Setup
+    mock_db_adapter.find.return_value = [
+        sample_ticket.model_dump(),
+        sample_ticket.model_dump()
+    ]
+
+    # Execute
+    results = ticket_repo.find_tickets_by_criteria()
+
+    # Verify DB query
+    mock_db_adapter.find.assert_called_once()
+    collection, query = mock_db_adapter.find.call_args[0]
+    assert collection == "tickets"
+    assert query == {}  # Empty query should find all tickets
+
+    # Verify results
+    assert len(results) == 2
+    assert all(isinstance(result, Ticket) for result in results)

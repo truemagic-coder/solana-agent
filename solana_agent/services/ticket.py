@@ -255,3 +255,17 @@ class TicketService(TicketServiceInterface):
             stalled_tickets.append(ticket)
 
         return stalled_tickets
+
+    def get_active_for_user(self, user_id: str) -> Optional[Ticket]:
+        """Get an active ticket for a specific user.
+
+        An active ticket is one that is not resolved or closed.
+        Only returns one ticket (the most recently updated one if multiple exist).
+
+        Args:
+            user_id: ID of the user to find tickets for
+
+        Returns:
+            The active ticket or None if no active ticket exists
+        """
+        return self.ticket_repository.get_active_for_user(user_id)

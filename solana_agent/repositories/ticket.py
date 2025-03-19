@@ -4,6 +4,7 @@ MongoDB implementation of the ticket repository.
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
+from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 from solana_agent.domains import Ticket, TicketNote, TicketStatus, TicketPriority
 from solana_agent.interfaces import TicketRepository
 
@@ -11,7 +12,7 @@ from solana_agent.interfaces import TicketRepository
 class MongoTicketRepository(TicketRepository):
     """MongoDB implementation of the TicketRepository interface."""
 
-    def __init__(self, db_adapter):
+    def __init__(self, db_adapter: MongoDBAdapter):
         """Initialize the repository with a database adapter.
 
         Args:
@@ -183,4 +184,16 @@ class MongoTicketRepository(TicketRepository):
         docs = self.db.find(self.collection, query)
 
         # Convert to domain models
+        return [Ticket.model_validate(doc) for doc in docs]
+
+    def get_active_by_user(self, user_id: str) -> List[Ticket]:
+        """Get all active tickets for a user."""
+        docs = self.db.find(
+            self.collection,
+            {
+                "user_id": user_id,
+                "status": {"$nin": [TicketStatus.RESOLVED.value, TicketStatus.CLOSED.value]}
+            }
+        )
+
         return [Ticket.model_validate(doc) for doc in docs]

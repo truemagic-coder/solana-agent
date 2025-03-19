@@ -71,7 +71,7 @@ class TicketRepository(ABC):
         pass
 
     @abstractmethod
-    def find_ticket_by_criteria(
+    def find_tickets_by_criteria(
         self,
         status_in: Optional[List[TicketStatus]] = None,
         updated_before: Optional[datetime] = None,
@@ -232,8 +232,24 @@ class SchedulingRepository(ABC):
         pass
 
     @abstractmethod
-    def get_agent_tasks(self, agent_id: str, start_date: datetime, end_date: datetime) -> List[ScheduledTask]:
-        """Get tasks for an agent within a time period."""
+    async def get_agent_tasks(
+        self,
+        agent_id: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        include_completed: bool = False
+    ) -> List[Any]:
+        """Get all tasks scheduled for an agent within a time range.
+
+        Args:
+            agent_id: Agent ID
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            include_completed: Whether to include completed tasks
+
+        Returns:
+            List of tasks
+        """
         pass
 
     @abstractmethod
@@ -305,6 +321,32 @@ class MemoryRepository(ABC):
 
         Returns:
             True if successful
+        """
+        pass
+
+    @abstractmethod
+    def get_user_history_paginated(self, user_id: str, page_num: int, page_size: int) -> List[Dict]:
+        """Get paginated conversation history for a user.
+
+        Args:
+            user_id: User ID
+            page_num: Page number (starting from 1)
+            page_size: Number of items per page
+
+        Returns:
+            List of conversation history items
+        """
+        pass
+
+    @abstractmethod
+    def count_user_history(self, user_id: str) -> int:
+        """Count the number of items in a user's conversation history.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Number of items
         """
         pass
 

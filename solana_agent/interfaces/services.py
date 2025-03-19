@@ -211,6 +211,33 @@ class MemoryService(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
+        """Get conversation history for a user.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of items to return
+
+        Returns:
+            List of conversation history items
+        """
+        pass
+
+    @abstractmethod
+    def get_user_history_paginated(self, user_id: str, page_num: int, page_size: int) -> List[Dict]:
+        """Get paginated conversation history for a user.
+
+        Args:
+            user_id: User ID
+            page_num: Page number (starting from 1)
+            page_size: Number of items per page
+
+        Returns:
+            List of conversation history items
+        """
+        pass
+
 
 class NPSService(ABC):
     """Interface for NPS and user feedback services."""
@@ -664,6 +691,18 @@ class TicketService(ABC):
 
         Returns:
             List of stalled tickets
+        """
+        pass
+
+    @abstractmethod
+    def get_active_for_user(self, user_id: str) -> Optional[Ticket]:
+        """Get active ticket for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Active ticket or None if not found
         """
         pass
 

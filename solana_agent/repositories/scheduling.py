@@ -99,29 +99,56 @@ class MongoSchedulingRepository(SchedulingRepository):
         return tasks
 
     def get_agent_tasks(
-        self, agent_id: str, start_date: datetime, end_date: datetime
+        self, agent_id: str, start_time: Optional[datetime] = None, end_time: Optional[datetime] = None, include_completed: bool = False
     ) -> List[ScheduledTask]:
-        """Get tasks for an agent within a time period."""
-        start_date_str = start_date.isoformat()
-        end_date_str = end_date.isoformat()
+        """Get tasks for an agent within a time period.
 
-        query = {
-            "assigned_to": agent_id,
-            "$or": [
+        Args:
+            agent_id: ID of the agent to get tasks for
+            start_time: Optional start date of the time period
+            end_time: Optional end date of the time period
+            include_completed: Whether to include completed tasks (default: False)
+
+        Returns:
+            List of scheduled tasks
+        """
+        # Start with basic agent query
+        query = {"assigned_to": agent_id}
+
+        # Filter out completed tasks if not requested
+        if not include_completed:
+            query["status"] = {"$ne": "completed"}
+
+        # Add date constraints if provided
+        if start_time is not None and end_time is not None:
+            # Both dates provided
+            start_time_str = start_time.isoformat()
+            end_time_str = end_time.isoformat()
+
+            query["$or"] = [
                 # Task starts within the time period
-                {"scheduled_start": {"$gte": start_date_str, "$lt": end_date_str}},
+                {"scheduled_start": {"$gte": start_time_str, "$lt": end_time_str}},
                 # Task ends within the time period
-                {"scheduled_end": {"$gt": start_date_str, "$lte": end_date_str}},
+                {"scheduled_end": {"$gt": start_time_str, "$lte": end_time_str}},
                 # Task spans the entire time period
                 {"$and": [
-                    {"scheduled_start": {"$lte": start_date_str}},
-                    {"scheduled_end": {"$gte": end_date_str}}
+                    {"scheduled_start": {"$lte": start_time_str}},
+                    {"scheduled_end": {"$gte": end_time_str}}
                 ]}
             ]
-        }
+        elif start_time is not None:
+            # Only start date provided
+            start_time_str = start_time.isoformat()
+            query["scheduled_end"] = {"$gte": start_time_str}
+        elif end_time is not None:
+            # Only end date provided
+            end_time_str = end_time.isoformat()
+            query["scheduled_start"] = {"$lte": end_date_str}
 
+        # Get tasks matching the query
         docs = self.db.find(self.tasks_collection, query)
 
+        # Process results
         tasks = []
         for doc in docs:
             self._convert_task_dates(doc)

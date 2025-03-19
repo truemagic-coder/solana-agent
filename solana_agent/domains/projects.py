@@ -217,14 +217,14 @@ class ProjectSimulation(BaseModel):
 class CriteriaEvaluation(BaseModel):
     """Evaluation of a single approval criterion."""
     score: float = Field(...,
-                         description="Score for this criterion", ge=0, le=10)
+                         description="Score for this criterion")
     comments: str = Field("", description="Evaluation comments")
 
 
 class ProjectApprovalResult(BaseModel):
     """Result of an AI-assisted project review."""
     criteria_evaluations: List[CriteriaEvaluation] = Field(
-        default_factory=list, description="Evaluations for each criterion")
+        ..., description="Evaluations for each criterion")
     overall_score: float = Field(...,
-                                 description="Overall project score", ge=0, le=10)
-    assessment: str = Field("", description="Overall assessment comments")
+                                 description="Overall project score")
+    assessment: str = Field(..., description="Overall assessment comments")
