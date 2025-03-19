@@ -9,76 +9,109 @@ import importlib
 
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins import ToolRegistry
-from solana_agent.domains.tools import BaseTool
+from solana_agent.interfaces import Tool, Plugin
 
 
-class MockTool(BaseTool):
-    """Mock tool for testing."""
+class MockTool(Tool):
+    """Mock tool for testing the Tool interface."""
 
-    def __init__(self, name="mock_tool"):
+    def __init__(self, name_value="mock_tool", description_value="Mock tool description"):
         """Initialize the tool with a name."""
-        self.name = name
+        self._name = name_value
+        self._description = description_value
         self.configured = False
+        self.config = {}
 
-    def get_name(self) -> str:
-        """Return the tool name."""
-        return self.name
+    @property
+    def name(self) -> str:
+        """Get the name of the tool."""
+        return self._name
 
-    def get_description(self) -> str:
-        """Return the tool description."""
-        return f"Mock tool named {self.name}"
-
-    def get_parameters(self) -> dict:
-        """Return the tool parameters."""
-        return {
-            "param1": {
-                "type": "string",
-                "description": "Test parameter"
-            }
-        }
-
-    def execute(self, **kwargs):
-        """Execute the tool."""
-        return {"status": "success", "result": f"Tool {self.name} executed with {kwargs}"}
+    @property
+    def description(self) -> str:
+        """Get the description of the tool."""
+        return self._description
 
     def configure(self, config):
         """Configure the tool."""
         self.configured = True
         self.config = config
 
+    def get_schema(self) -> dict:
+        """Get the schema for the tool parameters."""
+        return {
+            "properties": {
+                "param1": {
+                    "type": "string",
+                    "description": "Test parameter"
+                }
+            },
+            "required": ["param1"]
+        }
 
-class MockPlugin:
-    """Mock plugin for testing."""
+    def execute(self, **kwargs):
+        """Execute the tool with the given parameters."""
+        return {"status": "success", "result": f"Tool {self.name} executed with {kwargs}"}
+
+
+class MockPlugin(Plugin):
+    """Mock plugin for testing the Plugin interface."""
+
+    def __init__(self, name_value="mock_plugin", description_value="Mock plugin description"):
+        """Initialize the plugin."""
+        self._name = name_value
+        self._description = description_value
+        self.initialized = False
+        self._tools = [MockTool("tool1"), MockTool("tool2")]
+
+    @property
+    def name(self) -> str:
+        """Get the name of the plugin."""
+        return self._name
+
+    @property
+    def description(self) -> str:
+        """Get the description of the plugin."""
+        return self._description
+
+    def initialize(self, tool_registry):
+        """Initialize the plugin and register its tools."""
+        self.initialized = True
+        self.registry = tool_registry
+
+        # Register all tools with the registry
+        for tool in self._tools:
+            tool_registry.register_tool(tool)
+
+        return True
+
+
+class MockSingleToolPlugin(Plugin):
+    """Mock plugin that provides a single tool."""
 
     def __init__(self):
         """Initialize the plugin."""
+        self._name = "single_tool_plugin"
+        self._description = "A plugin with a single tool"
         self.initialized = False
-        self.config = None
+        self._tool = MockTool("single_tool")
 
-    def initialize(self, config):
-        """Initialize the plugin with config."""
+    @property
+    def name(self) -> str:
+        """Get the name of the plugin."""
+        return self._name
+
+    @property
+    def description(self) -> str:
+        """Get the description of the plugin."""
+        return self._description
+
+    def initialize(self, tool_registry):
+        """Initialize the plugin and register its tool."""
         self.initialized = True
-        self.config = config
-
-    def get_tools(self):
-        """Return the plugin's tools."""
-        return [MockTool("tool1"), MockTool("tool2")]
-
-
-class MockPluginSingleTool:
-    """Mock plugin that returns a single tool."""
-
-    def __init__(self):
-        """Initialize the plugin."""
-        self.initialized = False
-
-    def initialize(self, config):
-        """Initialize the plugin with config."""
-        self.initialized = True
-
-    def get_tools(self):
-        """Return a single tool."""
-        return MockTool("single_tool")
+        self.registry = tool_registry
+        tool_registry.register_tool(self._tool)
+        return True
 
 
 class MockEntryPoint:
@@ -98,7 +131,8 @@ class MockEntryPoint:
 @pytest.fixture
 def tool_registry():
     """Create a tool registry for testing."""
-    return ToolRegistry()
+    registry = ToolRegistry()
+    return registry
 
 
 @pytest.fixture
@@ -111,9 +145,9 @@ def plugin_manager(tool_registry):
 def mock_entry_points():
     """Create mock entry points for testing."""
     return [
-        MockEntryPoint("plugin1", "module:factory", lambda: MockPlugin()),
-        MockEntryPoint("plugin2", "module:factory2",
-                       lambda: MockPluginSingleTool()),
+        MockEntryPoint("mock_plugin", "module:factory", lambda: MockPlugin()),
+        MockEntryPoint("single_tool_plugin", "module:factory2",
+                       lambda: MockSingleToolPlugin()),
         MockEntryPoint("failing_plugin", "module:factory3", lambda: (
             _ for _ in ()).throw(Exception("Plugin load failed")))
     ]
@@ -121,6 +155,13 @@ def mock_entry_points():
 
 class TestPluginManager:
     """Tests for the Plugin Manager."""
+
+    # Add this fixture to the TestPluginManager class
+    @pytest.fixture(autouse=True)
+    def reset_plugin_manager_state(self):
+        """Reset the PluginManager's class variables before each test."""
+        PluginManager._loaded_entry_points = set()
+        # No need to reset _plugins since it's now an instance variable
 
     def test_init(self):
         """Test plugin manager initialization."""
@@ -137,15 +178,17 @@ class TestPluginManager:
         assert manager.tool_registry == registry
 
     @patch('solana_agent.plugins.manager.importlib.metadata.entry_points')
-    def test_load_all_plugins(self, mock_entry_points_func, mock_entry_points, plugin_manager):
+    def test_load_plugins(self, mock_entry_points_func, mock_entry_points, plugin_manager):
         """Test loading all plugins."""
         mock_entry_points_func.return_value = mock_entry_points
 
-        # Test loading plugins
-        loaded_count = plugin_manager.load_all_plugins()
+        # Test loading plugins - now using load_plugins instead of load_all_plugins
+        loaded_plugins = plugin_manager.load_plugins()
 
         # Should load 2 plugins (third one fails)
-        assert loaded_count == 2
+        assert len(loaded_plugins) == 2
+        assert "mock_plugin" in loaded_plugins
+        assert "single_tool_plugin" in loaded_plugins
 
         # Check that tools were registered
         assert len(plugin_manager.tool_registry.list_all_tools()) == 3
@@ -162,115 +205,122 @@ class TestPluginManager:
         mock_entry_points_func.return_value = mock_entry_points + [duplicate]
 
         # Load plugins first time
-        plugin_manager.load_all_plugins()
+        plugin_manager.load_plugins()
 
         # Reset mock to simulate second call with same entry points
         mock_entry_points_func.return_value = mock_entry_points + [duplicate]
 
         # Load plugins second time - should skip duplicates
-        loaded_count = plugin_manager.load_all_plugins()
+        loaded_plugins = plugin_manager.load_plugins()
 
-        # Should not count duplicates
-        assert loaded_count == 0
+        # Should only include non-duplicated plugins
+        assert len(loaded_plugins) == 0
 
     def test_register_plugin(self, plugin_manager):
         """Test manually registering a plugin."""
         plugin = MockPlugin()
-        result = plugin_manager.register_plugin("manual_plugin", plugin)
+        result = plugin_manager.register_plugin(plugin)
 
         assert result is True
+        assert plugin.initialized
         assert "tool1" in plugin_manager.tool_registry.list_all_tools()
         assert "tool2" in plugin_manager.tool_registry.list_all_tools()
 
     def test_register_plugin_with_exception(self, plugin_manager):
         """Test handling exceptions when registering a plugin."""
-        # Create a plugin that raises an exception
-        faulty_plugin = Mock()
-        faulty_plugin.get_tools = Mock(
-            side_effect=Exception("Failed to get tools"))
+        # Create a plugin that raises an exception during initialization
+        faulty_plugin = Mock(spec=Plugin)
+        faulty_plugin.name = "faulty_plugin"
+        faulty_plugin.description = "A plugin that fails to initialize"
+        faulty_plugin.initialize.side_effect = Exception(
+            "Failed to initialize")
 
-        result = plugin_manager.register_plugin("faulty_plugin", faulty_plugin)
+        result = plugin_manager.register_plugin(faulty_plugin)
 
         assert result is False
 
-    def test_execute_tool(self, plugin_manager):
-        """Test executing a tool."""
-        # Register a tool
-        tool = MockTool("test_tool")
-        plugin_manager.tool_registry.register_tool(tool)
-
-        # Execute the tool
-        result = plugin_manager.execute_tool("test_tool", param1="value1")
-
-        assert result["status"] == "success"
-        assert "test_tool executed with" in result["result"]
-
-    def test_execute_nonexistent_tool(self, plugin_manager):
-        """Test executing a tool that doesn't exist."""
-        result = plugin_manager.execute_tool("nonexistent_tool")
-
-        assert result["status"] == "error"
-        assert "not found" in result["message"]
-
-    def test_execute_tool_with_exception(self, plugin_manager):
-        """Test handling exceptions when executing a tool."""
-        # Create a tool that raises an exception
-        faulty_tool = Mock()
-        faulty_tool.get_name = Mock(return_value="faulty_tool")
-        faulty_tool.execute = Mock(side_effect=Exception("Execution failed"))
-
-        plugin_manager.tool_registry.register_tool(faulty_tool)
-
-        result = plugin_manager.execute_tool("faulty_tool")
-
-        assert result["status"] == "error"
-        assert "Execution failed" in result["message"]
-
-    def test_configure(self, plugin_manager):
-        """Test configuring the plugin manager."""
-        # Register tools
-        tool1 = MockTool("tool1")
-        tool2 = MockTool("tool2")
-        plugin_manager.tool_registry.register_tool(tool1)
-        plugin_manager.tool_registry.register_tool(tool2)
-
-        # Update configuration
-        new_config = {"new_key": "new_value"}
-        plugin_manager.configure(new_config)
-
-        # Check that the config was updated
-        assert plugin_manager.config["new_key"] == "new_value"
-        # Original value should still be there
-        assert plugin_manager.config["test_key"] == "test_value"
-
-        # Check that tools were configured
-        assert tool1.configured
-        assert tool2.configured
-        assert "new_key" in tool1.config
-
     def test_get_plugin(self, plugin_manager):
         """Test getting a plugin by name."""
-        # Current implementation returns None
-        assert plugin_manager.get_plugin("any_name") is None
+        # Register a plugin
+        plugin = MockPlugin(name_value="test_plugin")
+        plugin_manager.register_plugin(plugin)
+
+        # Get the plugin
+        retrieved_plugin = plugin_manager.get_plugin("test_plugin")
+
+        # Should return the registered plugin
+        assert retrieved_plugin is plugin
+        assert retrieved_plugin.name == "test_plugin"
 
     def test_list_plugins(self, plugin_manager):
         """Test listing all plugins."""
-        # Current implementation returns empty list
-        assert plugin_manager.list_plugins() == []
+        # Register plugins
+        plugin1 = MockPlugin(name_value="plugin1",
+                             description_value="First plugin")
+        plugin2 = MockSingleToolPlugin()
+        plugin_manager.register_plugin(plugin1)
+        plugin_manager.register_plugin(plugin2)
 
-    @patch('solana_agent.plugins.manager.importlib.metadata.entry_points')
-    def test_plugin_initialization_with_config(self, mock_entry_points_func, mock_entry_points, plugin_manager):
-        """Test that plugins are initialized with correct config."""
-        mock_entry_points_func.return_value = mock_entry_points[:1]  # Just use the first plugin
+        # List plugins
+        plugins = plugin_manager.list_plugins()
 
-        plugin_manager.load_all_plugins()
+        # Should return detailed info for all plugins
+        assert len(plugins) == 2
+        assert any(p["name"] == "plugin1" for p in plugins)
+        assert any(p["name"] == "single_tool_plugin" for p in plugins)
+        assert any(p["description"] == "First plugin" for p in plugins)
 
-        # Get the plugin instance from the mock factory
-        plugin_instance = mock_entry_points[0].plugin_factory()()
+    def test_execute_tool(self, plugin_manager):
+        """Test executing a tool."""
+        # Register a plugin with tools
+        plugin = MockPlugin()
+        plugin_manager.register_plugin(plugin)
 
-        # Initialize it with the same config
-        plugin_instance.initialize(plugin_manager.config)
+        # Execute one of the tools
+        result = plugin_manager.tool_registry.get_tool(
+            "tool1").execute(param1="value1")
 
-        # Verify it was initialized with the correct config
-        assert plugin_instance.initialized
-        assert plugin_instance.config == plugin_manager.config
+        assert result["status"] == "success"
+        assert "tool1 executed with" in result["result"]
+
+    def test_assign_tool_to_agent(self, plugin_manager):
+        """Test assigning tools to agents."""
+        # Register a plugin with tools
+        plugin = MockPlugin()
+        plugin_manager.register_plugin(plugin)
+
+        # Assign tools to an agent
+        result1 = plugin_manager.tool_registry.assign_tool_to_agent(
+            "agent1", "tool1")
+        result2 = plugin_manager.tool_registry.assign_tool_to_agent(
+            "agent1", "tool2")
+
+        assert result1 is True
+        assert result2 is True
+
+        # Get tools for the agent
+        agent_tools = plugin_manager.tool_registry.get_agent_tools("agent1")
+
+        # Should have both tools
+        assert len(agent_tools) == 2
+        assert any(t["name"] == "tool1" for t in agent_tools)
+        assert any(t["name"] == "tool2" for t in agent_tools)
+
+    def test_configure_all_tools(self, plugin_manager):
+        """Test configuring all tools."""
+        # Register a plugin with tools
+        plugin = MockPlugin()
+        plugin_manager.register_plugin(plugin)
+
+        # Configure all tools
+        config = {"new_key": "new_value"}
+        plugin_manager.tool_registry.configure_all_tools(config)
+
+        # Get tools and check if they were configured
+        tool1 = plugin_manager.tool_registry.get_tool("tool1")
+        tool2 = plugin_manager.tool_registry.get_tool("tool2")
+
+        assert tool1.configured
+        assert tool2.configured
+        assert tool1.config["new_key"] == "new_value"
+        assert tool2.config["new_key"] == "new_value"
