@@ -446,7 +446,7 @@ class TestMongoMemoryRepository:
         assert args[1] == {"user_id": user_id}
 
         # Check pagination parameters - limit should be doubled
-        assert kwargs.get("sort") == [("timestamp", -1)]  # desc is default
+        assert kwargs.get("sort") == [("timestamp", 1)]  # asc is default
         assert kwargs.get("skip") == 0  # default skip
         assert kwargs.get("limit") == 40  # 2x default limit
 

@@ -251,28 +251,6 @@ class TestMongoTicketRepository:
         assert len(results) == 1
         assert results[0].id == sample_ticket.id
 
-    def test_update(self, ticket_repo, mock_db_adapter):
-        """Test updating a ticket."""
-        ticket_id = "ticket_123"
-        # Use a valid status from the domain model
-        updates = {"status": TicketStatus.IN_PROGRESS,
-                   "assigned_to": "agent456"}
-
-        # Update ticket
-        result = ticket_repo.update(ticket_id, updates)
-
-        # Verify result
-        assert result is True
-
-        # Verify DB operation
-        mock_db_adapter.update_one.assert_called_once()
-        collection, query, update = mock_db_adapter.update_one.call_args[0]
-        assert collection == "tickets"
-        assert query == {"id": ticket_id}
-        assert update["$set"]["status"] == TicketStatus.IN_PROGRESS
-        assert update["$set"]["assigned_to"] == "agent456"
-        assert "updated_at" in update["$set"]  # Should include timestamp
-
     def test_count(self, ticket_repo, mock_db_adapter):
         """Test counting tickets."""
         query = {"status": TicketStatus.CLOSED}

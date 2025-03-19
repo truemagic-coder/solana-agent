@@ -67,6 +67,3 @@ class MongoDBAdapter(DataStorageProvider):
 
     def create_index(self, collection: str, keys: List[Tuple], **kwargs) -> None:
         self.db[collection].create_index(keys, **kwargs)
-
-    def count_documents(self, collection: str, query: Dict) -> int:
-        return self.db[collection].count_documents(query)

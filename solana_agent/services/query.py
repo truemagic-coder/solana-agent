@@ -13,9 +13,7 @@ from solana_agent.domains import ComplexityAssessment
 from solana_agent.interfaces import QueryService as QueryServiceInterface
 from solana_agent.interfaces import (
     AgentService, RoutingService, TicketService, HandoffService,
-    MemoryService, NPSService, CriticService, TaskPlanningService,
-    ProjectApprovalService, ProjectSimulationService, SchedulingService,
-    CommandService
+    MemoryService, NPSService, CriticService, CommandService
 )
 from solana_agent.interfaces import MemoryProvider
 from solana_agent.domains import TicketStatus, Ticket, TicketResolution
@@ -35,12 +33,7 @@ class QueryService(QueryServiceInterface):
         command_service: CommandService,
         memory_provider: Optional[MemoryProvider] = None,
         critic_service: Optional[CriticService] = None,
-        task_planning_service: Optional[TaskPlanningService] = None,
-        project_approval_service: Optional[ProjectApprovalService] = None,
-        project_simulation_service: Optional[ProjectSimulationService] = None,
-        scheduling_service: Optional[SchedulingService] = None,
         enable_critic: bool = True,
-        require_human_approval: bool = False,
         stalled_ticket_timeout: Optional[int] = 60,
     ):
         """Initialize the query service.
@@ -55,12 +48,7 @@ class QueryService(QueryServiceInterface):
             command_service: Service for processing system commands
             memory_provider: Optional provider for memory storage and retrieval
             critic_service: Optional service for critiquing responses
-            task_planning_service: Optional service for task planning
-            project_approval_service: Optional service for project approval workflows
-            project_simulation_service: Optional service for simulating project outcomes
-            scheduling_service: Optional service for scheduling tasks
             enable_critic: Whether to enable the critic service
-            require_human_approval: Whether complex tasks require human approval
             stalled_ticket_timeout: Minutes before a ticket is considered stalled
         """
         self.agent_service = agent_service
@@ -72,12 +60,7 @@ class QueryService(QueryServiceInterface):
         self.command_service = command_service
         self.memory_provider = memory_provider
         self.critic_service = critic_service
-        self.task_planning_service = task_planning_service
-        self.project_approval_service = project_approval_service
-        self.project_simulation_service = project_simulation_service
-        self.scheduling_service = scheduling_service
         self.enable_critic = enable_critic
-        self.require_human_approval = require_human_approval
         self.stalled_ticket_timeout = stalled_ticket_timeout
 
         self._shutdown_event = asyncio.Event()
@@ -138,13 +121,13 @@ class QueryService(QueryServiceInterface):
 
             if active_ticket:
                 # Process existing ticket
-                async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket, timezone):
+                async for chunk in self._process_existing_ticket(user_id, user_text, active_ticket):
                     yield chunk
             else:
                 # Create new ticket
                 complexity = await self._assess_task_complexity(user_text)
 
-                async for chunk in self._process_new_ticket(user_id, user_text, complexity, timezone):
+                async for chunk in self._process_new_ticket(user_id, user_text):
                     yield chunk
 
         except Exception as e:
@@ -204,12 +187,11 @@ class QueryService(QueryServiceInterface):
                 if not ticket.assigned_to:
                     continue
 
-                # Mark the ticket as stalled in the system
-                self.ticket_service.update_ticket_status(
-                    ticket.id,
-                    TicketStatus.STALLED,
-                    {"stalled_at": datetime.datetime.now(
-                        datetime.timezone.utc)}
+                # In _check_for_stalled_tickets:
+                self.ticket_service.update_ticket(
+                    ticket_id=ticket.id,
+                    status=TicketStatus.STALLED,
+                    stalled_at=datetime.datetime.now(datetime.timezone.utc)
                 )
 
                 # Re-route the query to see if a different agent is better
@@ -231,7 +213,7 @@ class QueryService(QueryServiceInterface):
             print(f"Error in stalled ticket check: {e}")
 
     async def _process_existing_ticket(
-        self, user_id: str, user_text: str, ticket: Ticket, timezone: str = None
+        self, user_id: str, user_text: str, ticket: Ticket
     ) -> AsyncGenerator[str, None]:
         """Process a message for an existing ticket.
 
@@ -248,8 +230,10 @@ class QueryService(QueryServiceInterface):
         agent_name = ticket.assigned_to
         if not agent_name:
             agent_name, _ = await self.routing_service.route_query(user_id, user_text)
-            self.ticket_service.update_ticket_status(
-                ticket.id, TicketStatus.IN_PROGRESS, assigned_to=agent_name
+            self.ticket_service.update_ticket(
+                ticket_id=ticket.id,
+                status=TicketStatus.IN_PROGRESS,
+                assigned_to=agent_name
             )
 
         # Get memory context if available
@@ -259,7 +243,6 @@ class QueryService(QueryServiceInterface):
 
         # Try to generate response
         full_response = ""
-        handoff_info = None
         handoff_detected = False
 
         try:
@@ -330,8 +313,6 @@ class QueryService(QueryServiceInterface):
         self,
         user_id: str,
         user_text: str,
-        complexity: Dict[str, Any],
-        timezone: str = None,
     ) -> AsyncGenerator[str, None]:
         """Process a message creating a new ticket.
 
@@ -344,66 +325,6 @@ class QueryService(QueryServiceInterface):
         Yields:
             Response text chunks
         """
-        # Check if task planning is needed
-        if self.task_planning_service:
-            needs_breakdown, reasoning = await self.task_planning_service.needs_breakdown(user_text)
-
-            if needs_breakdown:
-                # Create ticket with planning status
-                ticket = await self.ticket_service.get_or_create_ticket(
-                    user_id, user_text, complexity
-                )
-
-                # Mark as planning
-                self.ticket_service.update_ticket_status(
-                    ticket.id, TicketStatus.PLANNING
-                )
-
-                # Generate subtasks
-                subtasks = await self.task_planning_service.generate_subtasks(
-                    ticket.id, user_text
-                )
-
-                # Generate response about the plan
-                yield "I've analyzed your request and determined it's a complex task that should be broken down.\n\n"
-                yield f"Task complexity assessment: {reasoning}\n\n"
-                yield f"I've created a plan with {len(subtasks)} subtasks:\n\n"
-
-                for i, subtask in enumerate(subtasks, 1):
-                    yield f"{i}. {subtask.title}: {subtask.description}\n"
-
-                yield f"\nEstimated total time: {sum(s.estimated_minutes for s in subtasks)} minutes\n"
-                yield f"\nYou can check the plan status with !status {ticket.id}"
-                return
-
-        # Check if human approval is required
-        is_simple_query = (
-            complexity.get("t_shirt_size") in ["XS", "S"]
-            and complexity.get("story_points", 3) <= 3
-        )
-
-        if self.require_human_approval and not is_simple_query:
-            # Create ticket first
-            ticket = await self.ticket_service.get_or_create_ticket(
-                user_id, user_text, complexity
-            )
-
-            # Simulate project if service is available
-            if self.project_simulation_service:
-                simulation = await self.project_simulation_service.simulate_project(user_text)
-                yield "Analyzing project feasibility...\n\n"
-                yield "## Project Simulation Results\n\n"
-                yield f"**Complexity**: {simulation['complexity']['t_shirt_size']}\n"
-                yield f"**Timeline**: {simulation['timeline']['realistic']} days\n"
-                yield f"**Risk Level**: {simulation['risks']['overall_risk']}\n"
-                yield f"**Recommendation**: {simulation['recommendation']}\n\n"
-
-            # Submit for approval
-            if self.project_approval_service:
-                await self.project_approval_service.submit_for_approval(ticket)
-                yield "\nThis project has been submitted for approval. You'll be notified once it's reviewed."
-                return
-
         # Route query to appropriate agent
         agent_name, ticket = await self.routing_service.route_query(user_id, user_text)
 
@@ -473,10 +394,8 @@ class QueryService(QueryServiceInterface):
             if resolution.status == "resolved" and resolution.confidence >= 0.7:
                 self.ticket_service.mark_ticket_resolved(
                     ticket.id,
-                    {
-                        "confidence": resolution.confidence,
-                        "reasoning": resolution.reasoning,
-                    },
+                    confidence=resolution.confidence,
+                    reasoning=resolution.reasoning
                 )
 
                 # Create NPS survey
@@ -567,14 +486,6 @@ class QueryService(QueryServiceInterface):
                 "domain_knowledge": 1,
             }
 
-        # Use the task planning service if available
-        if self.task_planning_service:
-            try:
-                return await self.task_planning_service._assess_task_complexity(query)
-            except Exception as e:
-                print(f"Error using task planning service for complexity: {e}")
-
-        # Fallback to LLM-based assessment
         try:
             # Use structured output parsing with the agent service
             complexity_assessment = await self.agent_service.llm_provider.parse_structured_output(

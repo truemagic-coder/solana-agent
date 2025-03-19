@@ -15,10 +15,6 @@ from solana_agent.services.handoff import HandoffService
 from solana_agent.services.memory import MemoryService
 from solana_agent.services.nps import NPSService
 from solana_agent.services.critic import CriticService
-from solana_agent.services.task_planning import TaskPlanningService
-from solana_agent.services.project_approval import ProjectApprovalService
-from solana_agent.services.project_simulation import ProjectSimulationService
-from solana_agent.services.scheduling import SchedulingService
 from solana_agent.services.command import CommandService
 
 # Repository imports
@@ -26,8 +22,6 @@ from solana_agent.repositories.ticket import MongoTicketRepository
 from solana_agent.repositories.feedback import MongoFeedbackRepository
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
 from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.repositories.project import MongoProjectRepository
-from solana_agent.repositories.scheduling import MongoSchedulingRepository
 from solana_agent.repositories.handoff import MongoHandoffRepository
 
 # Adapter imports
@@ -113,8 +107,6 @@ class SolanaAgentFactory:
         memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
         agent_repo = MongoAgentRepository(db_adapter)
         handoff_repo = MongoHandoffRepository(db_adapter)
-        scheduling_repo = MongoSchedulingRepository(db_adapter)
-        project_repo = MongoProjectRepository(db_adapter)
 
         # Create primary services
         agent_service = AgentService(
@@ -150,43 +142,12 @@ class SolanaAgentFactory:
         if config.get("enable_critic", True):
             critic_service = CriticService(llm_adapter)
 
-        # Create task planning service
-        task_planning_service = TaskPlanningService(
-            ticket_repository=ticket_repo,
-            llm_provider=llm_adapter,
-            agent_service=agent_service
-        )
-
-        # Create project services
-        project_approval_service = ProjectApprovalService(
-            project_repository=project_repo,
-            llm_provider=llm_adapter,
-            require_human_approval=config.get(
-                "project_require_human_approval", True)
-        )
-
-        project_simulation_service = ProjectSimulationService(
-            llm_provider=llm_adapter,
-            task_planning_service=task_planning_service
-        )
-
-        # Create scheduling service
-        scheduling_service = SchedulingService(
-            scheduling_repository=scheduling_repo,
-            task_planning_service=task_planning_service,
-            agent_service=agent_service
-        )
-
         # Create routing service
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
             ticket_service=ticket_service,
-            scheduling_service=scheduling_service,
         )
-
-        # Update task_planning_service with scheduling_service
-        task_planning_service.scheduling_service = scheduling_service
 
         # Initialize plugin system
         agent_service.plugin_manager = PluginManager(
@@ -255,12 +216,7 @@ class SolanaAgentFactory:
             command_service=command_service,
             critic_service=critic_service,
             memory_provider=memory_provider,
-            task_planning_service=task_planning_service,
-            project_approval_service=project_approval_service,
-            project_simulation_service=project_simulation_service,
-            scheduling_service=scheduling_service,
             enable_critic=config.get("enable_critic", True),
-            require_human_approval=config.get("require_human_approval", False),
             stalled_ticket_timeout=config.get("stalled_ticket_timeout", 60),
         )
 

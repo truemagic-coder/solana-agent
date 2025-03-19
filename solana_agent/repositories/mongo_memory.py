@@ -232,7 +232,7 @@ class MongoMemoryRepository(MemoryRepository):
         user_id: str,
         skip: int = 0,
         limit: int = 20,
-        sort_order: str = "desc"
+        sort_order: str = "asc"
     ) -> List[Dict]:
         """Get paginated conversation history for a user.
 

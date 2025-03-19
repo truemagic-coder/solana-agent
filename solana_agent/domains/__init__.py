@@ -13,9 +13,6 @@ from solana_agent.domains.handoff import *
 from solana_agent.domains.memory import *
 from solana_agent.domains.models import *
 from solana_agent.domains.plugins import *
-from solana_agent.domains.projects import *
-from solana_agent.domains.resources import *
-from solana_agent.domains.scheduling import *
 from solana_agent.domains.tasks import *
 from solana_agent.domains.tickets import *
 

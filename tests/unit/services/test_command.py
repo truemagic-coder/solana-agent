@@ -47,28 +47,6 @@ def mock_agent_service():
 
 
 @pytest.fixture
-def mock_scheduling_service():
-    """Return a mock scheduling service."""
-    service = Mock()
-
-    # Setup mock tasks
-    mock_task1 = Mock()
-    mock_task1.title = "Morning Meeting"
-    mock_task1.scheduled_start = datetime.datetime(2025, 3, 17, 9, 0, 0)
-    mock_task1.status = "Scheduled"
-
-    mock_task2 = Mock()
-    mock_task2.title = "Project Review"
-    mock_task2.scheduled_start = datetime.datetime(2025, 3, 17, 14, 0, 0)
-    mock_task2.status = "Scheduled"
-
-    # Setup mock methods as AsyncMock for async functions
-    service.get_agent_tasks = AsyncMock(return_value=[mock_task1, mock_task2])
-
-    return service
-
-
-@pytest.fixture
 def mock_task_planning_service():
     """Return a mock task planning service."""
     service = Mock()
@@ -119,17 +97,11 @@ def custom_command_handler():
 def command_service(
     mock_ticket_service,
     mock_agent_service,
-    mock_scheduling_service,
-    mock_task_planning_service,
-    mock_project_approval_service
 ):
     """Return a command service with mocked dependencies."""
     return CommandService(
         ticket_service=mock_ticket_service,
         agent_service=mock_agent_service,
-        scheduling_service=mock_scheduling_service,
-        task_planning_service=mock_task_planning_service,
-        project_approval_service=mock_project_approval_service
     )
 
 
@@ -149,11 +121,9 @@ def test_command_service_initialization(command_service):
     # Verify that built-in handlers are registered
     assert "help" in command_service.registry
     assert "status" in command_service.registry
-    assert "schedule" in command_service.registry
 
     # Verify aliases are registered
     assert "ticket" in command_service.registry
-    assert "calendar" in command_service.registry
 
 
 def test_command_service_with_custom_prefix():
@@ -211,7 +181,6 @@ async def test_process_help_command(command_service):
     result = await command_service.process_command("user1", "!help", None)
     assert "Available Commands" in result
     assert "status" in result
-    assert "schedule" in result
 
 
 @pytest.mark.asyncio
@@ -271,7 +240,6 @@ async def test_help_command_list_all(command_service):
     # Verify result contains commands
     assert "Available Commands" in result
     assert "status" in result
-    assert "schedule" in result
 
 
 @pytest.mark.asyncio
@@ -410,102 +378,6 @@ async def test_status_command_missing_service(command_service):
 
 
 # ---------------------
-# Schedule Command Handler Tests
-# ---------------------
-
-@pytest.mark.asyncio
-async def test_schedule_command_today(command_service, mock_scheduling_service):
-    """Test schedule command for today's schedule."""
-    # Create a context for testing
-    context = CommandContext(
-        user_id="user1",
-        raw_command="!schedule today",
-        args=["today"],
-        timezone=None,
-        scheduling_service=mock_scheduling_service
-    )
-
-    # Get schedule handler and execute
-    schedule_handler = command_service.registry["schedule"]
-    result = await schedule_handler.execute(context)
-
-    # Verify mock was called
-    assert mock_scheduling_service.get_agent_tasks.called
-
-    # Verify result contains schedule
-    assert "Today's Schedule" in result
-    assert "Morning Meeting" in result
-    assert "Project Review" in result
-
-
-@pytest.mark.asyncio
-async def test_schedule_command_week(command_service, mock_scheduling_service):
-    """Test schedule command for week view."""
-    # Create a context for testing
-    context = CommandContext(
-        user_id="user1",
-        raw_command="!schedule week",
-        args=["week"],
-        timezone=None,
-        scheduling_service=mock_scheduling_service
-    )
-
-    # Get schedule handler and execute
-    schedule_handler = command_service.registry["schedule"]
-    result = await schedule_handler.execute(context)
-
-    # Verify mock was called
-    assert mock_scheduling_service.get_agent_tasks.called
-
-    # Verify result contains schedule
-    assert "Week Schedule" in result
-
-
-@pytest.mark.asyncio
-async def test_schedule_command_missing_service(command_service):
-    """Test schedule command when scheduling service is unavailable."""
-    # Create a context without scheduling service
-    context = CommandContext(
-        user_id="user1",
-        raw_command="!schedule",
-        args=[],
-        timezone=None
-    )
-
-    # Get schedule handler and execute
-    schedule_handler = command_service.registry["schedule"]
-    result = await schedule_handler.execute(context)
-
-    # Verify result indicates service unavailable
-    assert "not available" in result
-
-
-@pytest.mark.asyncio
-async def test_schedule_command_error_handling(command_service, mock_scheduling_service):
-    """Test schedule command with error from service."""
-    # Setup mock to raise an exception
-    mock_scheduling_service.get_agent_tasks.side_effect = Exception(
-        "Service error")
-
-    # Create a context for testing
-    context = CommandContext(
-        user_id="user1",
-        raw_command="!schedule today",
-        args=["today"],
-        timezone=None,
-        scheduling_service=mock_scheduling_service
-    )
-
-    # Get schedule handler and execute
-    schedule_handler = command_service.registry["schedule"]
-    result = await schedule_handler.execute(context)
-
-    # Verify result indicates error
-    assert "Error retrieving schedule" in result
-    assert "Service error" in result
-
-
-# ---------------------
 # Command Context Tests
 # ---------------------
 
@@ -559,7 +431,6 @@ def test_get_available_commands(command_service):
     command_names = [cmd["name"] for cmd in commands]
     assert "help" in command_names
     assert "status" in command_names
-    assert "schedule" in command_names
 
     # Verify command details
     status_cmd = next(cmd for cmd in commands if cmd["name"] == "status")

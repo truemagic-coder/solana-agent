@@ -11,8 +11,7 @@ from typing import Dict, List, Optional, Any
 
 from solana_agent.interfaces import CommandService as CommandServiceInterface
 from solana_agent.interfaces import (
-    TicketService, AgentService, SchedulingService,
-    TaskPlanningService, ProjectApprovalService
+    TicketService, AgentService
 )
 
 
@@ -306,162 +305,6 @@ class StatusCommandHandler(CommandHandler):
         return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-class ScheduleCommandHandler(CommandHandler):
-    """Handler for the schedule command."""
-
-    @property
-    def command(self) -> str:
-        return "schedule"
-
-    @property
-    def aliases(self) -> List[str]:
-        return ["calendar"]
-
-    @property
-    def description(self) -> str:
-        return "View or manage your schedule"
-
-    @property
-    def usage(self) -> str:
-        return "!schedule [view|today|tomorrow|week]"
-
-    @property
-    def examples(self) -> List[str]:
-        return ["!schedule", "!schedule today", "!schedule week"]
-
-    async def execute(self, context: CommandContext) -> str:
-        """Handle schedule commands."""
-        scheduling_service = context.get_service("scheduling_service")
-        if not scheduling_service:
-            return "Scheduling service is not available"
-
-        subcommand = context.args[0].lower() if context.args else "view"
-
-        if subcommand in ["view", "today"]:
-            return await self._view_today_schedule(context.user_id, scheduling_service)
-        elif subcommand == "tomorrow":
-            tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
-            return await self._view_specific_day(context.user_id, tomorrow, scheduling_service)
-        elif subcommand == "week":
-            return await self._view_week_schedule(context.user_id, scheduling_service)
-        else:
-            return f"Unknown schedule subcommand: {subcommand}"
-
-    async def _view_today_schedule(self, user_id: str, scheduling_service: Any) -> str:
-        """View today's schedule."""
-        today = datetime.datetime.now()
-        today_start = datetime.datetime(today.year, today.month, today.day)
-        today_end = today_start + datetime.timedelta(days=1)
-
-        try:
-            tasks = await scheduling_service.get_agent_tasks(
-                user_id,
-                start_time=today_start,
-                end_time=today_end
-            )
-
-            if not tasks:
-                return "You have no scheduled tasks for today."
-
-            result = ["## Today's Schedule\n"]
-
-            for task in sorted(tasks, key=lambda t: t.scheduled_start or datetime.datetime.max):
-                time_str = task.scheduled_start.strftime(
-                    "%H:%M") if task.scheduled_start else "Unscheduled"
-                status_str = f"({task.status})" if task.status else ""
-                result.append(f"- **{time_str}** {task.title} {status_str}")
-
-            return "\n".join(result)
-        except Exception as e:
-            return f"Error retrieving schedule: {str(e)}"
-
-    async def _view_specific_day(self, user_id: str, day: datetime.datetime, scheduling_service: Any) -> str:
-        """View schedule for a specific day."""
-        day_start = datetime.datetime(day.year, day.month, day.day)
-        day_end = day_start + datetime.timedelta(days=1)
-        day_name = day.strftime("%A, %B %d")
-
-        try:
-            tasks = await scheduling_service.get_agent_tasks(
-                user_id,
-                start_time=day_start,
-                end_time=day_end
-            )
-
-            if not tasks:
-                return f"You have no scheduled tasks for {day_name}."
-
-            result = [f"## Schedule for {day_name}\n"]
-
-            for task in sorted(tasks, key=lambda t: t.scheduled_start or datetime.datetime.max):
-                time_str = task.scheduled_start.strftime(
-                    "%H:%M") if task.scheduled_start else "Unscheduled"
-                status_str = f"({task.status})" if task.status else ""
-                result.append(f"- **{time_str}** {task.title} {status_str}")
-
-            return "\n".join(result)
-        except Exception as e:
-            return f"Error retrieving schedule: {str(e)}"
-
-    async def _view_week_schedule(self, user_id: str, scheduling_service: Any) -> str:
-        """View schedule for the week."""
-        today = datetime.datetime.now()
-        week_start = datetime.datetime(today.year, today.month, today.day)
-        week_end = week_start + datetime.timedelta(days=7)
-
-        try:
-            tasks = await scheduling_service.get_agent_tasks(
-                user_id,
-                start_time=week_start,
-                end_time=week_end
-            )
-
-            if not tasks:
-                return "You have no scheduled tasks for the upcoming week."
-
-            # Group by day
-            days_tasks = {}
-            for task in tasks:
-                if not task.scheduled_start:
-                    day_key = "Unscheduled"
-                else:
-                    day_key = task.scheduled_start.strftime("%A, %b %d")
-
-                if day_key not in days_tasks:
-                    days_tasks[day_key] = []
-
-                days_tasks[day_key].append(task)
-
-            result = ["## Week Schedule\n"]
-
-            for day_name in sorted(days_tasks.keys()):
-                if day_name == "Unscheduled":
-                    continue  # Handle unscheduled tasks at the end
-
-                result.append(f"### {day_name}")
-                day_tasks = days_tasks[day_name]
-
-                for task in sorted(day_tasks, key=lambda t: t.scheduled_start or datetime.datetime.max):
-                    time_str = task.scheduled_start.strftime(
-                        "%H:%M") if task.scheduled_start else "Anytime"
-                    status_str = f"({task.status})" if task.status else ""
-                    result.append(
-                        f"- **{time_str}** {task.title} {status_str}")
-
-                result.append("")  # Empty line between days
-
-            # Add unscheduled tasks at the end
-            if "Unscheduled" in days_tasks:
-                result.append("### Unscheduled Tasks")
-                for task in days_tasks["Unscheduled"]:
-                    status_str = f"({task.status})" if task.status else ""
-                    result.append(f"- {task.title} {status_str}")
-
-            return "\n".join(result)
-        except Exception as e:
-            return f"Error retrieving schedule: {str(e)}"
-
-
 class CommandService(CommandServiceInterface):
     """Service for processing system commands."""
 
@@ -469,9 +312,6 @@ class CommandService(CommandServiceInterface):
         self,
         ticket_service: Optional[TicketService] = None,
         agent_service: Optional[AgentService] = None,
-        scheduling_service: Optional[SchedulingService] = None,
-        task_planning_service: Optional[TaskPlanningService] = None,
-        project_approval_service: Optional[ProjectApprovalService] = None,
         command_prefix: str = "!",
         additional_handlers: Optional[List[CommandHandler]] = None,
     ):
@@ -480,18 +320,12 @@ class CommandService(CommandServiceInterface):
         Args:
             ticket_service: Service for ticket operations
             agent_service: Service for agent management
-            scheduling_service: Service for task scheduling
-            task_planning_service: Service for task planning
-            project_approval_service: Service for project approval
             command_prefix: Prefix for commands
             additional_handlers: Additional command handlers
         """
         self.services = {
             "ticket_service": ticket_service,
             "agent_service": agent_service,
-            "scheduling_service": scheduling_service,
-            "task_planning_service": task_planning_service,
-            "project_approval_service": project_approval_service
         }
 
         self.command_prefix = command_prefix
@@ -512,8 +346,6 @@ class CommandService(CommandServiceInterface):
         """Register built-in command handlers."""
         built_in = [
             StatusCommandHandler(),
-            ScheduleCommandHandler(),
-            # Add other built-in handlers here
         ]
 
         for handler in built_in:

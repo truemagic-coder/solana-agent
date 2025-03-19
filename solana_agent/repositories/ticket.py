@@ -2,6 +2,7 @@
 MongoDB implementation of the ticket repository.
 """
 from datetime import datetime
+import datetime as main_datetime
 from typing import Dict, List, Optional, Any
 
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
@@ -87,18 +88,43 @@ class MongoTicketRepository(TicketRepository):
         return [Ticket.model_validate(doc) for doc in docs]
 
     def update(self, ticket_id: str, updates: Dict[str, Any]) -> bool:
-        """Update a ticket."""
-        # Always update the 'updated_at' field
-        updates_with_timestamp = {
-            **updates,
-            "updated_at": datetime.now()
-        }
+        """Update a ticket safely."""
+        try:
+            # Process each field to ensure it's safe for MongoDB
+            safe_updates = {}
 
-        return self.db.update_one(
-            self.collection,
-            {"id": ticket_id},
-            {"$set": updates_with_timestamp}
-        )
+            for key, value in updates.items():
+                # Skip None values
+                if value is None:
+                    continue
+
+                # Handle Enum objects
+                if hasattr(value, 'value') and callable(getattr(value, 'value', None)):
+                    safe_updates[key] = value.value
+                # Handle datetime objects without timezone
+                elif isinstance(value, datetime.datetime) and not value.tzinfo:
+                    safe_updates[key] = value.replace(
+                        tzinfo=datetime.timezone.utc)
+                else:
+                    safe_updates[key] = value
+
+            # Add updated timestamp if not already present
+            if "updated_at" not in safe_updates:
+                safe_updates["updated_at"] = datetime.datetime.now(
+                    datetime.timezone.utc)
+
+            # Execute the update
+            result = self.db.update_one(
+                self.collection,
+                {"id": ticket_id},
+                {"$set": safe_updates}
+            )
+
+            return bool(result and getattr(result, 'modified_count', 0) > 0)
+
+        except Exception as e:
+            print(f"Error updating ticket {ticket_id}: {e}")
+            return False
 
     def count(self, query: Dict) -> int:
         """Count tickets matching query."""

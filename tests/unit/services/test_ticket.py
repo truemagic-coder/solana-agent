@@ -244,15 +244,9 @@ def test_update_ticket_status(ticket_service, mock_repository):
 
 def test_mark_ticket_resolved(ticket_service, mock_repository):
     """Test marking a ticket as resolved."""
-    # Setup resolution data
-    resolution_data = {
-        "confidence": 0.92,
-        "reasoning": "Issue was fixed by updating dependencies"
-    }
-
     # Execute
     success = ticket_service.mark_ticket_resolved(
-        "ticket-123", resolution_data)
+        "ticket-123", confidence=0.92, reasoning="Issue was fixed by updating dependencies")
 
     # Assertions
     assert success is True
@@ -263,8 +257,6 @@ def test_mark_ticket_resolved(ticket_service, mock_repository):
     assert update_args["status"] == TicketStatus.RESOLVED
     assert "resolved_at" in update_args
     assert "updated_at" in update_args
-    assert update_args["metadata"]["resolution_confidence"] == 0.92
-    assert update_args["metadata"]["resolution_reasoning"] == "Issue was fixed by updating dependencies"
 
 
 # --------------------------

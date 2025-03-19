@@ -244,6 +244,12 @@ class AgentService(AgentServiceInterface):
         # Get system prompt
         system_prompt = self.get_agent_system_prompt(agent_name)
 
+        # Add tool usage prompt if tools are available
+        if self.tool_registry:
+            tool_usage_prompt = self.get_tool_usage_prompt(agent_name)
+            if "You don't have any tools available." not in tool_usage_prompt:
+                system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
+
         # Add memory context if available
         if memory_context:
             prompt = f"Memory context:\n{memory_context}\n\nUser query: {query}"
@@ -263,6 +269,12 @@ class AgentService(AgentServiceInterface):
         # Pass tools if available
         if tools:
             kwargs["tools"] = tools
+
+            # Add a stronger directive in the prompt if we have tools
+            if not memory_context:
+                prompt = f"Remember to use your tools when they would provide valuable information. Query: {query}"
+            else:
+                prompt = f"Memory context:\n{memory_context}\n\nRemember to use your tools when they would provide valuable information. Query: {query}"
 
         async for chunk in self.llm_provider.generate_text(
             user_id=user_id,
@@ -407,3 +419,107 @@ class AgentService(AgentServiceInterface):
             [agent.id for agent in human_agents if agent.availability])
 
         return active_agents
+
+    def has_pending_handoff(self, agent_name: str) -> bool:
+        """Check if an agent has any pending handoffs.
+
+        Args:
+            agent_name: Name or ID of the agent to check
+
+        Returns:
+            True if the agent has pending handoffs, False otherwise
+        """
+        # We need to check if we have a handoff_service available
+        if hasattr(self, 'handoff_service') and self.handoff_service:
+            # Delegate to handoff service to check for pending handoffs
+            return self.handoff_service.has_pending_handoffs_for_agent(agent_name)
+
+        # If no handoff service is available, assume no pending handoffs
+        return False
+
+    def get_tool_usage_prompt(self, agent_name: str) -> str:
+        """Generate a prompt instructing the agent to use its available tools.
+
+        Args:
+            agent_name: Name of the agent
+
+        Returns:
+            A prompt string explaining tool usage
+        """
+        # Get tools assigned to this agent
+        agent_tools = self.get_tools_for_agent(agent_name)
+
+        if not agent_tools:
+            return "You don't have any tools available."
+
+        # Generate the tool descriptions
+        tool_descriptions = []
+        for tool_name in agent_tools:
+            tool = self.tool_registry.get_tool(tool_name)
+            if tool:
+                # Format: tool_name - description
+                description = getattr(
+                    tool, 'description', 'No description available')
+                parameters = getattr(tool, 'parameters_schema', {})
+                param_desc = ""
+                if parameters:
+                    param_desc = "\n    Parameters:\n"
+                    for param_name, param_info in parameters.items():
+                        param_type = param_info.get('type', 'any')
+                        param_description = param_info.get(
+                            'description', 'No description')
+                        param_desc += f"    - {param_name} ({param_type}): {param_description}\n"
+
+                tool_descriptions.append(
+                    f"- {tool_name}: {description}{param_desc}")
+
+        # Create the prompt
+        prompt = f"""
+    AVAILABLE TOOLS:
+    You have access to the following tools that you should use when appropriate:
+
+    {chr(10).join(tool_descriptions)}
+
+    TOOL USAGE INSTRUCTIONS:
+    1. When a user's query can be better answered using one of your tools, you MUST use it
+    2. To use a tool, format your response like this:
+    
+    <tool name="tool_name" parameters={{"param1": "value1", "param2": "value2"}}>
+    
+    3. After using a tool, wait for the tool response, then continue your explanation based on the tool results
+    4. If multiple tools are needed, use them one at a time
+    5. Always explain why you're using a tool and what information you expect to get
+    6. If no tools are relevant to the user's query, respond directly without using any tools
+
+    Examples:
+    User: "What's the current price of SOL?"
+    You: "Let me check the current price of Solana (SOL) for you.
+    <tool name="solana_price" parameters={{}}>
+
+    User: "Can you look up the token with address So11111111111111111111111111111111111111112?"
+    You: "I'll look up that token for you.
+    <tool name="token_lookup" parameters={{"address": "So11111111111111111111111111111111111111112"}}>
+    """
+
+        return prompt
+
+    def get_tools_for_agent(self, agent_name: str) -> List[str]:
+        """Get the tools assigned to a specific agent.
+
+        Args:
+            agent_name: Name of the agent
+
+        Returns:
+            List of tool names assigned to the agent
+        """
+        # First check if the agent exists
+        ai_agent = self.agent_repository.get_ai_agent(agent_name)
+        if not ai_agent:
+            return []
+
+        # Get tools from agent if they're stored there
+        if hasattr(ai_agent, 'tools') and ai_agent.tools:
+            return ai_agent.tools
+
+        # Otherwise check in the tool_registry for assignments
+        return self.tool_registry.get_agent_tools(agent_name)

@@ -59,47 +59,64 @@ class TicketService(TicketServiceInterface):
         new_ticket.id = ticket_id
         return new_ticket
 
-    def update_ticket_status(
-        self, ticket_id: str, status: TicketStatus, **additional_updates
-    ) -> bool:
-        """Update ticket status and additional fields.
+    def update_ticket_status(self, ticket_id: str, status: TicketStatus, **additional_fields) -> bool:
+        """Simple wrapper to update ticket status plus any additional fields.
 
         Args:
-            ticket_id: Ticket ID
-            status: New status
-            **additional_updates: Additional fields to update
+            ticket_id: ID of the ticket to update
+            status: New status value
+            **additional_fields: Any additional fields to update
 
         Returns:
             True if update was successful
         """
-        updates = {
-            "status": status,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc),
-        }
-        updates.update(additional_updates)
+        # Convert to a simple call to update_ticket
+        return self.update_ticket(ticket_id, status=status, **additional_fields)
+
+    def update_ticket(self, ticket_id: str, **fields) -> bool:
+        """Update a ticket with various fields.
+
+        Args:
+            ticket_id: ID of the ticket to update
+            **fields: Fields to update
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        # Process any special fields before passing to repository
+        updates = {}
+
+        for key, value in fields.items():
+            # Special handling for status enum
+            if key == 'status' and hasattr(value, 'value'):
+                updates[key] = value.value
+            else:
+                updates[key] = value
+
+        # Add updated_at timestamp if not provided
+        if 'updated_at' not in updates:
+            updates['updated_at'] = datetime.datetime.now(
+                datetime.timezone.utc)
 
         return self.ticket_repository.update(ticket_id, updates)
 
-    def mark_ticket_resolved(
-        self, ticket_id: str, resolution_data: Dict[str, Any]
-    ) -> bool:
+    def mark_ticket_resolved(self, ticket_id: str, **resolution_data) -> bool:
         """Mark a ticket as resolved with resolution information.
 
         Args:
             ticket_id: Ticket ID
-            resolution_data: Resolution details
+            **resolution_data: Resolution details (can include confidence, reasoning)
 
         Returns:
             True if update was successful
         """
+        # Create updates with dots for nested fields to avoid dictionary nesting
         updates = {
             "status": TicketStatus.RESOLVED,
             "resolved_at": datetime.datetime.now(datetime.timezone.utc),
             "updated_at": datetime.datetime.now(datetime.timezone.utc),
-            "metadata": {
-                "resolution_confidence": resolution_data.get("confidence", 0.0),
-                "resolution_reasoning": resolution_data.get("reasoning", "")
-            }
+            "metadata.resolution_confidence": resolution_data.get("confidence", 0.0),
+            "metadata.resolution_reasoning": resolution_data.get("reasoning", "")
         }
 
         return self.ticket_repository.update(ticket_id, updates)

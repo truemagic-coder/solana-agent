@@ -8,12 +8,11 @@ from typing import Dict, List, Optional, Any, Tuple
 import datetime
 
 from solana_agent.interfaces import RoutingService as RoutingServiceInterface
-from solana_agent.interfaces import TicketService, SchedulingService
+from solana_agent.interfaces import TicketService
 from solana_agent.interfaces import AgentService
 from solana_agent.interfaces import LLMProvider
 from solana_agent.domains import Ticket
 from solana_agent.domains import QueryAnalysis
-from solana_agent.domains import ScheduledTask, ScheduledTaskStatus
 
 
 class RoutingService(RoutingServiceInterface):
@@ -24,7 +23,6 @@ class RoutingService(RoutingServiceInterface):
         llm_provider: LLMProvider,
         agent_service: AgentService,
         ticket_service: TicketService,
-        scheduling_service: SchedulingService = None,  # Add scheduling service
     ):
         """Initialize the routing service.
 
@@ -36,7 +34,6 @@ class RoutingService(RoutingServiceInterface):
         self.llm_provider = llm_provider
         self.agent_service = agent_service
         self.ticket_service = ticket_service
-        self.scheduling_service = scheduling_service  # Store scheduling service
 
     async def analyze_query(self, query: str) -> Dict[str, Any]:
         """Analyze a query to determine routing information.
@@ -88,18 +85,8 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": 0.0
             }
 
-    async def route_query(
-        self, user_id: str, query: str
-    ) -> Tuple[str, Ticket]:
-        """Route a query to the appropriate agent.
-
-        Args:
-            user_id: User ID
-            query: User query
-
-        Returns:
-            Tuple of (agent_name, ticket)
-        """
+    async def route_query(self, user_id: str, query: str) -> Tuple[str, Ticket]:
+        """Route a query to the appropriate agent."""
         # Analyze query
         analysis = await self.analyze_query(query)
 
@@ -116,38 +103,28 @@ class RoutingService(RoutingServiceInterface):
 
         # Find appropriate agent based on analysis
         selected_agent = None
-        is_scheduled = False
-        scheduled_task = None
 
         # For complex queries requiring human assistance
         if analysis["complexity_level"] >= 4 and analysis["requires_human"]:
             # Try to find a human agent first
             selected_agent = await self._find_best_human_agent(
                 analysis["primary_specialization"],
-                analysis["secondary_specializations"],
-                ticket
+                analysis["secondary_specializations"]
             )
 
-        # If no human agent, or less complex query, find an AI agent
+        # If no human agent, find an AI agent
         if not selected_agent:
-            selected_agent, is_scheduled, scheduled_task = await self._find_best_ai_agent(
+            selected_agent = await self._find_best_ai_agent(
                 analysis["primary_specialization"],
-                analysis["secondary_specializations"],
-                ticket,
-                analysis["complexity_level"]
+                analysis["secondary_specializations"]
             )
 
-        # Assign ticket to selected agent
+        # Only assign ticket if it's new
         if ticket.status == "new":
+            # Update ticket assignment
             self.ticket_service.assign_ticket(ticket.id, selected_agent)
 
-            note_text = f"Routed based on specialization: {analysis['primary_specialization']}. " + \
-                f"Complexity: {analysis['complexity_level']}/5."
-
-            if is_scheduled and scheduled_task:
-                scheduled_time = scheduled_task.scheduled_start.strftime(
-                    "%Y-%m-%d %H:%M")
-                note_text += f" Scheduled for {scheduled_time}."
+            note_text = f"Assigned to {selected_agent}."
 
             self.ticket_service.add_note_to_ticket(
                 ticket.id,
@@ -172,21 +149,6 @@ class RoutingService(RoutingServiceInterface):
         ticket = self.ticket_service.get_ticket_by_id(ticket_id)
         if not ticket:
             return False
-
-        # If using scheduling service, check for and update any scheduled tasks
-        if self.scheduling_service:
-            # Look for tasks associated with this ticket
-            if hasattr(self.scheduling_service.repository, "get_tasks_by_metadata"):
-                tasks = self.scheduling_service.repository.get_tasks_by_metadata(
-                    {"ticket_id": ticket_id}
-                )
-
-                # Update task assignment if found
-                for task in tasks:
-                    if task.status in [ScheduledTaskStatus.PENDING, ScheduledTaskStatus.SCHEDULED]:
-                        task.assigned_to = target_agent
-                        self.scheduling_service.repository.update_scheduled_task(
-                            task)
 
         # Update ticket assignment
         success = self.ticket_service.assign_ticket(ticket_id, target_agent)
@@ -247,25 +209,6 @@ class RoutingService(RoutingServiceInterface):
             if not agent.availability:
                 continue
 
-            # Check schedule if scheduling service is available
-            if self.scheduling_service:
-                try:
-                    # Get agent's schedule for today
-                    today = datetime.datetime.now(datetime.timezone.utc).date()
-                    agent_schedule = await self.scheduling_service.get_agent_schedule(agent_id, today)
-
-                    # Skip if agent has no available hours today
-                    if agent_schedule and hasattr(agent_schedule, 'has_availability_today') and not agent_schedule.has_availability_today():
-                        continue
-
-                    # Check if agent is currently available based on schedule
-                    current_time = datetime.datetime.now(
-                        datetime.timezone.utc).time()
-                    if agent_schedule and hasattr(agent_schedule, 'is_available_at') and not agent_schedule.is_available_at(current_time):
-                        continue
-                except Exception as e:
-                    print(f"Error checking agent schedule: {e}")
-
             # Base score
             score = 0
 
@@ -279,22 +222,6 @@ class RoutingService(RoutingServiceInterface):
             for sec_spec in secondary_specializations:
                 if any(s.lower() == sec_spec.lower() for s in agent.specializations):
                     score += 3
-
-            # If using scheduling service, adjust score based on workload
-            if self.scheduling_service:
-                try:
-                    # Get agent's current tasks
-                    tasks = await self.scheduling_service.get_agent_tasks(
-                        agent_id,
-                        start_date=datetime.datetime.now(
-                            datetime.timezone.utc),
-                        include_completed=False
-                    )
-
-                    # Penalize score based on number of active tasks
-                    score -= len(tasks) * 2
-                except Exception as e:
-                    print(f"Error checking agent workload: {e}")
 
             agent_scores.append((agent_id, score, agent))
 
@@ -311,20 +238,22 @@ class RoutingService(RoutingServiceInterface):
         self,
         primary_specialization: str,
         secondary_specializations: List[str],
-    ) -> Tuple[Optional[str], bool, Optional[ScheduledTask]]:
+    ) -> Optional[str]:
         """Find the best AI agent for a query. AI agents are not scheduled.
 
-        Args:
-            primary_specialization: Primary specialization needed
-            secondary_specializations: Secondary specializations
+            Args:
+                primary_specialization: Primary specialization needed
+                secondary_specializations: Secondary specializations
+                ticket: Ticket to be assigned
+                complexity_level: Complexity level of the query
 
-        Returns:
-            Tuple of (agent_name, is_scheduled, scheduled_task)
-        """
+            Returns:
+                Tuple of (agent_name, is_scheduled, scheduled_task)
+            """
         # Get all AI agents
         ai_agents = self.agent_service.get_all_ai_agents()
         if not ai_agents:
-            return None, False, None
+            return None
 
         # Create a list to score agents
         agent_scores = []
@@ -350,10 +279,10 @@ class RoutingService(RoutingServiceInterface):
 
         # Return the highest scoring agent, if any
         if agent_scores and agent_scores[0][1] > 0:
-            return agent_scores[0][0], False, None
+            return agent_scores[0][0]
 
         # If no good match, return the first AI agent as fallback
         if ai_agents:
-            return next(iter(ai_agents.keys())), False, None
+            return next(iter(ai_agents.keys()))
 
-        return None, False, None
+        return None
