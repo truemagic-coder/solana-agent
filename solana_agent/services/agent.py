@@ -4,7 +4,8 @@ Agent service implementation.
 This service manages AI and human agents, their registration, tool assignments,
 and response generation.
 """
-import asyncio
+import datetime as main_datetime
+from datetime import datetime
 from typing import AsyncGenerator, Dict, List, Optional, Any
 
 from solana_agent.interfaces import AgentService as AgentServiceInterface
@@ -131,6 +132,9 @@ class AgentService(AgentServiceInterface):
         system_prompt = f"You are {agent.name}, an AI assistant with the following instructions:\n\n"
         system_prompt += agent.instructions
 
+        # add current time
+        system_prompt += f"\n\nThe current time is {datetime.now(tz=main_datetime.timezone.utc)}\n\n."
+
         # Add mission and values if available
         if self.organization_mission:
             system_prompt += f"\n\nORGANIZATION MISSION:\n{self.organization_mission.mission_statement}"
@@ -224,18 +228,7 @@ class AgentService(AgentServiceInterface):
         memory_context: str = "",
         **kwargs
     ) -> AsyncGenerator[str, None]:
-        """Generate a response from an agent.
-
-        Args:
-            agent_name: Agent name
-            user_id: User ID
-            query: User query
-            memory_context: Optional memory context
-            **kwargs: Additional parameters
-
-        Yields:
-            Response text chunks
-        """
+        """Generate a response from an agent with tool execution support."""
         agent = self.agent_repository.get_ai_agent_by_name(agent_name)
         if not agent:
             yield f"Agent '{agent_name}' not found."
@@ -270,12 +263,19 @@ class AgentService(AgentServiceInterface):
         if tools:
             kwargs["tools"] = tools
 
-            # Add a stronger directive in the prompt if we have tools
+            # Add a stronger directive in the prompt
             if not memory_context:
-                prompt = f"Remember to use your tools when they would provide valuable information. Query: {query}"
+                prompt = query
             else:
-                prompt = f"Memory context:\n{memory_context}\n\nRemember to use your tools when they would provide valuable information. Query: {query}"
+                prompt = f"Memory context:\n{memory_context}\n\n User Query: {query}"
 
+        # For collecting the response
+        collected_response = ""
+        tool_pattern = r'<tool name="([^"]+)" parameters=(\{.+?\})>'
+        import re
+        import json
+
+        # Generate and process the response
         async for chunk in self.llm_provider.generate_text(
             user_id=user_id,
             prompt=prompt,
@@ -283,7 +283,44 @@ class AgentService(AgentServiceInterface):
             model=model,
             **kwargs
         ):
+            collected_response += chunk
             yield chunk
+
+            # Look for tool invocation pattern
+            if "<tool name=" in collected_response:
+                match = re.search(tool_pattern, collected_response)
+                if match:
+                    # Extract tool name and parameters
+                    tool_name = match.group(1)
+                    try:
+                        parameters = json.loads(match.group(2))
+
+                        # Execute the tool
+                        result = self.execute_tool(
+                            agent_name, tool_name, parameters)
+
+                        # Yield the tool result
+                        tool_result_text = f"\n\nTool Result: {json.dumps(result, indent=2)}\n\n"
+                        yield tool_result_text
+
+                        # Continue with the LLM to process the tool result
+                        follow_up_prompt = f"I used the {tool_name} tool and got this result: {json.dumps(result)}. Please continue your response based on this information."
+
+                        async for follow_up_chunk in self.llm_provider.generate_text(
+                            user_id=user_id,
+                            prompt=follow_up_prompt,
+                            system_prompt=system_prompt,
+                            model=model,
+                            **kwargs
+                        ):
+                            yield follow_up_chunk
+
+                        # Break the outer loop since we've handled the tool
+                        break
+
+                    except json.JSONDecodeError:
+                        # If parameters aren't valid JSON yet, continue collecting response
+                        pass
 
     def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent.
@@ -438,14 +475,7 @@ class AgentService(AgentServiceInterface):
         return False
 
     def get_tool_usage_prompt(self, agent_name: str) -> str:
-        """Generate a prompt instructing the agent to use its available tools.
-
-        Args:
-            agent_name: Name of the agent
-
-        Returns:
-            A prompt string explaining tool usage
-        """
+        """Generate a prompt instructing the agent to use its available tools."""
         # Get tools assigned to this agent
         agent_tools = self.get_tools_for_agent(agent_name)
 
@@ -473,32 +503,32 @@ class AgentService(AgentServiceInterface):
                 tool_descriptions.append(
                     f"- {tool_name}: {description}{param_desc}")
 
-        # Create the prompt
+        # Create the prompt with VERY strong emphasis on direct tool usage and current information
         prompt = f"""
     AVAILABLE TOOLS:
-    You have access to the following tools that you should use when appropriate:
+    You have access to the following tools:
 
     {chr(10).join(tool_descriptions)}
 
-    TOOL USAGE INSTRUCTIONS:
-    1. When a user's query can be better answered using one of your tools, you MUST use it
-    2. To use a tool, format your response like this:
-    
-    <tool name="tool_name" parameters={{"param1": "value1", "param2": "value2"}}>
-    
-    3. After using a tool, wait for the tool response, then continue your explanation based on the tool results
-    4. If multiple tools are needed, use them one at a time
-    5. Always explain why you're using a tool and what information you expect to get
-    6. If no tools are relevant to the user's query, respond directly without using any tools
+    MANDATORY TOOL USAGE INSTRUCTIONS:
+    - NEVER explain what you're going to do before using a tool
+    - NEVER say phrases like "I'll search for" or "Let me check" or "I'll use the tool"
+    - When asked for current information, ALWAYS include "latest" and "current" and today's year in your search
+    - NEVER include past years like "2023" in your search queries unless specifically asked
+    - Format tool usage EXACTLY like this: <tool name="tool_name" parameters={{"param1": "value1"}}>
+    - The current year is 2025 - use this in your queries for current information
 
-    Examples:
-    User: "What's the current price of SOL?"
-    You: "Let me check the current price of Solana (SOL) for you.
-    <tool name="solana_price" parameters={{}}>
+    EXAMPLES OF INCORRECT RESPONSES:
+    User: "What's the latest news about Solana?"
+    ❌ "I'll search for the latest news on Solana."
+    ❌ <tool name="search_internet" parameters={{"query": "latest Solana blockchain news October 2023"}}>
 
-    User: "Can you look up the token with address So11111111111111111111111111111111111111112?"
-    You: "I'll look up that token for you.
-    <tool name="token_lookup" parameters={{"address": "So11111111111111111111111111111111111111112"}}>
+    EXAMPLES OF CORRECT RESPONSES:
+    User: "What's the latest news about Solana?"
+    ✓ <tool name="search_internet" parameters={{"query": "latest Solana blockchain news March 2025"}}>
+
+    User: "Tell me about recent Solana DeFi developments"
+    ✓ <tool name="search_internet" parameters={{"query": "latest Solana DeFi developments 2025"}}>
     """
 
         return prompt
@@ -513,7 +543,7 @@ class AgentService(AgentServiceInterface):
             List of tool names assigned to the agent
         """
         # First check if the agent exists
-        ai_agent = self.agent_repository.get_ai_agent(agent_name)
+        ai_agent = self.agent_repository.get_ai_agent_by_name(agent_name)
         if not ai_agent:
             return []
 
@@ -522,4 +552,10 @@ class AgentService(AgentServiceInterface):
             return ai_agent.tools
 
         # Otherwise check in the tool_registry for assignments
-        return self.tool_registry.get_agent_tools(agent_name)
+        if self.tool_registry:
+            # Get tool dictionaries from registry
+            tool_dicts = self.tool_registry.get_agent_tools(agent_name)
+            # Extract just the tool names
+            return [tool_dict["name"] for tool_dict in tool_dicts] if tool_dicts else []
+
+        return []

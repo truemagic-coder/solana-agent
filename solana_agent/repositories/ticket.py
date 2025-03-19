@@ -102,16 +102,16 @@ class MongoTicketRepository(TicketRepository):
                 if hasattr(value, 'value') and callable(getattr(value, 'value', None)):
                     safe_updates[key] = value.value
                 # Handle datetime objects without timezone
-                elif isinstance(value, datetime.datetime) and not value.tzinfo:
+                elif isinstance(value, datetime) and not value.tzinfo:
                     safe_updates[key] = value.replace(
-                        tzinfo=datetime.timezone.utc)
+                        tzinfo=main_datetime.timezone.utc)
                 else:
                     safe_updates[key] = value
 
             # Add updated timestamp if not already present
             if "updated_at" not in safe_updates:
-                safe_updates["updated_at"] = datetime.datetime.now(
-                    datetime.timezone.utc)
+                safe_updates["updated_at"] = datetime.now(
+                    main_datetime.timezone.utc)
 
             # Execute the update
             result = self.db.update_one(

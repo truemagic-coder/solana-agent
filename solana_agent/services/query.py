@@ -306,8 +306,11 @@ class QueryService(QueryServiceInterface):
                 await self._store_conversation(user_id, user_text, full_response)
 
         except Exception as e:
-            print(f"Error processing ticket: {str(e)}")
-            yield f"I'm sorry, I encountered an error processing your request: {str(e)}"
+            error_msg = f"Error processing ticket: {str(e)}"
+            print(error_msg)
+            import traceback
+            traceback.print_exc()
+            yield f"I'm sorry, I encountered an error processing your request."
 
     async def _process_new_ticket(
         self,

@@ -40,6 +40,11 @@ class PluginManager(PluginManagerInterface):
 
             # Initialize the plugin with the tool registry
             plugin.initialize(self.tool_registry)
+
+            # *** ADD THIS LINE: Configure the plugin with our config ***
+            print(f"Configuring plugin {plugin.name} with config")
+            plugin.configure(self.config)
+
             return True
         except Exception as e:
             print(f"Error registering plugin {plugin.name}: {e}")
@@ -133,3 +138,10 @@ class PluginManager(PluginManagerInterface):
         """
         self.config.update(config)
         self.tool_registry.configure_all_tools(config)
+        print("Configuring all plugins with updated config")
+        for name, plugin in self._plugins.items():
+            try:
+                print(f"Configuring plugin: {name}")
+                plugin.configure(self.config)
+            except Exception as e:
+                print(f"Error configuring plugin {name}: {e}")
