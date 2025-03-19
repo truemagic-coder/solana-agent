@@ -159,3 +159,28 @@ class MongoTicketRepository(TicketRepository):
 
         # Then get the parent
         return self.get_by_id(parent_id)
+
+    def find_tickets_by_criteria(self, status_in: List[str] = None, updated_before: datetime = None) -> List[Ticket]:
+        """Find tickets matching specific criteria.
+
+        Args:
+            status_in: List of status values to include
+            updated_before: Find tickets updated before this time
+
+        Returns:
+            List of tickets matching the criteria
+        """
+        # Build query based on provided criteria
+        query = {}
+
+        if status_in:
+            query["status"] = {"$in": status_in}
+
+        if updated_before:
+            query["updated_at"] = {"$lt": updated_before}
+
+        # Find matching tickets
+        docs = self.db.find(self.collection, query)
+
+        # Convert to domain models
+        return [Ticket.model_validate(doc) for doc in docs]

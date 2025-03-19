@@ -13,18 +13,10 @@ from solana_agent.client.solana_agent import SolanaAgent
 # Factory for creating agent systems
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 
-# Domain models (for public API usage)
-from solana_agent.domains import AIAgent, HumanAgent, OrganizationMission
-from solana_agent.domains import Ticket, TicketStatus, TicketPriority
-from solana_agent.domains import Handoff, HandoffEvaluation
-
-# Core services (for advanced usage)
-from solana_agent.services.agent import AgentService
-from solana_agent.services.query import QueryService
-from solana_agent.services.routing import RoutingService
-
 # Useful tools and utilities
 from solana_agent.plugins import PluginManager
+from solana_agent.plugins import ToolRegistry
+from solana_agent.plugins import AutoTool
 
 # Package metadata
 __all__ = [
@@ -34,21 +26,8 @@ __all__ = [
     # Factories
     "SolanaAgentFactory",
 
-    # Domain models
-    "AIAgent",
-    "HumanAgent",
-    "OrganizationMission",
-    "Ticket",
-    "TicketStatus",
-    "TicketPriority",
-    "Handoff",
-    "HandoffEvaluation",
-
-    # Core services
-    "AgentService",
-    "QueryService",
-    "RoutingService",
-
     # Tools
     "PluginManager",
+    "ToolRegistry",
+    "AutoTool",
 ]

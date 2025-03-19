@@ -187,12 +187,16 @@ class QueryService(QueryServiceInterface):
 
         try:
             # Find tickets that haven't been updated in the configured time
-            cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
-                minutes=self.stalled_ticket_timeout
-            )
+            active_statuses = [
+                TicketStatus.NEW.value,
+                TicketStatus.ASSIGNED.value,
+                TicketStatus.IN_PROGRESS.value,
+                TicketStatus.WAITING_FOR_USER.value
+            ]
 
+            # Get stalled tickets using timeout in minutes
             stalled_tickets = self.ticket_service.find_stalled_tickets(
-                cutoff_time, [TicketStatus.ACTIVE, TicketStatus.TRANSFERRED]
+                timeout_minutes=self.stalled_ticket_timeout,
             )
 
             for ticket in stalled_tickets:
@@ -200,8 +204,19 @@ class QueryService(QueryServiceInterface):
                 if not ticket.assigned_to:
                     continue
 
+                # Mark the ticket as stalled in the system
+                self.ticket_service.update_ticket_status(
+                    ticket.id,
+                    TicketStatus.STALLED,
+                    {"stalled_at": datetime.datetime.now(
+                        datetime.timezone.utc)}
+                )
+
                 # Re-route the query to see if a different agent is better
-                new_agent, _ = await self.routing_service.route_query(user_id=ticket.user_id, query=ticket.description)
+                new_agent, _ = await self.routing_service.route_query(
+                    user_id=ticket.user_id,
+                    query=ticket.description
+                )
 
                 # Only reassign if a different agent is suggested
                 if new_agent != ticket.assigned_to:

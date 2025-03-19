@@ -64,60 +64,6 @@ class AgentService(ABC):
         pass
 
 
-class TicketService(ABC):
-    """Interface for ticket management."""
-
-    @abstractmethod
-    def create_ticket(self, user_id: str, query: str) -> Ticket:
-        """Create a new ticket."""
-        pass
-
-    @abstractmethod
-    def get_ticket(self, ticket_id: str) -> Optional[Ticket]:
-        """Get a ticket by ID."""
-        pass
-
-    @abstractmethod
-    def get_active_ticket(self, user_id: str) -> Optional[Ticket]:
-        """Get active ticket for a user."""
-        pass
-
-    @abstractmethod
-    def update_ticket_status(self, ticket_id: str, status: str, reason: Optional[str] = None) -> bool:
-        """Update ticket status."""
-        pass
-
-    @abstractmethod
-    def assign_ticket(self, ticket_id: str, agent_id: str, reason: Optional[str] = None) -> bool:
-        """Assign ticket to an agent."""
-        pass
-
-    @abstractmethod
-    def create_subtask(self, parent_id: str, title: str, description: str, estimated_minutes: int) -> Ticket:
-        """Create a subtask for a ticket."""
-        pass
-
-    @abstractmethod
-    def get_subtasks(self, parent_id: str) -> List[Ticket]:
-        """Get all subtasks for a parent ticket."""
-        pass
-
-    @abstractmethod
-    async def check_ticket_resolution(self, ticket_id: str, response: str) -> TicketResolution:
-        """Check if a ticket can be resolved based on the latest response."""
-        pass
-
-    @abstractmethod
-    async def process_stalled_tickets(self) -> int:
-        """Process tickets that haven't been updated for a while."""
-        pass
-
-    @abstractmethod
-    def get_ticket_history(self, ticket_id: str) -> List[Dict[str, Any]]:
-        """Get the full history of a ticket."""
-        pass
-
-
 class QueryService(ABC):
     """Interface for processing user queries."""
 
@@ -127,23 +73,8 @@ class QueryService(ABC):
         pass
 
     @abstractmethod
-    async def route_query(self, query: str) -> str:
-        """Route a query to the appropriate agent."""
-        pass
-
-    @abstractmethod
-    async def check_handoff_needed(self, agent_name: str, response: str) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Check if handoff is needed based on agent response."""
-        pass
-
-    @abstractmethod
-    async def handle_system_command(self, user_id: str, command: str) -> Optional[str]:
-        """Handle a system command."""
-        pass
-
-    @abstractmethod
-    async def assess_task_complexity(self, query: str) -> Dict[str, Any]:
-        """Assess the complexity of a task."""
+    async def shutdown(self) -> None:
+        """Shutdown the query service."""
         pass
 
 
@@ -459,97 +390,6 @@ class CriticService(ABC):
         pass
 
 
-class NotificationService(ABC):
-    """Interface for notification management services."""
-
-    @abstractmethod
-    async def send_notification(
-        self,
-        user_id: str,
-        message: str,
-        channel: str = "email",
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """Send a notification to a user.
-
-        Args:
-            user_id: User ID or email address
-            message: Notification message
-            channel: Notification channel (email, sms, in_app)
-            metadata: Additional metadata
-
-        Returns:
-            True if notification was sent successfully
-        """
-        pass
-
-    @abstractmethod
-    async def send_from_template(
-        self,
-        user_id: str,
-        template_id: str,
-        data: Dict[str, Any],
-        channel: str = "email"
-    ) -> bool:
-        """Send a notification using a template.
-
-        Args:
-            user_id: User ID or email address
-            template_id: Template identifier
-            data: Template data for substitution
-            channel: Notification channel
-
-        Returns:
-            True if notification was sent successfully
-        """
-        pass
-
-    @abstractmethod
-    def register_template(self, template_id: str, template: Any) -> None:
-        """Register a notification template.
-
-        Args:
-            template_id: Template identifier
-            template: Template object
-        """
-        pass
-
-    @abstractmethod
-    async def schedule_notification(
-        self,
-        user_id: str,
-        message: str,
-        scheduled_time: datetime,
-        channel: str = "email",
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """Schedule a notification for future delivery.
-
-        Args:
-            user_id: User ID or email address
-            message: Notification message
-            scheduled_time: When to send the notification
-            channel: Notification channel
-            metadata: Additional metadata
-
-        Returns:
-            Scheduled notification ID
-        """
-        pass
-
-    @abstractmethod
-    async def cancel_scheduled_notification(self, notification_id: str) -> bool:
-        """Cancel a scheduled notification.
-
-        Args:
-            notification_id: Scheduled notification ID
-
-        Returns:
-            True if cancellation was successful
-        """
-        pass
-
-
 class ProjectApprovalService(ABC):
     """Interface for project approval services."""
 
@@ -812,6 +652,18 @@ class TicketService(ABC):
 
         Returns:
             True if closure was successful
+        """
+        pass
+
+    @abstractmethod
+    def find_stalled_tickets(self, timeout_minutes: int) -> List[Ticket]:
+        """Find tickets that have been stalled for too long.
+
+        Args:
+            timeout_minutes: Number of minutes before a ticket is considered stalled
+
+        Returns:
+            List of stalled tickets
         """
         pass
 

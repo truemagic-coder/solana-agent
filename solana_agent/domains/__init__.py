@@ -12,7 +12,6 @@ from solana_agent.domains.feedback import *
 from solana_agent.domains.handoff import *
 from solana_agent.domains.memory import *
 from solana_agent.domains.models import *
-from solana_agent.domains.notifications import *
 from solana_agent.domains.plugins import *
 from solana_agent.domains.projects import *
 from solana_agent.domains.resources import *

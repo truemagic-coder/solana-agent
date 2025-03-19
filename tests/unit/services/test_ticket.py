@@ -406,3 +406,129 @@ def test_close_ticket_update_fails(ticket_service, mock_repository):
     # Assertions
     assert success is False
     mock_repository.add_note.assert_not_called()
+
+# --------------------------
+# Stalled Ticket Tests
+# --------------------------
+
+
+def test_find_stalled_tickets_default_timeout(ticket_service, mock_repository, sample_ticket):
+    """Test finding stalled tickets with default timeout."""
+    # Create a sample stalled ticket
+    stalled_ticket = sample_ticket.model_copy()
+    stalled_ticket.status = TicketStatus.IN_PROGRESS
+    stalled_ticket.updated_at = datetime.datetime.now(
+        datetime.timezone.utc) - datetime.timedelta(days=2)  # 2 days old
+
+    # Configure mock repository
+    mock_repository.find_tickets_by_criteria.return_value = [stalled_ticket]
+
+    # Execute
+    stalled_tickets = ticket_service.find_stalled_tickets()
+
+    # Assertions
+    assert len(stalled_tickets) == 1
+    assert stalled_tickets[0] == stalled_ticket
+
+    # Verify repository was called with correct parameters
+    mock_repository.find_tickets_by_criteria.assert_called_once()
+    call_args = mock_repository.find_tickets_by_criteria.call_args[1]
+
+    # Check that active statuses were included
+    assert TicketStatus.NEW.value in call_args['status_in']
+    assert TicketStatus.ASSIGNED.value in call_args['status_in']
+    assert TicketStatus.IN_PROGRESS.value in call_args['status_in']
+    assert TicketStatus.WAITING_FOR_USER.value in call_args['status_in']
+
+    # Check that the cutoff time is approximately 24 hours ago (default timeout)
+    cutoff_time = call_args['updated_before']
+    time_diff = datetime.datetime.now(datetime.timezone.utc) - cutoff_time
+    assert 1439 <= time_diff.total_seconds() / 60 <= 1441  # ~24 hours in minutes
+
+
+def test_find_stalled_tickets_custom_timeout(ticket_service, mock_repository):
+    """Test finding stalled tickets with custom timeout."""
+    # Configure mock repository
+    mock_repository.find_tickets_by_criteria.return_value = []
+
+    # Execute with 30 minute timeout
+    ticket_service.find_stalled_tickets(timeout_minutes=30)
+
+    # Verify repository was called with correct parameters
+    mock_repository.find_tickets_by_criteria.assert_called_once()
+    call_args = mock_repository.find_tickets_by_criteria.call_args[1]
+
+    # Check that the cutoff time is approximately 30 minutes ago
+    cutoff_time = call_args['updated_before']
+    time_diff = datetime.datetime.now(datetime.timezone.utc) - cutoff_time
+    assert 29 <= time_diff.total_seconds() / 60 <= 31  # ~30 minutes
+
+
+def test_find_stalled_tickets_none_found(ticket_service, mock_repository):
+    """Test when no stalled tickets are found."""
+    # Configure mock repository to return empty list
+    mock_repository.find_tickets_by_criteria.return_value = []
+
+    # Execute
+    stalled_tickets = ticket_service.find_stalled_tickets()
+
+    # Assertions
+    assert len(stalled_tickets) == 0
+    mock_repository.find_tickets_by_criteria.assert_called_once()
+
+
+def test_find_stalled_tickets_multiple_statuses(ticket_service, mock_repository, sample_ticket):
+    """Test finding stalled tickets with multiple statuses."""
+    # Create sample stalled tickets with different statuses
+    ticket1 = sample_ticket.model_copy()
+    ticket1.id = "ticket-1"
+    ticket1.status = TicketStatus.NEW
+    ticket1.updated_at = datetime.datetime.now(
+        datetime.timezone.utc) - datetime.timedelta(days=3)
+
+    ticket2 = sample_ticket.model_copy()
+    ticket2.id = "ticket-2"
+    ticket2.status = TicketStatus.ASSIGNED
+    ticket2.updated_at = datetime.datetime.now(
+        datetime.timezone.utc) - datetime.timedelta(days=2)
+
+    ticket3 = sample_ticket.model_copy()
+    ticket3.id = "ticket-3"
+    ticket3.status = TicketStatus.WAITING_FOR_USER
+    ticket3.updated_at = datetime.datetime.now(
+        datetime.timezone.utc) - datetime.timedelta(days=4)
+
+    # Configure mock repository
+    mock_repository.find_tickets_by_criteria.return_value = [
+        ticket1, ticket2, ticket3]
+
+    # Execute
+    stalled_tickets = ticket_service.find_stalled_tickets()
+
+    # Assertions
+    assert len(stalled_tickets) == 3
+    ticket_ids = [t.id for t in stalled_tickets]
+    assert "ticket-1" in ticket_ids
+    assert "ticket-2" in ticket_ids
+    assert "ticket-3" in ticket_ids
+
+
+def test_find_stalled_tickets_zero_timeout(ticket_service, mock_repository):
+    """Test finding stalled tickets with zero timeout (edge case)."""
+    # Configure mock repository to return empty list
+    mock_repository.find_tickets_by_criteria.return_value = []
+
+    # Execute with 0 minute timeout (all tickets would be considered stalled)
+    stalled_tickets = ticket_service.find_stalled_tickets(timeout_minutes=0)
+
+    # Assertions
+    assert stalled_tickets == []
+
+    # Verify repository was called with correct parameters
+    mock_repository.find_tickets_by_criteria.assert_called_once()
+    call_args = mock_repository.find_tickets_by_criteria.call_args[1]
+
+    # Check that the cutoff time is approximately current time (0 minutes ago)
+    cutoff_time = call_args['updated_before']
+    time_diff = datetime.datetime.now(datetime.timezone.utc) - cutoff_time
+    assert time_diff.total_seconds() < 2  # Should be less than 2 seconds difference

@@ -10,7 +10,6 @@ from solana_agent.services.command import *
 from solana_agent.services.critic import *
 from solana_agent.services.handoff import *
 from solana_agent.services.memory import *
-from solana_agent.services.notification import *
 from solana_agent.services.nps import *
 from solana_agent.services.project_approval import *
 from solana_agent.services.project_simulation import *

@@ -124,3 +124,71 @@ class MemoryService(MemoryServiceInterface):
         except Exception as e:
             print(f"Error summarizing history: {e}")
             return "Error generating conversation summary."
+
+    async def get_paginated_history(
+        self,
+        user_id: str,
+        page_num: int = 1,
+        page_size: int = 20,
+        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+    ) -> Dict[str, Any]:
+        """Get paginated message history for a user.
+
+        Args:
+            user_id: User ID
+            page_num: Page number (starting from 1)
+            page_size: Number of messages per page
+            sort_order: Sort order ("asc" or "desc")
+
+        Returns:
+            Dictionary with paginated results and metadata
+        """
+        try:
+            # Validate inputs
+            if page_num < 1:
+                page_num = 1
+            if page_size < 1:
+                page_size = 20
+            if sort_order not in ["asc", "desc"]:
+                sort_order = "asc"
+
+            # Get total count of messages for this user
+            total_count = self.memory_repository.count_user_history(user_id)
+
+            # Calculate pagination metadata
+            total_pages = (total_count + page_size -
+                           1) // page_size  # Ceiling division
+
+            # Adjust page number if it exceeds total pages
+            if page_num > total_pages and total_pages > 0:
+                page_num = total_pages
+
+            # Calculate skip/offset
+            skip = (page_num - 1) * page_size
+
+            # Get paginated history from repository
+            history_items = self.memory_repository.get_user_history_paginated(
+                user_id=user_id,
+                skip=skip,
+                limit=page_size,
+                sort_order=sort_order
+            )
+
+            # Return formatted response
+            return {
+                "data": history_items,
+                "total": total_count,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": total_pages
+            }
+        except Exception as e:
+            print(f"Error retrieving paginated history: {e}")
+            return {
+                "data": [],
+                "total": 0,
+                "page": page_num,
+                "page_size": page_size,
+                "total_pages": 0,
+                "error": str(e)
+            }

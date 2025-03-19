@@ -70,14 +70,18 @@ class TicketRepository(ABC):
         """Get the parent ticket for a subtask."""
         pass
 
+    @abstractmethod
+    def find_ticket_by_criteria(
+        self,
+        status_in: Optional[List[TicketStatus]] = None,
+        updated_before: Optional[datetime] = None,
+    ) -> List[Ticket]:
+        """Find tickets by criteria."""
+        pass
+
 
 class AgentRepository(ABC):
     """Interface for agent data access."""
-
-    @abstractmethod
-    def get_human_agent_by_id(self, agent_id: str) -> Optional[HumanAgent]:
-        """Get a human agent by ID"""
-        pass
 
     @abstractmethod
     def get_ai_agent_by_name(self, name: str) -> Optional[AIAgent]:
@@ -90,7 +94,7 @@ class AgentRepository(ABC):
         pass
 
     @abstractmethod
-    def get_all_ai_agents(self) -> Dict[str, AIAgent]:
+    def get_all_ai_agents(self) -> List[AIAgent]:
         """Get all AI agents."""
         pass
 

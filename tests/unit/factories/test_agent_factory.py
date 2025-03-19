@@ -107,7 +107,7 @@ def json_config_file():
 
 # Mock classes for testing
 class MockPluginManager:
-    def load_all_plugins(self):
+    def load_plugins(self):
         return 3
 
 
@@ -140,7 +140,6 @@ def test_create_from_minimal_config(mock_agent_service, mock_handoff_repo, mock_
 
     # Execute
     with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
-            patch('solana_agent.factories.agent_factory.NotificationService'), \
             patch('solana_agent.factories.agent_factory.MemoryService'), \
             patch('solana_agent.factories.agent_factory.NPSService'), \
             patch('solana_agent.factories.agent_factory.CommandService'), \
@@ -172,11 +171,8 @@ def test_create_from_minimal_config(mock_agent_service, mock_handoff_repo, mock_
 @patch('solana_agent.factories.agent_factory.QdrantAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-# Mock HandoffService
 @patch('solana_agent.factories.agent_factory.HandoffService')
-# Mock NotificationService
-@patch('solana_agent.factories.agent_factory.NotificationService')
-def test_create_from_full_config(mock_notification, mock_handoff, mock_query_service, mock_agent_service,
+def test_create_from_full_config(mock_handoff, mock_query_service, mock_agent_service,
                                  mock_qdrant, mock_zep, mock_openai, mock_mongo, full_config):
     """Test factory creates all components with full config."""
     # Configure mocks
@@ -190,7 +186,6 @@ def test_create_from_full_config(mock_notification, mock_handoff, mock_query_ser
         "websearch", "documentation", "calculator", "code_executor", "diagram_generator"]
     mock_query_service.return_value = MagicMock()
     mock_handoff.return_value = MagicMock()
-    mock_notification.return_value = MagicMock()
 
     # Execute
     with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
@@ -221,7 +216,6 @@ def test_create_from_full_config(mock_notification, mock_handoff, mock_query_ser
     mock_qdrant.assert_called_once()
     mock_agent_service.assert_called_once()
     mock_handoff.assert_called_once()  # Verify HandoffService was called
-    mock_notification.assert_called_once()  # Verify NotificationService was called
     mock_query_service.assert_called_once()
 
     # Check that agent registration was called
@@ -270,7 +264,6 @@ def test_create_with_pinecone(mock_agent_service, mock_handoff, mock_query_servi
     with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
             patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
             patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
-            patch('solana_agent.factories.agent_factory.NotificationService'), \
             patch('solana_agent.factories.agent_factory.MemoryService'), \
             patch('solana_agent.factories.agent_factory.NPSService'), \
             patch('solana_agent.factories.agent_factory.CommandService'), \
@@ -331,7 +324,6 @@ def test_organization_mission_creation(mock_handoff, mock_query_service, mock_ag
             patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
             patch('solana_agent.factories.agent_factory.MongoTicketRepository'), \
             patch('solana_agent.factories.agent_factory.MongoHandoffRepository'), \
-            patch('solana_agent.factories.agent_factory.NotificationService'), \
             patch('solana_agent.factories.agent_factory.MemoryService'), \
             patch('solana_agent.factories.agent_factory.NPSService'), \
             patch('solana_agent.factories.agent_factory.CommandService'), \
@@ -361,12 +353,9 @@ def test_organization_mission_creation(mock_handoff, mock_query_service, mock_ag
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-# Mock HandoffService
 @patch('solana_agent.factories.agent_factory.HandoffService')
-# Mock NotificationService
-@patch('solana_agent.factories.agent_factory.NotificationService')
-def test_agent_tool_registration(mock_notification, mock_handoff, mock_query_service,
-                                 mock_agent_service, mock_openai, mock_mongo, full_config):
+def test_agent_tool_registration(mock_handoff, mock_query_service, mock_agent_service,
+                                 mock_openai, mock_mongo, full_config):
     """Test agent tools are correctly registered."""
     # Configure mocks
     mock_mongo.return_value = MagicMock()
@@ -378,7 +367,6 @@ def test_agent_tool_registration(mock_notification, mock_handoff, mock_query_ser
     ]
     mock_query_service.return_value = MagicMock()
     mock_handoff.return_value = MagicMock()
-    mock_notification.return_value = MagicMock()
 
     # Execute
     with patch('solana_agent.factories.agent_factory.PluginManager', return_value=MockPluginManager()), \
@@ -407,16 +395,14 @@ def test_agent_tool_registration(mock_notification, mock_handoff, mock_query_ser
     assert register_tool_calls == 5
 
 
+# Fix test_agent_deletion_sync function signature
 @patch('solana_agent.factories.agent_factory.MongoDBAdapter')
 @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
 @patch('solana_agent.factories.agent_factory.AgentService')
 @patch('solana_agent.factories.agent_factory.QueryService')
-# Mock HandoffService
 @patch('solana_agent.factories.agent_factory.HandoffService')
-# Mock NotificationService
-@patch('solana_agent.factories.agent_factory.NotificationService')
-def test_agent_deletion_sync(mock_notification, mock_handoff, mock_query_service,
-                             mock_agent_service, mock_openai, mock_mongo):
+def test_agent_deletion_sync(mock_handoff, mock_query_service, mock_agent_service,
+                             mock_openai, mock_mongo):
     """Test agents not in config are deleted from repository."""
     config = {
         "mongo": {
@@ -441,7 +427,6 @@ def test_agent_deletion_sync(mock_notification, mock_handoff, mock_query_service
     mock_agent_service.return_value = MagicMock()
     mock_agent_service.return_value.tool_registry = MagicMock()
     mock_handoff.return_value = MagicMock()
-    mock_notification.return_value = MagicMock()
 
     # Create mock agent repository with extra agents
     mock_agent_repo = MagicMock()

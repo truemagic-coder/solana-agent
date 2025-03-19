@@ -230,13 +230,6 @@ Solana Agent transforms organizations into living systems that continuously lear
     Project lifecycle tracking from submission to approval/rejection.  
     Transparent decision documentation with comments and rationale.
 
-- **🔔 Notification System:**  
-    Multi-channel notifications for human agents.  
-    Approval request routing to authorized approvers.  
-    Configurable notification handlers for different channels.  
-    Real-time and asynchronous communication support.  
-    Status tracking for notification delivery and response.
-
 - **🔌 Standard Python Plugin System:**  
     Extensible architecture using Python's native package ecosystem.  
     PyPI-compatible plugin distribution with standard dependency management.  

@@ -266,28 +266,28 @@ class ProjectSimulationService(ProjectSimulationServiceInterface):
             ai_agent_count = len(ai_agents)
 
             # Get all human agents
-            human_agents = (
-                self.task_planning_service.agent_service.get_all_human_agents()
-            )
+            human_agents = self.task_planning_service.agent_service.get_all_human_agents()
             human_agent_count = len(human_agents)
 
-            # Count available human agents
+            # Count available human agents - updated to use proper object access
             available_human_agents = sum(
                 1
-                for agent in human_agents.values()
-                if agent.get("availability_status") == "available"
+                for agent in human_agents
+                if getattr(agent, "availability_status", None) == "available"
             )
 
-            # Get active tickets
+            # Get active tickets using proper ticket statuses
             active_tickets = 0
             if self.ticket_repository:
                 active_tickets = self.ticket_repository.count(
                     {
                         "status": {
                             "$in": [
-                                TicketStatus.ACTIVE,
-                                TicketStatus.PENDING,
-                                TicketStatus.TRANSFERRED,
+                                TicketStatus.NEW.value,
+                                TicketStatus.ASSIGNED.value,
+                                TicketStatus.IN_PROGRESS.value,
+                                TicketStatus.WAITING_FOR_USER.value,
+                                TicketStatus.WAITING_FOR_HUMAN.value,
                             ]
                         }
                     }

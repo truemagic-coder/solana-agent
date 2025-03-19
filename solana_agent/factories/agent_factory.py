@@ -18,7 +18,6 @@ from solana_agent.services.critic import CriticService
 from solana_agent.services.task_planning import TaskPlanningService
 from solana_agent.services.project_approval import ProjectApprovalService
 from solana_agent.services.project_simulation import ProjectSimulationService
-from solana_agent.services.notification import NotificationService
 from solana_agent.services.scheduling import SchedulingService
 from solana_agent.services.command import CommandService
 
@@ -191,7 +190,7 @@ class SolanaAgentFactory:
 
         # Initialize plugin system
         agent_service.plugin_manager = PluginManager()
-        loaded_plugins = agent_service.plugin_manager.load_all_plugins()
+        loaded_plugins = agent_service.plugin_manager.load_plugins()
         print(f"Loaded {loaded_plugins} plugins")
 
         # Sync MongoDB with config-defined agents
@@ -223,7 +222,7 @@ class SolanaAgentFactory:
                     print(
                         f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
                     try:
-                        agent_service.register_tool_for_agent(
+                        agent_service.assign_tool_for_agent(
                             agent_config["name"], tool_name
                         )
                         print(
@@ -237,7 +236,7 @@ class SolanaAgentFactory:
             for agent_name, tools in config["agent_tools"].items():
                 for tool_name in tools:
                     try:
-                        agent_service.register_tool_for_agent(
+                        agent_service.assign_tool_for_agent(
                             agent_name, tool_name)
                     except ValueError as e:
                         print(f"Error registering tool: {e}")

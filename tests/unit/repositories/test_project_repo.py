@@ -6,7 +6,6 @@ This module tests the MongoProjectRepository implementation.
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 import uuid
-import datetime
 
 from solana_agent.repositories.project import MongoProjectRepository
 from solana_agent.domains.projects import Project, ProjectStatus, ProjectReview, ApprovalCriteria
@@ -16,11 +15,11 @@ from solana_agent.domains.projects import Project, ProjectStatus, ProjectReview,
 def mock_mongodb_adapter():
     """Create a mock MongoDB adapter."""
     adapter = Mock()
-    adapter.database = {}
+    adapter.db = {}
 
     # Create mock collection
     collection = MagicMock()
-    adapter.database["projects"] = collection
+    adapter.db["projects"] = collection
 
     return adapter
 
@@ -67,13 +66,13 @@ class TestMongoProjectRepository:
         """Test repository initialization."""
         repo = MongoProjectRepository(mock_mongodb_adapter)
         assert repo.db_adapter == mock_mongodb_adapter
-        assert repo.collection == mock_mongodb_adapter.database["projects"]
+        assert repo.collection == mock_mongodb_adapter.db["projects"]
 
     def test_create(self, mock_mongodb_adapter, sample_project):
         """Test creating a project."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
-        mock_mongodb_adapter.database["projects"].insert_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].insert_one.return_value = MagicMock(
             inserted_id="some-id"
         )
 
@@ -82,13 +81,13 @@ class TestMongoProjectRepository:
 
         # Verify
         assert project_id == sample_project.id
-        assert mock_mongodb_adapter.database["projects"].insert_one.called
+        assert mock_mongodb_adapter.db["projects"].insert_one.called
 
         # Verify ID was generated
         assert sample_project.id is not None
 
         # Get the passed data to insert_one
-        inserted_data = mock_mongodb_adapter.database["projects"].insert_one.call_args[0][0]
+        inserted_data = mock_mongodb_adapter.db["projects"].insert_one.call_args[0][0]
         assert inserted_data == sample_project.model_dump()
 
     def test_get_existing(self, mock_mongodb_adapter, sample_project):
@@ -96,7 +95,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         project_dict = sample_project.model_dump()
-        mock_mongodb_adapter.database["projects"].find_one.return_value = project_dict
+        mock_mongodb_adapter.db["projects"].find_one.return_value = project_dict
 
         # Execute
         result = repo.get("test-id")
@@ -105,29 +104,29 @@ class TestMongoProjectRepository:
         assert result is not None
         assert result.name == sample_project.name
         assert result.description == sample_project.description
-        mock_mongodb_adapter.database["projects"].find_one.assert_called_once_with({
-                                                                                   "id": "test-id"})
+        mock_mongodb_adapter.db["projects"].find_one.assert_called_once_with({
+            "id": "test-id"})
 
     def test_get_nonexistent(self, mock_mongodb_adapter):
         """Test getting a non-existent project."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
-        mock_mongodb_adapter.database["projects"].find_one.return_value = None
+        mock_mongodb_adapter.db["projects"].find_one.return_value = None
 
         # Execute
         result = repo.get("nonexistent-id")
 
         # Verify
         assert result is None
-        mock_mongodb_adapter.database["projects"].find_one.assert_called_once_with({
-                                                                                   "id": "nonexistent-id"})
+        mock_mongodb_adapter.db["projects"].find_one.assert_called_once_with({
+            "id": "nonexistent-id"})
 
     def test_update_existing(self, mock_mongodb_adapter, sample_project):
         """Test updating an existing project."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         sample_project.id = "test-id"
-        mock_mongodb_adapter.database["projects"].update_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].update_one.return_value = MagicMock(
             modified_count=1
         )
 
@@ -136,7 +135,7 @@ class TestMongoProjectRepository:
 
         # Verify
         assert result is True
-        mock_mongodb_adapter.database["projects"].update_one.assert_called_once(
+        mock_mongodb_adapter.db["projects"].update_one.assert_called_once(
         )
 
     def test_update_nonexistent(self, mock_mongodb_adapter, sample_project):
@@ -144,7 +143,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         sample_project.id = "nonexistent-id"
-        mock_mongodb_adapter.database["projects"].update_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].update_one.return_value = MagicMock(
             modified_count=0
         )
 
@@ -153,14 +152,14 @@ class TestMongoProjectRepository:
 
         # Verify
         assert result is False
-        mock_mongodb_adapter.database["projects"].update_one.assert_called_once(
+        mock_mongodb_adapter.db["projects"].update_one.assert_called_once(
         )
 
     def test_delete_existing(self, mock_mongodb_adapter):
         """Test deleting an existing project."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
-        mock_mongodb_adapter.database["projects"].delete_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].delete_one.return_value = MagicMock(
             deleted_count=1
         )
 
@@ -169,14 +168,14 @@ class TestMongoProjectRepository:
 
         # Verify
         assert result is True
-        mock_mongodb_adapter.database["projects"].delete_one.assert_called_once_with({
-                                                                                     "id": "test-id"})
+        mock_mongodb_adapter.db["projects"].delete_one.assert_called_once_with({
+            "id": "test-id"})
 
     def test_delete_nonexistent(self, mock_mongodb_adapter):
         """Test deleting a non-existent project."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
-        mock_mongodb_adapter.database["projects"].delete_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].delete_one.return_value = MagicMock(
             deleted_count=0
         )
 
@@ -185,15 +184,15 @@ class TestMongoProjectRepository:
 
         # Verify
         assert result is False
-        mock_mongodb_adapter.database["projects"].delete_one.assert_called_once_with({
-                                                                                     "id": "nonexistent-id"})
+        mock_mongodb_adapter.db["projects"].delete_one.assert_called_once_with({
+            "id": "nonexistent-id"})
 
     def test_find_by_status(self, mock_mongodb_adapter, sample_project):
         """Test finding projects by status."""
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute with string status
         result1 = repo.find_by_status("draft")
@@ -201,8 +200,8 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result1) == 1
         assert result1[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_with({
-                                                                          "status": "draft"})
+        mock_mongodb_adapter.db["projects"].find.assert_called_with({
+            "status": "draft"})
 
         # Execute with enum status
         result2 = repo.find_by_status(ProjectStatus.DRAFT)
@@ -216,7 +215,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute
         result = repo.find_by_submitter("user-123")
@@ -224,7 +223,7 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result) == 1
         assert result[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].find.assert_called_once_with(
             {"submitter_id": "user-123"})
 
     def test_get_all(self, mock_mongodb_adapter, sample_project):
@@ -232,7 +231,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute
         result = repo.get_all()
@@ -240,7 +239,7 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result) == 1
         assert result[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].find.assert_called_once_with(
         )
 
     def test_find_by_name_exact(self, mock_mongodb_adapter, sample_project):
@@ -248,7 +247,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute
         result = repo.find_by_name("Test Project", exact=True)
@@ -256,7 +255,7 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result) == 1
         assert result[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].find.assert_called_once_with(
             {"name": "Test Project"})
 
     def test_find_by_name_regex(self, mock_mongodb_adapter, sample_project):
@@ -264,7 +263,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute
         result = repo.find_by_name("Test", exact=False)
@@ -272,7 +271,7 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result) == 1
         assert result[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].find.assert_called_once_with(
             {"name": {"$regex": "Test", "$options": "i"}}
         )
 
@@ -281,7 +280,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         projects_list = [sample_project.model_dump()]
-        mock_mongodb_adapter.database["projects"].find.return_value = projects_list
+        mock_mongodb_adapter.db["projects"].find.return_value = projects_list
 
         # Execute
         result = repo.find_by_reviewer("reviewer-123")
@@ -289,7 +288,7 @@ class TestMongoProjectRepository:
         # Verify
         assert len(result) == 1
         assert result[0].name == sample_project.name
-        mock_mongodb_adapter.database["projects"].find.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].find.assert_called_once_with(
             {"reviews.reviewer_id": "reviewer-123"}
         )
 
@@ -298,7 +297,7 @@ class TestMongoProjectRepository:
         # Setup
         repo = MongoProjectRepository(mock_mongodb_adapter)
         review_dict = sample_review.model_dump()
-        mock_mongodb_adapter.database["projects"].update_one.return_value = MagicMock(
+        mock_mongodb_adapter.db["projects"].update_one.return_value = MagicMock(
             modified_count=1
         )
 
@@ -307,7 +306,7 @@ class TestMongoProjectRepository:
 
         # Verify
         assert result is True
-        mock_mongodb_adapter.database["projects"].update_one.assert_called_once_with(
+        mock_mongodb_adapter.db["projects"].update_one.assert_called_once_with(
             {"id": "test-id"},
             {"$push": {"reviews": review_dict}}
         )
@@ -367,7 +366,7 @@ class TestMongoProjectRepository:
             {"_id": "approved", "count": 3},
             {"_id": "rejected", "count": 2}
         ]
-        mock_mongodb_adapter.database["projects"].aggregate.return_value = aggregate_result
+        mock_mongodb_adapter.db["projects"].aggregate.return_value = aggregate_result
 
         # Execute
         result = repo.count_by_status()
@@ -382,7 +381,7 @@ class TestMongoProjectRepository:
             assert status.value in result
 
         # Verify correct aggregation pipeline
-        mock_mongodb_adapter.database["projects"].aggregate.assert_called_once(
+        mock_mongodb_adapter.db["projects"].aggregate.assert_called_once(
         )
-        pipeline = mock_mongodb_adapter.database["projects"].aggregate.call_args[0][0]
+        pipeline = mock_mongodb_adapter.db["projects"].aggregate.call_args[0][0]
         assert pipeline[0]["$group"]["_id"] == "$status"

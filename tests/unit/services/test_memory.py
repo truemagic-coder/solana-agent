@@ -301,3 +301,173 @@ async def test_search_and_summarize_workflow(memory_service):
         # Assert summary
         assert len(summary) > 0
         assert "Solana" in summary
+
+
+# ---------------------
+# Paginated History Tests
+# ---------------------
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_normal(memory_service, mock_memory_repository):
+    """Test getting paginated history with normal parameters."""
+    # Arrange
+    user_id = "user123"
+    page_num = 2
+    page_size = 10
+    sort_order = "asc"
+
+    # Set up mock responses
+    total_count = 25
+    mock_memory_repository.count_user_history = Mock(return_value=total_count)
+
+    paginated_data = [
+        {
+            "user_message": "What's the best Solana wallet?",
+            "assistant_message": "Popular options include Phantom, Solflare, and Backpack.",
+            "timestamp": datetime.datetime(2025, 3, 10, 10, 15)
+        },
+        {
+            "user_message": "How fast is Solana?",
+            "assistant_message": "Solana can process up to 65,000 transactions per second.",
+            "timestamp": datetime.datetime(2025, 3, 10, 10, 20)
+        }
+    ]
+    mock_memory_repository.get_user_history_paginated = Mock(
+        return_value=paginated_data)
+
+    # Act
+    result = await memory_service.get_paginated_history(user_id, page_num, page_size, sort_order)
+
+    # Assert
+    mock_memory_repository.count_user_history.assert_called_once_with(user_id)
+    mock_memory_repository.get_user_history_paginated.assert_called_once_with(
+        user_id=user_id,
+        skip=10,  # (page_num-1) * page_size
+        limit=page_size,
+        sort_order=sort_order
+    )
+
+    assert result["data"] == paginated_data
+    assert result["total"] == total_count
+    assert result["page"] == page_num
+    assert result["page_size"] == page_size
+    assert result["total_pages"] == 3  # ceil(25/10) = 3
+
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_empty(memory_service, mock_memory_repository):
+    """Test getting paginated history when no history exists."""
+    # Arrange
+    user_id = "new_user"
+
+    # Set up mock responses
+    mock_memory_repository.count_user_history = Mock(return_value=0)
+    mock_memory_repository.get_user_history_paginated = Mock(return_value=[])
+
+    # Act
+    result = await memory_service.get_paginated_history(user_id)
+
+    # Assert
+    assert result["data"] == []
+    assert result["total"] == 0
+    assert result["page"] == 1  # Defaults to 1
+    assert result["page_size"] == 20  # Default page size
+    assert result["total_pages"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_invalid_params(memory_service, mock_memory_repository):
+    """Test getting paginated history with invalid parameters."""
+    # Arrange
+    user_id = "user123"
+    invalid_page = -1
+    invalid_size = 0
+    invalid_sort = "invalid"
+
+    # Set up mock responses
+    mock_memory_repository.count_user_history = Mock(return_value=50)
+    mock_memory_repository.get_user_history_paginated = Mock(return_value=[])
+
+    # Act
+    result = await memory_service.get_paginated_history(
+        user_id,
+        page_num=invalid_page,
+        page_size=invalid_size,
+        sort_order=invalid_sort
+    )
+
+    # Assert
+    # Check that parameters were corrected
+    mock_memory_repository.get_user_history_paginated.assert_called_once_with(
+        user_id=user_id,
+        skip=0,  # (1-1) * 20 = 0
+        limit=20,  # Default size
+        sort_order="asc"  # Default sort
+    )
+
+    assert result["page"] == 1  # Corrected to minimum valid page
+    assert result["page_size"] == 20  # Corrected to default
+
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_page_exceeds_total(memory_service, mock_memory_repository):
+    """Test getting paginated history when page number exceeds total pages."""
+    # Arrange
+    user_id = "user123"
+    page_num = 10  # Exceeds total pages
+
+    # Set up mock responses
+    mock_memory_repository.count_user_history = Mock(
+        return_value=30)  # 2 pages with default size
+    mock_memory_repository.get_user_history_paginated = Mock(return_value=[])
+
+    # Act
+    result = await memory_service.get_paginated_history(user_id, page_num=page_num)
+
+    # Assert
+    # Check that page was adjusted to the last valid page
+    assert result["page"] == 2  # Adjusted to last page
+    assert result["total_pages"] == 2  # ceil(30/20) = 2
+
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_descending_order(memory_service, mock_memory_repository):
+    """Test getting paginated history with descending sort order."""
+    # Arrange
+    user_id = "user123"
+    sort_order = "desc"
+
+    # Set up mock responses
+    mock_memory_repository.count_user_history = Mock(return_value=30)
+    mock_memory_repository.get_user_history_paginated = Mock(return_value=[])
+
+    # Act
+    result = await memory_service.get_paginated_history(user_id, sort_order=sort_order)
+
+    # Assert
+    mock_memory_repository.get_user_history_paginated.assert_called_once_with(
+        user_id=user_id,
+        skip=0,  # First page
+        limit=20,  # Default size
+        sort_order="desc"  # Descending order
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_paginated_history_error_handling(memory_service, mock_memory_repository):
+    """Test error handling in get_paginated_history."""
+    # Arrange
+    user_id = "user123"
+    error_message = "Database connection failed"
+    mock_memory_repository.count_user_history = Mock(
+        side_effect=Exception(error_message))
+
+    # Act
+    result = await memory_service.get_paginated_history(user_id)
+
+    # Assert
+    assert result["data"] == []
+    assert result["total"] == 0
+    assert result["page"] == 1
+    assert result["total_pages"] == 0
+    assert error_message in result["error"]

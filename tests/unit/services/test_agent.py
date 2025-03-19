@@ -41,7 +41,6 @@ def mock_agent_repository():
 
     # Set up default return values
     repo.get_ai_agent_by_name.return_value = None
-    repo.get_human_agent_by_id.return_value = None
     repo.get_all_ai_agents.return_value = []
     repo.get_all_human_agents.return_value = []
     repo.save_ai_agent.return_value = None
@@ -114,7 +113,6 @@ def populated_agent_service(agent_service, sample_ai_agent, sample_human_agent):
     agent_service.agent_repository.get_all_human_agents.return_value = [
         sample_human_agent]
     agent_service.agent_repository.get_ai_agent_by_name.return_value = sample_ai_agent
-    agent_service.agent_repository.get_human_agent_by_id.return_value = sample_human_agent
 
     return agent_service
 

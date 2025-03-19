@@ -217,3 +217,41 @@ class TicketService(TicketServiceInterface):
             )
 
         return success
+
+    def find_stalled_tickets(self, timeout_minutes: int = 1440) -> List[Ticket]:
+        """Find tickets that have been inactive and should be marked as stalled.
+
+        Args:
+            timeout_minutes: Number of minutes of inactivity to consider a ticket stalled
+                            (default: 1440 = 24 hours)
+
+        Returns:
+            List of stalled tickets
+        """
+        # Calculate cutoff time for staleness
+        cutoff_time = datetime.datetime.now(
+            datetime.timezone.utc) - datetime.timedelta(minutes=timeout_minutes)
+
+        # Find tickets that:
+        # 1. Are in an active status
+        # 2. Haven't been updated since the cutoff time
+        active_statuses = [
+            TicketStatus.NEW.value,
+            TicketStatus.ASSIGNED.value,
+            TicketStatus.IN_PROGRESS.value,
+            TicketStatus.WAITING_FOR_USER.value
+        ]
+
+        # Query for potentially stalled tickets
+        tickets = self.ticket_repository.find_tickets_by_criteria(
+            status_in=active_statuses,
+            updated_before=cutoff_time
+        )
+
+        # Additional filtering if needed
+        stalled_tickets = []
+        for ticket in tickets:
+            # You can add more complex stalled ticket logic here if needed
+            stalled_tickets.append(ticket)
+
+        return stalled_tickets

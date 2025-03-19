@@ -35,11 +35,28 @@ class MongoAgentRepository(AgentRepository):
         self.db.create_index(self.performance_collection,
                              [("period_start", 1)])
 
-    def get_human_agent_by_id(self, agent_id):
-        return super().get_human_agent_by_id(agent_id)
+    def get_ai_agent_by_name(self, name: str) -> Optional[AIAgent]:
+        """Get an AI agent by name.
 
-    def get_ai_agent_by_name(self, name):
-        return super().get_ai_agent_by_name(name)
+        Args:
+            name: The name of the AI agent
+
+        Returns:
+            The AI agent or None if not found
+        """
+        # Query the AI agents collection for a document with matching name
+        doc = self.db.find_one(self.ai_agents_collection, {"name": name})
+
+        # If no document found, return None
+        if not doc:
+            return None
+
+        # Convert the document to an AIAgent domain model
+        try:
+            return AIAgent.model_validate(doc)
+        except Exception as e:
+            print(f"Error parsing AI agent with name {name}: {e}")
+            return None
 
     def get_ai_agent(self, name: str) -> Optional[AIAgent]:
         """Get an AI agent by name."""
@@ -49,17 +66,47 @@ class MongoAgentRepository(AgentRepository):
 
         return AIAgent.model_validate(doc)
 
-    def get_all_ai_agents(self) -> Dict[str, AIAgent]:
-        """Get all AI agents."""
+    def get_all_ai_agents(self) -> List[AIAgent]:
+        """Get all AI agents in the system.
+
+        Returns:
+            List of all AI agents
+        """
+        # Query all documents from the AI agents collection
         docs = self.db.find(self.ai_agents_collection, {})
 
-        return {
-            doc["name"]: AIAgent.model_validate(doc)
-            for doc in docs
-        }
+        # Convert each document to an AIAgent domain model
+        ai_agents = []
+        for doc in docs:
+            try:
+                agent = AIAgent.model_validate(doc)
+                ai_agents.append(agent)
+            except Exception as e:
+                # Log the error but continue processing other agents
+                print(f"Error parsing AI agent from database: {e}")
 
-    def get_all_human_agents(self):
-        return super().get_all_human_agents()
+        return ai_agents
+
+    def get_all_human_agents(self) -> List[HumanAgent]:
+        """Get all human agents in the system.
+
+        Returns:
+            List of all human agents
+        """
+        # Query all documents from the human agents collection
+        docs = self.db.find(self.human_agents_collection, {})
+
+        # Convert each document to a HumanAgent domain model
+        human_agents = []
+        for doc in docs:
+            try:
+                agent = HumanAgent.model_validate(doc)
+                human_agents.append(agent)
+            except Exception as e:
+                # Log the error but continue processing other agents
+                print(f"Error parsing human agent from database: {e}")
+
+        return human_agents
 
     def save_ai_agent(self, agent: AIAgent) -> bool:
         """Save an AI agent."""

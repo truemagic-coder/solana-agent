@@ -116,22 +116,3 @@ class VectorStoreProvider(ABC):
     def delete_vector(self, id: str, namespace: str) -> None:
         """Delete a vector."""
         pass
-
-
-class NotificationProvider(ABC):
-    """Interface for sending notifications."""
-
-    @abstractmethod
-    async def send_notification(self, user_id: str, message: str, channel: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        """Send a notification to a user."""
-        pass
-
-    @abstractmethod
-    async def send_scheduled_notification(self, user_id: str, message: str, channel: str, schedule_time: datetime, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """Schedule a notification to be sent later and return the schedule ID."""
-        pass
-
-    @abstractmethod
-    async def cancel_scheduled_notification(self, schedule_id: str) -> bool:
-        """Cancel a scheduled notification."""
-        pass

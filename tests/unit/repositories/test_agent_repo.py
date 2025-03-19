@@ -164,10 +164,9 @@ class TestMongoAgentRepository:
 
         # Verify results
         assert len(agents) == 2
-        assert "codebot" in agents
-        assert "databot" in agents
-        assert agents["codebot"].description == "An AI coding assistant"
-        assert agents["databot"].description == "A data analysis assistant"
+        assert agents[0].name == "codebot"
+        assert agents[1].name == "databot"
+        assert agents[1].description == "A data analysis assistant"
 
     def test_save_ai_agent_new(self, agent_repository, mock_db_adapter, sample_ai_agent):
         """Test saving a new AI agent."""
