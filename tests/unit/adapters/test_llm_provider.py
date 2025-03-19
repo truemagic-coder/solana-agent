@@ -1,257 +1,166 @@
-"""
-Tests for LLM provider adapters.
-
-This module tests the adapters that implement the LLMProvider interface.
-"""
 import pytest
-from unittest.mock import patch, MagicMock
-from typing import List
+from unittest.mock import Mock, AsyncMock, patch
 from pydantic import BaseModel
+from typing import List, Optional
 
 from solana_agent.adapters.llm_adapter import OpenAIAdapter
 
-
-class MockEmbeddingResponse:
-    """Mock response for embeddings."""
-
-    def __init__(self, embedding_size=1536):
-        self.data = [MagicMock(embedding=[0.1] * embedding_size)]
+# Test Models
 
 
-class MockCompletionChunk:
-    """Mock streaming chunk response."""
+class TestStructuredOutput(BaseModel):
+    message: str
+    confidence: float
+    tags: List[str]
 
-    def __init__(self, content=None):
-        self.choices = [MagicMock(delta=MagicMock(content=content))]
-
-
-class MockCompletion:
-    """Mock completion response."""
-
-    def __init__(self, content="This is a test response"):
-        self.choices = [MagicMock(message=MagicMock(content=content))]
-
-
-class MockParsedResponse:
-    """Mock parsed response for the beta api."""
-
-    def __init__(self, parsed_data):
-        self.choices = [MagicMock(message=MagicMock(parsed=parsed_data))]
-
-
-class TestModel(BaseModel):
-    """Test Pydantic model for structured output testing."""
-    name: str = ""
-    value: int = 0
-    items: List[str] = []
+# Fixtures
 
 
 @pytest.fixture
-def openai_adapter():
-    """Create an OpenAIAdapter instance."""
-    with patch('solana_agent.adapters.llm_adapter.OpenAI') as mock_openai:
-        # Create a mock client
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-
-        # Return the adapter with mocked client
-        adapter = OpenAIAdapter(api_key="test-api-key", model="gpt-4o-mini")
-
-        # Expose the mock client for assertions
-        adapter.mock_client = mock_client
-
-        yield adapter
+def mock_openai():
+    with patch('solana_agent.adapters.llm_adapter.OpenAI') as mock:
+        yield mock
 
 
-# --------------------------
-# Initialization Tests
-# --------------------------
+@pytest.fixture
+def adapter(mock_openai):
+    return OpenAIAdapter(api_key="test-key", model="gpt-4o-mini")
 
-def test_init():
-    """Test adapter initialization."""
-    with patch('solana_agent.adapters.llm_adapter.OpenAI') as mock_openai:
-        adapter = OpenAIAdapter(api_key="test-api-key", model="gpt-4o")
-
-        # Check OpenAI client was initialized with the correct API key
-        mock_openai.assert_called_once_with(api_key="test-api-key")
-
-        # Check model was set correctly
-        assert adapter.model == "gpt-4o"
+# Helper for creating mock stream responses
 
 
-# --------------------------
-# Embedding Tests
-# --------------------------
+def create_mock_chunk(content: str):
+    chunk = Mock()
+    chunk.choices = [Mock()]
+    chunk.choices[0].delta.content = content
+    return chunk
 
-def test_generate_embedding(openai_adapter):
-    """Test generating embeddings."""
-    # Setup mock response
-    mock_response = MockEmbeddingResponse()
-    openai_adapter.mock_client.embeddings.create.return_value = mock_response
+# Tests
 
-    # Call the method
-    embedding = openai_adapter.generate_embedding("Test text")
-
-    # Assertions
-    openai_adapter.mock_client.embeddings.create.assert_called_once_with(
-        model="text-embedding-3-small",
-        input="Test text"
-    )
-
-    # Should return the embedding from the response
-    assert len(embedding) == 1536
-    assert embedding[0] == 0.1
-
-
-def test_generate_embedding_error(openai_adapter):
-    """Test error handling when generating embeddings."""
-    # Setup mock to raise exception
-    openai_adapter.mock_client.embeddings.create.side_effect = Exception(
-        "API error")
-
-    # Call the method - should not raise exception
-    embedding = openai_adapter.generate_embedding("Test text")
-
-    # Should return zero vector as fallback
-    assert len(embedding) == 1536
-    assert embedding[0] == 0.0
-
-
-# --------------------------
-# Text Generation Tests
-# --------------------------
 
 @pytest.mark.asyncio
-async def test_generate_text_streaming(openai_adapter):
-    """Test generating text with streaming enabled."""
-    # Setup mock chunks
-    chunks = [
-        MockCompletionChunk("Hello"),
-        MockCompletionChunk(" world"),
-        MockCompletionChunk("!"),
-        MockCompletionChunk(None)  # Empty chunk to test filtering
+async def test_generate_text_basic(adapter, mock_openai):
+    # Setup mock response
+    mock_chunks = [
+        create_mock_chunk("Hello"),
+        create_mock_chunk(" world"),
+        create_mock_chunk("!")
     ]
+    mock_openai.return_value.chat.completions.create.return_value = mock_chunks
 
-    # Configure mock response
-    openai_adapter.mock_client.chat.completions.create.return_value = chunks
+    # Test basic text generation
+    result = ""
+    async for chunk in adapter.generate_text("Hi there"):
+        result += chunk
 
-    # Call the method and collect results
-    result = []
-    async for chunk in openai_adapter.generate_text("user1", "Tell me a joke", "Be funny"):
-        result.append(chunk)
-
-    # Assertions
-    openai_adapter.mock_client.chat.completions.create.assert_called_once_with(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Be funny"},
-            {"role": "user", "content": "Tell me a joke"}
-        ],
-        temperature=0.7,
-        max_tokens=None,
-        response_format=None
-    )
-
-    # Should have collected all non-empty chunks
-    assert result == ["Hello", " world", "!"]
+    assert result == "Hello world!"
+    mock_openai.return_value.chat.completions.create.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_text_non_streaming(openai_adapter):
-    """Test generating text without streaming."""
+async def test_generate_text_with_search(adapter, mock_openai):
     # Setup mock response
-    mock_response = MockCompletion("This is a joke response")
-    openai_adapter.mock_client.chat.completions.create.return_value = mock_response
+    mock_chunks = [create_mock_chunk("Latest news")]
+    mock_openai.return_value.chat.completions.create.return_value = mock_chunks
 
-    # Call the method and collect results
-    result = []
-    async for chunk in openai_adapter.generate_text("user1", "Tell me a joke", stream=False):
-        result.append(chunk)
-
-    # Assertions
-    openai_adapter.mock_client.chat.completions.create.assert_called_once_with(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": "Tell me a joke"}
-        ],
-        stream=False,
-        temperature=0.7,
-        max_tokens=None,
-        response_format=None
-    )
-
-    # Should have collected the complete response
-    assert result == ["This is a joke response"]
-
-
-@pytest.mark.asyncio
-async def test_generate_text_with_custom_params(openai_adapter):
-    """Test generating text with custom parameters."""
-    # Setup mock response
-    mock_response = MockCompletion()
-    openai_adapter.mock_client.chat.completions.create.return_value = mock_response
-
-    # Call the method with custom parameters
-    custom_params = {
-        "model": "gpt-4o",
-        "temperature": 0.3,
-        "max_tokens": 500,
-        "response_format": {"type": "json_object"}
-    }
-
-    result = []
-    async for chunk in openai_adapter.generate_text(
-        "user1",
-        "Generate JSON",
-        stream=False,
-        **custom_params
+    # Test with search enabled
+    result = ""
+    async for chunk in adapter.generate_text(
+        "What's new?",
+        needs_search=True
     ):
-        result.append(chunk)
+        result += chunk
 
-    # Assertions
-    openai_adapter.mock_client.chat.completions.create.assert_called_once_with(
-        model="gpt-4o",
-        messages=[
-            {"role": "user", "content": "Generate JSON"}
-        ],
-        stream=False,
-        temperature=0.3,
-        max_tokens=500,
-        response_format={"type": "json_object"}
-    )
+    # Verify search parameters were included
+    call_kwargs = mock_openai.return_value.chat.completions.create.call_args[1]
+    assert "web_search_options" in call_kwargs
+    assert call_kwargs["model"] == "gpt-4o-mini-search-preview"
 
-
-# --------------------------
-# Structured Output Tests
-# --------------------------
 
 @pytest.mark.asyncio
-async def test_parse_structured_output_beta_api(openai_adapter):
-    """Test parsing structured output with the beta API."""
-    # Setup expected output
-    expected_model = TestModel(name="test", value=42, items=["item1", "item2"])
+async def test_generate_text_with_system_prompt(adapter, mock_openai):
+    mock_chunks = [create_mock_chunk("Response")]
+    mock_openai.return_value.chat.completions.create.return_value = mock_chunks
 
-    # Configure mock response
-    mock_response = MockParsedResponse(expected_model)
-    openai_adapter.mock_client.beta.chat.completions.parse.return_value = mock_response
+    async for _ in adapter.generate_text(
+        "Hello",
+        system_prompt="You are a helpful assistant"
+    ):
+        pass
 
-    # Call the method
-    result = await openai_adapter.parse_structured_output(
-        prompt="Generate test data",
-        system_prompt="Return structured data",
-        model_class=TestModel
+    call_kwargs = mock_openai.return_value.chat.completions.create.call_args[1]
+    messages = call_kwargs["messages"]
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+
+
+def test_generate_embedding(adapter, mock_openai):
+    # Setup mock embedding response
+    mock_response = Mock()
+    mock_response.data = [Mock(embedding=[0.1, 0.2, 0.3])]
+    mock_openai.return_value.embeddings.create.return_value = mock_response
+
+    # Test embedding generation
+    embedding = adapter.generate_embedding("Test text")
+
+    assert isinstance(embedding, list)
+    assert len(embedding) > 0
+    assert all(isinstance(x, float) for x in embedding)
+
+
+@pytest.mark.asyncio
+async def test_parse_structured_output(adapter, mock_openai):
+    # Setup mock parsed response
+    mock_parsed = TestStructuredOutput(
+        message="Test message",
+        confidence=0.95,
+        tags=["test", "example"]
     )
 
-    # Assertions
-    openai_adapter.mock_client.beta.chat.completions.parse.assert_called_once_with(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Return structured data"},
-            {"role": "user", "content": "Generate test data"}
-        ],
-        response_format=TestModel,
-        temperature=0.2
+    mock_completion = Mock()
+    mock_completion.choices = [Mock()]
+    mock_completion.choices[0].message.parsed = mock_parsed
+
+    mock_openai.return_value.beta.chat.completions.parse.return_value = mock_completion
+
+    # Test structured output parsing
+    result = await adapter.parse_structured_output(
+        prompt="Test prompt",
+        system_prompt="Test system prompt",
+        model_class=TestStructuredOutput
     )
 
-    # Should return the parsed model
-    assert result == expected_model
+    assert isinstance(result, TestStructuredOutput)
+    assert result.message == "Test message"
+    assert result.confidence == 0.95
+    assert result.tags == ["test", "example"]
+
+
+@pytest.mark.asyncio
+async def test_generate_text_error_handling(adapter, mock_openai):
+    # Setup mock to raise an exception
+    mock_openai.return_value.chat.completions.create.side_effect = Exception(
+        "Test error")
+
+    # Test error handling
+    result = ""
+    async for chunk in adapter.generate_text("Test"):
+        result += chunk
+
+    assert "I apologize" in result
+    assert "Test error" in result
+
+
+def test_generate_embedding_error_handling(adapter, mock_openai):
+    # Setup mock to raise an exception
+    mock_openai.return_value.embeddings.create.side_effect = Exception(
+        "Test error")
+
+    # Test error handling
+    embedding = adapter.generate_embedding("Test")
+
+    assert len(embedding) == 1536  # Default fallback size
+    assert all(x == 0.0 for x in embedding)
+
+# Run tests with: pytest tests/test_llm_adapter.py -v

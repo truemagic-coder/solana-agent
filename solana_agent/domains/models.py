@@ -51,37 +51,6 @@ class ResponseEvaluation(BaseModel):
         return sum(scores) / len(scores)
 
 
-class HandoffEvaluation(BaseModel):
-    """Evaluation of whether a handoff is needed."""
-    handoff_needed: bool = Field(...,
-                                 description="Whether a handoff is needed")
-    target_agent: Optional[str] = Field(...,
-                                        description="Agent to hand off to")
-    reason: Optional[str] = Field(..., description="Reason for handoff")
-    confidence: float = Field(...,
-                              description="Confidence in the recommendation")
-
-
-class CriterionEvaluation(BaseModel):
-    """Evaluation of a single approval criterion."""
-    name: str = Field(..., description="Criterion name")
-    score: float = Field(..., description="Score (0-10)")
-    comments: str = Field("", description="Evaluation comments")
-
-
-class ProjectApprovalResult(BaseModel):
-    """Result of a project approval evaluation."""
-    overall_score: float = Field(...,
-                                 description="Overall project score")
-    criteria_evaluations: List[CriterionEvaluation] = Field(
-        default_factory=list,
-        description="Evaluations for each criterion"
-    )
-    summary: str = Field(..., description="Evaluation summary")
-    recommendations: List[str] = Field(
-        default_factory=list, description="Recommendations")
-
-
 class QueryAnalysis(BaseModel):
     """Analysis of a user query for routing purposes."""
     primary_specialization: str = Field(...,

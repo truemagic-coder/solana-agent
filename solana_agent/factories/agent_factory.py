@@ -11,7 +11,6 @@ from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.services.ticket import TicketService
-from solana_agent.services.handoff import HandoffService
 from solana_agent.services.memory import MemoryService
 from solana_agent.services.nps import NPSService
 from solana_agent.services.critic import CriticService
@@ -22,7 +21,6 @@ from solana_agent.repositories.ticket import MongoTicketRepository
 from solana_agent.repositories.feedback import MongoFeedbackRepository
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
 from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.repositories.handoff import MongoHandoffRepository
 
 # Adapter imports
 from solana_agent.adapters.llm_adapter import OpenAIAdapter
@@ -106,7 +104,6 @@ class SolanaAgentFactory:
         nps_repo = MongoFeedbackRepository(db_adapter)
         memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
         agent_repo = MongoAgentRepository(db_adapter)
-        handoff_repo = MongoHandoffRepository(db_adapter)
 
         # Create primary services
         agent_service = AgentService(
@@ -120,16 +117,6 @@ class SolanaAgentFactory:
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
         ticket_service = TicketService(ticket_repo)
-
-        # Create handoff service with correct dependencies
-        handoff_service = HandoffService(
-            handoff_repository=handoff_repo,
-            ticket_repository=ticket_repo,
-            agent_service=agent_service
-        )
-
-        # Register handoff service as observer
-        agent_service.add_handoff_observer(handoff_service)
 
         memory_service = MemoryService(memory_repo, llm_adapter)
         nps_service = NPSService(nps_repo)
@@ -213,7 +200,6 @@ class SolanaAgentFactory:
             agent_service=agent_service,
             routing_service=routing_service,
             ticket_service=ticket_service,
-            handoff_service=handoff_service,
             memory_service=memory_service,
             nps_service=nps_service,
             command_service=command_service,

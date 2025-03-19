@@ -8,15 +8,7 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
 from solana_agent.domains import UserFeedback
 from solana_agent.domains import Ticket
-from solana_agent.domains import HumanAgent
 from solana_agent.domains import MemoryInsight
-
-
-class HandoffObserver(ABC):
-    @abstractmethod
-    def on_handoff(self, handoff_data: Dict[str, Any]) -> None:
-        """Called when a handoff is initiated."""
-        pass
 
 
 class AgentService(ABC):
@@ -25,16 +17,6 @@ class AgentService(ABC):
     @abstractmethod
     def register_ai_agent(self, name: str, instructions: str, specialization: str, model: str = "gpt-4o-mini") -> None:
         """Register an AI agent with its specialization."""
-        pass
-
-    @abstractmethod
-    def register_human_agent(self, agent: HumanAgent) -> str:
-        """Register a human agent and return its ID."""
-        pass
-
-    @abstractmethod
-    def get_agent_by_name(self, name: str) -> Optional[Any]:
-        """Get an agent by name."""
         pass
 
     @abstractmethod
@@ -67,11 +49,6 @@ class AgentService(ABC):
         """Execute a tool on behalf of an agent."""
         pass
 
-    @abstractmethod
-    def has_pending_handoff(self, user_id: str) -> bool:
-        """Check if a user has a pending handoff."""
-        pass
-
 
 class QueryService(ABC):
     """Interface for processing user queries."""
@@ -79,11 +56,6 @@ class QueryService(ABC):
     @abstractmethod
     async def process(self, user_id: str, query: str) -> AsyncGenerator[str, None]:
         """Process a query from a user."""
-        pass
-
-    @abstractmethod
-    async def shutdown(self) -> None:
-        """Shutdown the query service."""
         pass
 
 
@@ -245,58 +217,6 @@ class NPSService(ABC):
         pass
 
 
-class HandoffService(ABC):
-    """Interface for handoff services."""
-
-    @abstractmethod
-    async def evaluate_handoff_needed(
-        self, query: str, response: str, current_agent: str
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Evaluate if a handoff is needed based on query and response.
-
-        Args:
-            query: User query
-            response: Agent response
-            current_agent: Current agent name
-
-        Returns:
-            Tuple of (handoff_needed, target_agent, reason)
-        """
-        pass
-
-    @abstractmethod
-    async def request_human_help(
-        self, ticket_id: str, reason: str, specialization: Optional[str] = None
-    ) -> bool:
-        """Request help from a human agent.
-
-        Args:
-            ticket_id: Ticket ID
-            reason: Reason for the human help request
-            specialization: Optional specialization needed
-
-        Returns:
-            True if request was successful
-        """
-        pass
-
-    @abstractmethod
-    async def handle_handoff(
-        self, ticket_id: str, target_agent: str, reason: str
-    ) -> bool:
-        """Handle the handoff to another agent.
-
-        Args:
-            ticket_id: Ticket ID
-            target_agent: Target agent name
-            reason: Reason for the handoff
-
-        Returns:
-            True if handoff was successful
-        """
-        pass
-
-
 class CriticService(ABC):
     """Interface for response evaluation and quality assessment services."""
 
@@ -347,18 +267,6 @@ class RoutingService(ABC):
     """Interface for query routing services."""
 
     @abstractmethod
-    async def analyze_query(self, query: str) -> Dict[str, Any]:
-        """Analyze a query to determine routing information.
-
-        Args:
-            query: User query to analyze
-
-        Returns:
-            Analysis results including specializations and complexity
-        """
-        pass
-
-    @abstractmethod
     async def route_query(self, user_id: str, query: str) -> Tuple[str, Any]:
         """Route a query to the appropriate agent.
 
@@ -368,20 +276,6 @@ class RoutingService(ABC):
 
         Returns:
             Tuple of (agent_name, ticket)
-        """
-        pass
-
-    @abstractmethod
-    async def reroute_ticket(self, ticket_id: str, target_agent: str, reason: str) -> bool:
-        """Reroute a ticket to a different agent.
-
-        Args:
-            ticket_id: Ticket ID
-            target_agent: Target agent name
-            reason: Reason for rerouting
-
-        Returns:
-            True if rerouting was successful
         """
         pass
 

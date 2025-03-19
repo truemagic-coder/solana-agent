@@ -201,10 +201,8 @@ async def test_route_query_basic(routing_service, mock_llm_provider,
     mock_ticket_service.get_or_create_ticket.return_value = sample_ticket
 
     # Patch the internal methods to control their behavior
-    with patch.object(routing_service, '_find_best_human_agent',
-                      AsyncMock(return_value=None)), \
-        patch.object(routing_service, '_find_best_ai_agent',
-                     AsyncMock(return_value="solana")):
+    with patch.object(routing_service, '_find_best_ai_agent',
+                      AsyncMock(return_value="solana")):
 
         # Call the method
         agent_name, ticket = await routing_service.route_query(
@@ -219,35 +217,6 @@ async def test_route_query_basic(routing_service, mock_llm_provider,
         mock_ticket_service.assign_ticket.assert_called_once_with(
             sample_ticket.id, "solana")
         mock_ticket_service.add_note_to_ticket.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_route_complex_query(routing_service, mock_llm_provider,
-                                   mock_ticket_service, sample_complex_query_analysis,
-                                   sample_ticket):
-    """Test routing complex queries."""
-    # Setup mocks
-    mock_llm_provider.parse_structured_output.return_value = sample_complex_query_analysis
-    mock_ticket_service.get_or_create_ticket.return_value = sample_ticket
-
-    # Patch the internal methods to control their behavior
-    with patch.object(routing_service, '_find_best_human_agent',
-                      AsyncMock(return_value="human1")), \
-        patch.object(routing_service, '_find_best_ai_agent',
-                     AsyncMock(return_value="solana")):
-
-        # Call the method
-        agent_name, ticket = await routing_service.route_query(
-            "user-456", "Complex Solana security issue with integration"
-        )
-
-        # Assertions
-        assert agent_name == "human1"  # Should route to human agent
-        assert ticket == sample_ticket
-
-        # Check that ticket was assigned to human agent
-        mock_ticket_service.assign_ticket.assert_called_once_with(
-            sample_ticket.id, "human1")
 
 
 @pytest.mark.asyncio
@@ -270,10 +239,8 @@ async def test_route_query_with_existing_ticket(routing_service, mock_llm_provid
     mock_ticket_service.get_or_create_ticket.return_value = existing_ticket
 
     # Patch the internal methods
-    with patch.object(routing_service, '_find_best_human_agent',
-                      AsyncMock(return_value=None)), \
-        patch.object(routing_service, '_find_best_ai_agent',
-                     AsyncMock(return_value="solana")):
+    with patch.object(routing_service, '_find_best_ai_agent',
+                      AsyncMock(return_value="solana")):
 
         # Call the method
         agent_name, ticket = await routing_service.route_query(
@@ -290,104 +257,8 @@ async def test_route_query_with_existing_ticket(routing_service, mock_llm_provid
 
 
 # -------------------------
-# Ticket Rerouting Tests
-# -------------------------
-
-@pytest.mark.asyncio
-async def test_reroute_ticket_success(routing_service, mock_ticket_service, sample_ticket):
-    """Test successful ticket rerouting."""
-    # Setup mock
-    mock_ticket_service.get_ticket_by_id.return_value = sample_ticket
-
-    # Call the method
-    result = await routing_service.reroute_ticket(
-        "ticket-123", "frontend", "Needs frontend expertise"
-    )
-
-    # Assertions
-    assert result is True
-    mock_ticket_service.assign_ticket.assert_called_once_with(
-        "ticket-123", "frontend")
-    mock_ticket_service.add_note_to_ticket.assert_called_once()
-    note_text = mock_ticket_service.add_note_to_ticket.call_args[0][1]
-    assert "Rerouted to frontend" in note_text
-    assert "Needs frontend expertise" in note_text
-
-
-@pytest.mark.asyncio
-async def test_reroute_nonexistent_ticket(routing_service, mock_ticket_service):
-    """Test rerouting a ticket that doesn't exist."""
-    # Setup mock to return None for nonexistent ticket
-    mock_ticket_service.get_ticket_by_id.return_value = None
-
-    # Call the method
-    result = await routing_service.reroute_ticket(
-        "nonexistent-ticket", "frontend", "Needs frontend expertise"
-    )
-
-    # Assertions
-    assert result is False
-    mock_ticket_service.assign_ticket.assert_not_called()
-    mock_ticket_service.add_note_to_ticket.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_reroute_ticket_assignment_failure(routing_service, mock_ticket_service, sample_ticket):
-    """Test rerouting when ticket assignment fails."""
-    # Setup mocks
-    mock_ticket_service.get_ticket_by_id.return_value = sample_ticket
-    mock_ticket_service.assign_ticket.return_value = False  # Assignment fails
-
-    # Call the method
-    result = await routing_service.reroute_ticket(
-        "ticket-123", "frontend", "Needs frontend expertise"
-    )
-
-    # Assertions
-    assert result is False
-    mock_ticket_service.assign_ticket.assert_called_once()
-    mock_ticket_service.add_note_to_ticket.assert_not_called()  # Note should not be added
-
-
-# -------------------------
 # Agent Finding Tests
 # -------------------------
-
-@pytest.mark.asyncio
-async def test_find_best_human_agent(routing_service, mock_agent_service):
-    """Test finding the best human agent."""
-    # Call the method
-    result = await routing_service._find_best_human_agent(
-        "solana", ["blockchain", "frontend"]
-    )
-
-    # Should find human1 who has solana specialization and is available
-    assert result == "human1"
-
-    # Test with another specialization
-    result = await routing_service._find_best_human_agent(
-        "frontend", ["design"]
-    )
-
-    # Should find human2 who has frontend specialization
-    assert result == "human2"
-
-    # Test with a specialization no available human has
-    result = await routing_service._find_best_human_agent(
-        "mobile", ["android"]
-    )
-
-    # Should find no match
-    assert result is None
-
-    # Test with an unavailable human agent
-    result = await routing_service._find_best_human_agent(
-        "backend", ["database"]
-    )
-
-    # Should find no match since human3 is unavailable
-    assert result is None
-
 
 @pytest.mark.asyncio
 async def test_find_best_ai_agent(routing_service):
@@ -438,41 +309,3 @@ async def test_find_best_ai_agent_no_agents(routing_service, mock_agent_service)
     # Should return None when no AI agents exist
     assert selected_agent is None or (isinstance(
         selected_agent, tuple) and selected_agent[0] is None)
-
-
-def test_get_priority_from_complexity(routing_service):
-    """Test priority calculation from complexity."""
-    # Test all complexity levels
-    assert routing_service._get_priority_from_complexity(1) == 1
-    assert routing_service._get_priority_from_complexity(2) == 2
-    assert routing_service._get_priority_from_complexity(3) == 5
-    assert routing_service._get_priority_from_complexity(4) == 8
-    assert routing_service._get_priority_from_complexity(5) == 10
-
-    # Test default case
-    assert routing_service._get_priority_from_complexity(999) == 5
-
-
-@pytest.mark.asyncio
-async def test_route_query_with_no_matching_agents(routing_service, mock_llm_provider,
-                                                   mock_ticket_service, sample_query_analysis,
-                                                   sample_ticket):
-    """Test routing when no matching agents are found."""
-    # Setup mocks
-    mock_llm_provider.parse_structured_output.return_value = sample_query_analysis
-    mock_ticket_service.get_or_create_ticket.return_value = sample_ticket
-
-    # Patch the internal methods to return no matching agents
-    with patch.object(routing_service, '_find_best_human_agent',
-                      AsyncMock(return_value=None)), \
-        patch.object(routing_service, '_find_best_ai_agent',
-                     AsyncMock(return_value=None)):
-
-        # This should handle the case gracefully without exceptions
-        agent_name, ticket = await routing_service.route_query(
-            "user-456", "Query with no matching agents"
-        )
-
-        # agent_name will be None but the function should complete
-        assert agent_name is None
-        assert ticket == sample_ticket

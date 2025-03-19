@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Dict, List, Optional, Any
 from solana_agent.domains import UserFeedback
 from solana_agent.domains import Ticket, TicketNote
-from solana_agent.domains import AIAgent, HumanAgent, AgentPerformance
+from solana_agent.domains import AIAgent
 from solana_agent.domains import TicketStatus
 from solana_agent.domains import MemoryInsight
 
@@ -97,11 +97,6 @@ class AgentRepository(ABC):
         pass
 
     @abstractmethod
-    def get_all_human_agents(self) -> List[HumanAgent]:
-        """Get all human agents."""
-        pass
-
-    @abstractmethod
     def save_ai_agent(self, agent: AIAgent) -> bool:
         """Save an AI agent."""
         pass
@@ -109,36 +104,6 @@ class AgentRepository(ABC):
     @abstractmethod
     def delete_ai_agent(self, name: str) -> bool:
         """Delete an AI agent."""
-        pass
-
-    @abstractmethod
-    def get_human_agent(self, agent_id: str) -> Optional[HumanAgent]:
-        """Get a human agent by ID."""
-        pass
-
-    @abstractmethod
-    def get_human_agents_by_specialization(self, specialization: str) -> List[HumanAgent]:
-        """Get human agents with a specific specialization."""
-        pass
-
-    @abstractmethod
-    def get_available_human_agents(self) -> List[HumanAgent]:
-        """Get currently available human agents."""
-        pass
-
-    @abstractmethod
-    def save_human_agent(self, agent: HumanAgent) -> bool:
-        """Save a human agent."""
-        pass
-
-    @abstractmethod
-    def save_agent_performance(self, performance: AgentPerformance) -> bool:
-        """Save agent performance metrics."""
-        pass
-
-    @abstractmethod
-    def get_agent_performance(self, agent_id: str, period_start: datetime, period_end: datetime) -> Optional[AgentPerformance]:
-        """Get performance metrics for an agent within a time period."""
         pass
 
 
@@ -268,59 +233,5 @@ class FeedbackRepository(ABC):
 
         Returns:
             Dictionary mapping scores to counts
-        """
-        pass
-
-
-class HandoffRepository(ABC):
-    """Interface for handoff repositories."""
-
-    @abstractmethod
-    def record(self, handoff: Any) -> str:
-        """Record a new handoff.
-
-        Args:
-            handoff: Handoff object
-
-        Returns:
-            Handoff ID
-        """
-        pass
-
-    @abstractmethod
-    def find_for_agent(
-        self,
-        agent_name: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Any]:
-        """Find handoffs for an agent.
-
-        Args:
-            agent_name: Agent name
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-
-        Returns:
-            List of handoff objects
-        """
-        pass
-
-    @abstractmethod
-    def count_for_agent(
-        self,
-        agent_name: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> int:
-        """Count handoffs for an agent.
-
-        Args:
-            agent_name: Agent name
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-
-        Returns:
-            Number of handoffs
         """
         pass

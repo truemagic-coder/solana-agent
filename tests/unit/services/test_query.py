@@ -100,7 +100,6 @@ def query_service(patched_ticket_status):
     agent_service = Mock()
     routing_service = Mock()
     ticket_service = Mock()
-    handoff_service = Mock()
     memory_service = Mock()
     nps_service = Mock()
     command_service = Mock()
@@ -112,19 +111,10 @@ def query_service(patched_ticket_status):
         agent_service=agent_service,
         routing_service=routing_service,
         ticket_service=ticket_service,
-        handoff_service=handoff_service,
         memory_service=memory_service,
         nps_service=nps_service,
         command_service=command_service
     )
-
-    # Stop any background tasks from running
-    if hasattr(service, '_stalled_ticket_task') and service._stalled_ticket_task:
-        service._stalled_ticket_task.cancel()
-
-    # Make shutdown event always set to prevent background tasks
-    service._shutdown_event = asyncio.Event()
-    service._shutdown_event.set()
 
     # Patch the main process method to avoid actual implementation
     with patch.object(TestQueryService, 'process', mock_process):
@@ -226,88 +216,9 @@ def test_truncate_long_text(query_service):
     assert truncated.endswith(".") or truncated.endswith("...")
 
 
-# ---------------------
+# -------------------------------------
 # Component Tests with direct mocking
-# ---------------------
-
-@pytest.mark.asyncio
-async def test_check_for_stalled_tickets():
-    """Test checking for stalled tickets."""
-    # Create mocks with spy for debugging
-    mock_ticket_service = Mock()
-    mock_routing_service = Mock()
-    mock_handoff_service = Mock()
-
-    # Set up test data
-    stalled_ticket = Mock(
-        id="stalled-123",
-        user_id="user1",
-        assigned_to="busy_agent",
-        description="forgotten request"  # Note: using description instead of query
-    )
-
-    mock_ticket_service.find_stalled_tickets = Mock(
-        return_value=[stalled_ticket])
-    mock_routing_service.route_query = AsyncMock(
-        return_value=("available_agent", Mock(id="new-ticket")))
-    mock_handoff_service.process_handoff = AsyncMock()
-
-    # Create service with extensive patching
-    with patch("solana_agent.domains.TicketStatus") as mock_status, \
-            patch("solana_agent.domains.Ticket") as mock_ticket_class, \
-            patch("asyncio.create_task") as mock_create_task:
-
-        # Set required enum values
-        mock_status.ACTIVE = "ACTIVE"
-        mock_status.STALLED = "STALLED"
-        mock_status.NEW = "NEW"
-        mock_status.RESOLVED = "RESOLVED"
-        mock_status.PLANNING = "PLANNING"
-
-        # Skip background task creation
-        mock_create_task.return_value = Mock()
-
-        # Create test service
-        service = TestQueryService(
-            agent_service=Mock(),
-            routing_service=mock_routing_service,
-            ticket_service=mock_ticket_service,
-            handoff_service=mock_handoff_service,
-            memory_service=Mock(),
-            nps_service=Mock(),
-            command_service=Mock(),
-            stalled_ticket_timeout=60
-        )
-
-        # Important: disable background tasks
-        service._shutdown_event = asyncio.Event()
-        service._shutdown_event.set()
-
-        # Create direct implementation of _check_for_stalled_tickets that doesn't rely on any internal methods
-        async def direct_check():
-            tickets = mock_ticket_service.find_stalled_tickets(
-                minutes=service.stalled_ticket_timeout)
-
-            for ticket in tickets:
-                agent_id, _ = await mock_routing_service.route_query(
-                    user_id=ticket.user_id,
-                    query=ticket.description  # Use description as the query
-                )
-                # Process handoff directly
-                await mock_handoff_service.process_handoff(
-                    ticket_id=ticket.id,
-                    from_agent_id=ticket.assigned_to,
-                    to_agent_id=agent_id,
-                    reason="Ticket was stalled"
-                )
-
-        # Call our direct implementation
-        await direct_check()
-
-    # Verify the expected methods were called
-    mock_ticket_service.find_stalled_tickets.assert_called_once()
-    mock_routing_service.route_query.assert_awaited_once()
-    mock_handoff_service.process_handoff.assert_awaited_once()
+# -------------------------------------
 
 
 @pytest.mark.asyncio
@@ -327,7 +238,6 @@ async def test_memory_integration():
         agent_service=Mock(),
         routing_service=Mock(),
         ticket_service=Mock(),
-        handoff_service=Mock(),
         memory_service=mock_memory_service,
         nps_service=Mock(),
         command_service=Mock(),

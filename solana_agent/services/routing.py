@@ -101,23 +101,10 @@ class RoutingService(RoutingServiceInterface):
             }
         )
 
-        # Find appropriate agent based on analysis
-        selected_agent = None
-
-        # For complex queries requiring human assistance
-        if analysis["complexity_level"] >= 4 and analysis["requires_human"]:
-            # Try to find a human agent first
-            selected_agent = await self._find_best_human_agent(
-                analysis["primary_specialization"],
-                analysis["secondary_specializations"]
-            )
-
-        # If no human agent, find an AI agent
-        if not selected_agent:
-            selected_agent = await self._find_best_ai_agent(
-                analysis["primary_specialization"],
-                analysis["secondary_specializations"]
-            )
+        selected_agent = await self._find_best_ai_agent(
+            analysis["primary_specialization"],
+            analysis["secondary_specializations"]
+        )
 
         # Only assign ticket if it's new
         if ticket.status == "new":
@@ -133,106 +120,6 @@ class RoutingService(RoutingServiceInterface):
             )
 
         return selected_agent, ticket
-
-    async def reroute_ticket(self, ticket_id: str, target_agent: str, reason: str) -> bool:
-        """Reroute a ticket to a different agent.
-
-        Args:
-            ticket_id: Ticket ID
-            target_agent: Target agent name
-            reason: Reason for rerouting
-
-        Returns:
-            True if rerouting was successful
-        """
-        # Get current ticket
-        ticket = self.ticket_service.get_ticket_by_id(ticket_id)
-        if not ticket:
-            return False
-
-        # Update ticket assignment
-        success = self.ticket_service.assign_ticket(ticket_id, target_agent)
-
-        if success:
-            self.ticket_service.add_note_to_ticket(
-                ticket_id,
-                f"Rerouted to {target_agent}. Reason: {reason}",
-                "system"
-            )
-
-        return success
-
-    def _get_priority_from_complexity(self, complexity_level: int) -> int:
-        """Convert complexity level to priority.
-
-        Args:
-            complexity_level: Complexity level (1-5)
-
-        Returns:
-            Priority value
-        """
-        # Map complexity to priority (higher complexity = higher priority)
-        # Priority scale can be adjusted as needed
-        priority_map = {
-            1: 1,  # Low complexity = low priority
-            2: 2,
-            3: 5,  # Medium complexity = medium priority
-            4: 8,
-            5: 10  # High complexity = high priority
-        }
-        # Default to medium priority
-        return priority_map.get(complexity_level, 5)
-
-    async def _find_best_human_agent(
-        self,
-        primary_specialization: str,
-        secondary_specializations: List[str],
-    ) -> Optional[str]:
-        """Find the best human agent for a query based on specialization and availability.
-
-        Args:
-            primary_specialization: Primary specialization needed
-            secondary_specializations: Secondary specializations
-
-        Returns:
-            Best human agent name or None if not found
-        """
-        human_agents = self.agent_service.get_all_human_agents()
-        if not human_agents:
-            return None
-
-        # Create a list to score agents
-        agent_scores = []
-
-        for agent_id, agent in human_agents.items():
-            # Skip if agent isn't available
-            if not agent.availability:
-                continue
-
-            # Base score
-            score = 0
-
-            # Check primary specialization
-            primary_match = any(s.lower() == primary_specialization.lower()
-                                for s in agent.specializations)
-            if primary_match:
-                score += 10
-
-            # Check secondary specializations
-            for sec_spec in secondary_specializations:
-                if any(s.lower() == sec_spec.lower() for s in agent.specializations):
-                    score += 3
-
-            agent_scores.append((agent_id, score, agent))
-
-        # Sort by score
-        agent_scores.sort(key=lambda x: x[1], reverse=True)
-
-        # Return the highest scoring agent, if any
-        if agent_scores and agent_scores[0][1] > 0:
-            return agent_scores[0][0]
-
-        return None
 
     async def _find_best_ai_agent(
         self,

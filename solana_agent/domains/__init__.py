@@ -9,11 +9,9 @@ business objects and value types in the system.
 from solana_agent.domains.agents import *
 from solana_agent.domains.enums import *
 from solana_agent.domains.feedback import *
-from solana_agent.domains.handoff import *
 from solana_agent.domains.memory import *
 from solana_agent.domains.models import *
 from solana_agent.domains.plugins import *
-from solana_agent.domains.tasks import *
 from solana_agent.domains.tickets import *
 
 # Version of the domain model
