@@ -1,6 +1,5 @@
-from typing import Dict, List, Any
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 from solana_agent.services.query import QueryService
 
 # Test Data

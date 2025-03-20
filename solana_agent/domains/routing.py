@@ -1,9 +1,4 @@
-"""
-General domain models.
-
-These models define structures used across the system.
-"""
-from typing import Dict, List, Optional, Any
+from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -17,9 +12,3 @@ class QueryAnalysis(BaseModel):
                                   description="Complexity level (1-5)")
     topics: List[str] = Field(..., description="Key topics in the query")
     confidence: float = Field(..., description="Confidence in the analysis")
-
-
-class ToolUsage(BaseModel):
-    use_tool: bool
-    tool_name: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None

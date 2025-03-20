@@ -14,9 +14,9 @@ from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 
 # Useful tools and utilities
-from solana_agent.plugins import PluginManager
-from solana_agent.plugins import ToolRegistry
-from solana_agent.plugins import AutoTool
+from solana_agent.plugins.manager import PluginManager
+from solana_agent.plugins.registry import ToolRegistry
+from solana_agent.plugins.tools import AutoTool
 
 # Package metadata
 __all__ = [

@@ -6,7 +6,7 @@ and can be extended to create custom tools.
 """
 from typing import Dict, Any
 
-from solana_agent.interfaces import Tool
+from solana_agent.interfaces.plugins.plugins import Tool
 
 
 class AutoTool(Tool):

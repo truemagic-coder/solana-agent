@@ -1,44 +1,7 @@
-"""
-Repository interfaces for data access.
-
-These interfaces define the contracts for data access components,
-allowing for different storage implementations (MongoDB, memory, etc.)
-without changing the business logic.
-"""
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
-from solana_agent.domains import AIAgent
+from typing import Dict, List
 
-from solana_agent.domains import MemoryInsight
-
-
-class AgentRepository(ABC):
-    """Interface for agent data access."""
-
-    @abstractmethod
-    def get_ai_agent_by_name(self, name: str) -> Optional[AIAgent]:
-        """Get an AI agent by name."""
-        pass
-
-    @abstractmethod
-    def get_ai_agent(self, name: str) -> Optional[AIAgent]:
-        """Get an AI agent by name."""
-        pass
-
-    @abstractmethod
-    def get_all_ai_agents(self) -> List[AIAgent]:
-        """Get all AI agents."""
-        pass
-
-    @abstractmethod
-    def save_ai_agent(self, agent: AIAgent) -> bool:
-        """Save an AI agent."""
-        pass
-
-    @abstractmethod
-    def delete_ai_agent(self, name: str) -> bool:
-        """Delete an AI agent."""
-        pass
+from solana_agent.domains.memory import MemoryInsight
 
 
 class MemoryRepository(ABC):

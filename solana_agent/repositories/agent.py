@@ -3,8 +3,8 @@ MongoDB implementation of the agent repository.
 """
 from typing import List, Optional, Any
 
-from solana_agent.domains import AIAgent
-from solana_agent.interfaces import AgentRepository
+from solana_agent.domains.agents import AIAgent
+from solana_agent.interfaces.repositories.agent import AgentRepository
 
 
 class MongoAgentRepository(AgentRepository):

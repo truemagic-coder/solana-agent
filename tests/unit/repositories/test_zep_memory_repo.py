@@ -8,7 +8,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime
 
 from solana_agent.repositories.zep_memory import ZepMemoryRepository
-from solana_agent.domains import MemoryInsight
+from solana_agent.domains.memory import MemoryInsight
 
 
 # Mock Zep client classes and response types

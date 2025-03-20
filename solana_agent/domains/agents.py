@@ -6,7 +6,7 @@ AI agents, human agents, and organization mission/values.
 """
 from typing import List, Optional, Dict, Any, Union
 # Import the class directly, not the module
-from datetime import datetime, timedelta
+from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 

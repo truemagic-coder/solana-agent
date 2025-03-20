@@ -3,7 +3,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from solana_agent.services.routing import RoutingService
-from solana_agent.domains import QueryAnalysis, AIAgent
+from solana_agent.domains.agents import AIAgent
+from solana_agent.domains.routing import QueryAnalysis
 
 # Test Data
 TEST_QUERY = "How do I setup a Solana validator?"

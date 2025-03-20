@@ -1,9 +1,8 @@
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, List, AsyncGenerator
+from unittest.mock import Mock
 
 from solana_agent.services.agent import AgentService
-from solana_agent.domains import AIAgent, OrganizationMission
+from solana_agent.domains.agents import AIAgent, OrganizationMission
 from solana_agent.plugins.registry import ToolRegistry
 
 

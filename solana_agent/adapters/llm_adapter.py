@@ -3,14 +3,12 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
-import json
-import traceback
-from typing import AsyncGenerator, Dict, List, Optional, Any, Type, TypeVar
+from typing import AsyncGenerator, List, Type, TypeVar
 
 from openai import OpenAI
 from pydantic import BaseModel
 
-from solana_agent.interfaces import LLMProvider
+from solana_agent.interfaces.providers.llm import LLMProvider
 
 T = TypeVar('T', bound=BaseModel)
 

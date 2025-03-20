@@ -307,26 +307,6 @@ class TestMongoMemoryRepository:
         # so we're just verifying the MongoDB operations succeed
         assert result is True
 
-    def test_store_conversation_entry(self, memory_repo, mock_db_adapter):
-        """Test storing a conversation entry."""
-        user_id = "user123"
-        user_message = "How can I help improve the product?"
-        assistant_message = "You can provide feedback through our survey."
-
-        # Store conversation
-        memory_repo.store_conversation_entry(
-            user_id, user_message, assistant_message)
-
-        # Verify DB operations
-        mock_db_adapter.insert_one.assert_called_once()
-        collection, data = mock_db_adapter.insert_one.call_args[0]
-
-        assert collection == "messages"
-        assert data["user_id"] == user_id
-        assert data["user_message"] == user_message
-        assert data["assistant_message"] == assistant_message
-        assert "timestamp" in data
-
     def test_vector_store_error_handling(self, full_memory_repo, mock_vector_store,
                                          mock_llm_provider, sample_insight):
         """Test error handling when vector store operations fail."""

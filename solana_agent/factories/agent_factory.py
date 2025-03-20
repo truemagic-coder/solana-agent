@@ -23,8 +23,8 @@ from solana_agent.adapters.memory_adapter import MongoMemoryProvider, ZepMemoryA
 from solana_agent.adapters.vector_adapter import QdrantAdapter, PineconeAdapter
 
 # Domain and plugin imports
-from solana_agent.domains import OrganizationMission
-from solana_agent.plugins import PluginManager
+from solana_agent.domains.agents import OrganizationMission
+from solana_agent.plugins.manager import PluginManager
 
 
 class SolanaAgentFactory:

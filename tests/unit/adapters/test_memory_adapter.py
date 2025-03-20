@@ -5,7 +5,7 @@ This module contains unit tests for MongoMemoryProvider and DualMemoryProvider.
 """
 import pytest
 import datetime
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, MagicMock
 
 from solana_agent.adapters.memory_adapter import (
     MongoMemoryProvider,

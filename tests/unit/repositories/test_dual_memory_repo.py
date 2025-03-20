@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from solana_agent.repositories.dual_memory import DualMemoryRepository
-from solana_agent.domains import MemoryInsight
+from solana_agent.domains.memory import MemoryInsight
 
 
 @pytest.fixture

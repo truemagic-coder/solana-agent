@@ -8,7 +8,6 @@ from unittest.mock import Mock, AsyncMock, patch
 import datetime
 
 from solana_agent.services.memory import MemoryService
-from solana_agent.domains import MemoryInsight
 
 
 # ---------------------

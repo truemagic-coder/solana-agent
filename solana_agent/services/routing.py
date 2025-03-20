@@ -5,9 +5,10 @@ This service manages query routing to appropriate agents based on
 specializations and query analysis.
 """
 from typing import Dict, List, Optional, Any
-from solana_agent.interfaces import RoutingService as RoutingServiceInterface
-from solana_agent.interfaces import AgentService, LLMProvider
-from solana_agent.domains import QueryAnalysis
+from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
+from solana_agent.interfaces.services.agent import AgentService
+from solana_agent.interfaces.providers.llm import LLMProvider
+from solana_agent.domains.routing import QueryAnalysis
 
 
 class RoutingService(RoutingServiceInterface):

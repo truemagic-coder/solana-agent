@@ -5,13 +5,13 @@ This service orchestrates the processing of user queries, coordinating
 other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
-from typing import AsyncGenerator, Dict, Optional, Any
+from typing import AsyncGenerator, Dict, Optional
 
-from solana_agent.interfaces import QueryService as QueryServiceInterface
-from solana_agent.interfaces import (
-    AgentService, RoutingService, MemoryService,
-)
-from solana_agent.interfaces import MemoryProvider
+from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
+from solana_agent.interfaces.services.agent import AgentService
+from solana_agent.interfaces.services.routing import RoutingService
+from solana_agent.interfaces.services.memory import MemoryService
+from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
 class QueryService(QueryServiceInterface):

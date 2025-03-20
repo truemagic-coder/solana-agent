@@ -4,13 +4,13 @@ MongoDB implementation of the memory repository.
 This repository handles storing and retrieving memory insights and conversation history.
 """
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
-from solana_agent.interfaces import MemoryRepository
-from solana_agent.interfaces import DataStorageProvider
-from solana_agent.interfaces import VectorStoreProvider
-from solana_agent.interfaces import LLMProvider
-from solana_agent.domains import MemoryInsight
+from solana_agent.interfaces.repositories.memory import MemoryRepository
+from solana_agent.interfaces.providers.data_storage import DataStorageProvider
+from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
+from solana_agent.interfaces.providers.llm import LLMProvider
+from solana_agent.domains.memory import MemoryInsight
 
 
 class MongoMemoryRepository(MemoryRepository):
@@ -19,7 +19,7 @@ class MongoMemoryRepository(MemoryRepository):
     def __init__(
         self,
         db_adapter: DataStorageProvider,
-        vector_store: Optional[VectorStoreProvider] = None,
+        vector_store: Optional[VectorStorageProvider] = None,
         llm_provider: Optional[LLMProvider] = None
     ):
         """Initialize the memory repository.
@@ -187,25 +187,6 @@ class MongoMemoryRepository(MemoryRepository):
                 print(f"Error deleting from vector store: {e}")
 
         return True
-
-    def store_conversation_entry(
-        self, user_id: str, user_message: str, assistant_message: str
-    ) -> None:
-        """Store a conversation entry.
-
-        Args:
-            user_id: User ID
-            user_message: User message
-            assistant_message: Assistant message
-        """
-        entry = {
-            "user_id": user_id,
-            "user_message": user_message,
-            "assistant_message": assistant_message,
-            "timestamp": datetime.now()
-        }
-
-        self.db.insert_one(self.history_collection, entry)
 
     def count_user_history(self, user_id: str) -> int:
         """Count the number of conversation pairs for a user.

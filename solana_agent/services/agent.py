@@ -9,11 +9,11 @@ from datetime import datetime
 import json
 from typing import AsyncGenerator, Dict, List, Optional, Any
 
-from solana_agent.interfaces import AgentService as AgentServiceInterface
-from solana_agent.interfaces import LLMProvider
-from solana_agent.interfaces import AgentRepository
-from solana_agent.interfaces import ToolRegistry
-from solana_agent.domains import AIAgent, OrganizationMission
+from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
+from solana_agent.interfaces.providers.llm import LLMProvider
+from solana_agent.interfaces.repositories.agent import AgentRepository
+from solana_agent.interfaces.plugins.plugins import ToolRegistry
+from solana_agent.domains.agents import AIAgent, OrganizationMission
 
 
 class AgentService(AgentServiceInterface):

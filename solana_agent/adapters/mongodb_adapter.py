@@ -4,11 +4,11 @@ MongoDB adapter for the Solana Agent system.
 This adapter implements the DataStorageProvider interface for MongoDB.
 """
 import uuid
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional
 
 from pymongo import MongoClient
 
-from solana_agent.interfaces import DataStorageProvider
+from solana_agent.interfaces.providers.data_storage import DataStorageProvider
 
 
 class MongoDBAdapter(DataStorageProvider):

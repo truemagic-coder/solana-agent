@@ -1,17 +1,17 @@
 """
 Vector database adapters for the Solana Agent system.
 
-These adapters implement the VectorStoreProvider interface for different vector databases.
+These adapters implement the VectorStorageProvider interface for different vector databases.
 """
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 from pinecone import Pinecone
 
-from solana_agent.interfaces import VectorStoreProvider
+from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
 
 
-class PineconeAdapter(VectorStoreProvider):
-    """Pinecone implementation of VectorStoreProvider."""
+class PineconeAdapter(VectorStorageProvider):
+    """Pinecone implementation of VectorStorageProvider."""
 
     def __init__(
         self,
@@ -55,8 +55,8 @@ class PineconeAdapter(VectorStoreProvider):
         self.index.delete(ids=[id], namespace=namespace)
 
 
-class QdrantAdapter(VectorStoreProvider):
-    """Qdrant implementation of VectorStoreProvider."""
+class QdrantAdapter(VectorStorageProvider):
+    """Qdrant implementation of VectorStorageProvider."""
 
     def __init__(
         self,

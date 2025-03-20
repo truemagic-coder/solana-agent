@@ -4,7 +4,7 @@ Plugin system domain models.
 These models define the core data structures for the plugin system,
 aligning with the existing AutoTool implementation pattern.
 """
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from pydantic import BaseModel, Field
 
 

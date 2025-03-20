@@ -6,8 +6,8 @@ and their access permissions.
 """
 from typing import Dict, List, Any, Optional
 
-from solana_agent.interfaces import ToolRegistry as ToolRegistryInterface
-from solana_agent.interfaces import Tool
+from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
+from solana_agent.interfaces.plugins.plugins import Tool
 
 
 class ToolRegistry(ToolRegistryInterface):

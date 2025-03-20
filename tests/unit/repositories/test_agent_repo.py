@@ -4,11 +4,11 @@ Tests for agent repository implementations.
 This module contains unit tests for MongoAgentRepository.
 """
 import pytest
-from unittest.mock import Mock, patch
-from datetime import datetime, timedelta
+from unittest.mock import Mock
+from datetime import datetime
 
 from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.domains import AIAgent
+from solana_agent.domains.agents import AIAgent
 
 
 @pytest.fixture

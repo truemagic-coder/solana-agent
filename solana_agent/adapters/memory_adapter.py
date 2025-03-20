@@ -10,7 +10,8 @@ from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 
-from solana_agent.interfaces import MemoryProvider, DataStorageProvider
+from solana_agent.interfaces.providers.memory import MemoryProvider
+from solana_agent.interfaces.providers.data_storage import DataStorageProvider
 
 
 class ZepMemoryAdapter(MemoryProvider):
