@@ -18,22 +18,17 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "^1.67.0"
+openai = "^1.68.0"
 pydantic = "^2.10.6"
 pymongo = "^4.11.3"
 zep-cloud = "^2.7.0"
 zep-python = "^2.0.2"
 requests = "^2.32.3"
-pinecone = "^6.0.2"
-pandas = "^2.2.3"
-ntplib = "^0.4.0"
-qdrant-client = "^1.13.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.3.5"
 pytest-cov = "^6.0.0"
 pytest-asyncio = "^0.25.3"
-hypothesis = "^6.129.4"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
