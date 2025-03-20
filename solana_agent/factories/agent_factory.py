@@ -10,7 +10,6 @@ from typing import Dict, Any
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.services.memory import MemoryService
 
 # Repository imports
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
@@ -89,8 +88,6 @@ class SolanaAgentFactory:
         print(
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
-        memory_service = MemoryService(memory_repo, llm_adapter)
-
         # Create routing service
         routing_service = RoutingService(
             llm_provider=llm_adapter,
@@ -107,7 +104,7 @@ class SolanaAgentFactory:
 
         # Sync MongoDB with config-defined agents
         config_defined_agents = [agent["name"]
-                                 for agent in config.get("ai_agents", [])]
+                                 for agent in config.get("agents", [])]
         all_db_agents = agent_repo.get_all_ai_agents()
         db_agent_names = [agent.name for agent in all_db_agents]
 
@@ -157,7 +154,6 @@ class SolanaAgentFactory:
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,
-            memory_service=memory_service,
             memory_provider=memory_provider,
         )
 

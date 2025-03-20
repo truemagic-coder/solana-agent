@@ -5,12 +5,11 @@ This service orchestrates the processing of user queries, coordinating
 other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
-from typing import AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Optional
 
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
-from solana_agent.interfaces.services.agent import AgentService
-from solana_agent.interfaces.services.routing import RoutingService
-from solana_agent.interfaces.services.memory import MemoryService
+from solana_agent.services.agent import AgentService
+from solana_agent.services.routing import RoutingService
 from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
@@ -21,7 +20,6 @@ class QueryService(QueryServiceInterface):
         self,
         agent_service: AgentService,
         routing_service: RoutingService,
-        memory_service: MemoryService,
         memory_provider: Optional[MemoryProvider] = None,
     ):
         """Initialize the query service.
@@ -29,12 +27,10 @@ class QueryService(QueryServiceInterface):
         Args:
             agent_service: Service for AI agent management
             routing_service: Service for routing queries to appropriate agents
-            memory_service: Service for memory operations
             memory_provider: Optional provider for memory storage and retrieval
         """
         self.agent_service = agent_service
         self.routing_service = routing_service
-        self.memory_service = memory_service
         self.memory_provider = memory_provider
 
     async def process(
@@ -82,39 +78,12 @@ class QueryService(QueryServiceInterface):
             # Store conversation and extract insights
             if self.memory_provider:
                 await self._store_conversation(user_id, user_text, full_response)
-                await self._extract_and_store_insights(
-                    user_id,
-                    {"user": user_text, "assistant": full_response}
-                )
 
         except Exception as e:
             yield f"I apologize for the technical difficulty. {str(e)}"
             import traceback
             print(f"Error in query processing: {str(e)}")
             print(traceback.format_exc())
-
-    async def _extract_and_store_insights(
-        self, user_id: str, conversation: Dict[str, str]
-    ) -> None:
-        """Extract insights from conversation and store in collective memory.
-
-        Args:
-            user_id: User ID
-            conversation: Conversation data
-        """
-        if not self.memory_service:
-            return
-
-        try:
-            # Extract insights
-            insights = await self.memory_service.extract_insights(conversation)
-
-            # Store them if any found
-            if insights:
-                await self.memory_service.store_insights(user_id, insights)
-
-        except Exception as e:
-            print(f"Error extracting insights: {e}")
 
     async def _store_conversation(
         self, user_id: str, user_text: str, response_text: str

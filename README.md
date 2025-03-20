@@ -10,45 +10,10 @@
 
 ## Technical Features
 
-- **🗣️ Advanced Interaction Layer:**  
-    Streaming text-based conversations with real-time thinking.  
-    Multi-turn context preservation and reasoning.
-
-- **🧠 Distributed Intelligence Capabilities:**  
-    Cross-domain knowledge integration from multiple sources.  
-    Self-organizing information architecture.  
-    Autonomous knowledge extraction and refinement.  
-    Time-aware contextual responses.  
-    Self-critical improvement systems. 
-
-- **🛡️ Governance Framework:**  
-    Define organization-wide values and operating principles in code.  
-    Consistent decision-making aligned with organizational priorities.  
-    Privacy-preserving knowledge sharing with configurable controls.  
-    Transparent insight extraction with review capabilities.  
-    Performance analytics across the agent network.
-
-- **🔌 Standard Python Plugin System:**  
-    Extensible architecture using Python's native package ecosystem.  
-    PyPI-compatible plugin distribution with standard dependency management.  
-    Entry point registration for seamless discovery.  
-    Tool registry for AI agent capability extension.  
-    Permission-based tool access for security and control.  
-    Clean interface for third-party integrations through standard Python APIs.  
-    Runtime tool discovery without service restarts.
-
-## Implementation Technologies
-
-Solana Agent leverages multiple technologies to enable these capabilities:
-
-- **Knowledge Integration:**  
-    Zep memory and Pinecone or Qdrant vector search.
-- **Collaborative Intelligence:**  
-    Multi-agent swarm architecture with specialized expertise domains.
-- **Organization Alignment:**  
-    Unified mission framework, critic system, and collective memory.
-- **External Integration:**  
-    Plugin system for extensible tool capabilities and API connections.
+* Text streaming messages by AI Agents
+* Routing based on AI Agent specializations
+* Built-in default Internet Search for AI Agents
+* Robust AI Agent tool plugins based on standard python packages
 
 ## Installation
 
@@ -89,12 +54,7 @@ config = {
         "api_key": "your-openai-key",
         "default_model": "gpt-4o-mini"
     },
-    "pinecone": {
-        "api_key": "your-pinecone-key",
-        "index": "your-index"
-    },
-    "stalled_ticket_timeout": 60,
-    "ai_agents": [
+    "agents": [
         {
             "name": "research_specialist",
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
@@ -109,19 +69,6 @@ config = {
             "model": "gpt-4o-mini"
         }
     ],
-    "human_agents": [
-        {
-            "agent_id": "expert_dev",
-            "name": "Senior Developer", 
-            "specialization": "Complex technical issues"
-        },
-        {
-            "agent_id": "support_lead",
-            "name": "Support Team Lead",
-            "specialization": "Escalated customer issues"
-        }
-    ],
-    "perplexity_api_key": "your-perplexity-key"  # For internet search plugin
 }
 
 # Create agent with configuration

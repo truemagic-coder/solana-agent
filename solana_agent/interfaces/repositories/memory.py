@@ -1,21 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List
 
-from solana_agent.domains.memory import MemoryInsight
-
 
 class MemoryRepository(ABC):
     """Interface for memory storage and retrieval."""
-
-    @abstractmethod
-    def store_insight(self, user_id: str, insight: MemoryInsight) -> None:
-        """Store a memory insight.
-
-        Args:
-            user_id: ID of the user the insight relates to
-            insight: Memory insight to store
-        """
-        pass
 
     @abstractmethod
     def search(self, query: str, limit: int = 5) -> List[Dict]:

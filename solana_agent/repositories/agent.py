@@ -13,7 +13,7 @@ class MongoAgentRepository(AgentRepository):
     def __init__(self, db_adapter):
         """Initialize the repository with a database adapter."""
         self.db = db_adapter
-        self.ai_agents_collection = "ai_agents"
+        self.ai_agents_collection = "agents"
 
         # Ensure collections exist
         self.db.create_collection(self.ai_agents_collection)
