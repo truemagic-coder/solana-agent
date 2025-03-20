@@ -209,7 +209,7 @@ class AgentService(AgentServiceInterface):
 
         # Add memory context
         if memory_context:
-            system_prompt += f"\n\nContext: {memory_context}"
+            system_prompt += f"\n\n Memory Context: {memory_context}"
 
         try:
             json_response = ""

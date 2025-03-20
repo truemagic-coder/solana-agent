@@ -56,6 +56,18 @@ class MemoryRepository(MemoryProvider):
 
         # Store in Zep with role-based format
         try:
+            try:
+                await self.zep.user.add(user_id=user_id)
+            except Exception:
+                pass
+            try:
+                await self.zep.memory.add_session(
+                    session_id=user_id,
+                    user_id=user_id,
+                )
+            except Exception:
+                pass
+
             zep_messages = [
                 Message(
                     role=msg["role"],
@@ -71,8 +83,7 @@ class MemoryRepository(MemoryProvider):
     async def retrieve(self, user_id: str) -> str:
         """Retrieve memory context from Zep only."""
         try:
-            session = await self.zep.memory.get_session(user_id)
-            memory = await self.zep.memory.get(session_id=session.id)
+            memory = await self.zep.memory.get(session_id=user_id)
 
             return memory.context
 

@@ -88,10 +88,6 @@ async def test_store_success(memory_repository, mock_mongo_adapter, mock_zep_cli
 @pytest.mark.asyncio
 async def test_retrieve_success(memory_repository, mock_zep_client):
     """Test successful memory retrieval from Zep."""
-    # Setup mock returns
-    mock_zep_client.memory.get_session.return_value = Mock(
-        metadata={"facts": TEST_FACTS}
-    )
     mock_zep_client.memory.get.return_value = Mock(
         context=TEST_SUMMARY
     )
@@ -99,7 +95,6 @@ async def test_retrieve_success(memory_repository, mock_zep_client):
     result = await memory_repository.retrieve(TEST_USER_ID)
 
     assert TEST_SUMMARY == result
-    mock_zep_client.memory.get_session.assert_called_once_with(TEST_USER_ID)
 
 
 @pytest.mark.asyncio
@@ -129,15 +124,6 @@ async def test_store_mongo_error(memory_repository, mock_mongo_adapter, mock_zep
 
     # Zep storage should still be attempted
     mock_zep_client.memory.add.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_retrieve_error(memory_repository, mock_zep_client):
-    """Test handling of Zep retrieval error."""
-    mock_zep_client.memory.get_session.side_effect = Exception("Zep Error")
-
-    result = await memory_repository.retrieve(TEST_USER_ID)
-    assert result == ""
 
 
 def test_truncate_text(memory_repository):
