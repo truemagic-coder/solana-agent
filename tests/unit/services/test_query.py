@@ -1,267 +1,133 @@
-"""
-Tests for the QueryService implementation.
-
-This module tests the query orchestration service that coordinates
-user query processing, ticket management, and agent interactions.
-"""
+from typing import Dict, List, Any
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from typing import Dict, Any
-
+from unittest.mock import Mock, AsyncMock, patch
 from solana_agent.services.query import QueryService
 
-
-class TestQueryService(QueryService):
-    """Test implementation of QueryService that implements required abstract methods."""
-
-    async def assess_task_complexity(self, query: str) -> Dict[str, Any]:
-        """Test implementation of abstract method."""
-        if query in ["hi", "hello"]:
-            return {
-                "t_shirt_size": "XS",
-                "story_points": 1,
-                "estimated_minutes": 5
-            }
-        elif query.startswith("!"):
-            return {
-                "t_shirt_size": "XS",
-                "story_points": 1,
-                "estimated_minutes": 5
-            }
-        else:
-            return {
-                "t_shirt_size": "M",
-                "story_points": 5,
-                "estimated_minutes": 60
-            }
-
-    async def check_handoff_needed(self, agent_id: str, user_id: str, query: str) -> bool:
-        """Test implementation of abstract method."""
-        return False
-
-    async def handle_system_command(self, user_id: str, command: str) -> str:
-        """Test implementation of abstract method."""
-        if self.command_service:
-            return await self.command_service.process_command(user_id, command)
-        return "Command processed"
-
-    async def route_query(self, user_id: str, query: str) -> tuple:
-        """Test implementation of abstract method."""
-        if self.routing_service:
-            return await self.routing_service.route_query(user_id, query)
-        return "default_agent", None
+# Test Data
+TEST_USER_ID = "test_user"
+TEST_QUERY = "What's new in Solana?"
+TEST_RESPONSE = "Here's what's new in Solana..."
+TEST_MEMORY_CONTEXT = "Previous context about Solana..."
+TEST_INSIGHTS = ["Solana interest", "DeFi focus"]
 
 
-# Override the process method to avoid actual implementation
-async def mock_process(self, user_id, text):
-    """Mock implementation of process method to avoid all the complex logic."""
-    if text.startswith("!"):
-        yield "Command executed successfully"
-    elif "error" in text:
-        yield "I apologize for the technical difficulty. Test error"
-    elif "handoff" in text or "transfer" in text:
-        yield "I'll need to transfer you to a specialist.\n"
-        yield "I'm the specialist. Here's your detailed answer."
-    elif "complex" in text or "breakdown" in text:
-        yield "I've analyzed your request and it's a complex task that should be broken down."
-        yield " I've created a plan with the following steps: 1. First step 2. Second step"
-    elif "project" in text or "simulate" in text:
-        yield "Analyzing project feasibility...\n"
-        yield "Project Simulation Results:\n"
-        yield "- Complexity: Medium\n"
-        yield "- Timeline: 2 weeks\n"
-        yield "- Risk: Moderate\n"
-        yield "This project has been submitted for approval."
-    else:
-        yield "This is a response for your question."
+class AsyncGeneratorMock:
+    """Helper class for mocking async generators."""
 
+    def __init__(self, items=None, error=None):
+        self.items = items or []
+        self.error = error
+        self.calls = []
+        self.kwargs_history = []
 
-# ---------------------
-# Tests
-# ---------------------
-
-@pytest.fixture
-def patched_ticket_status():
-    """Create a patched TicketStatus enum for tests."""
-    with patch("solana_agent.domains.TicketStatus") as mock_status:
-        # Add required attributes
-        mock_status.ACTIVE = "ACTIVE"
-        mock_status.NEW = "NEW"
-        mock_status.PLANNING = "PLANNING"
-        mock_status.STALLED = "STALLED"
-        mock_status.RESOLVED = "RESOLVED"
-        yield mock_status
+    async def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        self.kwargs_history.append(kwargs)
+        if self.error:
+            raise self.error
+        for item in self.items:
+            yield item
 
 
 @pytest.fixture
-def query_service(patched_ticket_status):
-    """Create a query service with all dependencies mocked."""
-    agent_service = Mock()
-    routing_service = Mock()
-    ticket_service = Mock()
-    memory_service = Mock()
-    nps_service = Mock()
-    command_service = Mock()
-
-    # Configure mocks for common operations
-    ticket_service.get_active_for_user = Mock(return_value=None)
-
-    service = TestQueryService(
-        agent_service=agent_service,
-        routing_service=routing_service,
-        ticket_service=ticket_service,
-        memory_service=memory_service,
-        nps_service=nps_service,
-        command_service=command_service
-    )
-
-    # Patch the main process method to avoid actual implementation
-    with patch.object(TestQueryService, 'process', mock_process):
-        yield service
+def mock_agent_service():
+    service = Mock()
+    # Create default async generator mock
+    service.generate_response = AsyncGeneratorMock([TEST_RESPONSE])
+    return service
 
 
-@pytest.mark.asyncio
-async def test_process_simple_greeting(query_service):
-    """Test processing a simple greeting query."""
-    result = []
-    async for chunk in query_service.process("user1", "hello"):
-        result.append(chunk)
-
-    assert "".join(result) == "This is a response for your question."
+@pytest.fixture
+def mock_routing_service():
+    service = Mock()
+    service.route_query = AsyncMock(return_value="defi_expert")
+    return service
 
 
-@pytest.mark.asyncio
-async def test_process_command(query_service):
-    """Test processing a system command."""
-    result = []
-    async for chunk in query_service.process("user1", "!status"):
-        result.append(chunk)
-
-    assert "".join(result) == "Command executed successfully"
+@pytest.fixture
+def mock_memory_service():
+    service = Mock()
+    service.extract_insights = AsyncMock(return_value=TEST_INSIGHTS)
+    service.store_insights = AsyncMock()
+    return service
 
 
-@pytest.mark.asyncio
-async def test_error_handling(query_service):
-    """Test error handling in query processing."""
-    result = []
-    async for chunk in query_service.process("user1", "trigger an error"):
-        result.append(chunk)
-
-    assert "I apologize" in "".join(result)
-    assert "Test error" in "".join(result)
+@pytest.fixture
+def mock_memory_provider():
+    provider = Mock()
+    provider.retrieve = AsyncMock(return_value=TEST_MEMORY_CONTEXT)
+    provider.store = AsyncMock()
+    return provider
 
 
-@pytest.mark.asyncio
-async def test_task_breakdown(query_service):
-    """Test handling of complex tasks that need breakdown."""
-    result = []
-    async for chunk in query_service.process("user1", "complex task breakdown"):
-        result.append(chunk)
-
-    full_result = "".join(result)
-    assert "complex task" in full_result
-    assert "steps" in full_result
-
-
-@pytest.mark.asyncio
-async def test_project_simulation(query_service):
-    """Test project simulation for complex projects."""
-    result = []
-    async for chunk in query_service.process("user1", "simulate a project"):
-        result.append(chunk)
-
-    full_result = "".join(result)
-    assert "Project Simulation Results" in full_result
-    assert "Timeline" in full_result
-
-
-@pytest.mark.asyncio
-async def test_handoff_detection(query_service):
-    """Test detection and processing of handoffs."""
-    result = []
-    async for chunk in query_service.process("user1", "transfer to specialist"):
-        result.append(chunk)
-
-    full_result = "".join(result)
-    assert "transfer you" in full_result
-    assert "specialist" in full_result
-
-
-@pytest.mark.asyncio
-async def test_assess_task_complexity(query_service):
-    """Test task complexity assessment."""
-    # Test simple query
-    simple_complexity = await query_service.assess_task_complexity("hi")
-    assert simple_complexity["t_shirt_size"] == "XS"
-    assert simple_complexity["story_points"] == 1
-
-    # Test more complex query
-    complex_complexity = await query_service.assess_task_complexity("implement a Solana staking contract")
-    assert complex_complexity["t_shirt_size"] == "M"
-    assert complex_complexity["story_points"] == 5
-
-
-def test_truncate_long_text(query_service):
-    """Test truncation of long text."""
-    # Create a long text
-    long_text = "This is a very long sentence. " * 100
-    assert len(long_text) > 2500  # Ensure it exceeds the limit
-
-    # Truncate the text
-    truncated = query_service._truncate(long_text)
-
-    # Verify it's been truncated
-    assert len(truncated) <= 2500
-    assert truncated.endswith(".") or truncated.endswith("...")
-
-
-# -------------------------------------
-# Component Tests with direct mocking
-# -------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_memory_integration():
-    """Test memory storage and insight extraction."""
-    # Create mocks
-    mock_memory_provider = Mock()
-    mock_memory_provider.store = AsyncMock()
-
-    mock_memory_service = Mock()
-    mock_memory_service.extract_insights = AsyncMock(
-        return_value=["insight1", "insight2"])
-    mock_memory_service.store_insights = AsyncMock()
-
-    # Create service with patched components
-    service = TestQueryService(
-        agent_service=Mock(),
-        routing_service=Mock(),
-        ticket_service=Mock(),
+@pytest.fixture
+def query_service(
+    mock_agent_service,
+    mock_routing_service,
+    mock_memory_service,
+    mock_memory_provider
+):
+    return QueryService(
+        agent_service=mock_agent_service,
+        routing_service=mock_routing_service,
         memory_service=mock_memory_service,
-        nps_service=Mock(),
-        command_service=Mock(),
         memory_provider=mock_memory_provider
     )
 
-    # Define a test method to invoke the memory functionality directly
-    async def test_memory_storage():
-        # Extract insights from the conversation
-        query = "test query"
-        response = "test response"
-        insights = await mock_memory_service.extract_insights(query, response)
 
-        # Store insights in memory service
-        await mock_memory_service.store_insights("user1", insights)
+@pytest.mark.asyncio
+async def test_process_normal_query(
+    query_service,
+    mock_routing_service,
+    mock_agent_service,
+    mock_memory_provider
+):
+    """Test processing of a normal query."""
+    # Setup multi-chunk response
+    mock_agent_service.generate_response = AsyncGeneratorMock(
+        ["Hello", " ", "world"]
+    )
 
-        # Store conversation in memory provider
-        await mock_memory_provider.store("user1", f"Q: {query}\nA: {response}")
+    response = ""
+    async for chunk in query_service.process(TEST_USER_ID, TEST_QUERY):
+        response += chunk
 
-    # Execute our test function
-    await test_memory_storage()
+    assert response == "Hello world"
+    mock_routing_service.route_query.assert_awaited_once_with(
+        TEST_USER_ID, TEST_QUERY
+    )
+    mock_memory_provider.retrieve.assert_awaited_once_with(TEST_USER_ID)
 
-    # Verify the expected methods were called
-    mock_memory_service.extract_insights.assert_awaited_once()
-    mock_memory_service.store_insights.assert_awaited_once_with(
-        "user1", ["insight1", "insight2"])
-    mock_memory_provider.store.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_process_with_error(query_service, mock_agent_service):
+    """Test error handling during processing."""
+    # Setup error generator
+    mock_agent_service.generate_response = AsyncGeneratorMock(
+        error=Exception("Test error")
+    )
+
+    response = ""
+    async for chunk in query_service.process(TEST_USER_ID, TEST_QUERY):
+        response += chunk
+
+    assert "I apologize" in response
+    assert "Test error" in response
+
+
+@pytest.mark.asyncio
+async def test_memory_context_usage(query_service, mock_agent_service, mock_memory_provider):
+    """Test that memory context is properly passed to generate_response."""
+    mock_memory_provider.retrieve.return_value = TEST_MEMORY_CONTEXT
+    generator_mock = AsyncGeneratorMock([TEST_RESPONSE])
+    mock_agent_service.generate_response = generator_mock
+
+    # Run the process
+    async for _ in query_service.process(TEST_USER_ID, TEST_QUERY):
+        pass
+
+    # Verify memory context was used
+    assert len(
+        generator_mock.kwargs_history) > 0, "generate_response was never called"
+    assert generator_mock.kwargs_history[-1].get(
+        "memory_context") == TEST_MEMORY_CONTEXT

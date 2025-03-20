@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 from datetime import datetime, timedelta
 
 from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.domains import AIAgent, AgentType
+from solana_agent.domains import AIAgent
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def sample_ai_agent():
     """Create a sample AI agent for testing."""
     return AIAgent(
         name="codebot",
-        agent_type=AgentType.AI,
+        agent_type='ai',
         description="An AI coding assistant",
         model="gpt-4",
         system_prompt="You are a helpful coding assistant.",

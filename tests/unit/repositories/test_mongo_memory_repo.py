@@ -60,12 +60,9 @@ def full_memory_repo(mock_db_adapter, mock_vector_store, mock_llm_provider):
 def sample_insight():
     """Create a sample memory insight for testing."""
     return MemoryInsight(
-        category="preference",  # Changed from insight_type to category
         content="User prefers dark mode UI",
-        source="conversation",
+        category="preference",
         confidence=0.95,
-        timestamp="2025-03-15T14:30:00Z",
-        metadata={"conversation_id": "conv123"}
     )
 
 
@@ -107,9 +104,7 @@ class TestMongoMemoryRepository:
         assert collection == "memory_insights"
         assert data["user_id"] == user_id
         assert data["content"] == sample_insight.content
-        # Changed from insight_type to category
         assert data["category"] == "preference"
-        assert data["source"] == "conversation"
 
     def test_store_insight_with_vector(self, full_memory_repo, mock_db_adapter,
                                        mock_vector_store, mock_llm_provider, sample_insight):

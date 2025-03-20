@@ -1,11 +1,9 @@
 """
 MongoDB implementation of the agent repository.
 """
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import List, Optional, Any
 
 from solana_agent.domains import AIAgent
-from solana_agent.domains import AgentType
 from solana_agent.interfaces import AgentRepository
 
 

@@ -38,12 +38,9 @@ def dual_repo(mock_zep_repo, mock_mongo_repo):
 def sample_insight():
     """Create a sample memory insight for testing."""
     return MemoryInsight(
-        insight_type="preference",
+        category="preference",
         content="Prefers dark mode for UI",
-        source="conversation",
         confidence=0.92,
-        timestamp="2025-03-15T10:30:00Z",
-        metadata={"conversation_id": "conv123"}
     )
 
 

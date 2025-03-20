@@ -6,8 +6,6 @@ ensuring proper separation of concerns and testability.
 """
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
-from solana_agent.domains import UserFeedback
-from solana_agent.domains import Ticket
 from solana_agent.domains import MemoryInsight
 
 
@@ -98,18 +96,6 @@ class MemoryService(ABC):
         pass
 
     @abstractmethod
-    async def summarize_user_history(self, user_id: str) -> str:
-        """Summarize a user's conversation history.
-
-        Args:
-            user_id: User ID to summarize history for
-
-        Returns:
-            Summary text
-        """
-        pass
-
-    @abstractmethod
     def get_user_history(self, user_id: str, limit: int = 20) -> List[Dict]:
         """Get conversation history for a user.
 
@@ -165,18 +151,6 @@ class NPSService(ABC):
 
         Returns:
             Feedback ID
-        """
-        pass
-
-    @abstractmethod
-    def get_user_feedback_history(self, user_id: str) -> List[UserFeedback]:
-        """Get feedback history for a user.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            List of feedback items
         """
         pass
 
@@ -276,208 +250,5 @@ class RoutingService(ABC):
 
         Returns:
             Tuple of (agent_name, ticket)
-        """
-        pass
-
-
-class TicketService(ABC):
-    """Interface for ticket management services."""
-
-    @abstractmethod
-    async def get_or_create_ticket(
-        self, user_id: str, query: str, complexity: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Get active ticket for user or create a new one.
-
-        Args:
-            user_id: User ID
-            query: User query
-            complexity: Optional complexity metadata
-
-        Returns:
-            Active or newly created ticket
-        """
-        pass
-
-    @abstractmethod
-    def update_ticket_status(self, ticket_id: str, status: Any, **additional_updates) -> bool:
-        """Update ticket status and additional fields.
-
-        Args:
-            ticket_id: Ticket ID
-            status: New status
-            **additional_updates: Additional fields to update
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-    @abstractmethod
-    def mark_ticket_resolved(self, ticket_id: str, resolution_data: Dict[str, Any]) -> bool:
-        """Mark a ticket as resolved with resolution information.
-
-        Args:
-            ticket_id: Ticket ID
-            resolution_data: Resolution details
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-    @abstractmethod
-    def add_note_to_ticket(
-        self, ticket_id: str, content: str, note_type: str = "system", created_by: Optional[str] = None
-    ) -> bool:
-        """Add a note to a ticket.
-
-        Args:
-            ticket_id: Ticket ID
-            content: Note content
-            note_type: Type of note
-            created_by: ID of note creator
-
-        Returns:
-            True if note was added successfully
-        """
-        pass
-
-    @abstractmethod
-    def get_ticket_by_id(self, ticket_id: str) -> Optional[Any]:
-        """Get a ticket by ID.
-
-        Args:
-            ticket_id: Ticket ID
-
-        Returns:
-            Ticket or None if not found
-        """
-        pass
-
-    @abstractmethod
-    def get_tickets_by_user(self, user_id: str, limit: int = 20) -> List[Any]:
-        """Get tickets for a specific user.
-
-        Args:
-            user_id: User ID
-            limit: Maximum number of tickets to return
-
-        Returns:
-            List of tickets
-        """
-        pass
-
-    @abstractmethod
-    def get_tickets_by_status(self, status: Any, limit: int = 50) -> List[Any]:
-        """Get tickets by status.
-
-        Args:
-            status: Ticket status
-            limit: Maximum number of tickets to return
-
-        Returns:
-            List of tickets
-        """
-        pass
-
-    @abstractmethod
-    def assign_ticket(self, ticket_id: str, agent_id: str) -> bool:
-        """Assign a ticket to an agent.
-
-        Args:
-            ticket_id: Ticket ID
-            agent_id: Agent ID
-
-        Returns:
-            True if assignment was successful
-        """
-        pass
-
-    @abstractmethod
-    def close_ticket(self, ticket_id: str, reason: str = "") -> bool:
-        """Close a ticket.
-
-        Args:
-            ticket_id: Ticket ID
-            reason: Closure reason
-
-        Returns:
-            True if closure was successful
-        """
-        pass
-
-    @abstractmethod
-    def find_stalled_tickets(self, timeout_minutes: int) -> List[Ticket]:
-        """Find tickets that have been stalled for too long.
-
-        Args:
-            timeout_minutes: Number of minutes before a ticket is considered stalled
-
-        Returns:
-            List of stalled tickets
-        """
-        pass
-
-    @abstractmethod
-    def get_active_for_user(self, user_id: str) -> Optional[Ticket]:
-        """Get active ticket for a user.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            Active ticket or None if not found
-        """
-        pass
-
-    @abstractmethod
-    def update_ticket(self, ticket_id: str, **fields_to_update) -> bool:
-        """Update a ticket with new fields.
-
-        Args:
-            ticket_id: Ticket ID
-            **fields_to_update: Fields to update
-
-        Returns:
-            True if update was successful
-        """
-        pass
-
-
-class CommandService(ABC):
-    """Interface for processing system commands."""
-
-    @abstractmethod
-    async def process_command(
-        self, user_id: str, command_text: str, timezone: Optional[str] = None
-    ) -> Optional[str]:
-        """Process a system command.
-
-        Args:
-            user_id: User ID
-            command_text: Command text including prefix
-            timezone: Optional user timezone
-
-        Returns:
-            Command result or None if not a command
-        """
-        pass
-
-    @abstractmethod
-    def get_available_commands(self) -> List[Dict[str, Any]]:
-        """Get information about all available commands.
-
-        Returns:
-            List of command information dictionaries
-        """
-        pass
-
-    @abstractmethod
-    def register_handler(self, handler: Any) -> None:
-        """Register a command handler.
-
-        Args:
-            handler: Command handler to register
         """
         pass

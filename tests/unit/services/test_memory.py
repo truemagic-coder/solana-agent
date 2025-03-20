@@ -152,42 +152,6 @@ async def test_extract_insights_error_handling(memory_service, sample_conversati
 
 
 # ---------------------
-# History Summarization Tests
-# ---------------------
-
-@pytest.mark.asyncio
-async def test_summarize_user_history(memory_service):
-    """Test summarizing a user's conversation history."""
-    # Arrange
-    user_id = "user123"
-    summary_text = "User has asked about Solana wallets and transaction fees. They're interested in creating a wallet and understanding the cost structure of Solana."
-
-    # Patch the summarize_user_history method
-    with patch.object(MemoryService, 'summarize_user_history', AsyncMock(return_value=summary_text)):
-        # Act
-        summary = await memory_service.summarize_user_history(user_id)
-
-        # Assert
-        assert "Solana wallets" in summary
-        assert "transaction fees" in summary
-
-
-@pytest.mark.asyncio
-async def test_summarize_empty_history(memory_service):
-    """Test summarizing when no history exists."""
-    # Arrange
-    user_id = "new_user"
-    memory_service.memory_repository.get_user_history.return_value = []
-
-    with patch.object(MemoryService, 'summarize_user_history', AsyncMock(return_value="No conversation history available.")):
-        # Act
-        summary = await memory_service.summarize_user_history(user_id)
-
-        # Assert
-        assert summary == "No conversation history available."
-
-
-# ---------------------
 # Insight Storage Tests
 # ---------------------
 
@@ -277,27 +241,3 @@ async def test_extract_and_store_workflow(memory_service, sample_conversation, s
 
         # Assert insights were stored
         assert memory_service.memory_repository.store_insight.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_search_and_summarize_workflow(memory_service):
-    """Test searching memory and then summarizing results."""
-    # Arrange
-    user_id = "user123"
-    query = "Solana"
-    summary_text = "User has asked about Solana wallets and transaction fees. They're interested in creating a wallet and understanding the cost structure of Solana."
-
-    # Patch summarize method
-    with patch.object(MemoryService, 'summarize_user_history', AsyncMock(return_value=summary_text)):
-        # Act - Search for relevant insights
-        search_results = memory_service.search_memory(query)
-
-        # Assert search results
-        assert len(search_results) > 0
-
-        # Act - Summarize user history
-        summary = await memory_service.summarize_user_history(user_id)
-
-        # Assert summary
-        assert len(summary) > 0
-        assert "Solana" in summary

@@ -10,15 +10,9 @@ from typing import Dict, Any
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.services.ticket import TicketService
 from solana_agent.services.memory import MemoryService
-from solana_agent.services.nps import NPSService
-from solana_agent.services.critic import CriticService
-from solana_agent.services.command import CommandService
 
 # Repository imports
-from solana_agent.repositories.ticket import MongoTicketRepository
-from solana_agent.repositories.feedback import MongoFeedbackRepository
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
 from solana_agent.repositories.agent import MongoAgentRepository
 
@@ -100,9 +94,8 @@ class SolanaAgentFactory:
             )
 
         # Create repositories
-        ticket_repo = MongoTicketRepository(db_adapter)
-        nps_repo = MongoFeedbackRepository(db_adapter)
-        memory_repo = MongoMemoryRepository(db_adapter, vector_provider)
+        memory_repo = MongoMemoryRepository(
+            db_adapter, vector_provider, llm_adapter)
         agent_repo = MongoAgentRepository(db_adapter)
 
         # Create primary services
@@ -116,27 +109,12 @@ class SolanaAgentFactory:
         print(
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
 
-        ticket_service = TicketService(ticket_repo)
-
         memory_service = MemoryService(memory_repo, llm_adapter)
-        nps_service = NPSService(nps_repo)
-
-        # Create command service
-        command_service = CommandService(
-            ticket_service=ticket_service,
-            agent_service=agent_service
-        )
-
-        # Create critic service if enabled
-        critic_service = None
-        if config.get("enable_critic", True):
-            critic_service = CriticService(llm_adapter)
 
         # Create routing service
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
-            ticket_service=ticket_service,
         )
 
         # Initialize plugin system
@@ -199,14 +177,8 @@ class SolanaAgentFactory:
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,
-            ticket_service=ticket_service,
             memory_service=memory_service,
-            nps_service=nps_service,
-            command_service=command_service,
-            critic_service=critic_service,
             memory_provider=memory_provider,
-            enable_critic=config.get("enable_critic", True),
-            stalled_ticket_timeout=config.get("stalled_ticket_timeout", 60),
         )
 
         return query_service

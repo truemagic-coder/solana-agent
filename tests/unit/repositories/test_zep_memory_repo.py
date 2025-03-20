@@ -104,49 +104,6 @@ class TestZepMemoryRepository:
                 api_key="test_api_key", base_url="http://my-zep-server")
 
     @pytest.mark.asyncio
-    async def test_store_insight(self, memory_repo, mock_zep_client, sample_insight):
-        """Test storing a memory insight."""
-        user_id = "user_123"
-
-        # Call method
-        await memory_repo.store_insight(user_id, sample_insight)
-
-        # Verify Zep client was called correctly
-        mock_zep_client.memory.add.assert_called_once()
-
-        # Check arguments
-        args = mock_zep_client.memory.add.call_args
-        assert args[1]["session_id"] == user_id
-
-        # Check message format
-        messages = args[1]["messages"]
-        assert len(messages) == 1
-        assert messages[0].role == "system"
-        assert messages[0].role_type == "insight"
-        assert messages[0].content == sample_insight.content
-
-        # Check metadata
-        metadata = messages[0].metadata
-        assert metadata["category"] == "preferences"
-        assert metadata["confidence"] == 0.95
-        assert metadata["source"] == "conversation"
-        assert "timestamp" in metadata
-        assert metadata["conversation_id"] == "conv_123"
-        assert metadata["importance"] == "high"
-
-    @pytest.mark.asyncio
-    async def test_store_insight_exception(self, memory_repo, mock_zep_client, sample_insight):
-        """Test handling exceptions when storing insights."""
-        # Setup mock to raise exception
-        mock_zep_client.memory.add.side_effect = Exception("Connection error")
-
-        # Call method should not raise exception
-        await memory_repo.store_insight("user_123", sample_insight)
-
-        # Verify attempt was made
-        mock_zep_client.memory.add.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_search(self, memory_repo, mock_zep_client):
         """Test searching memory."""
         # Setup mock response

@@ -7,12 +7,9 @@ business objects and value types in the system.
 
 # Import all models from domain files using wildcard imports
 from solana_agent.domains.agents import *
-from solana_agent.domains.enums import *
-from solana_agent.domains.feedback import *
 from solana_agent.domains.memory import *
 from solana_agent.domains.models import *
 from solana_agent.domains.plugins import *
-from solana_agent.domains.tickets import *
 
 # Version of the domain model
 __version__ = '14.0.0'
