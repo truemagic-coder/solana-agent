@@ -207,6 +207,9 @@ class AgentService(AgentServiceInterface):
             if tool_usage_prompt:
                 system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
 
+        # Add User ID context
+        system_prompt += f"\n\n User ID: {user_id}"
+
         # Add memory context
         if memory_context:
             system_prompt += f"\n\n Memory Context: {memory_context}"

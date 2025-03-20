@@ -11,8 +11,9 @@
 ## Technical Features
 
 * Text streaming messages by AI Agents
+* Conversational memory per user shared by all AI Agents
 * Routing based on AI Agent specializations
-* Built-in default Internet Search for AI Agents
+* Built-in Internet Search for all AI Agents
 * Robust AI Agent tool plugins based on standard python packages
 
 ## Installation
