@@ -8,268 +8,12 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-## Why Solana Agent?
-
-Reinventing Organizational Structures Through AI  
-Solana Agent isn't just an AI framework—it's the foundation for reimagining how humans organize, collaborate, and create value together. Build organizations that transcend traditional hierarchies and unlock collective intelligence at scale.
-
-### The Future of Work Starts Here:
-
-- **Decentralized Decision Making:**  
-    Enable distributed expertise through AI-human collaboration, removing bottlenecks and centralizing only the mission, not the authority.
-
-- **Organization as Living Code:**  
-    Define your organization's values, expertise boundaries, and operating principles in code, making structure transparent and adaptable.
-
-- **Fluid Collaboration Networks:**  
-    Replace rigid hierarchies with dynamic agent networks that form, collaborate, and dissolve based on real-time needs.
-
-- **Knowledge as Collective Asset:**  
-    Transform individual expertise into organizational intelligence through autonomous knowledge extraction and distribution.
-
-- **Permissionless Value Creation:**  
-    Let agents (both AI and human) contribute and innovate freely within guardrails defined by mission and values, not management layers.
-
-## The Future of Work
-
-Solana Agent enables a paradigm shift in how work gets done:
-
-- **Beyond Human Resource Constraints:**  
-    Scale knowledge work infinitely by combining specialized AI agents with human experts.
-- **Continuous 24/7 Operations:**  
-    Organizational functions that never sleep, never burn out, and continuously learn.
-- **Task-Agent Fit Optimization:**  
-    Matching work to the ideal agent (human or AI) based on real-time expertise mapping.
-- **Ambient Organizational Intelligence:**  
-    Collective knowledge that grows, refines, and distributes itself autonomously.
-- **From Managers to Facilitators:**  
-    Human roles shift from directing work to defining outcomes and improving agent capabilities.
-- **Permissionless Contribution:**  
-    Anyone can interact with and extend the organization through standardized interfaces.
-
-## Organization as Code
-
-With Solana Agent, your organizational design becomes explicit, observable, and iteratively improvable:
-
-- **Declarative Organizational Structure:**  
-    Define your entire organization's capabilities through agent specializations and interaction patterns.
-- **Version-Controlled Operational Logic:**  
-    Track organizational evolution and performance through code changes.
-- **Mission Function:**  
-    Encode organizational values and goals as executable functions that guide all agent decisions.
-- **Rapid Organizational Experiments:**  
-    Test new structures, policies, and collaborative patterns without disruptive reorganizations.
-- **Transparency by Default:**  
-    Make decision boundaries and expertise domains explicit in code rather than hidden in hierarchy.
-- **Self-Documenting Operations:**  
-    The organization continuously documents its own functions, decisions, and knowledge.
-
-## Decentralized Organization
-
-Solana Agent provides the infrastructure to build truly decentralized organizations:
-
-- **Multi-Node Intelligence:**  
-    Distribute cognitive load across specialized agents with no central controller.
-- **Autonomous Coordination:**  
-    Agents self-organize based on capabilities and availability without central dispatching.
-- **Edge Decision Making:**  
-    Push decisions to the agents closest to the information and expertise needed.
-- **Resilient Architecture:**  
-    No single point of failure in organizational knowledge or operational capacity.
-- **Emergent Problem Solving:**  
-    Solutions emerge from collaborative agent interactions rather than top-down directives.
-- **Fractal Scaling:**  
-    Add new domains of expertise by replicating the agent swarm pattern without hierarchical constraints.
-
-## Complete Flat Organization
-
-Eliminate management hierarchies while maintaining coordination and alignment:
-
-- **Mission-Driven Alignment:**  
-    All agents align through shared values and outcomes defined in the unified mission framework.
-- **Peer-to-Peer Handoffs:**  
-    Both AI and human agents coordinate as equals through standardized interfaces.
-- **Expertise-Based Authority:**  
-    Influence derives from demonstrable expertise rather than position.
-- **Universal Access Protocol:**  
-    Consistent interfaces for interacting with any part of the organization.
-- **Transparent Contribution Tracking:**  
-    Meritocratic recognition of value creation across the network.
-- **Adaptive Resource Allocation:**  
-    Direct resources to high-impact areas without bureaucratic approval chains.
-
-## Learning Organization
-
-Solana Agent transforms organizations into living systems that continuously learn, adapt, and evolve:
-
-- **Collective Memory Acceleration:**  
-    Extract and preserve organizational knowledge across all agents automatically.
-- **Autonomous Self-Improvement:**  
-    AI critic framework identifies weaknesses and implements improvements without human intervention.
-- **Experiential Learning Loops:**  
-    Every interaction refines capabilities through rapid feedback cycles.
-- **Cross-Domain Knowledge Synthesis:**  
-    Break down information silos through semantic connections across domains.
-- **Living Knowledge Repository:**  
-    Build an organizational brain that becomes more valuable with each interaction.
-- **Pattern Recognition at Scale:**  
-    Identify trends invisible to individual actors through network-wide analysis.
-- **Failure-Embracing Architecture:**  
-    Convert mistakes into learning opportunities through systematic analysis.
-- **Performance-Based Optimization:**  
-    Route tasks to agents with highest satisfaction scores through NPS feedback integration.
-- **Continuous Quality Assessment:**  
-    Monitor interaction quality through automated satisfaction surveys and impact metrics.
-
 ## Technical Features
 
-- **🗣️ Advanced Interaction Layer:**  
-    Streaming text-based conversations with real-time thinking.  
-    Multi-turn context preservation and reasoning.
-
-- **🤖 Multi-Agent Swarm Architecture:**  
-    Dynamic specialized agent creation and coordination.  
-    Intelligent routing based on query content, agent expertise, and performance metrics.  
-    Seamless handoffs with comprehensive context passing.  
-    Shared memory and collective intelligence across the entire swarm.
-
-- **👥 Human-AI Collaboration:**  
-    Hybrid AI-human collaboration system with seamless handoffs.  
-    Ticket management for complex or sensitive inquiries.  
-    Multiple handoff patterns (AI↔human, human↔human).  
-    In-chat command system for human agents to manage tickets.  
-    Availability status management with automatic timeout detection.  
-    Direct agent-to-agent communication for real-time consultation.
-
-- **🧠 Distributed Intelligence Capabilities:**  
-    Cross-domain knowledge integration from multiple sources.  
-    Self-organizing information architecture.  
-    Autonomous knowledge extraction and refinement.  
-    Time-aware contextual responses.  
-    Self-critical improvement systems.
-
-- **🎫 Comprehensive Ticket System:**  
-    Universal ticket tracking for all interactions (AI-to-AI and AI-to-human).  
-    Structured resolution assessment with confidence scoring.  
-    Automatic ticket lifecycle management with AI-driven resolution.  
-    Intelligent handoffs maintaining ticket context across agents.  
-    Command-line interface for human ticket management.  
-    Metrics and analytics on resolution quality and time.  
-    Proactive reminders for pending human-assigned tickets.  
-    Auto-reassignment system for stalled tickets.  
-    Human agent activity tracking and status management.  
-
-- **📅 Comprehensive Scheduling System:**  
-    Intelligent task scheduling based on agent specialization and availability.  
-    Time-off request management with automated approval workflows.  
-    Conflict detection and resolution for overlapping assignments.  
-    Schedule optimization for maximum efficiency and workload balancing.  
-    Human agent availability tracking with timezone support.  
-    Recurring schedule patterns with exception handling.  
-    Focus time protection to ensure uninterrupted deep work.  
-    Automated task reassignment when agents become unavailable.  
-    Command-line interface for viewing and managing schedules.  
-    Capacity-aware scheduling to prevent agent overloading.  
-    Schedule analytics and efficiency metrics.
-
-- **🏢 Comprehensive Resource Management System:**  
-    Complete resource scheduling and booking infrastructure.  
-    Resource categorization with customizable attributes and capabilities.  
-    Intelligent conflict detection and prevention for bookings.  
-    Location-aware resource tracking with hierarchical location model.  
-    Availability management with customizable recurring schedules.  
-    User-level booking authorization with permission controls.  
-    Resource discovery by type, capacity, and available features.  
-    Command-line interface for resource management.  
-    Booking lifecycle management with confirmation and cancellation.  
-    Time-aware resource scheduling across time zones.  
-    Resource utilization analytics and optimization.  
-
-- **📊 Performance Optimization Framework:**  
-    Integrated Net Promoter Score (NPS) system for interaction quality measurement.  
-    Automatic satisfaction surveys after ticket resolution.  
-    Performance-weighted agent routing based on satisfaction scores.  
-    Continuous quality monitoring and feedback loops.  
-    Simple rating submission for users with optional feedback.  
-    Agent performance analytics and trend identification.  
-
-- **📋 Task Planning System:**  
-    Automated complexity assessment for incoming tasks.  
-    Task decomposition into subtasks with dependencies.  
-    Intelligent workload distribution based on agent capacity.  
-    Resource requirements identification for each subtask.  
-    Automatic resource allocation based on task needs.  
-    Resource-aware scheduling to prevent conflicts.  
-    Integrated resource and agent availability checking.  
-    Command-line interface for resource allocation to tasks.  
-    Visual progress tracking with completion estimates.  
-    Prioritization based on urgency, importance, and dependencies.  
-    Resource utilization optimization across project timelines.  
-
-- **🛡️ Governance Framework:**  
-    Define organization-wide values and operating principles in code.  
-    Consistent decision-making aligned with organizational priorities.  
-    Privacy-preserving knowledge sharing with configurable controls.  
-    Transparent insight extraction with review capabilities.  
-    Performance analytics across the agent network.
-
-- **🔍 Project Simulation Framework:**  
-    Data-driven project feasibility assessment using historical performance.  
-    Intelligent timeline estimation based on similar past projects.  
-    Risk analysis with probability and impact scoring.  
-    Resource requirement prediction and availability matching.  
-    System load analysis to prevent overcommitment.  
-    Comprehensive recommendation engine with contextual insights.  
-    Historical satisfaction trend analysis for similar work.
-
-- **✅ Human Approval Workflow:**  
-    Configurable approval requirements for complex projects.  
-    Simple queries bypass approval for efficient handling.  
-    Data-driven approval process with simulation results.  
-    Multi-approver support with role-based authorization.  
-    Project lifecycle tracking from submission to approval/rejection.  
-    Transparent decision documentation with comments and rationale.
-
-- **🔔 Notification System:**  
-    Multi-channel notifications for human agents.  
-    Approval request routing to authorized approvers.  
-    Configurable notification handlers for different channels.  
-    Real-time and asynchronous communication support.  
-    Status tracking for notification delivery and response.
-
-- **🏢 Multi-tenant Platform Architecture:**  
-    Complete tenant isolation with separate databases and storage.  
-    Tenant-specific configuration overrides with inheritance from global defaults.  
-    Support for both Qdrant and Pinecone vector databases.  
-    Per-tenant agent specialization and customization.  
-    Centralized management through tenant registry.  
-    Resource sharing with tenant-level permissions.  
-    Standardized interfaces across all tenants.  
-    Efficient multi-tenant scaling with shared infrastructure.
-
-- **🔌 Standard Python Plugin System:**  
-    Extensible architecture using Python's native package ecosystem.  
-    PyPI-compatible plugin distribution with standard dependency management.  
-    Entry point registration for seamless discovery.  
-    Tool registry for AI agent capability extension.  
-    Permission-based tool access for security and control.  
-    Clean interface for third-party integrations through standard Python APIs.  
-    Runtime tool discovery without service restarts.
-
-## Implementation Technologies
-
-Solana Agent leverages multiple technologies to enable these capabilities:
-
-- **Knowledge Integration:**  
-    Zep memory and Pinecone or Qdrant vector search.
-- **Collaborative Intelligence:**  
-    Multi-agent swarm architecture with specialized expertise domains.
-- **Human-AI Teaming:**  
-    Integrated ticketing, notification systems, and real-time handoffs.
-- **Organization Alignment:**  
-    Unified mission framework, critic system, and collective memory.
-- **External Integration:**  
-    Plugin system for extensible tool capabilities and API connections.
+* Text streaming messages by AI Agents
+* Routing based on AI Agent specializations
+* Built-in default Internet Search for AI Agents
+* Robust AI Agent tool plugins based on standard python packages
 
 ## Installation
 
@@ -310,18 +54,13 @@ config = {
         "api_key": "your-openai-key",
         "default_model": "gpt-4o-mini"
     },
-    "pinecone": {
-        "api_key": "your-pinecone-key",
-        "index": "your-index"
-    },
-    "stalled_ticket_timeout": 60,
-    "ai_agents": [
+    "agents": [
         {
             "name": "research_specialist",
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
             "specialization": "Research and knowledge synthesis",
             "model": "o3-mini",
-            "tools": ["search_internet"]
+            "tools": ["some_tool"]
         },
         {
             "name": "customer_support",
@@ -330,19 +69,6 @@ config = {
             "model": "gpt-4o-mini"
         }
     ],
-    "human_agents": [
-        {
-            "agent_id": "expert_dev",
-            "name": "Senior Developer", 
-            "specialization": "Complex technical issues"
-        },
-        {
-            "agent_id": "support_lead",
-            "name": "Support Team Lead",
-            "specialization": "Escalated customer issues"
-        }
-    ],
-    "perplexity_api_key": "your-perplexity-key"  # For internet search plugin
 }
 
 # Create agent with configuration

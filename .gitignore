@@ -144,10 +144,10 @@ cython_debug/
 .DS_Store
 
 # ruff
-.ruff_cache/**/*
+.ruff_cache/
 
 # Chroma
 .chroma/
 
-# test db
-cyberchipped.db
+# tests
+coverage_html_report/
