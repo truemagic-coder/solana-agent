@@ -60,7 +60,7 @@ config = {
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
             "specialization": "Research and knowledge synthesis",
             "model": "o3-mini",
-            "tools": ["search_internet"]
+            "tools": ["some_tool"]
         },
         {
             "name": "customer_support",
