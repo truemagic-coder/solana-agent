@@ -8,9 +8,7 @@ from typing import Dict, List, Optional
 
 from solana_agent.interfaces.repositories.memory import MemoryRepository
 from solana_agent.interfaces.providers.data_storage import DataStorageProvider
-from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
 from solana_agent.interfaces.providers.llm import LLMProvider
-from solana_agent.domains.memory import MemoryInsight
 
 
 class MongoMemoryRepository(MemoryRepository):
@@ -19,7 +17,6 @@ class MongoMemoryRepository(MemoryRepository):
     def __init__(
         self,
         db_adapter: DataStorageProvider,
-        vector_store: Optional[VectorStorageProvider] = None,
         llm_provider: Optional[LLMProvider] = None
     ):
         """Initialize the memory repository.

@@ -20,7 +20,6 @@ from solana_agent.repositories.agent import MongoAgentRepository
 from solana_agent.adapters.llm_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 from solana_agent.adapters.memory_adapter import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
-from solana_agent.adapters.vector_adapter import QdrantAdapter, PineconeAdapter
 
 # Domain and plugin imports
 from solana_agent.domains.agents import OrganizationMission
@@ -62,25 +61,6 @@ class SolanaAgentFactory:
 
         memory_provider = DualMemoryProvider(mongo_memory, zep_memory)
 
-        # Create vector store provider if configured
-        vector_provider = None
-        if "qdrant" in config:
-            vector_provider = QdrantAdapter(
-                url=config["qdrant"].get("url", "http://localhost:6333"),
-                api_key=config["qdrant"].get("api_key"),
-                collection_name=config["qdrant"].get(
-                    "collection", "solana_agent"),
-                embedding_model=config["qdrant"].get(
-                    "embedding_model", "text-embedding-3-small"),
-            )
-        elif "pinecone" in config:
-            vector_provider = PineconeAdapter(
-                api_key=config["pinecone"]["api_key"],
-                index_name=config["pinecone"]["index"],
-                embedding_model=config["pinecone"].get(
-                    "embedding_model", "text-embedding-3-small"),
-            )
-
         # Create organization mission if specified in config
         organization_mission = None
         if "organization" in config:
@@ -95,7 +75,7 @@ class SolanaAgentFactory:
 
         # Create repositories
         memory_repo = MongoMemoryRepository(
-            db_adapter, vector_provider, llm_adapter)
+            db_adapter, llm_adapter)
         agent_repo = MongoAgentRepository(db_adapter)
 
         # Create primary services

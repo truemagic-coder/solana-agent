@@ -11,7 +11,6 @@ from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_cloud.types import Message
 
 from solana_agent.interfaces.repositories.memory import MemoryRepository
-from solana_agent.domains.memory import MemoryInsight
 
 
 class ZepMemoryRepository(MemoryRepository):

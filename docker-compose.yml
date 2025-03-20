@@ -22,27 +22,6 @@ services:
       retries: 5
       start_period: 20s
 
-  # Qdrant vector database for embeddings
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: solana-qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334" # For REST API
-    volumes:
-      - qdrant_data:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__TELEMETRY_ENABLED=false
-    networks:
-      - solana_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
   # Zep service
   zep:
     image: zepai/zep:latest
@@ -146,6 +125,5 @@ networks:
 
 volumes:
   mongodb_data:
-  qdrant_data:
   zep-db:
   neo4j_data:

@@ -8,7 +8,6 @@ from typing import Dict, List, Any
 from solana_agent.interfaces.repositories.memory import MemoryRepository
 from solana_agent.repositories.zep_memory import ZepMemoryRepository
 from solana_agent.repositories.mongo_memory import MongoMemoryRepository
-from solana_agent.domains.memory import MemoryInsight
 
 
 class DualMemoryRepository(MemoryRepository):

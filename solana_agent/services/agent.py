@@ -134,25 +134,6 @@ class AgentService(AgentServiceInterface):
 
         return specializations
 
-    def find_agents_by_specialization(self, specialization: str) -> List[str]:
-        """Find agents that have a specific specialization.
-
-        Args:
-            specialization: Specialization to search for
-
-        Returns:
-            List of agent names/IDs
-        """
-        agent_ids = []
-
-        # Check AI agents
-        ai_agents = self.agent_repository.get_all_ai_agents()
-        for agent in ai_agents:
-            if agent.specialization.lower() == specialization.lower():
-                agent_ids.append(agent.name)
-
-        return agent_ids
-
     def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent.
 
@@ -217,55 +198,6 @@ class AgentService(AgentServiceInterface):
             return tool.execute(**parameters)
         except Exception as e:
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
-
-    def agent_exists(self, agent_name_or_id: str) -> bool:
-        """Check if agent exists.
-
-        Args:
-            agent_name_or_id: Agent name or ID
-
-        Returns:
-            True if agent exists
-        """
-        # Check AI agents
-        ai_agent = self.agent_repository.get_ai_agent_by_name(agent_name_or_id)
-        if ai_agent:
-            return True
-
-        # This likely was missing or had different logic
-        return False
-
-    def has_specialization(self, agent_id: str, specialization: str) -> bool:
-        """Check if agent has the specified specialization.
-
-        Args:
-            agent_id: Agent ID or name
-            specialization: Specialization to check for
-
-        Returns:
-            True if the agent has the specialization
-        """
-        # Check AI agents
-        ai_agent = self.agent_repository.get_ai_agent_by_name(agent_id)
-        if ai_agent:
-            # This was likely the bug - comparing with specific specialization
-            return ai_agent.specialization.lower() == specialization.lower()
-
-        return False
-
-    def list_active_agents(self) -> List[str]:
-        """List all active agent IDs.
-
-        Returns:
-            List of active agent IDs/names
-        """
-        active_agents = []
-
-        # Get AI agents (all are considered active)
-        ai_agents = self.agent_repository.get_all_ai_agents()
-        active_agents.extend([agent.name for agent in ai_agents])
-
-        return active_agents
 
     async def generate_response(
         self,

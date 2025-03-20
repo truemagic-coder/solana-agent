@@ -120,12 +120,6 @@ def test_get_specializations(agent_service):
     assert "AI expertise" in specs["test_spec"]
 
 
-def test_find_agents_by_specialization(agent_service):
-    agents = agent_service.find_agents_by_specialization("test_spec")
-    assert len(agents) == 1
-    assert "test_agent" in agents
-
-
 def test_assign_tool_for_agent(agent_service, mock_tool_registry):
     mock_tool_registry.assign_tool_to_agent.return_value = True
     result = agent_service.assign_tool_for_agent(
