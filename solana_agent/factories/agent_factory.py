@@ -12,13 +12,12 @@ from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 
 # Repository imports
-from solana_agent.repositories.mongo_memory import MongoMemoryRepository
+from solana_agent.repositories.memory import MemoryRepository
 from solana_agent.repositories.agent import MongoAgentRepository
 
 # Adapter imports
 from solana_agent.adapters.llm_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.adapters.memory_adapter import MongoMemoryProvider, ZepMemoryAdapter, DualMemoryProvider
 
 # Domain and plugin imports
 from solana_agent.domains.agents import OrganizationMission
@@ -49,17 +48,6 @@ class SolanaAgentFactory:
             model=config.get("openai", {}).get("default_model", "gpt-4o-mini"),
         )
 
-        mongo_memory = MongoMemoryProvider(db_adapter)
-
-        zep_memory = None
-        if "zep" in config:
-            zep_memory = ZepMemoryAdapter(
-                api_key=config["zep"].get("api_key"),
-                base_url=config["zep"].get("base_url"),
-            )
-
-        memory_provider = DualMemoryProvider(mongo_memory, zep_memory)
-
         # Create organization mission if specified in config
         organization_mission = None
         if "organization" in config:
@@ -73,8 +61,8 @@ class SolanaAgentFactory:
             )
 
         # Create repositories
-        memory_repo = MongoMemoryRepository(
-            db_adapter, llm_adapter)
+        memory_provider = MemoryRepository(
+            db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
         agent_repo = MongoAgentRepository(db_adapter)
 
         # Create primary services

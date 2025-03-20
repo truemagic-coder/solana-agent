@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class MemoryProvider(ABC):
@@ -18,4 +18,21 @@ class MemoryProvider(ABC):
     @abstractmethod
     async def delete(self, user_id: str) -> None:
         """Delete memory for a user."""
+        pass
+
+    @abstractmethod
+    def find(
+        self,
+        collection: str,
+        query: Dict,
+        sort: Optional[List[Tuple]] = None,
+        limit: int = 0,
+        skip: int = 0
+    ) -> List[Dict]:
+        """Find documents matching query."""
+        pass
+
+    @abstractmethod
+    def count_documents(self, collection: str, query: Dict) -> int:
+        """Count documents matching query."""
         pass

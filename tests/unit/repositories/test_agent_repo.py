@@ -60,7 +60,7 @@ class TestMongoAgentRepository:
         # Verify indexes are created
         assert mock_db_adapter.create_index.call_count == 1
         mock_db_adapter.create_index.assert_any_call(
-            "ai_agents", [("name", 1)], unique=True)
+            "agents", [("name", 1)], unique=True)
 
     def test_get_ai_agent_found(self, agent_repository, mock_db_adapter, sample_ai_agent):
         """Test getting an existing AI agent."""
@@ -72,7 +72,7 @@ class TestMongoAgentRepository:
 
         # Verify database was queried correctly
         mock_db_adapter.find_one.assert_called_once_with(
-            "ai_agents", {"name": "codebot"})
+            "agents", {"name": "codebot"})
 
         # Verify result
         assert agent is not None
@@ -90,7 +90,7 @@ class TestMongoAgentRepository:
 
         # Verify database was queried correctly
         mock_db_adapter.find_one.assert_called_once_with(
-            "ai_agents", {"name": "nonexistent"})
+            "agents", {"name": "nonexistent"})
 
         # Verify result
         assert agent is None
@@ -108,7 +108,7 @@ class TestMongoAgentRepository:
         agents = agent_repository.get_all_ai_agents()
 
         # Verify database was queried correctly
-        mock_db_adapter.find.assert_called_once_with("ai_agents", {})
+        mock_db_adapter.find.assert_called_once_with("agents", {})
 
         # Verify results
         assert len(agents) == 2
@@ -126,9 +126,9 @@ class TestMongoAgentRepository:
 
         # Verify database operations
         mock_db_adapter.find_one.assert_called_once_with(
-            "ai_agents", {"name": "codebot"})
+            "agents", {"name": "codebot"})
         mock_db_adapter.insert_one.assert_called_once_with(
-            "ai_agents", sample_ai_agent.model_dump())
+            "agents", sample_ai_agent.model_dump())
 
         # Verify result
         assert result is True
@@ -145,9 +145,9 @@ class TestMongoAgentRepository:
 
         # Verify database operations
         mock_db_adapter.find_one.assert_called_once_with(
-            "ai_agents", {"name": "codebot"})
+            "agents", {"name": "codebot"})
         mock_db_adapter.update_one.assert_called_once_with(
-            "ai_agents",
+            "agents",
             {"name": "codebot"},
             {"$set": sample_ai_agent.model_dump()}
         )
@@ -165,7 +165,7 @@ class TestMongoAgentRepository:
 
         # Verify database operation
         mock_db_adapter.delete_one.assert_called_once_with(
-            "ai_agents", {"name": "codebot"})
+            "agents", {"name": "codebot"})
 
         # Verify result
         assert result is True

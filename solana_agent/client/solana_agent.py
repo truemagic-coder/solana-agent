@@ -5,9 +5,8 @@ This module provides a clean API for end users to interact with
 the agent system without dealing with internal implementation details.
 """
 import json
-import datetime
 import importlib.util
-from typing import Dict, List, Any, AsyncGenerator
+from typing import AsyncGenerator, Dict, Any
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 
@@ -52,90 +51,7 @@ class SolanaAgent:
         async for chunk in self.query_service.process(user_id, message):
             yield chunk
 
-    def register_agent(
-        self,
-        name: str,
-        instructions: str,
-        specialization: str,
-        model: str = "gpt-4o-mini",
-    ) -> None:
-        """Register a new AI agent.
-
-        Args:
-            name: Agent name
-            instructions: Agent instructions
-            specialization: Agent specialization
-            model: LLM model to use
-        """
-        self.query_service.agent_service.register_ai_agent(
-            name=name,
-            instructions=instructions,
-            specialization=specialization,
-            model=model,
-        )
-
-    def register_human_agent(
-        self, agent_id: str, name: str, specialization: str, notification_handler=None
-    ) -> None:
-        """Register a human agent.
-
-        Args:
-            agent_id: Agent ID
-            name: Agent name
-            specialization: Agent specialization
-            notification_handler: Optional handler for notifications
-        """
-        self.query_service.agent_service.register_human_agent(
-            agent_id=agent_id,
-            name=name,
-            specialization=specialization,
-            notification_handler=notification_handler,
-        )
-
-    async def get_pending_surveys(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get pending surveys for a user.
-
-        Args:
-            user_id: User ID
-
-        Returns:
-            List of pending surveys
-        """
-        if not hasattr(self.query_service, "nps_service"):
-            return []
-
-        # Query for pending surveys from the NPS service
-        surveys = self.query_service.nps_service.nps_repository.db.find(
-            "nps_surveys",
-            {
-                "user_id": user_id,
-                "status": "pending",
-                "created_at": {
-                    "$gte": datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
-                }
-            }
-        )
-
-        return surveys
-
-    async def submit_survey_response(self, survey_id: str, score: int, feedback: str = "") -> bool:
-        """Submit a response to an NPS survey.
-
-        Args:
-            survey_id: Survey ID
-            score: Survey score
-            feedback: Optional feedback
-
-        Returns:
-            True if submission was successful
-        """
-        if not hasattr(self.query_service, "nps_service"):
-            return False
-
-        # Process the survey response
-        return self.query_service.nps_service.process_response(survey_id, score, feedback)
-
-    async def get_user_history_paginated(
+    async def get_user_history(
         self,
         user_id: str,
         page_num: int = 1,
@@ -154,18 +70,6 @@ class SolanaAgent:
         Returns:
             Dictionary with paginated results and metadata
         """
-        # Check if memory service exists
-        if not hasattr(self.query_service, "memory_service"):
-            return {
-                "data": [],
-                "total": 0,
-                "page": page_num,
-                "page_size": page_size,
-                "total_pages": 0,
-                "error": "Memory service not available"
-            }
-
-        # Use the memory service to get the paginated history
-        return await self.query_service.memory_service.get_user_history_paginated(
+        return await self.query_service.get_user_history(
             user_id, page_num, page_size, sort_order
         )
