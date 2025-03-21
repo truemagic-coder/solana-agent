@@ -23,7 +23,6 @@ pydantic = "^2.10.6"
 pymongo = "^4.11.3"
 zep-cloud = "^2.7.0"
 zep-python = "^2.0.2"
-requests = "^2.32.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.3.5"
