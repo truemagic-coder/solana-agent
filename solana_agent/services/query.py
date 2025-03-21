@@ -128,6 +128,18 @@ class QueryService(QueryServiceInterface):
             import traceback
             print(traceback.format_exc())
 
+    async def delete_user_history(self, user_id: str) -> None:
+        """Delete all conversation history for a user.
+
+        Args:
+            user_id: User ID
+        """
+        if self.memory_provider:
+            try:
+                await self.memory_provider.delete(user_id)
+            except Exception as e:
+                print(f"Error deleting user history: {str(e)}")
+
     async def get_user_history(
         self,
         user_id: str,

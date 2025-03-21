@@ -70,6 +70,15 @@ class SolanaAgent(SolanaAgentInterface):
         ):
             yield chunk
 
+    async def delete_user_history(self, user_id: str) -> None:
+        """
+        Delete the conversation history for a user.
+
+        Args:
+            user_id: User ID
+        """
+        await self.query_service.delete_user_history(user_id)
+
     async def get_user_history(
         self,
         user_id: str,
