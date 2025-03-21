@@ -247,7 +247,8 @@ class AgentService(AgentServiceInterface):
             if memory_context:
                 system_prompt += f"\n\nMemory Context: {memory_context}"
 
-            # Buffer for collecting text when generating audio
+            json_buffer = ""
+            is_json = False
             text_buffer = ""
 
             # Generate and stream response
@@ -255,40 +256,93 @@ class AgentService(AgentServiceInterface):
                 prompt=query_text,
                 system_prompt=system_prompt,
             ):
-                if chunk.strip().startswith("{"):
-                    # Handle tool calls
-                    result = await self._handle_tool_call(
-                        agent_name, chunk,
-                    )
-                    if output_format == "audio":
-                        async for audio_chunk in self.llm_provider.tts(result, instructions=audio_instructions, response_format=audio_output_format, voice=audio_voice):
-                            yield audio_chunk
-                    else:
-                        yield result
+                # Check for JSON start
+                if chunk.strip().startswith("{") and not is_json:
+                    is_json = True
+                    json_buffer = chunk
+                    continue
+
+                # Collect JSON or handle normal text
+                if is_json:
+                    json_buffer += chunk
+                    try:
+                        # Try to parse complete JSON
+                        data = json.loads(json_buffer)
+
+                        # Valid JSON found, handle it
+                        if "tool_call" in data:
+                            # Process tool call with existing method
+                            response_text = await self._handle_tool_call(
+                                agent_name=agent_name,
+                                json_chunk=json_buffer
+                            )
+
+                            # Output response based on format
+                            if output_format == "audio":
+                                async for audio_chunk in self.llm_provider.tts(
+                                    text=response_text,
+                                    voice=audio_voice,
+                                    response_format=audio_output_format
+                                ):
+                                    yield audio_chunk
+                            else:
+                                yield response_text
+                        else:
+                            # Not a tool call, return as normal text
+                            if output_format == "audio":
+                                async for audio_chunk in self.llm_provider.tts(
+                                    text=json_buffer,
+                                    voice=audio_voice,
+                                    response_format=audio_output_format
+                                ):
+                                    yield audio_chunk
+                            else:
+                                yield json_buffer
+
+                        # Reset JSON handling
+                        is_json = False
+                        json_buffer = ""
+
+                    except json.JSONDecodeError:
+                        # Incomplete JSON, continue collecting
+                        pass
                 else:
+                    # Regular text processing
                     if output_format == "audio":
-                        # Buffer text until we have a complete sentence
                         text_buffer += chunk
                         if any(punct in chunk for punct in ".!?"):
                             async for audio_chunk in self.llm_provider.tts(
-                                text_buffer, instructions=audio_instructions, response_format=audio_output_format, voice=audio_voice
+                                text=text_buffer,
+                                voice=audio_voice,
+                                response_format=audio_output_format
                             ):
                                 yield audio_chunk
                             text_buffer = ""
                     else:
                         yield chunk
 
-            # Handle any remaining text in buffer
-            if output_format == "audio" and text_buffer:
+            # Handle any remaining text or incomplete JSON
+            remaining_text = ""
+            if text_buffer:
+                remaining_text += text_buffer
+            if is_json and json_buffer:
+                # If we have incomplete JSON at the end, yield it as text
+                remaining_text += json_buffer
+
+            if remaining_text and output_format == "audio":
                 async for audio_chunk in self.llm_provider.tts(
-                    text_buffer, instructions=audio_instructions, response_format=audio_output_format, voice=audio_voice
+                    text=remaining_text,
+                    voice=audio_voice,
+                    response_format=audio_output_format
                 ):
                     yield audio_chunk
+            elif remaining_text:
+                yield remaining_text
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
             if output_format == "audio":
-                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=audio_output_format, voice=audio_voice):
+                async for chunk in self.llm_provider.tts(error_msg, voice=audio_voice, response_format=audio_output_format):
                     yield chunk
             else:
                 yield error_msg
