@@ -14,8 +14,8 @@ class QueryService(ABC):
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        audio_response_format: Literal['mp3', 'opus',
-                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_output_format: Literal['mp3', 'opus',
+                                     'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",

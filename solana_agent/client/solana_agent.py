@@ -47,8 +47,8 @@ class SolanaAgent(SolanaAgentInterface):
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        audio_response_format: Literal['mp3', 'opus',
-                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_output_format: Literal['mp3', 'opus',
+                                     'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
@@ -61,7 +61,7 @@ class SolanaAgent(SolanaAgentInterface):
             output_format: Response format ("text" or "audio")
             audio_voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
-            audio_response_format: Audio format
+            audio_output_format: Audio output format
             audio_input_format: Audio input format
 
         Returns:
@@ -73,7 +73,7 @@ class SolanaAgent(SolanaAgentInterface):
             output_format=output_format,
             audio_voice=audio_voice,
             audio_instructions=audio_instructions,
-            audio_response_format=audio_response_format,
+            audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
         ):
             yield chunk
