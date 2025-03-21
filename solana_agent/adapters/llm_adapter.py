@@ -30,6 +30,8 @@ class OpenAIAdapter(LLMProvider):
         instructions: str = "",
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         """Stream text-to-speech audio from OpenAI models.
 
@@ -37,6 +39,7 @@ class OpenAIAdapter(LLMProvider):
             text: Text to convert to speech
             instructions: Optional instructions for speech generation
             voice: Voice to use for synthesis
+            response_format: Audio format
 
         Yields:
             Audio bytes as they become available
@@ -47,6 +50,7 @@ class OpenAIAdapter(LLMProvider):
                 voice=voice,
                 input=text,
                 instructions=instructions,
+                response_format=response_format
             )
 
             # Stream the bytes in chunks

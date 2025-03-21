@@ -48,6 +48,8 @@ class SolanaAgent(SolanaAgentInterface):
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
 
@@ -57,6 +59,7 @@ class SolanaAgent(SolanaAgentInterface):
             output_format: Response format ("text" or "audio")
             voice: Voice to use for audio output (only used if output_format is "audio")
             audio_instructions: Optional instructions for audio synthesis
+            response_format: Audio format
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)

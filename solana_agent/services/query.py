@@ -42,6 +42,8 @@ class QueryService(QueryServiceInterface):
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
@@ -51,6 +53,7 @@ class QueryService(QueryServiceInterface):
             output_format: Response format ("text" or "audio")
             voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
+            response_format: Audio response format
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -68,7 +71,7 @@ class QueryService(QueryServiceInterface):
             if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
                 response = "Hello! How can I help you today?"
                 if output_format == "audio":
-                    async for chunk in self.agent_service.llm_provider.tts(response, instructions=audio_instructions, voice=voice):
+                    async for chunk in self.agent_service.llm_provider.tts(response, instructions=audio_instructions, response_format=response_format, voice=voice):
                         yield chunk
                 else:
                     yield response
@@ -94,7 +97,8 @@ class QueryService(QueryServiceInterface):
                 query=user_text,
                 memory_context=memory_context,
                 output_format=output_format,
-                voice=voice
+                voice=voice,
+                response_format=response_format,
             ):
                 yield chunk
                 if output_format == "text":
@@ -119,7 +123,7 @@ class QueryService(QueryServiceInterface):
         except Exception as e:
             error_msg = f"I apologize for the technical difficulty. {str(e)}"
             if output_format == "audio":
-                async for chunk in self.agent_service.llm_provider.tts(error_msg, instructions=audio_instructions, voice=voice):
+                async for chunk in self.agent_service.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=response_format, voice=voice):
                     yield chunk
             else:
                 yield error_msg

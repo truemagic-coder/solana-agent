@@ -15,6 +15,8 @@ class QueryService(ABC):
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass

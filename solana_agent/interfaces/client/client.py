@@ -14,7 +14,9 @@ class SolanaAgent(ABC):
         output_format: Literal["text", "audio"] = "text",
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        audio_instructions: str = None
+        audio_instructions: str = None,
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process a user message and return the response stream."""
         pass

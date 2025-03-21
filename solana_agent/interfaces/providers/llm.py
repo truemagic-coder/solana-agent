@@ -39,6 +39,8 @@ class LLMProvider(ABC):
         instructions: str = "",
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        response_format: Literal['mp3', 'opus',
+                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
     ) -> AsyncGenerator[bytes, None]:
         """Stream text-to-speech audio from the language model."""
         pass
