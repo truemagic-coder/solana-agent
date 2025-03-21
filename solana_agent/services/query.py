@@ -90,7 +90,7 @@ class QueryService(QueryServiceInterface):
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "asc"  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """Get paginated message history for a user.
 
