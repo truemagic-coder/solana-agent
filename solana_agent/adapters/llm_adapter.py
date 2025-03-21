@@ -21,7 +21,7 @@ class OpenAIAdapter(LLMProvider):
         self.parse_model = "gpt-4o-mini"
         self.search_model = "gpt-4o-mini-search-preview"
         self.transcription_model = "gpt-4o-mini-transcribe"
-        self.tts_model = "gpt-4o-mini-tts"
+        self.tts_model = "tts-1"
 
     async def tts(
         self,
@@ -48,7 +48,6 @@ class OpenAIAdapter(LLMProvider):
                 model=self.tts_model,
                 voice=voice,
                 input=text,
-                instructions=instructions,
                 response_format=response_format
             )
 

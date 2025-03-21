@@ -86,11 +86,11 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## LLMs Used
+## Models Used
 * The model used for AI Agents is `gpt-4o-mini-search-preview`
 * The model used for internal structured outputs is `gpt-4o-mini`
 * The model used for audio_transcription is `gpt-4o-mini-transcribe`
-* The model used for tts is `gpt-4o-mini-tts`
+* The model used for tts is `tts-1`
 
 ## Solana Agent Kit
 
