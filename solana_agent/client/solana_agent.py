@@ -9,9 +9,10 @@ import importlib.util
 from typing import AsyncGenerator, Dict, Any
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
+from solana_agent.interfaces.client.client import SolanaAgent
 
 
-class SolanaAgent:
+class SolanaAgent(SolanaAgent):
     """Simplified client interface for interacting with the agent system."""
 
     def __init__(self, config_path: str = None, config: Dict[str, Any] = None):

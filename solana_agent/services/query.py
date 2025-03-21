@@ -146,12 +146,15 @@ class QueryService(QueryServiceInterface):
             # Format the results
             formatted_conversations = []
             for conv in conversations:
+                # Convert datetime to Unix timestamp (seconds since epoch)
+                timestamp = int(conv.get("timestamp").timestamp()
+                                ) if conv.get("timestamp") else None
+
                 formatted_conversations.append({
                     "id": str(conv.get("_id")),
                     "user_message": conv.get("user_message"),
                     "assistant_message": conv.get("assistant_message"),
-                    "timestamp": conv.get("timestamp").isoformat()
-                    if conv.get("timestamp") else None
+                    "timestamp": timestamp,
                 })
 
             return {

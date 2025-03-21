@@ -1,4 +1,5 @@
 from datetime import datetime
+import datetime as main_datetime
 from typing import Any
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -205,7 +206,28 @@ async def test_get_user_history_success(query_service, mock_memory_provider):
     assert len(result["data"]) == 2
     assert result["page"] == 1
     assert result["error"] is None
-    assert isinstance(result["data"][0]["timestamp"], str)
+    assert isinstance(result["data"][0]["timestamp"], int)
+
+
+@pytest.mark.asyncio
+async def test_get_user_history_timestamp_format(query_service, mock_memory_provider):
+    """Test that timestamps are returned as Unix time."""
+    test_date = datetime(2024, 3, 20, tzinfo=main_datetime.timezone.utc)
+    expected_timestamp = int(test_date.timestamp())
+
+    mock_memory_provider.find.return_value = [{
+        "_id": "1",
+        "user_id": "test_user",
+        "user_message": "test",
+        "assistant_message": "response",
+        "timestamp": test_date
+    }]
+    mock_memory_provider.count_documents.return_value = 1
+
+    result = await query_service.get_user_history("test_user")
+
+    assert result["data"][0]["timestamp"] == expected_timestamp
+    assert isinstance(result["data"][0]["timestamp"], int)
 
 
 @pytest.mark.asyncio
