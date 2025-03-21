@@ -104,7 +104,7 @@ class SolanaAgentFactory:
             agent_repo.delete_ai_agent(agent_name)
 
         # Register predefined agents
-        for agent_config in config.get("ai_agents", []):
+        for agent_config in config.get("agents", []):
             agent_service.register_ai_agent(
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
