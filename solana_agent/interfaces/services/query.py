@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, AsyncGenerator, BinaryIO, Dict, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
 
 class QueryService(ABC):
@@ -10,13 +9,16 @@ class QueryService(ABC):
     async def process(
         self,
         user_id: str,
-        query: Union[str, Path, BinaryIO],
+        query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_response_format: Literal['mp3', 'opus',
+                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass

@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import AsyncGenerator, BinaryIO, List, Literal, Type, TypeVar, Union
+from typing import AsyncGenerator, List, Literal, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -48,7 +47,10 @@ class LLMProvider(ABC):
     @abstractmethod
     async def transcribe_audio(
         self,
-        audio_file: Union[str, Path, BinaryIO],
+        audio_bytes: bytes,
+        input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[str, None]:
         """Transcribe audio from the language model."""
         pass

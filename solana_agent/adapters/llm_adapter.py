@@ -3,8 +3,7 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
-from pathlib import Path
-from typing import AsyncGenerator, BinaryIO, List, Literal, Type, TypeVar, Union
+from typing import AsyncGenerator, List, Literal, Type, TypeVar, Union
 
 from openai import OpenAI
 from pydantic import BaseModel
@@ -71,24 +70,24 @@ class OpenAIAdapter(LLMProvider):
 
     async def transcribe_audio(
         self,
-        audio_file: Union[str, Path, BinaryIO],
+        audio_bytes: bytes,
+        input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[str, None]:  # pragma: no cover
         """Stream transcription of an audio file.
 
         Args:
-            audio_file: Path to audio file or file-like object
+            audio_bytes: Audio file bytes
+            input_format: Format of the input audio file
 
         Yields:
             Transcript text chunks as they become available
         """
         try:
-            # Handle file path vs file object
-            if isinstance(audio_file, (str, Path)):
-                audio_file = open(audio_file, "rb")
-
             stream = self.client.audio.transcriptions.create(
                 model=self.transcription_model,
-                file=audio_file,
+                file=(f"file.{input_format}", audio_bytes),
                 response_format="text",
                 stream=True
             )

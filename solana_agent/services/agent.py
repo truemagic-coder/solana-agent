@@ -7,8 +7,7 @@ and response generation.
 import datetime as main_datetime
 from datetime import datetime
 import json
-from pathlib import Path
-from typing import AsyncGenerator, BinaryIO, Dict, List, Literal, Optional, Any, Union
+from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
@@ -189,26 +188,30 @@ class AgentService(AgentServiceInterface):
         self,
         agent_name: str,
         user_id: str,
-        query: Union[str, Path, BinaryIO],
+        query: Union[str, bytes],
         memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_response_format: Literal['mp3', 'opus',
+                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output.
 
         Args:
             agent_name: Agent name
             user_id: User ID
-            query: Text query or audio file input
+            query: Text query or audio bytes
             memory_context: Optional conversation context
             output_format: Response format ("text" or "audio")
-            voice: Voice to use for audio output
+            audio_voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
-            response_format: Audio format
+            audio_response_format: Audio format
+            audio_input_format: Audio input format
 
         Yields:
             Text chunks or audio bytes depending on output_format
@@ -217,7 +220,7 @@ class AgentService(AgentServiceInterface):
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             if output_format == "audio":
-                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=response_format, voice=voice):
+                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice):
                     yield chunk
             else:
                 yield error_msg
@@ -227,7 +230,7 @@ class AgentService(AgentServiceInterface):
             # Handle audio input if provided
             query_text = ""
             if not isinstance(query, str):
-                async for transcript in self.llm_provider.transcribe_audio(query):
+                async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
                     query_text += transcript
             else:
                 query_text = query
@@ -258,7 +261,7 @@ class AgentService(AgentServiceInterface):
                         agent_name, chunk,
                     )
                     if output_format == "audio":
-                        async for audio_chunk in self.llm_provider.tts(result, instructions=audio_instructions, response_format=response_format, voice=voice):
+                        async for audio_chunk in self.llm_provider.tts(result, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice):
                             yield audio_chunk
                     else:
                         yield result
@@ -268,7 +271,7 @@ class AgentService(AgentServiceInterface):
                         text_buffer += chunk
                         if any(punct in chunk for punct in ".!?"):
                             async for audio_chunk in self.llm_provider.tts(
-                                text_buffer, instructions=audio_instructions, response_format=response_format, voice=voice
+                                text_buffer, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice
                             ):
                                 yield audio_chunk
                             text_buffer = ""
@@ -278,14 +281,14 @@ class AgentService(AgentServiceInterface):
             # Handle any remaining text in buffer
             if output_format == "audio" and text_buffer:
                 async for audio_chunk in self.llm_provider.tts(
-                    text_buffer, instructions=audio_instructions, response_format=response_format, voice=voice
+                    text_buffer, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice
                 ):
                     yield audio_chunk
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
             if output_format == "audio":
-                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=response_format, voice=voice):
+                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice):
                     yield chunk
             else:
                 yield error_msg

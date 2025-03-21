@@ -6,8 +6,7 @@ the agent system without dealing with internal implementation details.
 """
 import json
 import importlib.util
-from pathlib import Path
-from typing import AsyncGenerator, BinaryIO, Dict, Any, Literal, Optional, Union
+from typing import AsyncGenerator, Dict, Any, Literal, Optional, Union
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
@@ -43,23 +42,27 @@ class SolanaAgent(SolanaAgentInterface):
     async def process(
         self,
         user_id: str,
-        message: Union[str, Path, BinaryIO],
+        message: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_response_format: Literal['mp3', 'opus',
+                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
 
         Args:
             user_id: User ID
-            message: Text message or audio file input
+            message: Text message or audio bytes
             output_format: Response format ("text" or "audio")
-            voice: Voice to use for audio output (only used if output_format is "audio")
+            audio_voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
-            response_format: Audio format
+            audio_response_format: Audio format
+            audio_input_format: Audio input format
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
@@ -68,8 +71,10 @@ class SolanaAgent(SolanaAgentInterface):
             user_id=user_id,
             query=message,
             output_format=output_format,
-            voice=voice,
-            audio_instructions=audio_instructions
+            audio_voice=audio_voice,
+            audio_instructions=audio_instructions,
+            audio_response_format=audio_response_format,
+            audio_input_format=audio_input_format,
         ):
             yield chunk
 

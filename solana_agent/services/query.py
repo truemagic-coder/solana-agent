@@ -5,8 +5,7 @@ This service orchestrates the processing of user queries, coordinating
 other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
-from pathlib import Path
-from typing import Any, AsyncGenerator, BinaryIO, Dict, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
 from solana_agent.services.agent import AgentService
@@ -37,23 +36,27 @@ class QueryService(QueryServiceInterface):
     async def process(
         self,
         user_id: str,
-        query: Union[str, Path, BinaryIO],
+        query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         audio_instructions: Optional[str] = None,
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_response_format: Literal['mp3', 'opus',
+                                       'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
+        ] = "mp4",
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
         Args:
             user_id: User ID
-            query: Text query or audio file input
+            query: Text query or audio bytes
             output_format: Response format ("text" or "audio")
-            voice: Voice to use for audio output
+            audio_voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
-            response_format: Audio response format
+            audio_response_format: Audio response format
+            audio_input_format: Audio input format
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -62,7 +65,7 @@ class QueryService(QueryServiceInterface):
             # Handle audio input if provided
             user_text = ""
             if not isinstance(query, str):
-                async for transcript in self.agent_service.llm_provider.transcribe_audio(query):
+                async for transcript in self.agent_service.llm_provider.transcribe_audio(query, audio_input_format):
                     user_text += transcript
             else:
                 user_text = query
@@ -71,7 +74,7 @@ class QueryService(QueryServiceInterface):
             if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
                 response = "Hello! How can I help you today?"
                 if output_format == "audio":
-                    async for chunk in self.agent_service.llm_provider.tts(response, instructions=audio_instructions, response_format=response_format, voice=voice):
+                    async for chunk in self.agent_service.llm_provider.tts(response, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice):
                         yield chunk
                 else:
                     yield response
@@ -97,8 +100,8 @@ class QueryService(QueryServiceInterface):
                 query=user_text,
                 memory_context=memory_context,
                 output_format=output_format,
-                voice=voice,
-                response_format=response_format,
+                audio_voice=audio_voice,
+                audio_response_format=audio_response_format,
             ):
                 yield chunk
                 if output_format == "text":
@@ -123,7 +126,7 @@ class QueryService(QueryServiceInterface):
         except Exception as e:
             error_msg = f"I apologize for the technical difficulty. {str(e)}"
             if output_format == "audio":
-                async for chunk in self.agent_service.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=response_format, voice=voice):
+                async for chunk in self.agent_service.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=audio_response_format, voice=audio_voice):
                     yield chunk
             else:
                 yield error_msg
