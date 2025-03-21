@@ -39,6 +39,7 @@ class AgentService(AgentServiceInterface):
         self.agent_repository = agent_repository
         self.organization_mission = organization_mission
         self.config = config or {}
+        self.last_text_response = ""
 
         # Initialize tool registry with concrete implementation
         if tool_registry:
@@ -247,6 +248,8 @@ class AgentService(AgentServiceInterface):
             if memory_context:
                 system_prompt += f"\n\nMemory Context: {memory_context}"
 
+            # Keep track of the complete text response
+            complete_text_response = ""
             json_buffer = ""
             is_json = False
             text_buffer = ""
@@ -277,6 +280,9 @@ class AgentService(AgentServiceInterface):
                                 json_chunk=json_buffer
                             )
 
+                            # Add to complete text response
+                            complete_text_response += response_text
+
                             # Output response based on format
                             if output_format == "audio":
                                 async for audio_chunk in self.llm_provider.tts(
@@ -288,7 +294,9 @@ class AgentService(AgentServiceInterface):
                             else:
                                 yield response_text
                         else:
-                            # Not a tool call, return as normal text
+                            # For non-tool JSON, still capture the text
+                            complete_text_response += json_buffer
+
                             if output_format == "audio":
                                 async for audio_chunk in self.llm_provider.tts(
                                     text=json_buffer,
@@ -304,10 +312,12 @@ class AgentService(AgentServiceInterface):
                         json_buffer = ""
 
                     except json.JSONDecodeError:
-                        # Incomplete JSON, continue collecting
                         pass
                 else:
-                    # Regular text processing
+                    # For regular text, always add to the complete response
+                    complete_text_response += chunk
+
+                    # Handle audio buffering or direct text output
                     if output_format == "audio":
                         text_buffer += chunk
                         if any(punct in chunk for punct in ".!?"):
@@ -326,18 +336,25 @@ class AgentService(AgentServiceInterface):
             if text_buffer:
                 remaining_text += text_buffer
             if is_json and json_buffer:
-                # If we have incomplete JSON at the end, yield it as text
                 remaining_text += json_buffer
 
-            if remaining_text and output_format == "audio":
-                async for audio_chunk in self.llm_provider.tts(
-                    text=remaining_text,
-                    voice=audio_voice,
-                    response_format=audio_output_format
-                ):
-                    yield audio_chunk
-            elif remaining_text:
-                yield remaining_text
+            if remaining_text:
+                # Add remaining text to complete response
+                complete_text_response += remaining_text
+
+                if output_format == "audio":
+                    async for audio_chunk in self.llm_provider.tts(
+                        text=remaining_text,
+                        voice=audio_voice,
+                        response_format=audio_output_format
+                    ):
+                        yield audio_chunk
+                else:
+                    yield remaining_text
+
+            # Store the complete text response for the caller to access
+            # This needs to be done in the query service using the self.last_text_response
+            self.last_text_response = complete_text_response
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
