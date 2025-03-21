@@ -27,7 +27,7 @@ def mock_mongo_adapter():
     adapter.create_collection = AsyncMock()
     adapter.create_index = AsyncMock()
     adapter.insert_one = AsyncMock()
-    adapter.delete_many = AsyncMock()
+    adapter.delete_all = AsyncMock()
     return adapter
 
 
@@ -102,7 +102,7 @@ async def test_delete_success(memory_repository, mock_mongo_adapter, mock_zep_cl
     """Test successful deletion from both systems."""
     await memory_repository.delete(TEST_USER_ID)
 
-    mock_mongo_adapter.delete_many.assert_called_once_with(
+    mock_mongo_adapter.delete_all.assert_called_once_with(
         "conversations",
         {"user_id": TEST_USER_ID}
     )
