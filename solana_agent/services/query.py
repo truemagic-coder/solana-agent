@@ -94,32 +94,12 @@ class QueryService(QueryServiceInterface):
             agent_name = await self.routing_service.route_query(user_text)
             print(f"Routed to agent: {agent_name}")
 
-            # For audio mode, we need to carefully handle the response to make sure
-            # tool calls are properly executed and formatted for audio
+            # Generate response
             if output_format == "audio":
-                # Use the agent service to generate the response
-                text_response = ""
-
-                # First, get complete text response
-                # Note: This is a separate call from the audio generation
-                temp_response = ""
-                async for chunk in self.agent_service.generate_response(
-                    agent_name=agent_name,
-                    user_id=user_id,
-                    query=user_text,
-                    memory_context=memory_context,
-                    output_format="text"
-                ):
-                    temp_response += chunk
-
-                # Store the complete text for memory
-                text_response = temp_response
-
-                # Now generate audio from same request
                 async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
-                    query=user_text,
+                    query=query,
                     memory_context=memory_context,
                     output_format="audio",
                     audio_voice=audio_voice,
@@ -129,15 +109,13 @@ class QueryService(QueryServiceInterface):
                 ):
                     yield audio_chunk
 
-                # Store conversation in memory
-                if self.memory_provider and text_response:
+                if self.memory_provider:
                     await self._store_conversation(
                         user_id=user_id,
                         user_message=user_text,
-                        assistant_message=text_response
+                        assistant_message=self.agent_service.last_text_response,
                     )
             else:
-                # For text mode, we can collect the response and store it directly
                 full_text_response = ""
                 async for chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
@@ -149,7 +127,6 @@ class QueryService(QueryServiceInterface):
                     yield chunk
                     full_text_response += chunk
 
-                # Store conversation in memory
                 if self.memory_provider and full_text_response:
                     await self._store_conversation(
                         user_id=user_id,
