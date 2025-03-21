@@ -1,12 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List
+from pathlib import Path
+from typing import Any, AsyncGenerator, BinaryIO, Dict, List, Literal, Union
+
+from solana_agent.domains.agent import AIAgent
 
 
 class AgentService(ABC):
     """Interface for agent management and response generation."""
 
     @abstractmethod
-    def register_ai_agent(self, name: str, instructions: str, specialization: str, model: str = "gpt-4o-mini") -> None:
+    def register_ai_agent(self, name: str, instructions: str, specialization: str) -> None:
         """Register an AI agent with its specialization."""
         pass
 
@@ -21,7 +24,17 @@ class AgentService(ABC):
         pass
 
     @abstractmethod
-    async def generate_response(self, agent_name: str, user_id: str, query: str, memory_context: str = "", **kwargs) -> AsyncGenerator[str, None]:
+    async def generate_response(
+        self,
+        agent_name: str,
+        user_id: str,
+        query: Union[str, Path, BinaryIO],
+        memory_context: str = "",
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: str = None,
+    ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
         pass
 
@@ -38,4 +51,9 @@ class AgentService(ABC):
     @abstractmethod
     def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
+        pass
+
+    @abstractmethod
+    def get_all_ai_agents(self) -> Dict[str, AIAgent]:
+        """Get all registered AI agents."""
         pass

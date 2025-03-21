@@ -1,12 +1,21 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict
+from pathlib import Path
+from typing import Any, AsyncGenerator, BinaryIO, Dict, Literal, Union
 
 
 class SolanaAgent(ABC):
     """Interface for the Solana agent system."""
 
     @abstractmethod
-    async def process(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
+    async def process(
+        self,
+        user_id: str,
+        message: Union[str, Path, BinaryIO],
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: str = None
+    ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process a user message and return the response stream."""
         pass
 

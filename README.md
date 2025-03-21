@@ -11,7 +11,7 @@
 
 ## Features
 
-* Text streaming messages by AI Agents
+* Multi-modal input-output streaming with text or audio by AI Agents
 * Conversational memory per user shared by all AI Agents
 * Routing based on AI Agent specializations
 * Built-in Internet Search for all AI Agents
@@ -62,21 +62,18 @@ config = {
     },
     "openai": {
         "api_key": "your-openai-key",
-        "default_model": "gpt-4o-mini"
     },
     "agents": [
         {
             "name": "research_specialist",
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
             "specialization": "Research and knowledge synthesis",
-            "model": "o3-mini",
             "tools": ["some_tool"]
         },
         {
             "name": "customer_support",
             "instructions": "You provide friendly, helpful customer support responses.",
             "specialization": "Customer inquiries",
-            "model": "gpt-4o-mini"
         }
     ],
 }
@@ -88,6 +85,12 @@ solana_agent = SolanaAgent(config=config)
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
+
+## LLMs Used
+* The model used for AI Agents is `gpt-4o-mini-search-preview`
+* The model used for internal structured outputs is `gpt-4o-mini`
+* The model used for audio_transcription is `gpt-4o-mini-transcribe`
+* The model used for tts is `gpt-4o-mini-tts`
 
 ## Solana Agent Kit
 

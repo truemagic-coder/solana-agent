@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from solana_agent.domains.agents import AIAgent
+from solana_agent.domains.agent import AIAgent
 
 
 class AgentRepository(ABC):

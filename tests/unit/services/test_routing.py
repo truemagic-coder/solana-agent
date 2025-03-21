@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from solana_agent.services.routing import RoutingService
-from solana_agent.domains.agents import AIAgent
+from solana_agent.domains.agent import AIAgent
 from solana_agent.domains.routing import QueryAnalysis
 
 # Test Data
@@ -89,7 +89,7 @@ async def test_analyze_query_error(routing_service, mock_llm_provider):
 @pytest.mark.asyncio
 async def test_route_query_to_specialist(routing_service):
     """Test routing to specialist agent."""
-    agent_name = await routing_service.route_query(TEST_USER_ID, TEST_QUERY)
+    agent_name = await routing_service.route_query(TEST_QUERY)
     assert agent_name == "validator_expert"
 
 
@@ -110,7 +110,7 @@ async def test_route_query_fallback(routing_service, mock_agent_service):
         "general_ai": TEST_AGENTS["general_ai"]
     }
 
-    agent_name = await routing_service.route_query(TEST_USER_ID, TEST_QUERY)
+    agent_name = await routing_service.route_query(TEST_QUERY)
     assert agent_name == "general_ai"
 
 
@@ -163,3 +163,26 @@ async def test_agent_scoring_no_match(routing_service, mock_agent_service):
 
     # Should return general AI as fallback
     assert result == "general_ai"
+
+
+@pytest.mark.asyncio
+async def test_route_query_single_agent(routing_service, mock_agent_service):
+    """Test routing when only one agent is available - should route to that agent."""
+    # Override agent service to return only one agent
+    single_agent = AIAgent(
+        name="solo_agent",
+        instructions="Solo agent",
+        specialization="general",
+        model="gpt-4o"
+    )
+    mock_agent_service.get_all_ai_agents.return_value = {
+        "solo_agent": single_agent
+    }
+
+    # Any query should route to the only available agent
+    agent_name = await routing_service.route_query("Any query text")
+    assert agent_name == "solo_agent"
+
+    # Verify it works with different query
+    agent_name = await routing_service.route_query("Another different query")
+    assert agent_name == "solo_agent"

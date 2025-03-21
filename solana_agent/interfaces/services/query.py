@@ -1,13 +1,22 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict
+from pathlib import Path
+from typing import Any, AsyncGenerator, BinaryIO, Dict, Literal, Optional, Union
 
 
 class QueryService(ABC):
     """Interface for processing user queries."""
 
     @abstractmethod
-    async def process(self, user_id: str, query: str) -> AsyncGenerator[str, None]:
-        """Process a query from a user."""
+    async def process(
+        self,
+        user_id: str,
+        query: Union[str, Path, BinaryIO],
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: Optional[str] = None,
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """Process the user request and generate a response."""
         pass
 
     @abstractmethod

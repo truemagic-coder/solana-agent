@@ -75,7 +75,7 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": 0.0
             }
 
-    async def route_query(self, user_id: str, query: str) -> str:
+    async def route_query(self, query: str) -> str:
         """Route a query to the appropriate agent.
 
         Args:
@@ -83,19 +83,23 @@ class RoutingService(RoutingServiceInterface):
             query: The query text
 
         Returns:
-            Name of the selected agent
+            Name of the best agent
         """
+        # If only one agent - use that agent
+        if len(self.agent_service.get_all_ai_agents()) == 1:
+            return next(iter(self.agent_service.get_all_ai_agents().keys()))
+
         # Analyze query
         analysis = await self._analyze_query(query)
 
         # Find best agent based on analysis
-        selected_agent = await self._find_best_ai_agent(
+        best_agent = await self._find_best_ai_agent(
             analysis["primary_specialization"],
             analysis["secondary_specializations"]
         )
 
-        # Return default agent if none found
-        return selected_agent or "general_ai"
+        # Return best agent
+        return best_agent
 
     async def _find_best_ai_agent(
         self,

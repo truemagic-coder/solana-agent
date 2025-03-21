@@ -6,13 +6,14 @@ the agent system without dealing with internal implementation details.
 """
 import json
 import importlib.util
-from typing import AsyncGenerator, Dict, Any
+from pathlib import Path
+from typing import AsyncGenerator, BinaryIO, Dict, Any, Literal, Optional, Union
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
-from solana_agent.interfaces.client.client import SolanaAgent
+from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 
 
-class SolanaAgent(SolanaAgent):
+class SolanaAgent(SolanaAgentInterface):
     """Simplified client interface for interacting with the agent system."""
 
     def __init__(self, config_path: str = None, config: Dict[str, Any] = None):
@@ -39,17 +40,34 @@ class SolanaAgent(SolanaAgent):
 
         self.query_service = SolanaAgentFactory.create_from_config(config)
 
-    async def process(self, user_id: str, message: str) -> AsyncGenerator[str, None]:
+    async def process(
+        self,
+        user_id: str,
+        message: Union[str, Path, BinaryIO],
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: Optional[str] = None,
+    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
 
         Args:
             user_id: User ID
-            message: User message
+            message: Text message or audio file input
+            output_format: Response format ("text" or "audio")
+            voice: Voice to use for audio output (only used if output_format is "audio")
+            audio_instructions: Optional instructions for audio synthesis
 
         Returns:
-            Async generator yielding response chunks
+            Async generator yielding response chunks (text strings or audio bytes)
         """
-        async for chunk in self.query_service.process(user_id, message):
+        async for chunk in self.query_service.process(
+            user_id=user_id,
+            query=message,
+            output_format=output_format,
+            voice=voice,
+            audio_instructions=audio_instructions
+        ):
             yield chunk
 
     async def get_user_history(
