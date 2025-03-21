@@ -1,6 +1,7 @@
 # Solana Agent
 
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/solana-agent?color=yellow)](https://pypi.org/project/solana-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-orange.svg)](https://www.python.org/downloads/)
 [![codecov](https://img.shields.io/codecov/c/github/truemagic-coder/solana-agent/main.svg)](https://codecov.io/gh/truemagic-coder/solana-agent)
@@ -8,7 +9,7 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-## Technical Features
+## Features
 
 * Text streaming messages by AI Agents
 * Conversational memory per user shared by all AI Agents
@@ -16,6 +17,13 @@
 * Built-in Internet Search for all AI Agents
 * Organizational mission, values, goals, and guidance for all AI Agents
 * Robust AI Agent tool plugins based on standard python packages
+
+## Stack
+
+* [Python](https://python.org) - programming language
+* [OpenAI](https://openai.com) - LLMs
+* [MongoDB](https://mongodb.com) - database
+* [Zep](https://getzep.com) - conversational memory
 
 ## Installation
 
@@ -81,7 +89,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Solana Agent Kit (plugins collection)
+## Solana Agent Kit
 
 [Solana Agent Kit](https://github.com/truemagic-coder/solana-agent-kit)
 
