@@ -14,12 +14,6 @@ jobs:
       matrix:
         python-version: [3.12, 3.13]
 
-    services:
-      mongodb:
-        image: mongo:latest
-        ports:
-          - 27017:27017
-
     steps:
     - uses: actions/checkout@v4
     
