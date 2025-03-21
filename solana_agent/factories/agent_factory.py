@@ -20,7 +20,7 @@ from solana_agent.adapters.llm_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
 # Domain and plugin imports
-from solana_agent.domains.agents import OrganizationMission
+from solana_agent.domains.agent import OrganizationMission
 from solana_agent.plugins.manager import PluginManager
 
 
@@ -45,7 +45,6 @@ class SolanaAgentFactory:
 
         llm_adapter = OpenAIAdapter(
             api_key=config["openai"]["api_key"],
-            model=config.get("openai", {}).get("default_model", "gpt-4o-mini"),
         )
 
         # Create organization mission if specified in config
@@ -110,7 +109,6 @@ class SolanaAgentFactory:
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
                 specialization=agent_config["specialization"],
-                model=agent_config.get("model", "gpt-4o-mini"),
             )
 
             # Register tools for this agent

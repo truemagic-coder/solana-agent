@@ -53,7 +53,6 @@ class AIAgent(BaseModel):
     instructions: str = Field(...,
                               description="Base instructions for the agent")
     specialization: str = Field(..., description="Agent's specialized domain")
-    model: str = Field("gpt-4o-mini", description="Language model to use")
     created_at: datetime = Field(
         default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(

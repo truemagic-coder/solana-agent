@@ -7,13 +7,14 @@ and response generation.
 import datetime as main_datetime
 from datetime import datetime
 import json
-from typing import AsyncGenerator, Dict, List, Optional, Any
+from pathlib import Path
+from typing import AsyncGenerator, BinaryIO, Dict, List, Literal, Optional, Any, Union
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.interfaces.repositories.agent import AgentRepository
 from solana_agent.interfaces.plugins.plugins import ToolRegistry
-from solana_agent.domains.agents import AIAgent, OrganizationMission
+from solana_agent.domains.agent import AIAgent, OrganizationMission
 
 
 class AgentService(AgentServiceInterface):
@@ -52,7 +53,7 @@ class AgentService(AgentServiceInterface):
         self.plugin_manager = None
 
     def register_ai_agent(
-        self, name: str, instructions: str, specialization: str, model: str = "gpt-4o-mini"
+        self, name: str, instructions: str, specialization: str,
     ) -> None:
         """Register an AI agent with its specialization.
 
@@ -60,13 +61,11 @@ class AgentService(AgentServiceInterface):
             name: Agent name
             instructions: Agent instructions
             specialization: Agent specialization
-            model: LLM model to use
         """
         agent = AIAgent(
             name=name,
             instructions=instructions,
             specialization=specialization,
-            model=model
         )
         self.agent_repository.save_ai_agent(agent)
 
@@ -190,84 +189,131 @@ class AgentService(AgentServiceInterface):
         self,
         agent_name: str,
         user_id: str,
-        query: str,
+        query: Union[str, Path, BinaryIO],
         memory_context: str = "",
-        **kwargs
-    ) -> AsyncGenerator[str, None]:  # pragma: no cover
-        """Generate a response with tool execution support."""
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: Optional[str] = None,
+    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
+        """Generate a response with support for text/audio input/output.
+
+        Args:
+            agent_name: Agent name
+            user_id: User ID
+            query: Text query or audio file input
+            memory_context: Optional conversation context
+            output_format: Response format ("text" or "audio")
+            voice: Voice to use for audio output
+            audio_instructions: Optional instructions for audio synthesis
+
+        Yields:
+            Text chunks or audio bytes depending on output_format
+        """
         agent = self.agent_repository.get_ai_agent_by_name(agent_name)
         if not agent:
-            yield f"Agent '{agent_name}' not found."
+            error_msg = f"Agent '{agent_name}' not found."
+            if output_format == "audio":
+                async for chunk in self.llm_provider.tts(error_msg, voice=voice):
+                    yield chunk
+            else:
+                yield error_msg
             return
 
-        # Get system prompt and add tool instructions
-        system_prompt = self.get_agent_system_prompt(agent_name)
-        if self.tool_registry:
-            tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
-            if tool_usage_prompt:
-                system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
-
-        # Add User ID context
-        system_prompt += f"\n\n User ID: {user_id}"
-
-        # Add memory context
-        if memory_context:
-            system_prompt += f"\n\n Memory Context: {memory_context}"
-
         try:
-            json_response = ""
-            is_json = False
+            # Handle audio input if provided
+            query_text = ""
+            if not isinstance(query, str):
+                async for transcript in self.llm_provider.transcribe_audio(query):
+                    query_text += transcript
+            else:
+                query_text = query
 
+            # Get system prompt and add tool instructions
+            system_prompt = self.get_agent_system_prompt(agent_name)
+            if self.tool_registry:
+                tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
+                if tool_usage_prompt:
+                    system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
+
+            # Add User ID and memory context
+            system_prompt += f"\n\nUser ID: {user_id}"
+            if memory_context:
+                system_prompt += f"\n\nMemory Context: {memory_context}"
+
+            # Buffer for collecting text when generating audio
+            text_buffer = ""
+
+            # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
-                user_id=user_id,
-                prompt=query,
+                prompt=query_text,
                 system_prompt=system_prompt,
-                model=agent.model,
-                needs_search=True,  # Enable web search by default
-                **kwargs
             ):
-                # Check for JSON start
                 if chunk.strip().startswith("{"):
-                    is_json = True
-                    json_response = chunk
-                    continue
-
-                # Collect JSON or yield normal text
-                if is_json:
-                    json_response += chunk
-                    try:
-                        # Try to parse complete JSON
-                        data = json.loads(json_response)
-
-                        # Handle tool call
-                        if "tool_call" in data:
-                            tool_data = data["tool_call"]
-                            tool_name = tool_data.get("name")
-                            parameters = tool_data.get("parameters", {})
-
-                            if tool_name:
-                                result = self.execute_tool(
-                                    agent_name, tool_name, parameters)
-                                if result.get("status") == "success":
-                                    yield result.get("result", "")
-                                else:
-                                    yield f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
-                                break
-                        else:
-                            # If JSON but not a tool call, yield as text
-                            yield json_response
-                            break
-                    except json.JSONDecodeError:
-                        # Not complete JSON yet, keep collecting
-                        continue
+                    # Handle tool calls
+                    result = await self._handle_tool_call(
+                        agent_name, chunk, output_format, voice
+                    )
+                    if output_format == "audio":
+                        async for audio_chunk in self.llm_provider.tts(result, instructions=audio_instructions, voice=voice):
+                            yield audio_chunk
+                    else:
+                        yield result
                 else:
-                    yield chunk
+                    if output_format == "audio":
+                        # Buffer text until we have a complete sentence
+                        text_buffer += chunk
+                        if any(punct in chunk for punct in ".!?"):
+                            async for audio_chunk in self.llm_provider.tts(
+                                text_buffer, instructions=audio_instructions, voice=voice
+                            ):
+                                yield audio_chunk
+                            text_buffer = ""
+                    else:
+                        yield chunk
+
+            # Handle any remaining text in buffer
+            if output_format == "audio" and text_buffer:
+                async for audio_chunk in self.llm_provider.tts(
+                    text_buffer, instructions=audio_instructions, voice=voice
+                ):
+                    yield audio_chunk
 
         except Exception as e:
+            error_msg = f"I apologize, but I encountered an error: {str(e)}"
+            if output_format == "audio":
+                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, voice=voice):
+                    yield chunk
+            else:
+                yield error_msg
+
             print(f"Error in generate_response: {str(e)}")
             import traceback
             print(traceback.format_exc())
-            yield f"I apologize, but I encountered an error: {str(e)}"
+
+    async def _handle_tool_call(
+        self,
+        agent_name: str,
+        json_chunk: str,
+    ) -> str:
+        """Handle tool calls and return formatted response."""
+        try:
+            data = json.loads(json_chunk)
+            if "tool_call" in data:
+                tool_data = data["tool_call"]
+                tool_name = tool_data.get("name")
+                parameters = tool_data.get("parameters", {})
+
+                if tool_name:
+                    result = self.execute_tool(
+                        agent_name, tool_name, parameters)
+                    if result.get("status") == "success":
+                        return result.get("result", "")
+                    else:
+                        return f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
+            return json_chunk
+        except json.JSONDecodeError:
+            return json_chunk
 
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
         """Generate JSON-based instructions for tool usage."""

@@ -6,7 +6,7 @@ class RoutingService(ABC):
     """Interface for query routing services."""
 
     @abstractmethod
-    async def route_query(self, user_id: str, query: str) -> Tuple[str, Any]:
+    async def route_query(self, query: str) -> Tuple[str, Any]:
         """Route a query to the appropriate agent.
 
         Args:

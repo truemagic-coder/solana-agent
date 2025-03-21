@@ -5,7 +5,8 @@ This service orchestrates the processing of user queries, coordinating
 other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
-from typing import Any, AsyncGenerator, Dict, Optional
+from pathlib import Path
+from typing import Any, AsyncGenerator, BinaryIO, Dict, Literal, Optional, Union
 
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
 from solana_agent.services.agent import AgentService
@@ -34,23 +35,44 @@ class QueryService(QueryServiceInterface):
         self.memory_provider = memory_provider
 
     async def process(
-        self, user_id: str, user_text: str, timezone: str = None
-    ) -> AsyncGenerator[str, None]:  # pragma: no cover
+        self,
+        user_id: str,
+        query: Union[str, Path, BinaryIO],
+        output_format: Literal["text", "audio"] = "text",
+        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
+                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_instructions: Optional[str] = None,
+    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
         Args:
             user_id: User ID
-            user_text: User query text
-            timezone: Optional user timezone
+            query: Text query or audio file input
+            output_format: Response format ("text" or "audio")
+            voice: Voice to use for audio output
+            audio_instructions: Optional instructions for audio synthesis
 
         Yields:
-            Response text chunks
+            Response chunks (text strings or audio bytes)
         """
         try:
+            # Handle audio input if provided
+            user_text = ""
+            if not isinstance(query, str):
+                async for transcript in self.agent_service.llm_provider.transcribe_audio(query):
+                    user_text += transcript
+            else:
+                user_text = query
+
             # Handle simple greetings
             if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
-                response = f"Hello! How can I help you today?"
-                yield response
+                response = "Hello! How can I help you today?"
+                if output_format == "audio":
+                    async for chunk in self.agent_service.llm_provider.tts(response, instructions=audio_instructions, voice=voice):
+                        yield chunk
+                else:
+                    yield response
+
                 # Store simple interaction in memory
                 if self.memory_provider:
                     await self._store_conversation(user_id, user_text, response)
@@ -62,27 +84,48 @@ class QueryService(QueryServiceInterface):
                 memory_context = await self.memory_provider.retrieve(user_id)
 
             # Route query to appropriate agent
-            agent_name = await self.routing_service.route_query(user_id, user_text)
+            agent_name = await self.routing_service.route_query(user_text)
 
-            # Generate response
+            # Generate response using agent service
             full_response = ""
             async for chunk in self.agent_service.generate_response(
                 agent_name=agent_name,
                 user_id=user_id,
                 query=user_text,
-                memory_context=memory_context
+                memory_context=memory_context,
+                output_format=output_format,
+                voice=voice
             ):
                 yield chunk
-                full_response += chunk
+                if output_format == "text":
+                    full_response += chunk
+
+            # For audio responses, get transcription for storage
+            if output_format == "audio":
+                # Re-generate response in text format for storage
+                async for chunk in self.agent_service.generate_response(
+                    agent_name=agent_name,
+                    user_id=user_id,
+                    query=user_text,
+                    memory_context=memory_context,
+                    output_format="text"
+                ):
+                    full_response += chunk
 
             # Store conversation and extract insights
             if self.memory_provider:
                 await self._store_conversation(user_id, user_text, full_response)
 
         except Exception as e:
-            yield f"I apologize for the technical difficulty. {str(e)}"
-            import traceback
+            error_msg = f"I apologize for the technical difficulty. {str(e)}"
+            if output_format == "audio":
+                async for chunk in self.agent_service.llm_provider.tts(error_msg, instructions=audio_instructions, voice=voice):
+                    yield chunk
+            else:
+                yield error_msg
+
             print(f"Error in query processing: {str(e)}")
+            import traceback
             print(traceback.format_exc())
 
     async def get_user_history(

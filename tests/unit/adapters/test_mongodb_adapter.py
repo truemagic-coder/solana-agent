@@ -454,3 +454,67 @@ def test_create_index(mongodb_adapter, mock_mongo_client):
     # Verify results
     mock_collection.create_index.assert_called_once_with(
         keys, unique=True, background=True)
+
+
+def test_find_with_skip(mongodb_adapter, mock_mongo_client):
+    """Test finding documents with skip."""
+    _, mock_db = mock_mongo_client
+
+    # Create mock collection and cursor chain
+    mock_collection = MagicMock()
+    mock_cursor = MagicMock()
+    mock_db.__getitem__.return_value = mock_collection
+    mock_collection.find.return_value = mock_cursor
+    # Important: cursor returns self for chaining
+    mock_cursor.skip.return_value = mock_cursor
+
+    # Configure mock cursor to return list of documents
+    expected_docs = [{"_id": "doc2", "name": "Test2"}]
+    mock_cursor.__iter__.return_value = iter(expected_docs)
+
+    # Call method
+    query = {"category": "test"}
+    results = mongodb_adapter.find("test_collection", query, skip=1)
+
+    # Verify results
+    mock_collection.find.assert_called_once_with(query)
+    mock_cursor.skip.assert_called_once_with(1)
+    assert results == expected_docs
+
+
+def test_find_with_skip_sort_and_limit(mongodb_adapter, mock_mongo_client):
+    """Test finding documents with skip, sort, and limit combined."""
+    _, mock_db = mock_mongo_client
+
+    # Create mock collection and cursor chain
+    mock_collection = MagicMock()
+    mock_cursor = MagicMock()
+    mock_db.__getitem__.return_value = mock_collection
+    mock_collection.find.return_value = mock_cursor
+
+    # Configure cursor to return self for method chaining
+    mock_cursor.sort.return_value = mock_cursor
+    mock_cursor.skip.return_value = mock_cursor
+    mock_cursor.limit.return_value = mock_cursor
+
+    # Configure mock cursor to return list of documents
+    expected_docs = [{"_id": "doc2", "name": "Test2"}]
+    mock_cursor.__iter__.return_value = iter(expected_docs)
+
+    # Call method
+    query = {"category": "test"}
+    sort_params = [("name", 1)]
+    results = mongodb_adapter.find(
+        "test_collection",
+        query,
+        sort=sort_params,
+        skip=1,
+        limit=1
+    )
+
+    # Verify cursor method calls in any order
+    mock_collection.find.assert_called_once_with(query)
+    mock_cursor.sort.assert_called_once_with(sort_params)
+    mock_cursor.skip.assert_called_once_with(1)
+    mock_cursor.limit.assert_called_once_with(1)
+    assert results == expected_docs

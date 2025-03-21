@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from solana_agent.repositories.agent import MongoAgentRepository
-from solana_agent.domains.agents import AIAgent
+from solana_agent.domains.agent import AIAgent
 
 
 @pytest.fixture
@@ -38,7 +38,6 @@ def sample_ai_agent():
         name="codebot",
         agent_type='ai',
         description="An AI coding assistant",
-        model="gpt-4",
         system_prompt="You are a helpful coding assistant.",
         instructions="Help with coding questions and debugging issues.",
         specialization="python",  # This should be a string, not a list
@@ -77,7 +76,6 @@ class TestMongoAgentRepository:
         # Verify result
         assert agent is not None
         assert agent.name == "codebot"
-        assert agent.model == "gpt-4"
         assert "python" in agent.specialization
 
     def test_get_ai_agent_not_found(self, agent_repository, mock_db_adapter):
@@ -169,3 +167,60 @@ class TestMongoAgentRepository:
 
         # Verify result
         assert result is True
+
+    def test_get_ai_agent_by_name_found(self, agent_repository, mock_db_adapter, sample_ai_agent):
+        """Test getting an AI agent by name when it exists."""
+        # Configure mock to return agent data
+        mock_db_adapter.find_one.return_value = sample_ai_agent.model_dump()
+
+        # Get the agent
+        agent = agent_repository.get_ai_agent_by_name("codebot")
+
+        # Verify database was queried correctly
+        mock_db_adapter.find_one.assert_called_once_with(
+            "agents", {"name": "codebot"}
+        )
+
+        # Verify result
+        assert agent is not None
+        assert isinstance(agent, AIAgent)
+        assert agent.name == "codebot"
+        assert agent.specialization == "python"
+        assert agent.description == "An AI coding assistant"
+
+    def test_get_ai_agent_by_name_not_found(self, agent_repository, mock_db_adapter):
+        """Test getting an AI agent by name when it doesn't exist."""
+        # Configure mock to return None (not found)
+        mock_db_adapter.find_one.return_value = None
+
+        # Get the agent
+        agent = agent_repository.get_ai_agent_by_name("nonexistent")
+
+        # Verify database was queried correctly
+        mock_db_adapter.find_one.assert_called_once_with(
+            "agents", {"name": "nonexistent"}
+        )
+
+        # Verify result
+        assert agent is None
+
+    def test_get_ai_agent_by_name_validation_error(self, agent_repository, mock_db_adapter):
+        """Test getting an AI agent by name when document is invalid."""
+        # Configure mock to return invalid agent data
+        invalid_agent = {
+            "name": "invalidbot",
+            "specialization": 123,  # Should be a string
+            "created_at": "not-a-date"  # Should be a datetime
+        }
+        mock_db_adapter.find_one.return_value = invalid_agent
+
+        # Get the agent
+        agent = agent_repository.get_ai_agent_by_name("invalidbot")
+
+        # Verify database was queried correctly
+        mock_db_adapter.find_one.assert_called_once_with(
+            "agents", {"name": "invalidbot"}
+        )
+
+        # Verify result
+        assert agent is None
