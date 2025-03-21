@@ -9,13 +9,30 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
+## Agentic IQ
+
+Solana Agent's Agentic IQ framework represents a comprehensive approach to intelligent agent capabilities, focusing on five critical dimensions that define truly effective AI systems:
+
+* **Multi-Modal Intelligence:** Agents seamlessly process and generate both text and audio, enabling natural human-computer interaction across communication channels and adapting to user preferences and accessibility needs.
+
+* **Episodic Memory Architecture:** Our shared conversational memory system allows agents to retain context across interactions, learn from past exchanges, and build meaningful relationships with users over time, eliminating repetitive explanations.
+
+* **Specialized Cognitive Routing:** Automatic request routing to domain-specific experts ensures optimal response quality by leveraging specialized knowledge bases and purpose-built instruction sets, similar to how human organizations distribute work by expertise.
+
+* **Value Alignment Framework:** Every agent operates within an organizational value system with explicit mission objectives, ethical guidelines, and operational goals, ensuring consistent and principled decision-making aligned with human priorities.
+
+* **Extensible Tool Cognition:** Agents can recognize when specialized tools are needed and seamlessly integrate with standard Python packages to expand their capabilities beyond conversation, allowing them to take concrete actions in response to user needs.
+
+This integrated approach to Agentic IQ enables Solana Agent to deliver exceptionally intelligent, contextually-aware, and value-aligned assistance across a wide range of use cases.
+
+
 ## Features
 
-* Multi-modal input-output streaming with text or audio by AI Agents
-* Conversational memory per user shared by all AI Agents
-* Routing based on AI Agent specializations
-* Organizational mission, values, goals, and guidance for all AI Agents
-* Robust AI Agent tool plugins based on standard python packages
+* Seamless text and audio streaming with real-time multi-modal processing
+* Persistent memory that preserves context across all agent interactions
+* Intelligent query routing to agents with optimal domain expertise
+* Unified value system ensuring aligned, principled agent responses
+* Powerful tool integration that extends capabilities using standard Python packages
 
 ## Stack
 
@@ -86,10 +103,9 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 ```
 
 ## Models Used
-* The model used for AI Agents is `gpt-4o-mini`
-* The model used for internal structured outputs is `gpt-4o-mini`
-* The model used for audio_transcription is `gpt-4o-mini-transcribe`
-* The model used for tts is `tts-1`
+* `gpt-4o-mini`
+* `gpt-4o-mini-transcribe`
+* `tts-1`
 
 ## Solana Agent Kit
 
