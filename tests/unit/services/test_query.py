@@ -125,7 +125,6 @@ def test_truncate_text(query_service):
 
     assert len(truncated) <= 2500
     assert truncated.endswith("...")
-<<<<<<< HEAD
 
 
 @pytest.mark.asyncio
@@ -168,5 +167,3 @@ async def test_delete_user_history_error(query_service, mock_memory_provider):
 
     # Verify memory provider was called
     mock_memory_provider.delete.assert_called_once_with(TEST_USER_ID)
-=======
->>>>>>> main
