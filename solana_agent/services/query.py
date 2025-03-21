@@ -84,7 +84,7 @@ class QueryService(QueryServiceInterface):
                 memory_context = await self.memory_provider.retrieve(user_id)
 
             # Route query to appropriate agent
-            agent_name = await self.routing_service.route_query(user_id, user_text)
+            agent_name = await self.routing_service.route_query(user_text)
 
             # Generate response using agent service
             full_response = ""

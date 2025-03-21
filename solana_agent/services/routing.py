@@ -54,7 +54,6 @@ class RoutingService(RoutingServiceInterface):
                 prompt=prompt,
                 system_prompt="Analyze user queries to determine appropriate routing.",
                 model_class=QueryAnalysis,
-                temperature=0.2
             )
 
             return {
@@ -79,7 +78,6 @@ class RoutingService(RoutingServiceInterface):
         """Route a query to the appropriate agent.
 
         Args:
-            user_id: ID of the user making the query
             query: The query text
 
         Returns:

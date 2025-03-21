@@ -246,7 +246,6 @@ class AgentService(AgentServiceInterface):
 
             # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
-                user_id=user_id,
                 prompt=query_text,
                 system_prompt=system_prompt,
             ):
