@@ -92,38 +92,70 @@ class QueryService(QueryServiceInterface):
 
             # Route query to appropriate agent
             agent_name = await self.routing_service.route_query(user_text)
-            print(f"DEBUG: Routed to agent: {agent_name}")
+            print(f"Routed to agent: {agent_name}")
 
-            # For text output, we can directly collect and yield chunks
-            if output_format == "text":
-                full_response = ""
+            # For audio mode, we need to carefully handle the response to make sure
+            # tool calls are properly executed and formatted for audio
+            if output_format == "audio":
+                # Use the agent service to generate the response
+                text_response = ""
+
+                # First, get complete text response
+                # Note: This is a separate call from the audio generation
+                temp_response = ""
                 async for chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
                     memory_context=memory_context,
-                    output_format="text",
+                    output_format="text"
                 ):
-                    yield chunk
-                    full_response += chunk
+                    temp_response += chunk
 
-            # For audio output, we'll yield audio chunks while collecting text separately
-            else:
-                async for chunk in self.agent_service.generate_response(
+                # Store the complete text for memory
+                text_response = temp_response
+
+                # Now generate audio from same request
+                async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
                     memory_context=memory_context,
                     output_format="audio",
+                    audio_voice=audio_voice,
                     audio_input_format=audio_input_format,
                     audio_output_format=audio_output_format,
-                    audio_voice=audio_voice,
+                    audio_instructions=audio_instructions
+                ):
+                    yield audio_chunk
+
+                # Store conversation in memory
+                if self.memory_provider and text_response:
+                    await self._store_conversation(
+                        user_id=user_id,
+                        user_message=user_text,
+                        assistant_message=text_response
+                    )
+            else:
+                # For text mode, we can collect the response and store it directly
+                full_text_response = ""
+                async for chunk in self.agent_service.generate_response(
+                    agent_name=agent_name,
+                    user_id=user_id,
+                    query=user_text,
+                    memory_context=memory_context,
+                    output_format="text"
                 ):
                     yield chunk
+                    full_text_response += chunk
 
-            # Store conversation with the full text response
-            if self.memory_provider:
-                await self._store_conversation(user_id, user_text, self.agent_service.last_text_response)
+                # Store conversation in memory
+                if self.memory_provider and full_text_response:
+                    await self._store_conversation(
+                        user_id=user_id,
+                        user_message=user_text,
+                        assistant_message=full_text_response
+                    )
 
         except Exception as e:
             error_msg = f"I apologize for the technical difficulty. {str(e)}"
@@ -248,25 +280,26 @@ class QueryService(QueryServiceInterface):
             }
 
     async def _store_conversation(
-        self, user_id: str, user_text: str, response_text: str
+        self, user_id: str, user_message: str, assistant_message: str
     ) -> None:
         """Store conversation history in memory provider.
 
         Args:
             user_id: User ID
-            user_text: User message
-            response_text: Assistant response
+            user_message: User message
+            assistant_message: Assistant message
         """
         if self.memory_provider:
             try:
                 # Truncate excessively long responses
-                truncated_response = self._truncate(response_text)
+                truncated_assistant_message = self._truncate(assistant_message)
+                truncated_user_message = self._truncate(user_message)
 
                 await self.memory_provider.store(
                     user_id,
                     [
-                        {"role": "user", "content": user_text},
-                        {"role": "assistant", "content": truncated_response},
+                        {"role": "user", "content": truncated_user_message},
+                        {"role": "assistant", "content": truncated_assistant_message},
                     ],
                 )
             except Exception as e:
