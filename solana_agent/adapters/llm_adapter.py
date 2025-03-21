@@ -19,7 +19,7 @@ class OpenAIAdapter(LLMProvider):
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
         self.parse_model = "gpt-4o-mini"
-        self.search_model = "gpt-4o-mini-search-preview"
+        self.text_model = "gpt-4o-mini"
         self.transcription_model = "gpt-4o-mini-transcribe"
         self.tts_model = "tts-1"
 
@@ -106,7 +106,7 @@ class OpenAIAdapter(LLMProvider):
         prompt: str,
         system_prompt: str = "",
     ) -> AsyncGenerator[str, None]:  # pragma: no cover
-        """Generate text from OpenAI models with web search capability."""
+        """Generate text from OpenAI models."""
         messages = []
 
         if system_prompt:
@@ -118,7 +118,7 @@ class OpenAIAdapter(LLMProvider):
         request_params = {
             "messages": messages,
             "stream": True,
-            "model": self.search_model,
+            "model": self.text_model,
         }
         try:
             response = self.client.chat.completions.create(**request_params)

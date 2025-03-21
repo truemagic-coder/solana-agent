@@ -14,7 +14,6 @@
 * Multi-modal input-output streaming with text or audio by AI Agents
 * Conversational memory per user shared by all AI Agents
 * Routing based on AI Agent specializations
-* Built-in Internet Search for all AI Agents
 * Organizational mission, values, goals, and guidance for all AI Agents
 * Robust AI Agent tool plugins based on standard python packages
 
@@ -87,7 +86,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 ```
 
 ## Models Used
-* The model used for AI Agents is `gpt-4o-mini-search-preview`
+* The model used for AI Agents is `gpt-4o-mini`
 * The model used for internal structured outputs is `gpt-4o-mini`
 * The model used for audio_transcription is `gpt-4o-mini-transcribe`
 * The model used for tts is `tts-1`
