@@ -21,9 +21,9 @@ Solana Agent is an AI Agent framework defined on five key dimensions:
 
 * **Value Alignment:** Every agent follows clear organizational values and ethics. This ensures consistent, principled responses aligned with human priorities.
 
-* **Extensible Tools:** Agents recognize when specialized tools are needed. They extend capabilities beyond conversation to take actions via Python package integration.
+* **Extensible Tooling:** Agents recognize when specialized tools are needed. They extend capabilities beyond conversation to take actions via Python package integration.
 
-This approach creates AI assistants that are intelligent, contextually aware, and aligned with human values.
+This approach creates AI Agents that are intelligent, contextually aware, and aligned with organizational values.
 
 
 ## Features
