@@ -11,19 +11,19 @@
 
 ## Agentic IQ
 
-Solana Agent's Agentic IQ framework represents a comprehensive approach to intelligent agent capabilities, focusing on five critical dimensions that define truly effective AI systems:
+Solana Agent is an AI Agent framework defined on five key dimensions:
 
-* **Multi-Modal Intelligence:** Agents seamlessly process and generate both text and audio, enabling natural human-computer interaction across communication channels and adapting to user preferences and accessibility needs.
+* **Multi-Modal Intelligence:** Agents process both text and audio seamlessly. Users interact naturally through their preferred communication channel.
 
-* **Episodic Memory Architecture:** Our shared conversational memory system allows agents to retain context across interactions, learn from past exchanges, and build meaningful relationships with users over time, eliminating repetitive explanations.
+* **Episodic Memory:** Agents remember past conversations with users. This eliminates repetitive explanations and builds meaningful relationships.
 
-* **Specialized Cognitive Routing:** Automatic request routing to domain-specific experts ensures optimal response quality by leveraging specialized knowledge bases and purpose-built instruction sets, similar to how human organizations distribute work by expertise.
+* **Cognitive Routing:** Queries go to the most qualified agent automatically. Each specialist has domain-specific knowledge for optimal responses.
 
-* **Value Alignment Framework:** Every agent operates within an organizational value system with explicit mission objectives, ethical guidelines, and operational goals, ensuring consistent and principled decision-making aligned with human priorities.
+* **Value Alignment:** Every agent follows clear organizational values and ethics. This ensures consistent, principled responses aligned with human priorities.
 
-* **Extensible Tool Cognition:** Agents can recognize when specialized tools are needed and seamlessly integrate with standard Python packages to expand their capabilities beyond conversation, allowing them to take concrete actions in response to user needs.
+* **Extensible Tools:** Agents recognize when specialized tools are needed. They extend capabilities beyond conversation to take actions via Python package integration.
 
-This integrated approach to Agentic IQ enables Solana Agent to deliver exceptionally intelligent, contextually-aware, and value-aligned assistance across a wide range of use cases.
+This approach creates AI assistants that are intelligent, contextually aware, and aligned with human values.
 
 
 ## Features
@@ -109,9 +109,13 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 
 ## Solana Agent Kit
 
+A collection of Solana Agent tools
+
 [Solana Agent Kit](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Example App
+
+A Solana Agent example app written in FastAPI and Next.js
 
 [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
 
