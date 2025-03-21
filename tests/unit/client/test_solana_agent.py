@@ -163,3 +163,40 @@ def test_init_no_config():
     """Test initialization with no config raises an error."""
     with pytest.raises(ValueError, match="Either config or config_path must be provided"):
         SolanaAgent()
+
+
+@pytest.mark.asyncio
+async def test_delete_user_history(mock_agent_factory, sample_config):
+    """Test deleting user conversation history."""
+    # Create agent instance
+    agent = SolanaAgent(config=sample_config)
+
+    # Setup mock for delete_user_history
+    mock_query_service = mock_agent_factory.create_from_config.return_value
+    mock_query_service.delete_user_history = AsyncMock()
+
+    # Call method
+    await agent.delete_user_history("test_user")
+
+    # Verify query service method was called with correct parameters
+    mock_query_service.delete_user_history.assert_called_once_with("test_user")
+
+
+@pytest.mark.asyncio
+async def test_delete_user_history_error_handling(mock_agent_factory, sample_config):
+    """Test error handling when deleting user history fails."""
+    # Create agent instance
+    agent = SolanaAgent(config=sample_config)
+
+    # Setup mock to raise an exception
+    mock_query_service = mock_agent_factory.create_from_config.return_value
+    mock_query_service.delete_user_history = AsyncMock(
+        side_effect=Exception("Failed to delete history")
+    )
+
+    # Verify exception is propagated
+    with pytest.raises(Exception, match="Failed to delete history"):
+        await agent.delete_user_history("test_user")
+
+    # Verify query service method was called
+    mock_query_service.delete_user_history.assert_called_once_with("test_user")

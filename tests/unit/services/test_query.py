@@ -125,3 +125,48 @@ def test_truncate_text(query_service):
 
     assert len(truncated) <= 2500
     assert truncated.endswith("...")
+<<<<<<< HEAD
+
+
+@pytest.mark.asyncio
+async def test_delete_user_history_success(query_service, mock_memory_provider):
+    """Test successful deletion of user conversation history."""
+    # Set up mock
+    mock_memory_provider.delete = AsyncMock()
+
+    # Call method
+    await query_service.delete_user_history(TEST_USER_ID)
+
+    # Verify memory provider was called correctly
+    mock_memory_provider.delete.assert_called_once_with(TEST_USER_ID)
+
+
+@pytest.mark.asyncio
+async def test_delete_user_history_no_provider(query_service):
+    """Test deletion attempt when no memory provider is available."""
+    # Create service instance without memory provider
+    service = QueryService(
+        agent_service=Mock(),
+        routing_service=Mock(),
+        memory_provider=None
+    )
+
+    # Call should not raise an error
+    await service.delete_user_history(TEST_USER_ID)
+
+
+@pytest.mark.asyncio
+async def test_delete_user_history_error(query_service, mock_memory_provider):
+    """Test error handling during history deletion."""
+    # Configure mock to raise an exception
+    mock_memory_provider.delete = AsyncMock(
+        side_effect=Exception("Database error")
+    )
+
+    # Call should not raise an error
+    await query_service.delete_user_history(TEST_USER_ID)
+
+    # Verify memory provider was called
+    mock_memory_provider.delete.assert_called_once_with(TEST_USER_ID)
+=======
+>>>>>>> main
