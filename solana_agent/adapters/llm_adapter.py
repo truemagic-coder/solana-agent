@@ -103,11 +103,6 @@ class OpenAIAdapter(LLMProvider):
             print(traceback.format_exc())
             yield f"I apologize, but I encountered an error transcribing the audio: {str(e)}"
 
-        finally:
-            # Close file if we opened it
-            if isinstance(audio_file, (str, Path)):
-                audio_file.close()
-
     async def generate_text(
         self,
         prompt: str,

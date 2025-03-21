@@ -43,6 +43,11 @@ class DataStorageProvider(ABC):
         pass
 
     @abstractmethod
+    def delete_all(self, collection: str, query: Dict) -> bool:
+        """Delete all documents matching query."""
+        pass
+
+    @abstractmethod
     def create_index(self, collection: str, keys: List, **kwargs) -> None:
         """Create an index."""
         pass

@@ -4,7 +4,7 @@ from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 from solana_agent.interfaces.providers.memory import MemoryProvider
-from solana_agent.interfaces.providers.data_storage import DataStorageProvider
+from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
 
 class MemoryRepository(MemoryProvider):
@@ -12,7 +12,7 @@ class MemoryRepository(MemoryProvider):
 
     def __init__(
         self,
-        mongo_adapter: DataStorageProvider,
+        mongo_adapter: MongoDBAdapter,
         zep_api_key: Optional[str] = None,
         zep_base_url: Optional[str] = None
     ):
@@ -94,7 +94,7 @@ class MemoryRepository(MemoryProvider):
     async def delete(self, user_id: str) -> None:
         """Delete memory from both systems."""
         try:
-            self.mongo.delete_many(
+            self.mongo.delete_all(
                 self.collection,
                 {"user_id": user_id}
             )

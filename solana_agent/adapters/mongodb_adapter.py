@@ -57,7 +57,12 @@ class MongoDBAdapter(DataStorageProvider):
 
     def delete_one(self, collection: str, query: Dict) -> bool:
         result = self.db[collection].delete_one(query)
-        return result.deleted_count > 0
+        return result.deleted_count == 1
+
+    def delete_all(self, collection: str, query: Dict) -> bool:
+        total_documents = self.db[collection].count_documents(query)
+        deleted_result = self.db[collection].delete_many(query)
+        return deleted_result.deleted_count == total_documents
 
     def count_documents(self, collection: str, query: Dict) -> int:
         return self.db[collection].count_documents(query)
