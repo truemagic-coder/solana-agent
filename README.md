@@ -14,6 +14,7 @@
 * Conversational memory per user shared by all AI Agents
 * Routing based on AI Agent specializations
 * Built-in Internet Search for all AI Agents
+* Organizational mission, values, goals, and guidance for all AI Agents
 * Robust AI Agent tool plugins based on standard python packages
 
 ## Installation
