@@ -13,11 +13,11 @@
 
 Solana Agent is an AI framework built on three pillars:
 
-* **Swarm Intelligence:** Specialized agents collaborate and share per-user memory for text and audio. Intelligent routing ensures the most qualified agent handles each query.
+* **Swarm Intelligence:** Specialized agents collaborate and share memory for text and audio. Intelligent routing ensures the most qualified agent handles each query.
 * **Organizational Alignment:** Agents follow a core set of values and ethics. This guarantees responses remain consistent and principled.
 * **Extensible Tooling:** Agents recognize when tools are needed and integrate them seamlessly. They act beyond conversation to address user needs.
 
-This approach produces AI Agents that are intelligent, cooperative, and aligned with organizational goals.
+This approach produces AI Agents that are intelligent, cooperative, ethical, and aligned with organizational goals.
 
 
 ## Features
@@ -41,10 +41,6 @@ You can install Solana Agent using pip:
 
 `pip install solana-agent`
 
-## Documentation
-
-Each public method has a docstring for real-time IDE hinting.
-
 ## Example App
 
 ```python
@@ -52,19 +48,15 @@ from solana_agent import SolanaAgent
 
 config = {
     "organization": {
-        "mission_statement": "To revolutionize knowledge work through AI-human collaboration that puts people first.",
+        "mission_statement": "To provide users with a one-stop shop for their queries.",
         "values": {
-            "Human-Centered": "Always prioritize human well-being and augmentation over replacement.",
-            "Transparency": "Provide clear explanations for decisions and never hide information.",
-            "Collective Intelligence": "Value diverse perspectives and combine human and AI strengths.",
-            "Continuous Learning": "Embrace feedback and continuously improve based on experience."
+            "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
+            "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
         },
         "goals": [
-            "Enable human experts to focus on high-value creative work",
-            "Reduce administrative overhead through intelligent automation",
-            "Create seamless knowledge flow across the organization"
+            "Empower users with great answers to their queries.",
         ],
-        "guidance": "When making decisions, prioritize long-term user success over short-term efficiency."
+        "guidance": "Align all interactions with the success of the user while respecting human dignity."
     },
     "mongo": {
         "connection_string": "mongodb://localhost:27017",
@@ -88,13 +80,15 @@ config = {
     ],
 }
 
-# Create agent with configuration
 solana_agent = SolanaAgent(config=config)
 
-# Process a query that can use tools
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
+
+## Documentation
+
+Each public method has a docstring for real-time IDE hinting.
 
 ## Models Used
 * `gpt-4o-mini`
