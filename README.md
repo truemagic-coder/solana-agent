@@ -14,7 +14,7 @@
 Power your business using Solana Agent!
 
 * **Brand:** AI agents will speak in your brand voice
-* **Expert:** The best expert AI agent will answer your users' inquiries
+* **Expert:** The AI agent with the most expertise will answer your users' inquiries
 * **Extend:** Assign tools for your AI agents to perform actions
 
 ## Features
