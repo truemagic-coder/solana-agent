@@ -11,14 +11,11 @@
 
 ## Agentic IQ
 
-Solana Agent is an AI framework built on three pillars:
+Power your business using Solana Agent!
 
-* **Swarm Intelligence:** Specialized agents collaborate and share memory for text and audio. Intelligent routing ensures the most qualified agent handles each query.
-* **Organizational Alignment:** Agents follow a core set of values and ethics. This guarantees responses remain consistent and principled.
-* **Extensible Tooling:** Agents recognize when tools are needed and integrate them seamlessly. They act beyond conversation to address user needs.
-
-This approach produces AI Agents that are intelligent, cooperative, ethical, and aligned with organizational goals.
-
+* **Brand:** AI agents will speak in your brand voice
+* **Expert:** The best expert AI agent will answer the user's inquiry
+* **Extend:** Assign tools for AI agents to take action
 
 ## Features
 
@@ -27,13 +24,14 @@ This approach produces AI Agents that are intelligent, cooperative, ethical, and
 * Intelligent query routing to agents with optimal domain expertise
 * Unified value system ensuring aligned, principled agent responses
 * Powerful tool integration using standard Python packages
+* Assigned tools are utilized by agents automatically and effectively
 
 ## Stack
 
-* [Python](https://python.org) - programming language
+* [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
-* [MongoDB](https://mongodb.com) - database
-* [Zep](https://getzep.com) - conversational memory
+* [MongoDB](https://mongodb.com) - Database
+* [Zep](https://getzep.com) - Conversational Memory
 
 ## Installation
 
@@ -85,15 +83,6 @@ solana_agent = SolanaAgent(config=config)
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
-
-## Documentation
-
-Each public method has a docstring for real-time IDE hinting.
-
-## Models Used
-* `gpt-4o-mini`
-* `gpt-4o-mini-transcribe`
-* `tts-1`
 
 ## Solana Agent Kit
 
