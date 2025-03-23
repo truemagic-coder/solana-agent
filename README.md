@@ -15,7 +15,7 @@ Solana Agent is an AI framework built on three pillars:
 
 * **Swarm Intelligence:** Specialized agents collaborate and share per-user memory for text and audio. Intelligent routing ensures the most qualified agent handles each query.
 * **Organizational Alignment:** Agents follow a core set of values and ethics. This guarantees responses remain consistent and principled.
-* **Extensible Tooling:** Agents recognize when tools are needed and integrate them seamlessly from Python packages. They act beyond conversation to address user needs.
+* **Extensible Tooling:** Agents recognize when tools are needed and integrate them seamlessly. They act beyond conversation to address user needs.
 
 This approach produces AI Agents that are intelligent, cooperative, and aligned with organizational goals.
 
