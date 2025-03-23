@@ -11,19 +11,15 @@
 
 ## Agentic IQ
 
-Solana Agent is an AI Agent framework defined on five key dimensions:
+Solana Agent is an AI Agent framework defined on three dimensions:
 
-* **Multi-Modal Intelligence:** Agents process both text and audio seamlessly. Users interact naturally through their preferred communication channel.
+* **Swarm Intelligence:** Agents collaborate as a specialized collective with intelligent routing. They process both text and audio seamlessly, share episodic memory across interactions, and receive queries optimized for their expertise.
 
-* **Episodic Memory:** Agents remember past conversations with users. This eliminates repetitive explanations and builds meaningful relationships.
+* **Organizational Alignment:** Every agent follows clear organizational values and ethics. This ensures consistent, principled responses aligned with human priorities.
 
-* **Cognitive Routing:** Queries go to the most qualified agent automatically. Each specialist has domain-specific knowledge for optimal responses.
+* **Extensible Tooling:** Agents recognize when specialized tools are needed. They extend capabilities beyond conversation to take actions via standard Python package integration.
 
-* **Value Alignment:** Every agent follows clear organizational values and ethics. This ensures consistent, principled responses aligned with human priorities.
-
-* **Extensible Tooling:** Agents recognize when specialized tools are needed. They extend capabilities beyond conversation to take actions via Python package integration.
-
-This approach creates AI Agents that are intelligent, contextually aware, and aligned with organizational values.
+This approach creates AI Agents that are intelligent, contextually aware, and aligned with organizational values to power your business!
 
 
 ## Features
