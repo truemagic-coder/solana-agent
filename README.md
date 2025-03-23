@@ -14,15 +14,15 @@
 Power your business using Solana Agent!
 
 * **Brand:** AI agents will speak in your brand voice
-* **Expert:** The best expert AI agent will answer the user's inquiry
-* **Extend:** Assign tools for AI agents to take action
+* **Expert:** The best expert AI agent will answer your users' inquiries
+* **Extend:** Assign tools for your AI agents to perform actions
 
 ## Features
 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
 * Intelligent query routing to agents with optimal domain expertise
-* Unified value system ensuring aligned, principled agent responses
+* Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages
 * Assigned tools are utilized by agents automatically and effectively
 
