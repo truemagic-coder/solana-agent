@@ -29,6 +29,12 @@ pytest = "^8.3.5"
 pytest-cov = "^6.0.0"
 pytest-asyncio = "^0.26.0"
 pytest-github-actions-annotate-failures = "^0.3.0"
+sphinx = "^8.2.3"
+sphinx-rtd-theme = "^3.0.2"
+myst-parser = "^4.0.1"
+
+[tool.poetry.scripts]
+docs = "sphinx.cmd.build:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
