@@ -32,7 +32,7 @@ class MemoryRepository(MemoryProvider):
         elif zep_api_key and zep_base_url:
             self.zep = AsyncZep(api_key=zep_api_key, base_url=zep_base_url)
         else:
-            self.zep = AsyncZep(base_url="http://localhost:8000")
+            self.zep = None
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         """Store messages in both Zep and MongoDB."""
@@ -55,6 +55,9 @@ class MemoryRepository(MemoryProvider):
             print(f"MongoDB storage error: {e}")
 
         # Store in Zep with role-based format
+        if not self.zep:
+            return
+
         try:
             try:
                 await self.zep.user.add(user_id=user_id)
@@ -82,6 +85,9 @@ class MemoryRepository(MemoryProvider):
 
     async def retrieve(self, user_id: str) -> str:
         """Retrieve memory context from Zep only."""
+        if not self.zep:
+            return ""
+
         try:
             memory = await self.zep.memory.get(session_id=user_id)
 
@@ -100,6 +106,9 @@ class MemoryRepository(MemoryProvider):
             )
         except Exception as e:
             print(f"MongoDB deletion error: {e}")
+
+        if not self.zep:
+            return
 
         try:
             await self.zep.memory.delete(session_id=user_id)
