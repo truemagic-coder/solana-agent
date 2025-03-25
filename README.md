@@ -163,7 +163,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-To create a plugin like Solana Agent Kit - read the code at https://github.com/truemagic-coder/solana-agent-kit
+To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Custom Inline Tool Usage
 
