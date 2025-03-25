@@ -46,8 +46,8 @@ class MemoryRepository(MemoryProvider):
 
             doc = {
                 "user_id": user_id,
-                "user_message": self._truncate(user_message),
-                "assistant_message": self._truncate(assistant_message),
+                "user_message": user_message,
+                "assistant_message": assistant_message,
                 "timestamp": datetime.now(timezone.utc)
             }
             self.mongo.insert_one(self.collection, doc)

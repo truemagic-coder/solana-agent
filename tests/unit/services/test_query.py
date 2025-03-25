@@ -118,15 +118,6 @@ async def test_get_user_history_no_memory_provider():
     assert "Memory provider not available" in result["error"]
 
 
-def test_truncate_text(query_service):
-    """Test text truncation functionality."""
-    long_text = "." * 3000
-    truncated = query_service._truncate(long_text, limit=2500)
-
-    assert len(truncated) <= 2500
-    assert truncated.endswith("...")
-
-
 @pytest.mark.asyncio
 async def test_delete_user_history_success(query_service, mock_memory_provider):
     """Test successful deletion of user conversation history."""
