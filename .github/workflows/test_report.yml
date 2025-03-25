@@ -3,27 +3,30 @@ name: Test Report
 on:
   workflow_run:
     workflows: ["CI"]
-    types: [ "completed" ]
+    types: 
+      - completed
 
 permissions:
   checks: write
   contents: read
+  actions: read
   pull-requests: write
-  issues: write
 
 jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/download-artifact@v4
+    - name: Download artifacts
+      uses: dawidd6/action-download-artifact@v9
       with:
-        name: test-results
-        path: results
+        workflow: CI
+        commit: ${{ github.event.workflow_run.head_sha }}
+        path: artifacts
     
-    - name: Publish test report
+    - name: Publish Test Report
       uses: dorny/test-reporter@v2
       with:
-        artifact: results
-        name: "Pytest Results"
-        path: "**/test-results.xml"
+        name: Pytest Results
+        path: artifacts/test-results-*/test-results-*.xml
         reporter: jest-junit
+        fail-on-error: false
