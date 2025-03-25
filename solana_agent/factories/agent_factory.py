@@ -72,6 +72,7 @@ class SolanaAgentFactory:
             agent_repository=agent_repo,
             llm_provider=llm_adapter,
             organization_mission=organization_mission,
+            config=config,
         )
 
         # Debug the agent service tool registry

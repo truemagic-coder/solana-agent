@@ -12,7 +12,8 @@ from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.interfaces.repositories.agent import AgentRepository
-from solana_agent.interfaces.plugins.plugins import ToolRegistry
+from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
+from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, OrganizationMission
 
 
@@ -25,7 +26,7 @@ class AgentService(AgentServiceInterface):
         agent_repository: AgentRepository,
         organization_mission: Optional[OrganizationMission] = None,
         config: Optional[Dict[str, Any]] = None,
-        tool_registry: Optional[ToolRegistry] = None,
+        tool_registry: Optional[ToolRegistryInterface] = None,
     ):
         """Initialize the agent service.
 
@@ -34,6 +35,7 @@ class AgentService(AgentServiceInterface):
             agent_repository: Repository for agent data
             organization_mission: Optional organization mission and values
             config: Optional service configuration
+            tool_registry: Optional tool registry
         """
         self.llm_provider = llm_provider
         self.agent_repository = agent_repository
@@ -45,9 +47,9 @@ class AgentService(AgentServiceInterface):
         if tool_registry:
             self.tool_registry = tool_registry
         else:
-            # Import the concrete implementation
-            from solana_agent.plugins.registry import ToolRegistry as ConcreteToolRegistry
-            self.tool_registry = ConcreteToolRegistry()
+            config = self.config
+            print("Initializing tool registry with config")
+            self.tool_registry = ToolRegistry(config=config)
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
