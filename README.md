@@ -61,7 +61,11 @@ config = {
         "database": "solana_agent"
     },
     "openai": {
-        "api_key": "your-openai-key",
+        "api_key": "your-openai-api-key",
+    },
+    "zep": { # optional
+        "api_key": "your-zep-api-key",
+        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
     "agents": [
         {
