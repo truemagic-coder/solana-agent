@@ -36,7 +36,7 @@ class MockTool(Tool):
 @pytest.fixture
 def tool_registry():
     """Create a fresh tool registry for each test."""
-    return ToolRegistry()
+    return ToolRegistry(config={"test_key": "test_value"})
 
 
 @pytest.fixture

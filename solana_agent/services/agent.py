@@ -40,7 +40,7 @@ class AgentService(AgentServiceInterface):
         self.organization_mission = organization_mission
         self.config = config or {}
         self.last_text_response = ""
-        self.tool_registry = ToolRegistry()
+        self.tool_registry = ToolRegistry(config=self.config)
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
