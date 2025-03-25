@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main ]
 
+
+permissions:
+  checks: write
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   test:
     name: Python ${{ matrix.python-version }} Test
@@ -22,7 +29,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -56,3 +62,11 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Test Report
+      uses: dorny/test-reporter@v2
+      if: success() || failure()    # run this step even if previous step failed
+      with:
+        name: Pytest Results (${{ matrix.python-version }})
+        path: junit/*.xml
+        reporter: jest-junit
