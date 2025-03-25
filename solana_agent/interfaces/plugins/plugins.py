@@ -116,3 +116,13 @@ class PluginManager(ABC):
     def list_plugins(self) -> List[Dict[str, Any]]:
         """List all registered plugins with their details."""
         pass
+
+    @abstractmethod
+    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+        """Execute a tool with the given parameters."""
+        pass
+
+    @abstractmethod
+    def configure(self, config: Dict[str, Any]) -> None:
+        """Configure the plugin manager and all plugins."""
+        pass

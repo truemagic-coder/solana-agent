@@ -13,17 +13,19 @@ from solana_agent.interfaces.plugins.plugins import Tool
 class ToolRegistry(ToolRegistryInterface):
     """Instance-based registry that manages tools and their access permissions."""
 
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any] = None):
         """Initialize an empty tool registry."""
         self._tools = {}  # name -> tool instance
         self._agent_tools = {}  # agent_name -> [tool_names]
+        self._config = config or {}
 
     def register_tool(self, tool: Tool) -> bool:
         """Register a tool with this registry."""
         try:
+            tool.configure(self._config)
+
             self._tools[tool.name] = tool
-            print(f"Successfully registered tool: {tool.name}")
-            print(f"Current tools in registry: {list(self._tools.keys())}")
+            print(f"Successfully registered and configured tool: {tool.name}")
             return True
         except Exception as e:
             print(f"Error registering tool: {str(e)}")
