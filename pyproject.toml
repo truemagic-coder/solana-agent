@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "17.1.5"
+version = "17.1.6"
 description = "Agentic IQ"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
