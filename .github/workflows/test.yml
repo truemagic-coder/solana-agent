@@ -62,11 +62,3 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-
-    - name: Test Report
-      uses: dorny/test-reporter@v2
-      if: success() || failure()    # run this step even if previous step failed
-      with:
-        name: Pytest Results (${{ matrix.python-version }})
-        path: junit/*.xml
-        reporter: jest-junit

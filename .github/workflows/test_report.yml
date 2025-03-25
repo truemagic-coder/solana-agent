@@ -1,0 +1,29 @@
+name: Test Report
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [ "completed" ]
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: test-results
+        path: results
+    
+    - name: Publish test report
+      uses: dorny/test-reporter@v2
+      with:
+        artifact: results
+        name: "Pytest Results"
+        path: "**/test-results.xml"
+        reporter: jest-junit
