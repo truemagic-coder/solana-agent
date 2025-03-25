@@ -33,7 +33,7 @@ jobs:
       - name: Build Documentation
         run: |
           cd docs
-          poetry run sphinx-build -b html . ./docs/_build/html
+          poetry run sphinx-build -b html . docs/_build/html
           
       - name: Deploy to GitHub Pages
         if: github.ref == 'refs/heads/main'
