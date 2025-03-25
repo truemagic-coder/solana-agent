@@ -20,7 +20,7 @@ Power your business using Solana Agent!
 ## Features
 
 * Seamless text and audio streaming with real-time multi-modal processing
-* Persistent memory that preserves context across all agent interactions
+* Persistent memory that preserves context across all agent interactions (optional)
 * Intelligent query routing to agents with optimal domain expertise
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages
