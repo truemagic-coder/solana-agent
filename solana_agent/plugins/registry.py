@@ -37,6 +37,11 @@ class ToolRegistry(ToolRegistryInterface):
 
     def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
         """Give an agent access to a specific tool."""
+        if tool_name not in self._tools:
+            print(
+                f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}")
+            return False
+
         if agent_name not in self._agent_tools:
             self._agent_tools[agent_name] = []
 
