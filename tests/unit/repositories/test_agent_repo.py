@@ -99,7 +99,7 @@ class TestMongoAgentRepository:
         agent1 = sample_ai_agent.model_dump()
         agent2 = sample_ai_agent.model_dump()
         agent2["name"] = "databot"
-        agent2["description"] = "A data analysis assistant"
+        agent2["instructions"] = "A data analysis assistant"
         mock_db_adapter.find.return_value = [agent1, agent2]
 
         # Get all agents
@@ -112,7 +112,7 @@ class TestMongoAgentRepository:
         assert len(agents) == 2
         assert agents[0].name == "codebot"
         assert agents[1].name == "databot"
-        assert agents[1].description == "A data analysis assistant"
+        assert agents[1].instructions == "A data analysis assistant"
 
     def test_save_ai_agent_new(self, agent_repository, mock_db_adapter, sample_ai_agent):
         """Test saving a new AI agent."""
@@ -186,7 +186,6 @@ class TestMongoAgentRepository:
         assert isinstance(agent, AIAgent)
         assert agent.name == "codebot"
         assert agent.specialization == "python"
-        assert agent.description == "An AI coding assistant"
 
     def test_get_ai_agent_by_name_not_found(self, agent_repository, mock_db_adapter):
         """Test getting an AI agent by name when it doesn't exist."""
