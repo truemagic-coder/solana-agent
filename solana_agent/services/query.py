@@ -268,37 +268,12 @@ class QueryService(QueryServiceInterface):
         """
         if self.memory_provider:
             try:
-                # Truncate excessively long responses
-                truncated_assistant_message = self._truncate(assistant_message)
-                truncated_user_message = self._truncate(user_message)
-
                 await self.memory_provider.store(
                     user_id,
                     [
-                        {"role": "user", "content": truncated_user_message},
-                        {"role": "assistant", "content": truncated_assistant_message},
+                        {"role": "user", "content": user_message},
+                        {"role": "assistant", "content": assistant_message},
                     ],
                 )
             except Exception as e:
                 print(f"Error storing conversation: {e}")
-
-    def _truncate(self, text: str, limit: int = 2500) -> str:
-        """Truncate text to be within token limits.
-
-        Args:
-            text: Text to truncate
-            limit: Character limit
-
-        Returns:
-            Truncated text
-        """
-        if len(text) <= limit:
-            return text
-
-        # Try to truncate at a sentence boundary
-        truncated = text[:limit]
-        last_period = truncated.rfind(".")
-        if last_period > limit * 0.8:  # Only use period if reasonably close to the end
-            return truncated[:last_period + 1]
-
-        return truncated + "..."

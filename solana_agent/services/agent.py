@@ -146,16 +146,8 @@ class AgentService(AgentServiceInterface):
         return self.tool_registry.get_agent_tools(agent_name)
 
     def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a tool on behalf of an agent.
+        """Execute a tool on behalf of an agent."""
 
-        Args:
-            agent_name: Agent name
-            tool_name: Tool name
-            parameters: Tool parameters
-
-        Returns:
-            Tool execution result
-        """
         if not self.tool_registry:
             return {"status": "error", "message": "Tool registry not available"}
 
@@ -165,6 +157,7 @@ class AgentService(AgentServiceInterface):
 
         # Check if agent has access to this tool
         agent_tools = self.tool_registry.get_agent_tools(agent_name)
+
         if not any(t.get("name") == tool_name for t in agent_tools):
             return {
                 "status": "error",
@@ -172,8 +165,11 @@ class AgentService(AgentServiceInterface):
             }
 
         try:
-            return tool.execute(**parameters)
+            result = tool.execute(**parameters)
+            return result
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
 
     async def generate_response(
@@ -245,6 +241,8 @@ class AgentService(AgentServiceInterface):
             is_json = False
             text_buffer = ""
 
+            print("\n=== Starting Response Generation ===")
+
             # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
@@ -262,10 +260,11 @@ class AgentService(AgentServiceInterface):
                     try:
                         # Try to parse complete JSON
                         data = json.loads(json_buffer)
+                        print(
+                            f"Successfully parsed JSON: {json.dumps(data, indent=2)}")
 
                         # Valid JSON found, handle it
                         if "tool_calls" in data:  # Now looking for tool_calls array
-                            # Collect all tool results first
                             tool_results = []
                             async for tool_result in self._handle_multiple_tool_calls(
                                 agent_name=agent_name,
@@ -273,14 +272,28 @@ class AgentService(AgentServiceInterface):
                             ):
                                 tool_results.append(tool_result)
 
-                            # Combine results and create a new prompt
+                            # Combine results and create a new prompt with clear instructions
                             tool_response = "\n".join(tool_results)
-                            complete_text_response += tool_response + "\n"
+                            process_prompt = f"""
+                                {tool_response}
 
-                            # Process combined results through LLM
+                                IMPORTANT INSTRUCTIONS:
+                                1. Maintain ALL factual details
+                                2. Include ALL statistics, numbers, and specific data points
+                                3. Use direct quotes where relevant
+                                4. Keep ALL source citations and references
+                                5. DO NOT omit or summarize away important details
+                                6. DO NOT add any information not present in the results
+                                7. DO NOT make any new tool calls or return JSON
+                            """
+
+                            # Process combined results through LLM with modified system prompt
+                            summary_system_prompt = self.get_agent_system_prompt(agent_name) + \
+                                "\n DO NOT make any tool calls or return JSON. Present ALL facts and maintain ALL details from the source material."
+
                             async for processed_chunk in self.llm_provider.generate_text(
-                                prompt=tool_response,
-                                system_prompt=system_prompt,
+                                prompt=process_prompt,
+                                system_prompt=summary_system_prompt,
                             ):
                                 # Add to complete response
                                 complete_text_response += processed_chunk
@@ -370,30 +383,6 @@ class AgentService(AgentServiceInterface):
             import traceback
             print(traceback.format_exc())
 
-    async def _handle_tool_call(
-        self,
-        agent_name: str,
-        json_chunk: str,
-    ) -> str:
-        """Handle tool calls and return formatted response."""
-        try:
-            data = json.loads(json_chunk)
-            if "tool_call" in data:
-                tool_data = data["tool_call"]
-                tool_name = tool_data.get("name")
-                parameters = tool_data.get("parameters", {})
-
-                if tool_name:
-                    result = self.execute_tool(
-                        agent_name, tool_name, parameters)
-                    if result.get("status") == "success":
-                        return result.get("result", "")
-                    else:
-                        return f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
-            return json_chunk
-        except json.JSONDecodeError:
-            return json_chunk
-
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
         """Generate JSON-based instructions for tool usage."""
         # Get tools assigned to this agent
@@ -401,45 +390,50 @@ class AgentService(AgentServiceInterface):
         if not tools:
             return ""
 
+        # Get actual tool names
         available_tool_names = [tool.get("name", "") for tool in tools]
         tools_json = json.dumps(tools, indent=2)
+
+        # Create tool example if search is available
+        tool_example = ""
+        if "search_internet" in available_tool_names:
+            tool_example = """
+    For latest news query:
+    {
+        "tool_calls": [{
+            "name": "search_internet",
+            "parameters": {
+                "query": "latest Solana blockchain news March 2025"
+            }
+        }]
+    }"""
 
         return f"""
     AVAILABLE TOOLS:
     {tools_json}
-
-    TOOL USAGE RULES:
-    1. DO NOT narrate your actions or say phrases like "I'm looking up" or "Please hold on"
-    2. When you need information, IMMEDIATELY output the tool call in this JSON format:
+    
+    TOOL USAGE FORMAT:
     {{
-        "tool_calls": [
-            {{
-                "name": "<one_of:{', '.join(available_tool_names)}>",
-                "parameters": {{
-                    // parameters as specified in tool definition above
-                }}
+        "tool_calls": [{{
+            "name": "<one_of:{', '.join(available_tool_names)}>",
+            "parameters": {{
+                // parameters as specified in tool definition above
             }}
-        ]
+        }}]
     }}
-
-    3. After receiving tool results:
-    - DO NOT acknowledge or refer to the tool calls
-    - DO NOT mention searching or looking things up
-    - DIRECTLY provide a natural response using the information
-    - Use a conversational tone as if you already knew the information
-    - Include relevant details from the tool results
-    - Make sure to synthesize and analyze the information
-
-    Example of GOOD response flow:
-    User: "What's happening with Solana?"
-    [Tool calls happen silently]
-    You: "Solana's price has reached $XXX, marking a significant milestone..."
-
-    Example of BAD response flow:
-    User: "What's happening with Solana?"
-    You: "Let me look that up..."  [WRONG - Don't say this]
-    [Tool calls]
-    You: "I found some information..."  [WRONG - Don't say this]
+    
+    {tool_example if tool_example else ''}
+    
+    RESPONSE RULES:
+    1. For tool usage:
+       - Only use tools from the AVAILABLE TOOLS list above
+       - Follow the exact parameter format shown in the tool definition
+       - Include "March 2025" in any search queries for current information
+    
+    2. Format Requirements:
+       - Return ONLY the JSON object for tool calls
+       - No explanation text before or after
+       - Use exact tool names as shown in AVAILABLE TOOLS
     """
 
     async def _handle_multiple_tool_calls(
@@ -447,15 +441,7 @@ class AgentService(AgentServiceInterface):
         agent_name: str,
         json_chunk: str,
     ) -> AsyncGenerator[str, None]:
-        """Handle multiple tool calls concurrently and yield results as they complete.
-
-        Args:
-            agent_name: Name of the agent executing tools
-            json_chunk: JSON string containing tool calls
-
-        Yields:
-            Results from each tool call as they complete
-        """
+        """Handle multiple tool calls concurrently and yield results as they complete."""
         try:
             data = json.loads(json_chunk)
             if "tool_calls" not in data:
@@ -463,7 +449,9 @@ class AgentService(AgentServiceInterface):
                 return
 
             tool_calls = data["tool_calls"]
+
             if not isinstance(tool_calls, list):
+                print("Error: tool_calls is not a list")
                 yield "Error: 'tool_calls' must be an array of tool calls."
                 return
 
@@ -471,11 +459,14 @@ class AgentService(AgentServiceInterface):
             async def execute_single_tool(tool_info):
                 tool_name = tool_info.get("name")
                 parameters = tool_info.get("parameters", {})
+                print(f"\nExecuting tool: {tool_name}")
+                print(f"With parameters: {parameters}")
 
                 if not tool_name:
                     return f"Error: Missing tool name in tool call."
 
                 result = self.execute_tool(agent_name, tool_name, parameters)
+
                 if result.get("status") == "success":
                     return f"Result from {tool_name}: {result.get('result', '')}"
                 else:
@@ -491,4 +482,6 @@ class AgentService(AgentServiceInterface):
         except json.JSONDecodeError:
             yield "Error: Could not parse tool calls JSON."
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             yield f"Error processing tool calls: {str(e)}"
