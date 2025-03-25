@@ -4,6 +4,7 @@ Agent service implementation.
 This service manages AI and human agents, their registration, tool assignments,
 and response generation.
 """
+import asyncio
 import datetime as main_datetime
 from datetime import datetime
 import json
@@ -263,26 +264,37 @@ class AgentService(AgentServiceInterface):
                         data = json.loads(json_buffer)
 
                         # Valid JSON found, handle it
-                        if "tool_call" in data:
-                            # Process tool call with existing method
-                            response_text = await self._handle_tool_call(
+                        if "tool_calls" in data:  # Now looking for tool_calls array
+                            # Collect all tool results first
+                            tool_results = []
+                            async for tool_result in self._handle_multiple_tool_calls(
                                 agent_name=agent_name,
                                 json_chunk=json_buffer
-                            )
+                            ):
+                                tool_results.append(tool_result)
 
-                            # Add to complete text response
-                            complete_text_response += response_text
+                            # Combine results and create a new prompt
+                            tool_response = "\n".join(tool_results)
+                            complete_text_response += tool_response + "\n"
 
-                            # Output response based on format
-                            if output_format == "audio":
-                                async for audio_chunk in self.llm_provider.tts(
-                                    text=response_text,
-                                    voice=audio_voice,
-                                    response_format=audio_output_format
-                                ):
-                                    yield audio_chunk
-                            else:
-                                yield response_text
+                            # Process combined results through LLM
+                            async for processed_chunk in self.llm_provider.generate_text(
+                                prompt=tool_response,
+                                system_prompt=system_prompt,
+                            ):
+                                # Add to complete response
+                                complete_text_response += processed_chunk
+
+                                # Output response based on format
+                                if output_format == "audio":
+                                    async for audio_chunk in self.llm_provider.tts(
+                                        text=processed_chunk,
+                                        voice=audio_voice,
+                                        response_format=audio_output_format
+                                    ):
+                                        yield audio_chunk
+                                else:
+                                    yield processed_chunk
                         else:
                             # For non-tool JSON, still capture the text
                             complete_text_response += json_buffer
@@ -389,48 +401,94 @@ class AgentService(AgentServiceInterface):
         if not tools:
             return ""
 
-        # Get actual tool names
         available_tool_names = [tool.get("name", "") for tool in tools]
         tools_json = json.dumps(tools, indent=2)
-
-        # Create tool example if search is available
-        tool_example = ""
-        if "search_internet" in available_tool_names:
-            tool_example = """
-    For latest news query:
-    {
-        "tool_call": {
-            "name": "search_internet",
-            "parameters": {
-                "query": "latest Solana blockchain news March 2025"
-            }
-        }
-    }"""
 
         return f"""
     AVAILABLE TOOLS:
     {tools_json}
-    
-    TOOL USAGE FORMAT:
+
+    TOOL USAGE RULES:
+    1. DO NOT narrate your actions or say phrases like "I'm looking up" or "Please hold on"
+    2. When you need information, IMMEDIATELY output the tool call in this JSON format:
     {{
-        "tool_call": {{
-            "name": "<one_of:{', '.join(available_tool_names)}>",
-            "parameters": {{
-                // parameters as specified in tool definition above
+        "tool_calls": [
+            {{
+                "name": "<one_of:{', '.join(available_tool_names)}>",
+                "parameters": {{
+                    // parameters as specified in tool definition above
+                }}
             }}
-        }}
+        ]
     }}
-    
-    {tool_example if tool_example else ''}
-    
-    RESPONSE RULES:
-    1. For tool usage:
-       - Only use tools from the AVAILABLE TOOLS list above
-       - Follow the exact parameter format shown in the tool definition
-       - Include "March 2025" in any search queries for current information
-    
-    2. Format Requirements:
-       - Return ONLY the JSON object for tool calls
-       - No explanation text before or after
-       - Use exact tool names as shown in AVAILABLE TOOLS
+
+    3. After receiving tool results:
+    - DO NOT acknowledge or refer to the tool calls
+    - DO NOT mention searching or looking things up
+    - DIRECTLY provide a natural response using the information
+    - Use a conversational tone as if you already knew the information
+    - Include relevant details from the tool results
+    - Make sure to synthesize and analyze the information
+
+    Example of GOOD response flow:
+    User: "What's happening with Solana?"
+    [Tool calls happen silently]
+    You: "Solana's price has reached $XXX, marking a significant milestone..."
+
+    Example of BAD response flow:
+    User: "What's happening with Solana?"
+    You: "Let me look that up..."  [WRONG - Don't say this]
+    [Tool calls]
+    You: "I found some information..."  [WRONG - Don't say this]
     """
+
+    async def _handle_multiple_tool_calls(
+        self,
+        agent_name: str,
+        json_chunk: str,
+    ) -> AsyncGenerator[str, None]:
+        """Handle multiple tool calls concurrently and yield results as they complete.
+
+        Args:
+            agent_name: Name of the agent executing tools
+            json_chunk: JSON string containing tool calls
+
+        Yields:
+            Results from each tool call as they complete
+        """
+        try:
+            data = json.loads(json_chunk)
+            if "tool_calls" not in data:
+                yield json_chunk
+                return
+
+            tool_calls = data["tool_calls"]
+            if not isinstance(tool_calls, list):
+                yield "Error: 'tool_calls' must be an array of tool calls."
+                return
+
+            # Define individual tool execution coroutine
+            async def execute_single_tool(tool_info):
+                tool_name = tool_info.get("name")
+                parameters = tool_info.get("parameters", {})
+
+                if not tool_name:
+                    return f"Error: Missing tool name in tool call."
+
+                result = self.execute_tool(agent_name, tool_name, parameters)
+                if result.get("status") == "success":
+                    return f"Result from {tool_name}: {result.get('result', '')}"
+                else:
+                    return f"Error from {tool_name}: {result.get('message', 'Unknown error')}"
+
+            # Execute all tool calls concurrently
+            tasks = [execute_single_tool(tool_call)
+                     for tool_call in tool_calls]
+            for task in asyncio.as_completed(tasks):
+                result = await task
+                yield result
+
+        except json.JSONDecodeError:
+            yield "Error: Could not parse tool calls JSON."
+        except Exception as e:
+            yield f"Error processing tool calls: {str(e)}"
