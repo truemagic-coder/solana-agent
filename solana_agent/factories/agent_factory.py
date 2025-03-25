@@ -13,7 +13,6 @@ from solana_agent.services.routing import RoutingService
 
 # Repository imports
 from solana_agent.repositories.memory import MemoryRepository
-from solana_agent.repositories.agent import MongoAgentRepository
 
 # Adapter imports
 from solana_agent.adapters.llm_adapter import OpenAIAdapter
@@ -65,11 +64,9 @@ class SolanaAgentFactory:
                 db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
         else:
             memory_provider = MemoryRepository(db_adapter)
-        agent_repo = MongoAgentRepository(db_adapter)
 
         # Create primary services
         agent_service = AgentService(
-            agent_repository=agent_repo,
             llm_provider=llm_adapter,
             organization_mission=organization_mission,
             config=config,
@@ -92,20 +89,6 @@ class SolanaAgentFactory:
         )
         loaded_plugins = agent_service.plugin_manager.load_plugins()
         print(f"Loaded {loaded_plugins} plugins")
-
-        # Sync MongoDB with config-defined agents
-        config_defined_agents = [agent["name"]
-                                 for agent in config.get("agents", [])]
-        all_db_agents = agent_repo.get_all_ai_agents()
-        db_agent_names = [agent.name for agent in all_db_agents]
-
-        # Delete agents not in config
-        agents_to_delete = [
-            name for name in db_agent_names if name not in config_defined_agents]
-        for agent_name in agents_to_delete:
-            print(
-                f"Deleting agent '{agent_name}' from MongoDB - no longer defined in config")
-            agent_repo.delete_ai_agent(agent_name)
 
         # Register predefined agents
         for agent_config in config.get("agents", []):

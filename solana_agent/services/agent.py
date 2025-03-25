@@ -11,7 +11,6 @@ from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
-from solana_agent.interfaces.repositories.agent import AgentRepository
 from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, OrganizationMission
@@ -23,7 +22,6 @@ class AgentService(AgentServiceInterface):
     def __init__(
         self,
         llm_provider: LLMProvider,
-        agent_repository: AgentRepository,
         organization_mission: Optional[OrganizationMission] = None,
         config: Optional[Dict[str, Any]] = None,
     ):
@@ -31,16 +29,15 @@ class AgentService(AgentServiceInterface):
 
         Args:
             llm_provider: Provider for language model interactions
-            agent_repository: Repository for agent data
             organization_mission: Optional organization mission and values
             config: Optional service configuration
         """
         self.llm_provider = llm_provider
-        self.agent_repository = agent_repository
         self.organization_mission = organization_mission
         self.config = config or {}
         self.last_text_response = ""
         self.tool_registry = ToolRegistry(config=self.config)
+        self.agents: List[AIAgent] = []
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
@@ -60,7 +57,7 @@ class AgentService(AgentServiceInterface):
             instructions=instructions,
             specialization=specialization,
         )
-        self.agent_repository.save_ai_agent(agent)
+        self.agents.append(agent)
 
     def get_agent_system_prompt(self, agent_name: str) -> str:
         """Get the system prompt for an agent.
@@ -71,7 +68,9 @@ class AgentService(AgentServiceInterface):
         Returns:
             System prompt
         """
-        agent = self.agent_repository.get_ai_agent_by_name(agent_name)
+
+        # Get agent by name
+        agent = next((a for a in self.agents if a.name == agent_name), None)
 
         # Build system prompt
         system_prompt = f"You are {agent.name}, an AI assistant with the following instructions:\n\n"
@@ -106,8 +105,7 @@ class AgentService(AgentServiceInterface):
         Returns:
             Dictionary mapping agent names to agents
         """
-        agents = self.agent_repository.get_all_ai_agents()
-        return {agent.name: agent for agent in agents}
+        return {agent.name: agent for agent in self.agents}
 
     def get_specializations(self) -> Dict[str, str]:
         """Get all registered specializations.
@@ -117,9 +115,7 @@ class AgentService(AgentServiceInterface):
         """
         specializations = {}
 
-        # Gather from AI agents
-        ai_agents = self.agent_repository.get_all_ai_agents()
-        for agent in ai_agents:
+        for agent in self.agents:
             if agent.specialization:
                 specializations[agent.specialization] = f"AI expertise in {agent.specialization}"
 
@@ -211,7 +207,7 @@ class AgentService(AgentServiceInterface):
         Yields:
             Text chunks or audio bytes depending on output_format
         """
-        agent = self.agent_repository.get_ai_agent_by_name(agent_name)
+        agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             if output_format == "audio":

@@ -66,20 +66,10 @@ def mock_llm_provider():
 
 
 @pytest.fixture
-def mock_agent_repository():
-    repo = Mock()
-    repo.get_ai_agent_by_name = Mock(return_value=TEST_AGENT)
-    repo.get_all_ai_agents = Mock(return_value=[TEST_AGENT])
-    repo.save_ai_agent = Mock()
-    return repo
-
-
-@pytest.fixture
-def agent_service(mock_llm_provider, mock_agent_repository):
+def agent_service(mock_llm_provider):
     """Create agent service with default configuration."""
-    return AgentService(
+    service = AgentService(
         llm_provider=mock_llm_provider,
-        agent_repository=mock_agent_repository,
         organization_mission=TEST_MISSION,
         config={
             "tools": {
@@ -89,6 +79,15 @@ def agent_service(mock_llm_provider, mock_agent_repository):
             }
         }
     )
+
+    # Register the test agent manually
+    service.register_ai_agent(
+        name=TEST_AGENT.name,
+        instructions=TEST_AGENT.instructions,
+        specialization=TEST_AGENT.specialization
+    )
+
+    return service
 
 
 @pytest.mark.asyncio
@@ -183,17 +182,6 @@ def test_get_agent_system_prompt(agent_service):
     assert TEST_MISSION.mission_statement in prompt
     assert TEST_MISSION.values[0]["name"] in prompt
     assert TEST_MISSION.goals[0] in prompt
-
-
-def test_register_ai_agent(agent_service, mock_agent_repository):
-    """Test AI agent registration."""
-    agent_service.register_ai_agent(
-        name="new_agent",
-        instructions="New instructions",
-        specialization="new_spec"
-    )
-
-    mock_agent_repository.save_ai_agent.assert_called_once()
 
 
 def test_get_all_ai_agents(agent_service):
