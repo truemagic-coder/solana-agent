@@ -49,6 +49,7 @@ jobs:
       uses: EnricoMi/publish-unit-test-result-action@v2
       if: always()
       with:
+        check_name: "Test Results"
         files: junit/test-results-${{ matrix.python-version }}.xml
 
     - name: Upload test results
@@ -57,3 +58,13 @@ jobs:
       with:
         name: test-results-${{ matrix.python-version }}
         path: junit/*.xml
+
+    - name: Create Status Check
+      uses: LouisBrunner/checks-action@v2.0.0
+      if: always()
+      with:
+        token: ${{ github.token }}
+        name: "Python Tests"
+        conclusion: ${{ job.status }}
+        output: |
+          {"summary":"Python ${{ matrix.python-version }} test results"}
