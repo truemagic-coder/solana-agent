@@ -291,23 +291,28 @@ class AgentService(AgentServiceInterface):
                             summary_system_prompt = self.get_agent_system_prompt(agent_name) + \
                                 "\n DO NOT make any tool calls or return JSON. Present ALL facts and maintain ALL details from the source material."
 
+                            # Collect all processed text first
+                            processed_text = ""
                             async for processed_chunk in self.llm_provider.generate_text(
                                 prompt=process_prompt,
                                 system_prompt=summary_system_prompt,
                             ):
-                                # Add to complete response
-                                complete_text_response += processed_chunk
-
-                                # Output response based on format
-                                if output_format == "audio":
-                                    async for audio_chunk in self.llm_provider.tts(
-                                        text=processed_chunk,
-                                        voice=audio_voice,
-                                        response_format=audio_output_format
-                                    ):
-                                        yield audio_chunk
-                                else:
+                                processed_text += processed_chunk
+                                # For text output, yield chunks as they come
+                                if output_format == "text":
                                     yield processed_chunk
+
+                            # Add to complete response
+                            complete_text_response += processed_text
+
+                            # For audio output, process the complete text
+                            if output_format == "audio":
+                                async for audio_chunk in self.llm_provider.tts(
+                                    text=processed_text,
+                                    voice=audio_voice,
+                                    response_format=audio_output_format
+                                ):
+                                    yield audio_chunk
                         else:
                             # For non-tool JSON, still capture the text
                             complete_text_response += json_buffer
