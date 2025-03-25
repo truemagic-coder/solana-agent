@@ -143,7 +143,6 @@ async def test_generate_response_audio_output(agent_service):
 @pytest.mark.asyncio
 async def test_handle_tool_call(agent_service):
     """Test tool call handling with internal tool registry."""
-    # Register a test tool
     tool_call = {
         "tool_call": {
             "name": "test_tool",
@@ -151,14 +150,20 @@ async def test_handle_tool_call(agent_service):
         }
     }
 
-    # Verify tool registry was created internally
-    assert hasattr(agent_service, 'tool_registry')
+    # Mock tool registry methods
+    mock_tool = Mock()
+    mock_tool.execute = Mock(
+        return_value={"status": "success", "result": "tool result"})
 
-    # Mock the tool get and execute
-    agent_service.tool_registry.get_tool = Mock(return_value=Mock(
-        execute=Mock(
-            return_value={"status": "success", "result": "tool result"})
-    ))
+    agent_service.tool_registry.get_tool = Mock(return_value=mock_tool)
+    agent_service.tool_registry.get_agent_tools = Mock(return_value=[{
+        "name": "test_tool",
+        "description": "Test tool",
+        "parameters": {}
+    }])
+
+    # First assign the tool to the agent
+    agent_service.assign_tool_for_agent("test_agent", "test_tool")
 
     result = await agent_service._handle_tool_call(
         "test_agent",
@@ -166,6 +171,7 @@ async def test_handle_tool_call(agent_service):
     )
 
     assert result == "tool result"
+    mock_tool.execute.assert_called_once_with(param1="value1")
 
 
 def test_get_agent_system_prompt(agent_service):
