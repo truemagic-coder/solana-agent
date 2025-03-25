@@ -31,7 +31,7 @@ Power your business using Solana Agent!
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
 * [MongoDB](https://mongodb.com) - Database
-* [Zep](https://getzep.com) - Conversational Memory
+* [Zep](https://getzep.com) - Conversational Memory (optional)
 
 ## Installation
 
