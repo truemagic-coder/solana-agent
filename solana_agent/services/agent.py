@@ -145,7 +145,7 @@ class AgentService(AgentServiceInterface):
         """
         return self.tool_registry.get_agent_tools(agent_name)
 
-    def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
 
         if not self.tool_registry:
@@ -165,7 +165,7 @@ class AgentService(AgentServiceInterface):
             }
 
         try:
-            result = tool.execute(**parameters)
+            result = await tool.execute(**parameters)
             return result
         except Exception as e:
             import traceback
@@ -381,7 +381,7 @@ class AgentService(AgentServiceInterface):
                 parameters = tool_data.get("parameters", {})
 
                 if tool_name:
-                    result = self.execute_tool(
+                    result = await self.execute_tool(
                         agent_name, tool_name, parameters)
                     if result.get("status") == "success":
                         return result.get("result", "")

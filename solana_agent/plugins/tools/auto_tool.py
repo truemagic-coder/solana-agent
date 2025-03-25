@@ -41,7 +41,7 @@ class AutoTool(Tool):
         # Override in subclasses
         return {}
 
-    def execute(self, **params) -> Dict[str, Any]:
+    async def execute(self, **params) -> Dict[str, Any]:
         """Execute the tool with the provided parameters."""
         # Override in subclasses
         raise NotImplementedError("Tool must implement execute method")

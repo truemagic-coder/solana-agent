@@ -34,7 +34,7 @@ class Tool(ABC):
         pass
 
     @abstractmethod
-    def execute(self, **params) -> Dict[str, Any]:
+    async def execute(self, **params) -> Dict[str, Any]:
         """Execute the tool with the given parameters."""
         pass
 
@@ -118,7 +118,7 @@ class PluginManager(ABC):
         pass
 
     @abstractmethod
-    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+    async def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
         """Execute a tool with the given parameters."""
         pass
 

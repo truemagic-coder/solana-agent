@@ -55,7 +55,7 @@ class MockTool:
         self.name = name
         self.execute_result = {"status": "success", "result": "test"}
 
-    def execute(self, **kwargs):
+    async def execute(self, **kwargs):
         return self.execute_result
 
 
@@ -131,31 +131,34 @@ def test_list_plugins(plugin_manager):
     assert plugins[1]["name"] == "plugin2"
 
 
-def test_execute_tool_success(plugin_manager):
+@pytest.mark.asyncio
+async def test_execute_tool_success(plugin_manager):
     """Test successful tool execution."""
-    result = plugin_manager.execute_tool("test_tool", param1="value1")
+    result = await plugin_manager.execute_tool("test_tool", param1="value1")
 
     assert result["status"] == "success"
     assert result["result"] == "test"
 
 
-def test_execute_tool_not_found(plugin_manager, mock_tool_registry):
+@pytest.mark.asyncio
+async def test_execute_tool_not_found(plugin_manager, mock_tool_registry):
     """Test tool execution when tool is not found."""
     mock_tool_registry.get_tool.return_value = None
 
-    result = plugin_manager.execute_tool("nonexistent_tool")
+    result = await plugin_manager.execute_tool("nonexistent_tool")
 
     assert result["status"] == "error"
     assert "not found" in result["message"]
 
 
-def test_execute_tool_error(plugin_manager, mock_tool_registry):
+@pytest.mark.asyncio
+async def test_execute_tool_error(plugin_manager, mock_tool_registry):
     """Test tool execution error handling."""
     tool = MockTool()
     tool.execute = Mock(side_effect=Exception("Tool error"))
     mock_tool_registry.get_tool.return_value = tool
 
-    result = plugin_manager.execute_tool("test_tool")
+    result = await plugin_manager.execute_tool("test_tool")
 
     assert result["status"] == "error"
     assert "Tool error" in result["message"]
