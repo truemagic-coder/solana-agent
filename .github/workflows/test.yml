@@ -17,6 +17,11 @@ jobs:
   test:
     name: Python ${{ matrix.python-version }} Test
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
