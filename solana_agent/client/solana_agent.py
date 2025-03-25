@@ -10,6 +10,7 @@ from typing import AsyncGenerator, Dict, Any, Literal, Optional, Union
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
+from solana_agent.interfaces.plugins.plugins import Tool
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -109,3 +110,28 @@ class SolanaAgent(SolanaAgentInterface):
         return await self.query_service.get_user_history(
             user_id, page_num, page_size, sort_order
         )
+
+    def register_tool(self, tool: Tool) -> bool:
+        """Register a custom tool for use by agents.
+
+        Args:
+            tool: Tool implementation following the Tool interface
+
+        Returns:
+            bool: True if registration was successful
+
+        Example:
+            ```python
+            from solana_agent import SolanaAgent
+            from my_tools import CustomTool
+
+            agent = SolanaAgent(config=config)
+            tool = CustomTool()
+            agent.register_tool(tool)
+            ```
+        """
+        try:
+            return self.query_service.agent_service.tool_registry.register_tool(tool)
+        except Exception as e:
+            print(f"Error registering tool: {str(e)}")
+            return False

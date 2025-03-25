@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Literal, Union
 
+from solana_agent.interfaces.plugins.plugins import Tool
+
 
 class SolanaAgent(ABC):
     """Interface for the Solana agent system."""
@@ -32,4 +34,9 @@ class SolanaAgent(ABC):
         sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """Get paginated message history for a user."""
+        pass
+
+    @abstractmethod
+    def register_tool(self, tool: Tool) -> bool:
+        """Register a tool in the registry."""
         pass
