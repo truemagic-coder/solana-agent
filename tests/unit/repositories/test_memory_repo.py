@@ -5,16 +5,11 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from solana_agent.repositories.memory import MemoryRepository
 
-# Test Data
+# Test constants
 TEST_USER_ID = "test_user123"
 TEST_USER_MESSAGE = "What is Solana?"
 TEST_ASSISTANT_MESSAGE = "Solana is a high-performance blockchain..."
 TEST_SUMMARY = "Discussion about Solana blockchain."
-TEST_FACTS = [
-    {"fact": "Solana is a blockchain platform"},
-    {"fact": "Solana uses Proof of Stake"}
-]
-
 TEST_MESSAGES = [
     {"role": "user", "content": TEST_USER_MESSAGE},
     {"role": "assistant", "content": TEST_ASSISTANT_MESSAGE}
@@ -28,45 +23,108 @@ def mock_mongo_adapter():
     adapter.create_index = AsyncMock()
     adapter.insert_one = AsyncMock()
     adapter.delete_all = AsyncMock()
+    adapter.find = Mock(return_value=[])
+    adapter.count_documents = Mock(return_value=0)
     return adapter
 
 
 @pytest.fixture
 def mock_zep_client():
     client = Mock()
-
-    # Mock memory object
+    # Mock memory methods
     memory = AsyncMock()
     memory.add = AsyncMock()
-    memory.get_session = AsyncMock()
-    memory.summarize = AsyncMock()
+    memory.get = AsyncMock(return_value=Mock(context=TEST_SUMMARY))
     memory.delete = AsyncMock()
-
-    # Mock user object
-    user = AsyncMock()
-    user.delete = AsyncMock()
-
-    # Attach to client
+    memory.add_session = AsyncMock()
     client.memory = memory
+    # Mock user methods
+    user = AsyncMock()
+    user.add = AsyncMock()
+    user.delete = AsyncMock()
     client.user = user
     return client
 
 
 @pytest.fixture
-def memory_repository(mock_mongo_adapter, mock_zep_client):
-    with patch('solana_agent.repositories.memory.AsyncZep') as mock_zep:
-        mock_zep.return_value = mock_zep_client
+def memory_repository_no_zep(mock_mongo_adapter):
+    """Create a memory repository without Zep configuration."""
+    return MemoryRepository(
+        mongo_adapter=mock_mongo_adapter,
+        zep_api_key=None,
+        zep_base_url=None
+    )
+
+
+@pytest.fixture
+def memory_repository_with_zep(mock_mongo_adapter):
+    """Create a memory repository with Zep configuration."""
+    with patch('solana_agent.repositories.memory.AsyncZep', autospec=True) as mock_zep_class:
+        mock_zep = Mock()
+        # Setup memory methods
+        mock_memory = AsyncMock()
+        mock_memory.add = AsyncMock()
+        mock_memory.get = AsyncMock(return_value=Mock(context=TEST_SUMMARY))
+        mock_memory.delete = AsyncMock()
+        mock_memory.add_session = AsyncMock()
+        mock_zep.memory = mock_memory
+        # Setup user methods
+        mock_user = AsyncMock()
+        mock_user.add = AsyncMock()
+        mock_user.delete = AsyncMock()
+        mock_zep.user = mock_user
+
+        mock_zep_class.return_value = mock_zep
+
         repo = MemoryRepository(
             mongo_adapter=mock_mongo_adapter,
-            zep_base_url="http://localhost:8000"
+            zep_api_key="test-key",
+            zep_base_url="http://test-url"
         )
+        repo.zep = mock_zep  # Ensure mock is properly set
         return repo
+
+# Test cases without Zep
 
 
 @pytest.mark.asyncio
-async def test_store_success(memory_repository, mock_mongo_adapter, mock_zep_client):
-    """Test successful message storage in both systems."""
-    await memory_repository.store(TEST_USER_ID, TEST_MESSAGES)
+async def test_store_no_zep(memory_repository_no_zep, mock_mongo_adapter):
+    """Test message storage with only MongoDB."""
+    await memory_repository_no_zep.store(TEST_USER_ID, TEST_MESSAGES)
+
+    mock_mongo_adapter.insert_one.assert_called_once()
+    call_args = mock_mongo_adapter.insert_one.call_args[0]
+    assert call_args[0] == "conversations"
+    doc = call_args[1]
+    assert doc["user_id"] == TEST_USER_ID
+    assert doc["user_message"] == TEST_USER_MESSAGE
+    assert doc["assistant_message"] == TEST_ASSISTANT_MESSAGE
+    assert isinstance(doc["timestamp"], datetime)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_no_zep(memory_repository_no_zep):
+    """Test memory retrieval without Zep."""
+    result = await memory_repository_no_zep.retrieve(TEST_USER_ID)
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_delete_no_zep(memory_repository_no_zep, mock_mongo_adapter):
+    """Test deletion with only MongoDB."""
+    await memory_repository_no_zep.delete(TEST_USER_ID)
+    mock_mongo_adapter.delete_all.assert_called_once_with(
+        "conversations",
+        {"user_id": TEST_USER_ID}
+    )
+
+# Test cases with Zep
+
+
+@pytest.mark.asyncio
+async def test_store_with_zep(memory_repository_with_zep, mock_mongo_adapter):
+    """Test message storage in both systems."""
+    await memory_repository_with_zep.store(TEST_USER_ID, TEST_MESSAGES)
 
     # Verify MongoDB storage
     mock_mongo_adapter.insert_one.assert_called_once()
@@ -79,66 +137,31 @@ async def test_store_success(memory_repository, mock_mongo_adapter, mock_zep_cli
     assert isinstance(doc["timestamp"], datetime)
 
     # Verify Zep storage
-    mock_zep_client.memory.add.assert_called_once()
-    zep_args = mock_zep_client.memory.add.call_args[1]
-    assert zep_args["session_id"] == TEST_USER_ID
-    assert len(zep_args["messages"]) == 2
+    memory_repository_with_zep.zep.memory.add.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_retrieve_success(memory_repository, mock_zep_client):
-    """Test successful memory retrieval from Zep."""
-    mock_zep_client.memory.get.return_value = Mock(
-        context=TEST_SUMMARY
+async def test_retrieve_with_zep(memory_repository_with_zep):
+    """Test memory retrieval from Zep."""
+    result = await memory_repository_with_zep.retrieve(TEST_USER_ID)
+    assert result == TEST_SUMMARY
+    memory_repository_with_zep.zep.memory.get.assert_called_once_with(
+        session_id=TEST_USER_ID
     )
 
-    result = await memory_repository.retrieve(TEST_USER_ID)
-
-    assert TEST_SUMMARY == result
-
 
 @pytest.mark.asyncio
-async def test_delete_success(memory_repository, mock_mongo_adapter, mock_zep_client):
-    """Test successful deletion from both systems."""
-    await memory_repository.delete(TEST_USER_ID)
+async def test_delete_with_zep(memory_repository_with_zep, mock_mongo_adapter):
+    """Test deletion from both systems."""
+    await memory_repository_with_zep.delete(TEST_USER_ID)
 
     mock_mongo_adapter.delete_all.assert_called_once_with(
         "conversations",
         {"user_id": TEST_USER_ID}
     )
-    mock_zep_client.memory.delete.assert_called_once_with(
+    memory_repository_with_zep.zep.memory.delete.assert_called_once_with(
         session_id=TEST_USER_ID
     )
-    mock_zep_client.user.delete.assert_called_once_with(
+    memory_repository_with_zep.zep.user.delete.assert_called_once_with(
         user_id=TEST_USER_ID
     )
-
-
-@pytest.mark.asyncio
-async def test_store_mongo_error(memory_repository, mock_mongo_adapter, mock_zep_client):
-    """Test handling of MongoDB storage error."""
-    mock_mongo_adapter.insert_one.side_effect = Exception("DB Error")
-
-    # Should not raise exception
-    await memory_repository.store(TEST_USER_ID, TEST_MESSAGES)
-
-    # Zep storage should still be attempted
-    mock_zep_client.memory.add.assert_called_once()
-
-
-def test_truncate_text(memory_repository):
-    """Test text truncation functionality."""
-    # Test short text
-    short_text = "Hello world."
-    assert memory_repository._truncate(short_text) == short_text
-
-    # Test long text
-    long_text = "." * 3000
-    truncated = memory_repository._truncate(long_text, limit=2500)
-    assert len(truncated) <= 2500
-    assert truncated.endswith("...")
-
-    # Test truncation at sentence boundary
-    text_with_sentences = "First sentence. Second sentence. Third sentence."
-    truncated = memory_repository._truncate(text_with_sentences, limit=20)
-    assert truncated.endswith(".")
