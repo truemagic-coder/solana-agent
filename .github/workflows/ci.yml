@@ -48,3 +48,10 @@ jobs:
       with:
         name: test-results-${{ matrix.python-version }}
         path: junit
+
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always()
+      with:
+        files: "junit/test-results.xml"
+        

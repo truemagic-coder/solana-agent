@@ -30,3 +30,4 @@ jobs:
         path: artifacts/test-results-*/test-results-*.xml
         reporter: jest-junit
         fail-on-error: false
+        
