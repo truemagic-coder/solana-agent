@@ -112,26 +112,31 @@ class SolanaAgent(SolanaAgentInterface):
         )
 
     def register_tool(self, tool: Tool) -> bool:
-        """Register a custom tool for use by agents.
+        """
+        Register a tool with the agent system.
 
         Args:
-            tool: Tool implementation following the Tool interface
+            tool: Tool instance to register
 
         Returns:
-            bool: True if registration was successful
-
-        Example:
-            ```python
-            from solana_agent import SolanaAgent
-            from my_tools import CustomTool
-
-            agent = SolanaAgent(config=config)
-            tool = CustomTool()
-            agent.register_tool(tool)
-            ```
+            True if successful, False
         """
+
         try:
-            return self.query_service.agent_service.tool_registry.register_tool(tool)
+            print(f"Attempting to register tool: {tool.name}")
+            success = self.query_service.agent_service.tool_registry.register_tool(
+                tool)
+            if success:
+                print(f"Tool {tool.name} registered successfully")
+                # Get all agents and assign the tool to them
+                agents = self.query_service.agent_service.get_all_ai_agents()
+                for agent_name in agents:
+                    print(f"Assigning {tool.name} to agent {agent_name}")
+                    self.query_service.agent_service.assign_tool_for_agent(
+                        agent_name, tool.name)
+            return success
         except Exception as e:
-            print(f"Error registering tool: {str(e)}")
+            print(f"Error in register_tool: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return False
