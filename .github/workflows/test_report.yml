@@ -20,11 +20,18 @@ jobs:
       uses: dawidd6/action-download-artifact@v9
       with:
         workflow: CI
-        commit: ${{ github.event.workflow_run.head_sha }}
+        workflow_conclusion: completed
         path: artifacts
+
+    - name: Debug - List downloaded artifacts
+      run: |
+        echo "Listing artifact directories:"
+        find artifacts -type d
+        echo "Listing all XML files:"
+        find artifacts -name "*.xml"
 
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
       if: always()
       with:
-        files: "artifacts/**/junit/*.xml"
+        files: "artifacts/**/*.xml"  # Simplified pattern to find any XML file
