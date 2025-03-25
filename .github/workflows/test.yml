@@ -28,14 +28,20 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e .[dev]
-        pip install pytest pytest-cov pytest-asyncio
-    
-    - name: Test with pytest and generate coverage
+        pip install pytest pytest-cov pytest-asyncio pytest-github-actions-annotate-failures
+
+    - name: Run tests with pytest
       run: |
-        pytest --cov=solana_agent --cov-report=xml --cov-report=term tests/
-    
+        pytest --junitxml=junit/test-results.xml --cov=solana_agent --cov-report=xml --cov-report=term tests/
+      
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()  # Run this step even if tests fail
+      with:
+        name: pytest-results-${{ matrix.python-version }}
+        path: junit/test-results.xml
+        
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        

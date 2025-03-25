@@ -646,6 +646,20 @@ pytest = ">=4.6"
 testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 
 [[package]]
+name = "pytest-github-actions-annotate-failures"
+version = "0.3.0"
+description = "pytest plugin to annotate failed tests with a workflow command for GitHub Actions"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pytest_github_actions_annotate_failures-0.3.0-py3-none-any.whl", hash = "sha256:41ea558ba10c332c0bfc053daeee0c85187507b2034e990f21e4f7e5fef044cf"},
+    {file = "pytest_github_actions_annotate_failures-0.3.0.tar.gz", hash = "sha256:d4c3177c98046c3900a7f8ddebb22ea54b9f6822201b5d3ab8fcdea51e010db7"},
+]
+
+[package.dependencies]
+pytest = ">=6.0.0"
+
+[[package]]
 name = "sniffio"
 version = "1.3.1"
 description = "Sniff out which async library your code is running under"
@@ -723,4 +737,4 @@ typing_extensions = ">=4.0.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.12,<4.0"
-content-hash = "587a2b52b564d9d8dcba7a180654bb9ff295ee2e43425170d0de2a4bd48fb62e"
+content-hash = "32da419c3e25eb6ef2abd4bff6b43598c2de10a37c11b0c19b4e4ce47b532fd1"
