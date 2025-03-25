@@ -60,8 +60,11 @@ class SolanaAgentFactory:
             )
 
         # Create repositories
-        memory_provider = MemoryRepository(
-            db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
+        if "zep" in config:
+            memory_provider = MemoryRepository(
+                db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
+        else:
+            memory_provider = MemoryRepository(db_adapter)
         agent_repo = MongoAgentRepository(db_adapter)
 
         # Create primary services
