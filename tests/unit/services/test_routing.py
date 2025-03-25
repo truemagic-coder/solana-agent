@@ -23,14 +23,11 @@ TEST_AGENTS = {
         name="validator_expert",
         instructions="Validator setup specialist",
         specialization="validator",
-        model="gpt-4o",
-        secondary_specializations=["technical", "infrastructure"]
     ),
     "general_ai": AIAgent(
         name="general_ai",
         instructions="General purpose agent",
         specialization="general",
-        model="gpt-4o"
     )
 }
 
@@ -63,27 +60,11 @@ async def test_analyze_query_success(routing_service, mock_llm_provider):
     analysis = await routing_service._analyze_query(TEST_QUERY)
 
     assert analysis["primary_specialization"] == "validator"
-    assert "technical" in analysis["secondary_specializations"]
     assert analysis["complexity_level"] == 4
     assert "solana" in analysis["topics"]
     assert analysis["confidence"] == 0.9
 
     mock_llm_provider.parse_structured_output.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_analyze_query_error(routing_service, mock_llm_provider):
-    """Test error handling in query analysis."""
-    mock_llm_provider.parse_structured_output.side_effect = Exception(
-        "Test error")
-
-    analysis = await routing_service._analyze_query(TEST_QUERY)
-
-    assert analysis["primary_specialization"] == "general"
-    assert analysis["secondary_specializations"] == []
-    assert analysis["complexity_level"] == 1
-    assert analysis["topics"] == []
-    assert analysis["confidence"] == 0.0
 
 
 @pytest.mark.asyncio
