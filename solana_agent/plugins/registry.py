@@ -20,9 +20,14 @@ class ToolRegistry(ToolRegistryInterface):
 
     def register_tool(self, tool: Tool) -> bool:
         """Register a tool with this registry."""
-        self._tools[tool.name] = tool
-        print(f"Registered tool: {tool.name}")
-        return True
+        try:
+            self._tools[tool.name] = tool
+            print(f"Successfully registered tool: {tool.name}")
+            print(f"Current tools in registry: {list(self._tools.keys())}")
+            return True
+        except Exception as e:
+            print(f"Error registering tool: {str(e)}")
+            return False
 
     def get_tool(self, tool_name: str) -> Optional[Tool]:
         """Get a tool by name."""
@@ -31,7 +36,8 @@ class ToolRegistry(ToolRegistryInterface):
     def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
         """Give an agent access to a specific tool."""
         if tool_name not in self._tools:
-            print(f"Error: Tool {tool_name} is not registered")
+            print(
+                f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}")
             return False
 
         if agent_name not in self._agent_tools:
@@ -39,13 +45,17 @@ class ToolRegistry(ToolRegistryInterface):
 
         if tool_name not in self._agent_tools[agent_name]:
             self._agent_tools[agent_name].append(tool_name)
+            print(
+                f"Successfully assigned tool {tool_name} to agent {agent_name}")
+            print(
+                f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
 
         return True
 
     def get_agent_tools(self, agent_name: str) -> List[Dict[str, Any]]:
         """Get all tools available to an agent."""
         tool_names = self._agent_tools.get(agent_name, [])
-        return [
+        tools = [
             {
                 "name": name,
                 "description": self._tools[name].description,
@@ -53,6 +63,9 @@ class ToolRegistry(ToolRegistryInterface):
             }
             for name in tool_names if name in self._tools
         ]
+        print(
+            f"Tools available to agent {agent_name}: {[t['name'] for t in tools]}")
+        return tools
 
     def list_all_tools(self) -> List[str]:
         """List all registered tools."""
