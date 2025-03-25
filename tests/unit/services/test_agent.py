@@ -6,7 +6,7 @@ from pathlib import Path
 from io import BytesIO
 
 from solana_agent.services.agent import AgentService
-from solana_agent.domains.agent import AIAgent, OrganizationMission
+from solana_agent.domains.agent import AIAgent, BusinessMission
 
 # Test Data
 TEST_AGENT = AIAgent(
@@ -15,8 +15,8 @@ TEST_AGENT = AIAgent(
     specialization="testing",
 )
 
-TEST_MISSION = OrganizationMission(
-    mission_statement="Test mission",
+TEST_MISSION = BusinessMission(
+    mission="Test mission",
     values=[{"name": "integrity", "description": "Be honest"}],
     goals=["Help users"],
     voice="Talk in a friendly tone"
@@ -70,7 +70,7 @@ def agent_service(mock_llm_provider):
     """Create agent service with default configuration."""
     service = AgentService(
         llm_provider=mock_llm_provider,
-        organization_mission=TEST_MISSION,
+        business_mission=TEST_MISSION,
         config={
             "tools": {
                 "test_tool": {
@@ -95,10 +95,10 @@ async def test_generate_response_text(agent_service):
     """Test text-to-text response generation."""
     response_chunks = []
     async for chunk in agent_service.generate_response(
-        agent_name="test_agent",
-        user_id="test_user",
-        query="test query",
-        output_format="text"
+            agent_name="test_agent",
+            user_id="test_user",
+            query="test query",
+            output_format="text"
     ):
         response_chunks.append(chunk)
 
@@ -113,10 +113,10 @@ async def test_generate_response_audio_input(agent_service, mock_llm_provider):
 
     response_chunks = []
     async for chunk in agent_service.generate_response(
-        agent_name="test_agent",
-        user_id="test_user",
-        query=audio_file,
-        output_format="text"
+            agent_name="test_agent",
+            user_id="test_user",
+            query=audio_file,
+            output_format="text"
     ):
         response_chunks.append(chunk)
 
@@ -129,10 +129,10 @@ async def test_generate_response_audio_output(agent_service):
     """Test text-to-audio response generation."""
     audio_chunks = []
     async for chunk in agent_service.generate_response(
-        agent_name="test_agent",
-        user_id="test_user",
-        query="test query",
-        output_format="audio"
+            agent_name="test_agent",
+            user_id="test_user",
+            query="test query",
+            output_format="audio"
     ):
         audio_chunks.append(chunk)
 
@@ -145,7 +145,7 @@ def test_get_agent_system_prompt(agent_service):
 
     assert TEST_AGENT.name in prompt
     assert TEST_AGENT.instructions in prompt
-    assert TEST_MISSION.mission_statement in prompt
+    assert TEST_MISSION.mission in prompt
     assert TEST_MISSION.values[0]["name"] in prompt
     assert TEST_MISSION.goals[0] in prompt
 

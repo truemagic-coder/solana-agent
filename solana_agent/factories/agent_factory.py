@@ -19,7 +19,7 @@ from solana_agent.adapters.llm_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
 # Domain and plugin imports
-from solana_agent.domains.agent import OrganizationMission
+from solana_agent.domains.agent import BusinessMission
 from solana_agent.plugins.manager import PluginManager
 
 
@@ -46,12 +46,12 @@ class SolanaAgentFactory:
             api_key=config["openai"]["api_key"],
         )
 
-        # Create organization mission if specified in config
-        organization_mission = None
-        if "organization" in config:
-            org_config = config["organization"]
-            organization_mission = OrganizationMission(
-                mission_statement=org_config.get("mission_statement", ""),
+        # Create business mission if specified in config
+        business_mission = None
+        if "business" in config:
+            org_config = config["business"]
+            business_mission = BusinessMission(
+                mission=org_config.get("mission", ""),
                 values=[{"name": k, "description": v}
                         for k, v in org_config.get("values", {}).items()],
                 goals=org_config.get("goals", []),
@@ -68,7 +68,7 @@ class SolanaAgentFactory:
         # Create primary services
         agent_service = AgentService(
             llm_provider=llm_adapter,
-            organization_mission=organization_mission,
+            business_mission=business_mission,
             config=config,
         )
 

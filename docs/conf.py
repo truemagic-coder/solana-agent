@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath('..'))
 project = 'Solana Agent'
 copyright = '2025, Bevan Hunt'
 author = 'Bevan Hunt'
-release = '18.0.1'
+release = '18.0.2'
 
 extensions = [
     'sphinx.ext.autodoc',
