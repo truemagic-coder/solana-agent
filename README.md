@@ -271,7 +271,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 * Solana Agent tools are async functions.
 
 ## API Documentation
-* Available at [Solana Agent Documentation Site](https://truemagic-coder.github.io/solana-agent/)
+* Available at [Solana Agent Documentation Site](https://docs.solana-agent.com)
 
 ## Solana Agent Kit
 
