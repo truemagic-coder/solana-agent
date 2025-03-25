@@ -14,7 +14,7 @@ from solana_agent.interfaces.services.agent import AgentService as AgentServiceI
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
 from solana_agent.plugins.registry import ToolRegistry
-from solana_agent.domains.agent import AIAgent, OrganizationMission
+from solana_agent.domains.agent import AIAgent, BusinessMission
 
 
 class AgentService(AgentServiceInterface):
@@ -23,18 +23,18 @@ class AgentService(AgentServiceInterface):
     def __init__(
         self,
         llm_provider: LLMProvider,
-        organization_mission: Optional[OrganizationMission] = None,
+        business_mission: Optional[BusinessMission] = None,
         config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the agent service.
 
         Args:
             llm_provider: Provider for language model interactions
-            organization_mission: Optional organization mission and values
+            business_mission: Optional business mission and values
             config: Optional service configuration
         """
         self.llm_provider = llm_provider
-        self.organization_mission = organization_mission
+        self.business_mission = business_mission
         self.config = config or {}
         self.last_text_response = ""
         self.tool_registry = ToolRegistry(config=self.config)
@@ -81,22 +81,22 @@ class AgentService(AgentServiceInterface):
         system_prompt += f"\n\nThe current time is {datetime.now(tz=main_datetime.timezone.utc)}\n\n."
 
         # Add mission and values if available
-        if self.organization_mission:
-            system_prompt += f"\n\nORGANIZATION MISSION:\n{self.organization_mission.mission_statement}"
-            system_prompt += f"\n\nVOICE OF THE BRAND:\n{self.organization_mission.voice}"
+        if self.business_mission:
+            system_prompt += f"\n\nBUSINESS MISSION:\n{self.business_mission.mission}"
+            system_prompt += f"\n\nVOICE OF THE BRAND:\n{self.business_mission.voice}"
 
-            if self.organization_mission.values:
+            if self.business_mission.values:
                 values_text = "\n".join([
                     f"- {value.get('name', '')}: {value.get('description', '')}"
-                    for value in self.organization_mission.values
+                    for value in self.business_mission.values
                 ])
-                system_prompt += f"\n\nORGANIZATION VALUES:\n{values_text}"
+                system_prompt += f"\n\nBUSINESS VALUES:\n{values_text}"
 
-            # Add organization goals if available
-            if self.organization_mission.goals:
+            # Add goals if available
+            if self.business_mission.goals:
                 goals_text = "\n".join(
-                    [f"- {goal}" for goal in self.organization_mission.goals])
-                system_prompt += f"\n\nORGANIZATION GOALS:\n{goals_text}"
+                    [f"- {goal}" for goal in self.business_mission.goals])
+                system_prompt += f"\n\nBUSINESS GOALS:\n{goals_text}"
 
         return system_prompt
 

@@ -2,36 +2,34 @@
 Domain models for AI and human agents.
 
 This module defines the core domain models for representing
-AI agents, human agents, and organization mission/values.
+AI agents, human agents, and business mission/values.
 """
-from typing import List, Optional, Dict, Any, Union
-# Import the class directly, not the module
-from datetime import datetime
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
 
-class OrganizationMission(BaseModel):
-    """Organization mission and values to guide agent behavior."""
+class BusinessMission(BaseModel):
+    """Business mission and values to guide agent behavior."""
 
-    mission_statement: str = Field(...,
-                                   description="Organization mission statement")
+    mission: str = Field(...,
+                         description="Business mission statement")
     values: List[Dict[str, str]] = Field(
         default_factory=list,
-        description="Organization values as name-description pairs"
+        description="Business values as name-description pairs"
     )
     goals: List[str] = Field(
         default_factory=list,
-        description="Organization goals"
+        description="Business goals"
     )
     voice: str = Field(
-        None, description="Organization voice or tone")
+        None, description="Business voice or tone")
 
-    @field_validator("mission_statement")
+    @field_validator("mission")
     @classmethod
-    def mission_statement_not_empty(cls, v: str) -> str:
-        """Validate that mission statement is not empty."""
+    def mission_not_empty(cls, v: str) -> str:
+        """Validate that mission is not empty."""
         if not v.strip():
-            raise ValueError("Mission statement cannot be empty")
+            raise ValueError("Mission cannot be empty")
         return v
 
     @field_validator("voice")
