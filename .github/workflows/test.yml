@@ -62,6 +62,6 @@ jobs:
       uses: dorny/test-reporter@v2
       if: success() || failure()    # run this step even if previous step failed
       with:
-        name: Pytest Results (${{ matrix.python-version }})
+        name: "pytest-results"
         path: junit/*.xml
         reporter: jest-junit
