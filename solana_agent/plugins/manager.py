@@ -111,7 +111,7 @@ class PluginManager(PluginManagerInterface):
             for plugin in self._plugins.values()
         ]
 
-    def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+    async def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
         """Execute a tool with the given parameters.
 
         Args:
@@ -126,7 +126,7 @@ class PluginManager(PluginManagerInterface):
             return {"status": "error", "message": f"Tool {tool_name} not found"}
 
         try:
-            return tool.execute(**kwargs)
+            return await tool.execute(**kwargs)
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
