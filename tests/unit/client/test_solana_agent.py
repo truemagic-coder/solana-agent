@@ -10,6 +10,7 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from solana_agent.client.solana_agent import SolanaAgent
+from solana_agent.interfaces.plugins.plugins import Tool
 
 
 class AsyncIteratorMock:
@@ -121,9 +122,18 @@ config = {
     os.unlink(temp_path)
 
 
+@pytest.fixture
+def mock_tool():
+    """Create a mock tool for testing."""
+    tool = MagicMock(spec=Tool)
+    tool.name = "test_tool"
+    tool.description = "A test tool"
+    return tool
+
 # --------------------------
 # Initialization Tests
 # --------------------------
+
 
 def test_init_with_config_dict(mock_agent_factory, sample_config):
     """Test initialization with a config dictionary."""
@@ -200,3 +210,50 @@ async def test_delete_user_history_error_handling(mock_agent_factory, sample_con
 
     # Verify query service method was called
     mock_query_service.delete_user_history.assert_called_once_with("test_user")
+
+
+def test_register_tool_success(mock_agent_factory, sample_config, mock_tool):
+    """Test successful tool registration."""
+    # Create agent instance
+    agent = SolanaAgent(config=sample_config)
+
+    # Configure mock chain
+    mock_query_service = mock_agent_factory.create_from_config.return_value
+    mock_agent_service = MagicMock()
+    mock_tool_registry = MagicMock()
+    mock_tool_registry.register_tool.return_value = True
+
+    # Set up mock chain
+    mock_query_service.agent_service = mock_agent_service
+    mock_agent_service.tool_registry = mock_tool_registry
+
+    # Register tool
+    result = agent.register_tool(mock_tool)
+
+    # Verify success
+    assert result is True
+    mock_tool_registry.register_tool.assert_called_once_with(mock_tool)
+
+
+def test_register_tool_error(mock_agent_factory, sample_config, mock_tool):
+    """Test error handling during tool registration."""
+    # Create agent instance
+    agent = SolanaAgent(config=sample_config)
+
+    # Configure mock chain
+    mock_query_service = mock_agent_factory.create_from_config.return_value
+    mock_agent_service = MagicMock()
+    mock_tool_registry = MagicMock()
+    mock_tool_registry.register_tool.side_effect = Exception(
+        "Registration failed")
+
+    # Set up mock chain
+    mock_query_service.agent_service = mock_agent_service
+    mock_agent_service.tool_registry = mock_tool_registry
+
+    # Register tool
+    result = agent.register_tool(mock_tool)
+
+    # Verify failure
+    assert result is False
+    mock_tool_registry.register_tool.assert_called_once_with(mock_tool)
