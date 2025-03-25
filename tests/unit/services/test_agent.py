@@ -75,27 +75,19 @@ def mock_agent_repository():
 
 
 @pytest.fixture
-def mock_tool_registry():
-    registry = Mock()
-    registry.get_agent_tools = Mock(return_value=[
-        {
-            "name": "test_tool",
-            "description": "Test tool",
-            "parameters": {"param1": "string"}
-        }
-    ])
-    registry.get_tool = Mock()
-    registry.assign_tool_to_agent = Mock(return_value=True)
-    return registry
-
-
-@pytest.fixture
-def agent_service(mock_llm_provider, mock_agent_repository, mock_tool_registry):
+def agent_service(mock_llm_provider, mock_agent_repository):
+    """Create agent service with default configuration."""
     return AgentService(
         llm_provider=mock_llm_provider,
         agent_repository=mock_agent_repository,
         organization_mission=TEST_MISSION,
-        tool_registry=mock_tool_registry
+        config={
+            "tools": {
+                "test_tool": {
+                    "param1": "value1"
+                }
+            }
+        }
     )
 
 
@@ -149,8 +141,9 @@ async def test_generate_response_audio_output(agent_service):
 
 
 @pytest.mark.asyncio
-async def test_handle_tool_call(agent_service, mock_tool_registry):
-    """Test tool call handling."""
+async def test_handle_tool_call(agent_service):
+    """Test tool call handling with internal tool registry."""
+    # Register a test tool
     tool_call = {
         "tool_call": {
             "name": "test_tool",
@@ -158,10 +151,14 @@ async def test_handle_tool_call(agent_service, mock_tool_registry):
         }
     }
 
-    mock_tool_registry.get_tool.return_value = Mock(
+    # Verify tool registry was created internally
+    assert hasattr(agent_service, 'tool_registry')
+
+    # Mock the tool get and execute
+    agent_service.tool_registry.get_tool = Mock(return_value=Mock(
         execute=Mock(
             return_value={"status": "success", "result": "tool result"})
-    )
+    ))
 
     result = await agent_service._handle_tool_call(
         "test_agent",
@@ -203,7 +200,10 @@ def test_get_all_ai_agents(agent_service):
 
 
 def test_assign_tool_for_agent(agent_service):
-    """Test tool assignment to agent."""
+    """Test tool assignment using internal tool registry."""
+    # Mock the assign_tool_to_agent method
+    agent_service.tool_registry.assign_tool_to_agent = Mock(return_value=True)
+
     success = agent_service.assign_tool_for_agent(
         "test_agent",
         "test_tool"
