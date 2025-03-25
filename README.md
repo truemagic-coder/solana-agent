@@ -54,7 +54,7 @@ config = {
         "goals": [
             "Empower users with great answers to their queries.",
         ],
-        "guidance": "Align all interactions with the success of the user while respecting human dignity."
+        "voice": "The voice of the brand is that of a research organization."
     },
     "mongo": {
         "connection_string": "mongodb://localhost:27017",

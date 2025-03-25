@@ -56,7 +56,7 @@ class SolanaAgentFactory:
                 values=[{"name": k, "description": v}
                         for k, v in org_config.get("values", {}).items()],
                 goals=org_config.get("goals", []),
-                guidance=org_config.get("guidance", "")
+                voice=org_config.get("voice", "")
             )
 
         # Create repositories

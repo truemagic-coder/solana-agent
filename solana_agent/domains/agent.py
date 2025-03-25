@@ -23,8 +23,8 @@ class OrganizationMission(BaseModel):
         default_factory=list,
         description="Organization goals"
     )
-    guidance: Optional[str] = Field(
-        None, description="Additional guidance for agents")
+    voice: str = Field(
+        None, description="Organization voice or tone")
 
     @field_validator("mission_statement")
     @classmethod
@@ -32,6 +32,14 @@ class OrganizationMission(BaseModel):
         """Validate that mission statement is not empty."""
         if not v.strip():
             raise ValueError("Mission statement cannot be empty")
+        return v
+
+    @field_validator("voice")
+    @classmethod
+    def voice_not_empty(cls, v: str) -> str:
+        """Validate that voice is not empty."""
+        if not v.strip():
+            raise ValueError("Voice cannot be empty")
         return v
 
     @field_validator("values")

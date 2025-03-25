@@ -83,6 +83,7 @@ class AgentService(AgentServiceInterface):
         # Add mission and values if available
         if self.organization_mission:
             system_prompt += f"\n\nORGANIZATION MISSION:\n{self.organization_mission.mission_statement}"
+            system_prompt += f"\n\nVOICE OF THE BRAND:\n{self.organization_mission.voice}"
 
             if self.organization_mission.values:
                 values_text = "\n".join([
@@ -91,11 +92,11 @@ class AgentService(AgentServiceInterface):
                 ])
                 system_prompt += f"\n\nORGANIZATION VALUES:\n{values_text}"
 
-        # Add organization goals if available
-        if self.organization_mission and self.organization_mission.goals:
-            goals_text = "\n".join(
-                [f"- {goal}" for goal in self.organization_mission.goals])
-            system_prompt += f"\n\nORGANIZATION GOALS:\n{goals_text}"
+            # Add organization goals if available
+            if self.organization_mission.goals:
+                goals_text = "\n".join(
+                    [f"- {goal}" for goal in self.organization_mission.goals])
+                system_prompt += f"\n\nORGANIZATION GOALS:\n{goals_text}"
 
         return system_prompt
 
