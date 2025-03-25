@@ -57,8 +57,6 @@ class AIAgent(BaseModel):
         default_factory=datetime.now, description="Creation timestamp")
     updated_at: datetime = Field(
         default_factory=datetime.now, description="Last update timestamp")
-    description: Optional[str] = Field(
-        None, description="Agent description or summary")
 
     @field_validator("name", "specialization")
     @classmethod
