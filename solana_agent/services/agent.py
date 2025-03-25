@@ -26,7 +26,6 @@ class AgentService(AgentServiceInterface):
         agent_repository: AgentRepository,
         organization_mission: Optional[OrganizationMission] = None,
         config: Optional[Dict[str, Any]] = None,
-        tool_registry: Optional[ToolRegistryInterface] = None,
     ):
         """Initialize the agent service.
 
@@ -35,21 +34,13 @@ class AgentService(AgentServiceInterface):
             agent_repository: Repository for agent data
             organization_mission: Optional organization mission and values
             config: Optional service configuration
-            tool_registry: Optional tool registry
         """
         self.llm_provider = llm_provider
         self.agent_repository = agent_repository
         self.organization_mission = organization_mission
         self.config = config or {}
         self.last_text_response = ""
-
-        # Initialize tool registry with concrete implementation
-        if tool_registry:
-            self.tool_registry = tool_registry
-        else:
-            config = self.config
-            print("Initializing tool registry with config")
-            self.tool_registry = ToolRegistry(config=config)
+        self.tool_registry = ToolRegistry()
 
         # Will be set by factory if plugin system is enabled
         self.plugin_manager = None
