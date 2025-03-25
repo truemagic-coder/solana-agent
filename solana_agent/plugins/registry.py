@@ -42,15 +42,17 @@ class ToolRegistry(ToolRegistryInterface):
                 f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}")
             return False
 
+        # Initialize agent's tool list if not exists
         if agent_name not in self._agent_tools:
-            self._agent_tools[agent_name] = []
+            self._agent_tools[agent_name] = [tool_name]
+        elif tool_name not in self._agent_tools[agent_name]:
+            # Add new tool to existing list
+            self._agent_tools[agent_name] = [
+                *self._agent_tools[agent_name], tool_name]
 
-        if tool_name not in self._agent_tools[agent_name]:
-            self._agent_tools[agent_name].append(tool_name)
-            print(
-                f"Successfully assigned tool {tool_name} to agent {agent_name}")
-            print(
-                f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
+        print(f"Successfully assigned tool {tool_name} to agent {agent_name}")
+        print(
+            f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
 
         return True
 

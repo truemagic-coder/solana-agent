@@ -241,8 +241,6 @@ class AgentService(AgentServiceInterface):
             is_json = False
             text_buffer = ""
 
-            print("\n=== Starting Response Generation ===")
-
             # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
@@ -260,42 +258,23 @@ class AgentService(AgentServiceInterface):
                     try:
                         # Try to parse complete JSON
                         data = json.loads(json_buffer)
-                        print(
-                            f"Successfully parsed JSON: {json.dumps(data, indent=2)}")
 
                         # Valid JSON found, handle it
-                        if "tool_calls" in data:  # Now looking for tool_calls array
-                            tool_results = []
-                            async for tool_result in self._handle_multiple_tool_calls(
+                        if "tool_call" in data:
+                            # Process tool call with existing method
+                            response_text = await self._handle_tool_call(
                                 agent_name=agent_name,
                                 json_chunk=json_buffer
-                            ):
-                                tool_results.append(tool_result)
+                            )
 
-                            # Combine results and create a new prompt with clear instructions
-                            tool_response = "\n".join(tool_results)
-                            process_prompt = f"""
-                                {tool_response}
-
-                                IMPORTANT INSTRUCTIONS:
-                                1. Maintain ALL factual details
-                                2. Include ALL statistics, numbers, and specific data points
-                                3. Use direct quotes where relevant
-                                4. Keep ALL source citations and references
-                                5. DO NOT omit or summarize away important details
-                                6. DO NOT add any information not present in the results
-                                7. DO NOT make any new tool calls or return JSON
-                            """
-
-                            # Process combined results through LLM with modified system prompt
-                            summary_system_prompt = self.get_agent_system_prompt(agent_name) + \
-                                "\n DO NOT make any tool calls or return JSON. Present ALL facts and maintain ALL details from the source material."
+                            system_prompt = self.get_agent_system_prompt(agent_name) + \
+                                "\n DO NOT make any tool calls or return JSON."
 
                             # Collect all processed text first
                             processed_text = ""
                             async for processed_chunk in self.llm_provider.generate_text(
-                                prompt=process_prompt,
-                                system_prompt=summary_system_prompt,
+                                prompt=response_text,
+                                system_prompt=system_prompt,
                             ):
                                 processed_text += processed_chunk
                                 # For text output, yield chunks as they come
@@ -388,6 +367,30 @@ class AgentService(AgentServiceInterface):
             import traceback
             print(traceback.format_exc())
 
+    async def _handle_tool_call(
+        self,
+        agent_name: str,
+        json_chunk: str,
+    ) -> str:
+        """Handle tool calls and return formatted response."""
+        try:
+            data = json.loads(json_chunk)
+            if "tool_call" in data:
+                tool_data = data["tool_call"]
+                tool_name = tool_data.get("name")
+                parameters = tool_data.get("parameters", {})
+
+                if tool_name:
+                    result = self.execute_tool(
+                        agent_name, tool_name, parameters)
+                    if result.get("status") == "success":
+                        return result.get("result", "")
+                    else:
+                        return f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
+            return json_chunk
+        except json.JSONDecodeError:
+            return json_chunk
+
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
         """Generate JSON-based instructions for tool usage."""
         # Get tools assigned to this agent
@@ -399,94 +402,27 @@ class AgentService(AgentServiceInterface):
         available_tool_names = [tool.get("name", "") for tool in tools]
         tools_json = json.dumps(tools, indent=2)
 
-        # Create tool example if search is available
-        tool_example = ""
-        if "search_internet" in available_tool_names:
-            tool_example = """
-    For latest news query:
-    {
-        "tool_calls": [{
-            "name": "search_internet",
-            "parameters": {
-                "query": "latest Solana blockchain news March 2025"
-            }
-        }]
-    }"""
-
         return f"""
     AVAILABLE TOOLS:
     {tools_json}
     
     TOOL USAGE FORMAT:
     {{
-        "tool_calls": [{{
+        "tool_call": {{
             "name": "<one_of:{', '.join(available_tool_names)}>",
             "parameters": {{
                 // parameters as specified in tool definition above
             }}
-        }}]
+        }}
     }}
-    
-    {tool_example if tool_example else ''}
     
     RESPONSE RULES:
     1. For tool usage:
        - Only use tools from the AVAILABLE TOOLS list above
        - Follow the exact parameter format shown in the tool definition
-       - Include "March 2025" in any search queries for current information
     
     2. Format Requirements:
        - Return ONLY the JSON object for tool calls
        - No explanation text before or after
        - Use exact tool names as shown in AVAILABLE TOOLS
     """
-
-    async def _handle_multiple_tool_calls(
-        self,
-        agent_name: str,
-        json_chunk: str,
-    ) -> AsyncGenerator[str, None]:
-        """Handle multiple tool calls concurrently and yield results as they complete."""
-        try:
-            data = json.loads(json_chunk)
-            if "tool_calls" not in data:
-                yield json_chunk
-                return
-
-            tool_calls = data["tool_calls"]
-
-            if not isinstance(tool_calls, list):
-                print("Error: tool_calls is not a list")
-                yield "Error: 'tool_calls' must be an array of tool calls."
-                return
-
-            # Define individual tool execution coroutine
-            async def execute_single_tool(tool_info):
-                tool_name = tool_info.get("name")
-                parameters = tool_info.get("parameters", {})
-                print(f"\nExecuting tool: {tool_name}")
-                print(f"With parameters: {parameters}")
-
-                if not tool_name:
-                    return f"Error: Missing tool name in tool call."
-
-                result = self.execute_tool(agent_name, tool_name, parameters)
-
-                if result.get("status") == "success":
-                    return f"Result from {tool_name}: {result.get('result', '')}"
-                else:
-                    return f"Error from {tool_name}: {result.get('message', 'Unknown error')}"
-
-            # Execute all tool calls concurrently
-            tasks = [execute_single_tool(tool_call)
-                     for tool_call in tool_calls]
-            for task in asyncio.as_completed(tasks):
-                result = await task
-                yield result
-
-        except json.JSONDecodeError:
-            yield "Error: Could not parse tool calls JSON."
-        except Exception as e:
-            import traceback
-            print(traceback.format_exc())
-            yield f"Error processing tool calls: {str(e)}"
