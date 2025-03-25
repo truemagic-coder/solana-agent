@@ -1,29 +1,50 @@
 name: CI
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
 
 jobs:
-  build-test:
+  test:
+    name: Python ${{ matrix.python-version }} Test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.12, 3.13]
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.12
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev]
-          pip install pytest
-      - name: Run tests
-        run: |
-          mkdir -p junit
-          pytest --junitxml=junit/test-results.xml tests/
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: success() || failure()
-        with:
-          name: test-results
-          path: junit
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        pip install pytest pytest-cov pytest-asyncio
+    
+    - name: Run tests with pytest
+      run: |
+        mkdir -p junit
+        pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml --cov=solana_agent --cov-report=xml --cov-report=term tests/
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: junit
