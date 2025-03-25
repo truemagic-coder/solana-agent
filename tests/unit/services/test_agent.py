@@ -19,7 +19,7 @@ TEST_MISSION = OrganizationMission(
     mission_statement="Test mission",
     values=[{"name": "integrity", "description": "Be honest"}],
     goals=["Help users"],
-    guidance="Be helpful"
+    voice="Talk in a friendly tone"
 )
 
 TEST_AUDIO_CONTENT = b"fake audio data"
