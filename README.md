@@ -41,7 +41,7 @@ Solana Agent enables businesses to deploy brand-expert agents in three lines of 
 ## Stack
 
 * Programming Language: [Python](https://python.org)
-* LLMs: [OpenAI](https://openai.com) or [Ollama](https://ollama.com/)
+* LLMs: [OpenAI](https://openai.com) (text and audio) and/or [Ollama](https://ollama.com/) (only text)
 * Conversational History: [MongoDB](https://mongodb.com) or [SQL](https://en.wikipedia.org/wiki/SQL) [[mySQL](https://www.mysql.com/), [Postgres](https://www.postgresql.org/), [SQLite](https://www.sqlite.org/)] (optional)
 * Conversational Memory: [Zep](https://getzep.com) (optional)
 
@@ -57,7 +57,7 @@ You can install Solana Agent using pip:
 from solana_agent import SolanaAgent
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -68,8 +68,11 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "openai": {
+    "openai": { # optional
         "api_key": "your-openai-api-key",
+    },
+    "ollama": { # optional
+        "url": "your-ollama-url",
     },
     "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
@@ -109,7 +112,7 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -120,8 +123,11 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "openai": {
+    "openai": { # optional
         "api_key": "your-openai-api-key",
+    },
+    "ollama": { # optional
+        "url": "your-ollama-url",
     },
     "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
@@ -214,7 +220,7 @@ class TestTool(Tool):
             }
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -225,8 +231,11 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "openai": {
+    "openai": { # optional
         "api_key": "your-openai-api-key",
+    },
+    "ollama": { # optional
+        "url": "your-ollama-url",
     },
     "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
@@ -260,11 +269,12 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Notes on Tools
+## Notes
 * Solana Agent agents can only call one tool per response.
 * Solana Agent agents choose the best tool for the job.
 * Solana Agent tools do not use OpenAI function calling.
 * Solana Agent tools are async functions.
+* Solana Agent will use OpenAI for audio and Ollama and for text if both config vars are set
 
 ## Local Setup
 
