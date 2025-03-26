@@ -34,10 +34,9 @@ Solana Agent enables businesses to deploy brand-expert agents in three lines of 
 * Simple Business Definition
 * Python using OOP & SOLID
 * Batteries Included
-* Minimal Lines Of Code
-* Few Dependencies
+* Minimal lines of code & dependencies
 * Well Tested
-* Used in production by [CometHeart](https://cometheart.com) and [WalletBubbles](https://walletbubbles.com)
+* Used in production by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
 ## Stack
 
