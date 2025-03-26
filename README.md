@@ -41,7 +41,7 @@ Solana Agent enables businesses to deploy brand-expert agents in three lines of 
 ## Stack
 
 * Programming Language: [Python](https://python.org)
-* LLMs: [OpenAI](https://openai.com)
+* LLMs: [OpenAI](https://openai.com) or [Ollama](https://ollama.com/)
 * Conversational History: [MongoDB](https://mongodb.com) or [SQL](https://en.wikipedia.org/wiki/SQL) [[mySQL](https://www.mysql.com/), [Postgres](https://www.postgresql.org/), [SQLite](https://www.sqlite.org/)] (optional)
 * Conversational Memory: [Zep](https://getzep.com) (optional)
 
