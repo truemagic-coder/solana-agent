@@ -267,13 +267,16 @@ class AgentService(AgentServiceInterface):
                                 json_chunk=json_buffer
                             )
 
-                            system_prompt = self.get_agent_system_prompt(agent_name) + \
+                            system_prompt = system_prompt + \
                                 "\n DO NOT make any tool calls or return JSON."
+
+                            user_prompt = f"\n USER QUERY: {query_text} \n"
+                            user_prompt += f"\n TOOL RESPONSE: {response_text} \n"
 
                             # Collect all processed text first
                             processed_text = ""
                             async for processed_chunk in self.llm_provider.generate_text(
-                                prompt=response_text,
+                                prompt=user_prompt,
                                 system_prompt=system_prompt,
                             ):
                                 processed_text += processed_chunk
