@@ -38,12 +38,12 @@ Basic Usage
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "mongo": {
-         "connection_string": "mongodb://localhost:27017",
-         "database": "solana_agent"
-      },
       "openai": {
          "api_key": "your-openai-api-key",
+      },
+      "mongo": { # optional
+         "connection_string": "mongodb://localhost:27017",
+         "database": "solana_agent"
       },
       "zep": { # optional
          "api_key": "your-zep-api-key",
@@ -94,12 +94,12 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "mongo": {
-         "connection_string": "mongodb://localhost:27017",
-         "database": "solana_agent"
-      },
       "openai": {
          "api_key": "your-openai-api-key",
+      },
+      "mongo": { # optional
+         "connection_string": "mongodb://localhost:27017",
+         "database": "solana_agent"
       },
       "zep": { # optional
          "api_key": "your-zep-api-key",
@@ -202,12 +202,12 @@ Creating a custom inline tool will register it will all agents.
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "mongo": {
-         "connection_string": "mongodb://localhost:27017",
-         "database": "solana_agent"
-      },
       "openai": {
          "api_key": "your-openai-api-key",
+      },
+      "mongo": { # optional
+         "connection_string": "mongodb://localhost:27017",
+         "database": "solana_agent"
       },
       "zep": { # optional
          "api_key": "your-zep-api-key",

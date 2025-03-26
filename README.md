@@ -12,16 +12,13 @@
 
 ## Agentic IQ
 
-Power your business using Solana Agent!
-
-* **Brand:** AI agents will speak in your brand voice
-* **Expert:** The AI agent with the most expertise will answer your users' inquiries
-* **Extend:** Assign tools for your AI agents to perform actions
+Solana Agent enables businesses to deploy brand-expert agents in three lines of code!
 
 ## Features
 
 * Seamless text and audio streaming with real-time multi-modal processing
-* Persistent memory that preserves context across all agent interactions (optional)
+* Persistent optional memory that preserves context across all agent interactions
+* Streamlined optional message history using MongoDB or SQL
 * Intelligent query routing to agents with optimal domain expertise
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline classes
@@ -30,24 +27,24 @@ Power your business using Solana Agent!
 
 ## Why?
 * Multi-Modal Streaming
-* Conversational Memory
+* Conversational Memory & History
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
 * Simple Business Definition
-* Built using OOP & SOLID in Python - the language of AI
+* Python using OOP & SOLID
 * Batteries Included
-* Small Library: ~2,000 LOC of code & ~1,200 LOC of tests
+* Minimal Lines Of Code
 * Few Dependencies
 * Well Tested
 * Used in production by [CometHeart](https://cometheart.com) and [WalletBubbles](https://walletbubbles.com)
 
 ## Stack
 
-* [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) - LLMs
-* [MongoDB](https://mongodb.com) - Database
-* [Zep](https://getzep.com) - Conversational Memory (optional)
+* Programming Language: [Python](https://python.org)
+* LLMs: [OpenAI](https://openai.com)
+* Conversational History: [MongoDB](https://mongodb.com) or [SQL](https://en.wikipedia.org/wiki/SQL) [[mySQL](https://www.mysql.com/), [Postgres](https://www.postgresql.org/), [SQLite](https://www.sqlite.org/)] (optional)
+* Conversational Memory: [Zep](https://getzep.com) (optional)
 
 ## Installation
 
@@ -72,12 +69,12 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
     "openai": {
         "api_key": "your-openai-api-key",
+    },
+    "mongo": { # optional
+        "connection_string": "mongodb://localhost:27017",
+        "database": "solana_agent"
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
@@ -124,23 +121,23 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
     "openai": {
         "api_key": "your-openai-api-key",
+    },
+    "mongo": { # optional
+        "connection_string": "mongodb://localhost:27017",
+        "database": "solana_agent"
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
     "tools": {
-    "search_internet": {
-        "api_key": "your-perplexity-key", # Required
-        "citations": True, # Optional, defaults to True
-        "model": "sonar"  # Optional, defaults to "sonar"
-    },
+        "search_internet": {
+            "api_key": "your-perplexity-key", # Required
+            "citations": True, # Optional, defaults to True
+            "model": "sonar"  # Optional, defaults to "sonar"
+        },
     },
     "agents": [
         {
@@ -229,12 +226,12 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
     "openai": {
         "api_key": "your-openai-api-key",
+    },
+    "mongo": { # optional
+        "connection_string": "mongodb://localhost:27017",
+        "database": "solana_agent"
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
@@ -270,18 +267,25 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 * Solana Agent tools do not use OpenAI function calling.
 * Solana Agent tools are async functions.
 
+## Local Setup
+
+A Docker Compose and Zep Config file is available at the root of this project
+
 ## API Documentation
-* Available at [Solana Agent Documentation Site](https://docs.solana-agent.com)
 
-## Solana Agent Kit
+The official up-to-date documentation site
 
-A collection of Solana Agent tools
+[Solana Agent Documentation Site](https://docs.solana-agent.com)
+
+## Official Tools
+
+The official collection of tools in one plugin
 
 [Solana Agent Kit](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Example App
 
-A Solana Agent example app written in FastAPI and Next.js
+The official example app written in FastAPI and Next.js
 
 [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
 
