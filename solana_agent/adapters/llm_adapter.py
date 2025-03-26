@@ -135,19 +135,6 @@ class OpenAIAdapter(LLMProvider):
             print(traceback.format_exc())
             yield f"I apologize, but I encountered an error: {str(e)}"
 
-    def generate_embedding(self, text: str) -> List[float]:  # pragma: no cover
-        """Generate embeddings for a given text using OpenAI's embedding model."""
-        try:
-            response = self.client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text
-            )
-            return response.data[0].embedding
-        except Exception as e:
-            print(f"Error generating embedding: {e}")
-            # Return a zero vector as fallback (not ideal but prevents crashing)
-            return [0.0] * 1536  # Standard size for text-embedding-3-small
-
     async def parse_structured_output(
         self,
         prompt: str,

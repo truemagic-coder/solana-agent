@@ -20,11 +20,6 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
-    def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding vector for text."""
-        pass
-
-    @abstractmethod
     async def parse_structured_output(
         self, prompt: str, system_prompt: str, model_class: Type[T],
     ) -> T:
