@@ -12,18 +12,17 @@
 
 ## Agentic IQ
 
-Built your AI business in three lines of code!
+Build your AI business in three lines of code!
 
 ## Why?
-* Build an AI business in three lines of code
+* Build your AI business in three lines of code
 * Multi-Modal Streaming
 * Conversational Memory & History
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
 * Simple Business Definition
-* Minimal lines of code & dependencies
-* Well Tested
+* Tested & Secure
 * Built in Python
 * Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
