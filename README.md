@@ -15,7 +15,7 @@
 Build your AI business in three lines of code!
 
 ## Why?
-* Build your AI business in three lines of code
+* Three lines of code required
 * Multi-Modal Streaming
 * Conversational Memory & History
 * Intelligent Routing
