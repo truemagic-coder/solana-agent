@@ -12,41 +12,37 @@
 
 ## Agentic IQ
 
-Power your business using Solana Agent!
+Built your AI business in three lines of code!
 
-* **Brand:** AI agents will speak in your brand voice
-* **Expert:** The AI agent with the most expertise will answer your users' inquiries
-* **Extend:** Assign tools for your AI agents to perform actions
+## Why?
+* Build an AI business in three lines of code
+* Multi-Modal Streaming
+* Conversational Memory & History
+* Intelligent Routing
+* Business Alignment
+* Extensible Tooling
+* Simple Business Definition
+* Minimal lines of code & dependencies
+* Well Tested
+* Built in Python
+* Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
 ## Features
 
 * Seamless text and audio streaming with real-time multi-modal processing
-* Persistent memory that preserves context across all agent interactions (optional)
+* Persistent memory that preserves context across all agent interactions
+* Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline classes
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
 
-## Why?
-* Multi-Modal Streaming
-* Conversational Memory
-* Intelligent Routing
-* Business Alignment
-* Extensible Tooling
-* Simple Business Definition
-* Built using OOP & SOLID in Python - the language of AI
-* Batteries Included
-* Small Library: ~2,000 LOC of code & ~1,200 LOC of tests
-* Few Dependencies
-* Well Tested
-* Used in production by [CometHeart](https://cometheart.com) and [WalletBubbles](https://walletbubbles.com)
-
 ## Stack
 
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
-* [MongoDB](https://mongodb.com) - Database
+* [MongoDB](https://mongodb.com) - Conversational History
 * [Zep](https://getzep.com) - Conversational Memory (optional)
 
 ## Installation
@@ -61,7 +57,7 @@ You can install Solana Agent using pip:
 from solana_agent import SolanaAgent
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -113,7 +109,7 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -218,7 +214,7 @@ class TestTool(Tool):
             }
 
 config = {
-    "business": {
+    "business": { # optional
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
