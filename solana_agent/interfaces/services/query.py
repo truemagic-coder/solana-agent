@@ -19,6 +19,7 @@ class QueryService(ABC):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass
