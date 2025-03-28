@@ -37,19 +37,6 @@ Build your AI business in three lines of code!
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
 
-## Why?
-* Multi-Modal Streaming
-* Conversational Memory & History
-* Intelligent Routing
-* Business Alignment
-* Extensible Tooling
-* Simple Business Definition
-* Python using OOP & SOLID
-* Batteries Included
-* Minimal lines of code & dependencies
-* Well Tested
-* Used in production by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
-
 ## Stack
 
 * [Python](https://python.org) - Programming Language
