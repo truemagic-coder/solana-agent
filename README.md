@@ -41,7 +41,7 @@ Build your AI business in three lines of code!
 
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
-* [MongoDB](https://mongodb.com) - Conversational History
+* [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep](https://getzep.com) - Conversational Memory (optional)
 
 ## Installation
@@ -67,16 +67,16 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
+    "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
-    },
-    "openai": {
-        "api_key": "your-openai-api-key",
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+    },
+    "openai": {
+        "api_key": "your-openai-api-key",
     },
     "agents": [
         {
@@ -119,23 +119,26 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
+    "openai": { # optional
+        "api_key": "your-openai-api-key",
+    },
+    "ollama": { # optional
+        "url": "your-ollama-url",
+    },
+    "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
-    },
-    "openai": {
-        "api_key": "your-openai-api-key",
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
     "tools": {
-    "search_internet": {
-        "api_key": "your-perplexity-key", # Required
-        "citations": True, # Optional, defaults to True
-        "model": "sonar"  # Optional, defaults to "sonar"
-    },
+        "search_internet": {
+            "api_key": "your-perplexity-key", # Required
+            "citations": True, # Optional, defaults to True
+            "model": "sonar"  # Optional, defaults to "sonar"
+        },
     },
     "agents": [
         {
@@ -224,12 +227,15 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": {
+    "openai": { # optional
+        "api_key": "your-openai-api-key",
+    },
+    "ollama": { # optional
+        "url": "your-ollama-url",
+    },
+    "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
-    },
-    "openai": {
-        "api_key": "your-openai-api-key",
     },
     "zep": { # optional
         "api_key": "your-zep-api-key",
@@ -259,24 +265,32 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Notes on Tools
+## Notes
 * Solana Agent agents can only call one tool per response.
 * Solana Agent agents choose the best tool for the job.
 * Solana Agent tools do not use OpenAI function calling.
 * Solana Agent tools are async functions.
+* Solana Agent will use OpenAI for audio and Ollama and for text if both config vars are set
+
+## Local Setup
+
+A Docker Compose and Zep Config file is available at the root of this project
 
 ## API Documentation
-* Available at [Solana Agent Documentation Site](https://docs.solana-agent.com)
 
-## Solana Agent Kit
+The official up-to-date documentation site
 
-A collection of Solana Agent tools
+[Solana Agent Documentation Site](https://docs.solana-agent.com)
+
+## Official Tools
+
+The official collection of tools in one plugin
 
 [Solana Agent Kit](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Example App
 
-A Solana Agent example app written in FastAPI and Next.js
+The official example app written in FastAPI and Next.js
 
 [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
 

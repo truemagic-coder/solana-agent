@@ -108,20 +108,6 @@ class AgentService(AgentServiceInterface):
         """
         return {agent.name: agent for agent in self.agents}
 
-    def get_specializations(self) -> Dict[str, str]:
-        """Get all registered specializations.
-
-        Returns:
-            Dictionary mapping specialization names to descriptions
-        """
-        specializations = {}
-
-        for agent in self.agents:
-            if agent.specialization:
-                specializations[agent.specialization] = f"AI expertise in {agent.specialization}"
-
-        return specializations
-
     def assign_tool_for_agent(self, agent_name: str, tool_name: str) -> bool:
         """Assign a tool to an agent.
 
