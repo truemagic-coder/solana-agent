@@ -37,10 +37,19 @@ class SolanaAgentFactory:
             Configured QueryService instance
         """
         # Create adapters
-        db_adapter = MongoDBAdapter(
-            connection_string=config["mongo"]["connection_string"],
-            database_name=config["mongo"]["database"],
-        )
+
+        if "mongo" in config:
+            # MongoDB connection string and database name
+            if "connection_string" not in config["mongo"]:
+                raise ValueError("MongoDB connection string is required.")
+            if "database" not in config["mongo"]:
+                raise ValueError("MongoDB database name is required.")
+            db_adapter = MongoDBAdapter(
+                connection_string=config["mongo"]["connection_string"],
+                database_name=config["mongo"]["database"],
+            )
+        else:
+            db_adapter = None
 
         llm_adapter = OpenAIAdapter(
             api_key=config["openai"]["api_key"],
@@ -59,11 +68,24 @@ class SolanaAgentFactory:
             )
 
         # Create repositories
-        if "zep" in config:
+        memory_provider = None
+
+        if "zep" in config and "mongo" in config:
+            if "api_key" not in config["zep"]:
+                raise ValueError("Zep API key is required.")
             memory_provider = MemoryRepository(
                 db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
-        else:
+
+        if "mongo" in config and not "zep" in config:
             memory_provider = MemoryRepository(db_adapter)
+
+        if "zep" in config and not "mongo" in config:
+            if "api_key" not in config["zep"]:
+                raise ValueError("Zep API key is required.")
+            memory_provider = MemoryRepository(
+                zep_api_key=config["zep"].get("api_key"),
+                zep_base_url=config["zep"].get("base_url")
+            )
 
         # Create primary services
         agent_service = AgentService(

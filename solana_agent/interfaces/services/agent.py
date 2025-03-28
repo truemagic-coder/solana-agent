@@ -18,11 +18,6 @@ class AgentService(ABC):
         pass
 
     @abstractmethod
-    def get_specializations(self) -> Dict[str, str]:
-        """Get all registered specializations."""
-        pass
-
-    @abstractmethod
     async def generate_response(
         self,
         agent_name: str,

@@ -12,19 +12,23 @@ class MemoryRepository(MemoryProvider):
 
     def __init__(
         self,
-        mongo_adapter: MongoDBAdapter,
+        mongo_adapter: Optional[MongoDBAdapter] = None,
         zep_api_key: Optional[str] = None,
         zep_base_url: Optional[str] = None
     ):
         """Initialize the combined memory provider."""
-        # Initialize MongoDB
-        self.mongo = mongo_adapter
-        self.collection = "conversations"
+        if not mongo_adapter:
+            self.mongo = None
+            self.collection = None
+        else:
+            # Initialize MongoDB
+            self.mongo = mongo_adapter
+            self.collection = "conversations"
 
-        # Ensure MongoDB collection and indexes
-        self.mongo.create_collection(self.collection)
-        self.mongo.create_index(self.collection, [("user_id", 1)])
-        self.mongo.create_index(self.collection, [("timestamp", 1)])
+            # Ensure MongoDB collection and indexes
+            self.mongo.create_collection(self.collection)
+            self.mongo.create_index(self.collection, [("user_id", 1)])
+            self.mongo.create_index(self.collection, [("timestamp", 1)])
 
         # Initialize Zep
         if zep_api_key and not zep_base_url:
@@ -37,22 +41,23 @@ class MemoryRepository(MemoryProvider):
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         """Store messages in both Zep and MongoDB."""
         # Store in MongoDB as single document
-        try:
-            # Extract user and assistant messages
-            user_message = next(msg["content"]
-                                for msg in messages if msg["role"] == "user")
-            assistant_message = next(
-                msg["content"] for msg in messages if msg["role"] == "assistant")
+        if self.mongo:
+            try:
+                # Extract user and assistant messages
+                user_message = next(msg["content"]
+                                    for msg in messages if msg["role"] == "user")
+                assistant_message = next(
+                    msg["content"] for msg in messages if msg["role"] == "assistant")
 
-            doc = {
-                "user_id": user_id,
-                "user_message": user_message,
-                "assistant_message": assistant_message,
-                "timestamp": datetime.now(timezone.utc)
-            }
-            self.mongo.insert_one(self.collection, doc)
-        except Exception as e:
-            print(f"MongoDB storage error: {e}")
+                doc = {
+                    "user_id": user_id,
+                    "user_message": user_message,
+                    "assistant_message": assistant_message,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                self.mongo.insert_one(self.collection, doc)
+            except Exception as e:
+                print(f"MongoDB storage error: {e}")
 
         # Store in Zep with role-based format
         if not self.zep:
@@ -99,13 +104,14 @@ class MemoryRepository(MemoryProvider):
 
     async def delete(self, user_id: str) -> None:
         """Delete memory from both systems."""
-        try:
-            self.mongo.delete_all(
-                self.collection,
-                {"user_id": user_id}
-            )
-        except Exception as e:
-            print(f"MongoDB deletion error: {e}")
+        if self.mongo:
+            try:
+                self.mongo.delete_all(
+                    self.collection,
+                    {"user_id": user_id}
+                )
+            except Exception as e:
+                print(f"MongoDB deletion error: {e}")
 
         if not self.zep:
             return
@@ -125,9 +131,14 @@ class MemoryRepository(MemoryProvider):
         skip: int = 0
     ) -> List[Dict]:
         """Find documents matching query."""
+        if not self.mongo:
+            return []
         return self.mongo.find(collection, query, sort=sort, limit=limit, skip=skip)
 
     def count_documents(self, collection: str, query: Dict) -> int:
+        """Count documents matching query."""
+        if not self.mongo:
+            return 0
         return self.mongo.count_documents(collection, query)
 
     def _truncate(self, text: str, limit: int = 2500) -> str:
