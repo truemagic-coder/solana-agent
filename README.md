@@ -40,10 +40,17 @@ Solana Agent enables businesses to deploy brand-expert agents in three lines of 
 
 ## Stack
 
+<<<<<<< Updated upstream
 * Programming Language: [Python](https://python.org)
 * LLMs: [OpenAI](https://openai.com) (text and audio) and/or [Ollama](https://ollama.com/) (only text)
 * Conversational History: [MongoDB](https://mongodb.com) or [SQL](https://en.wikipedia.org/wiki/SQL) [[mySQL](https://www.mysql.com/), [Postgres](https://www.postgresql.org/), [SQLite](https://www.sqlite.org/)] (optional)
 * Conversational Memory: [Zep](https://getzep.com) (optional)
+=======
+* [Python](https://python.org) - Programming Language
+* [OpenAI](https://openai.com) - LLMs
+* [MongoDB](https://mongodb.com) - Conversational History (optional)
+* [Zep](https://getzep.com) - Conversational Memory (optional)
+>>>>>>> Stashed changes
 
 ## Installation
 
@@ -68,12 +75,15 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
+<<<<<<< Updated upstream
     "openai": { # optional
         "api_key": "your-openai-api-key",
     },
     "ollama": { # optional
         "url": "your-ollama-url",
     },
+=======
+>>>>>>> Stashed changes
     "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
@@ -81,6 +91,9 @@ config = {
     "zep": { # optional
         "api_key": "your-zep-api-key",
         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+    },
+    "openai": {
+        "api_key": "your-openai-api-key",
     },
     "agents": [
         {

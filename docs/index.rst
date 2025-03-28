@@ -38,9 +38,6 @@ Basic Usage
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
       "mongo": { # optional
          "connection_string": "mongodb://localhost:27017",
          "database": "solana_agent"
@@ -48,6 +45,9 @@ Basic Usage
       "zep": { # optional
          "api_key": "your-zep-api-key",
          "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+      },
+      "openai": {
+         "api_key": "your-openai-api-key",
       },
       "agents": [
          {
@@ -94,9 +94,6 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
       "mongo": { # optional
          "connection_string": "mongodb://localhost:27017",
          "database": "solana_agent"
@@ -104,6 +101,9 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
       "zep": { # optional
          "api_key": "your-zep-api-key",
          "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+      },
+      "openai": {
+         "api_key": "your-openai-api-key",
       },
       "tools": {
         "search_internet": {
@@ -202,9 +202,6 @@ Creating a custom inline tool will register it will all agents.
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
       "mongo": { # optional
          "connection_string": "mongodb://localhost:27017",
          "database": "solana_agent"
@@ -212,6 +209,9 @@ Creating a custom inline tool will register it will all agents.
       "zep": { # optional
          "api_key": "your-zep-api-key",
          "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+      },
+      "openai": {
+         "api_key": "your-openai-api-key",
       },
       "agents": [
          {
