@@ -7,7 +7,7 @@ Solana Agent Documentation
 
    api/index
 
-Welcome to Solana Agent's documentation.
+Welcome to Solana Agent's documentation. Solana Agent enables you to build an AI business in three lines of code!
 
 Getting Started
 --------------
@@ -27,7 +27,7 @@ Basic Usage
    from solana_agent import SolanaAgent
 
    config = {
-      "business": {
+      "business": { # optional
          "mission": "To provide users with a one-stop shop for their queries.",
          "values": {
                "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -83,7 +83,7 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
    from solana_agent import SolanaAgent
 
    config = {
-      "business": {
+      "business": { # optional
          "mission": "To provide users with a one-stop shop for their queries.",
          "values": {
                "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -191,7 +191,7 @@ Creating a custom inline tool will register it will all agents.
                }
 
    config = {
-      "business": {
+      "business": { # optional
          "mission": "To provide users with a one-stop shop for their queries.",
          "values": {
                "Friendliness": "Users must be treated fairly, openly, and with friendliness.",

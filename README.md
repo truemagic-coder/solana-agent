@@ -12,13 +12,25 @@
 
 ## Agentic IQ
 
-Solana Agent enables businesses to deploy brand-expert agents in three lines of code!
+Build your AI business in three lines of code!
+
+## Why?
+* Three lines of code required
+* Multi-Modal Streaming
+* Conversational Memory & History
+* Intelligent Routing
+* Business Alignment
+* Extensible Tooling
+* Simple Business Definition
+* Tested & Secure
+* Built in Python
+* Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
 ## Features
 
 * Seamless text and audio streaming with real-time multi-modal processing
-* Persistent optional memory that preserves context across all agent interactions
-* Streamlined optional message history using MongoDB or SQL
+* Persistent memory that preserves context across all agent interactions
+* Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline classes
@@ -40,17 +52,10 @@ Solana Agent enables businesses to deploy brand-expert agents in three lines of 
 
 ## Stack
 
-<<<<<<< Updated upstream
-* Programming Language: [Python](https://python.org)
-* LLMs: [OpenAI](https://openai.com) (text and audio) and/or [Ollama](https://ollama.com/) (only text)
-* Conversational History: [MongoDB](https://mongodb.com) or [SQL](https://en.wikipedia.org/wiki/SQL) [[mySQL](https://www.mysql.com/), [Postgres](https://www.postgresql.org/), [SQLite](https://www.sqlite.org/)] (optional)
-* Conversational Memory: [Zep](https://getzep.com) (optional)
-=======
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep](https://getzep.com) - Conversational Memory (optional)
->>>>>>> Stashed changes
 
 ## Installation
 
@@ -75,15 +80,6 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-<<<<<<< Updated upstream
-    "openai": { # optional
-        "api_key": "your-openai-api-key",
-    },
-    "ollama": { # optional
-        "url": "your-ollama-url",
-    },
-=======
->>>>>>> Stashed changes
     "mongo": { # optional
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
