@@ -119,6 +119,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">message</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">],</span>
+        <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;audio&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span>
         <span class="n">audio_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;alloy&quot;</span><span class="p">,</span> <span class="s2">&quot;ash&quot;</span><span class="p">,</span> <span class="s2">&quot;ballad&quot;</span><span class="p">,</span> <span class="s2">&quot;coral&quot;</span><span class="p">,</span> <span class="s2">&quot;echo&quot;</span><span class="p">,</span>
                              <span class="s2">&quot;fable&quot;</span><span class="p">,</span> <span class="s2">&quot;onyx&quot;</span><span class="p">,</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="s2">&quot;sage&quot;</span><span class="p">,</span> <span class="s2">&quot;shimmer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
@@ -134,6 +135,7 @@
 <span class="sd">        Args:</span>
 <span class="sd">            user_id: User ID</span>
 <span class="sd">            message: Text message or audio bytes</span>
+<span class="sd">            prompt: Optional prompt for the agent</span>
 <span class="sd">            output_format: Response format (&quot;text&quot; or &quot;audio&quot;)</span>
 <span class="sd">            audio_voice: Voice to use for audio output</span>
 <span class="sd">            audio_instructions: Optional instructions for audio synthesis</span>
@@ -151,6 +153,7 @@
             <span class="n">audio_instructions</span><span class="o">=</span><span class="n">audio_instructions</span><span class="p">,</span>
             <span class="n">audio_output_format</span><span class="o">=</span><span class="n">audio_output_format</span><span class="p">,</span>
             <span class="n">audio_input_format</span><span class="o">=</span><span class="n">audio_input_format</span><span class="p">,</span>
+            <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
         <span class="p">):</span>
             <span class="k">yield</span> <span class="n">chunk</span></div>
 
