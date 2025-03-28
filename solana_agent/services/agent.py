@@ -173,6 +173,7 @@ class AgentService(AgentServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output.
 
@@ -186,6 +187,7 @@ class AgentService(AgentServiceInterface):
             audio_instructions: Optional instructions for audio synthesis
             audio_output_format: Audio output format
             audio_input_format: Audio input format
+            prompt: Optional prompt for the agent
 
         Yields:
             Text chunks or audio bytes depending on output_format
@@ -219,7 +221,9 @@ class AgentService(AgentServiceInterface):
             # Add User ID and memory context
             system_prompt += f"\n\nUser ID: {user_id}"
             if memory_context:
-                system_prompt += f"\n\nMemory Context: {memory_context}"
+                system_prompt += f"\n\nMEMORY CONTEXT: {memory_context}"
+            if prompt:
+                system_prompt += f"\n\nADDITIONAL PROMPT: {prompt}"
 
             # Keep track of the complete text response
             complete_text_response = ""

@@ -44,6 +44,7 @@ class SolanaAgent(SolanaAgentInterface):
         self,
         user_id: str,
         message: Union[str, bytes],
+        prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
@@ -59,6 +60,7 @@ class SolanaAgent(SolanaAgentInterface):
         Args:
             user_id: User ID
             message: Text message or audio bytes
+            prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
             audio_voice: Voice to use for audio output
             audio_instructions: Optional instructions for audio synthesis
@@ -76,6 +78,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_instructions=audio_instructions,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
+            prompt=prompt,
         ):
             yield chunk
 

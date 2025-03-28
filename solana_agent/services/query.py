@@ -46,14 +46,19 @@ class QueryService(QueryServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
         Args:
             user_id: User ID
             query: Text query or audio bytes
-            output_format: Response format ("text" or "audio") 
-            voice: Voice to use for audio output
+            output_format: Response format ("text" or "audio")
+            audio_voice: Voice for TTS (text-to-speech)
+            audio_instructions: Optional instructions for TTS
+            audio_output_format: Audio output format
+            audio_input_format: Audio input format
+            prompt: Optional prompt for the agent
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -105,7 +110,8 @@ class QueryService(QueryServiceInterface):
                     audio_voice=audio_voice,
                     audio_input_format=audio_input_format,
                     audio_output_format=audio_output_format,
-                    audio_instructions=audio_instructions
+                    audio_instructions=audio_instructions,
+                    prompt=prompt,
                 ):
                     yield audio_chunk
 
@@ -122,7 +128,8 @@ class QueryService(QueryServiceInterface):
                     user_id=user_id,
                     query=user_text,
                     memory_context=memory_context,
-                    output_format="text"
+                    output_format="text",
+                    prompt=prompt,
                 ):
                     yield chunk
                     full_text_response += chunk

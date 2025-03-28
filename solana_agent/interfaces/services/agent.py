@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Literal, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
 
 from solana_agent.domains.agent import AIAgent
 
@@ -27,12 +27,13 @@ class AgentService(ABC):
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        audio_instructions: str = None,
+        audio_instructions: Optional[str] = None,
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
         pass
