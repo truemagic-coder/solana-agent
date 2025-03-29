@@ -34,6 +34,8 @@ class AutoTool(Tool):
 
     def configure(self, config: Dict[str, Any]) -> None:
         """Configure the tool with settings from config."""
+        if config is None:
+            raise TypeError("Config cannot be None")
         self._config = config
 
     def get_schema(self) -> Dict[str, Any]:

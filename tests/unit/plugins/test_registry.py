@@ -1,165 +1,197 @@
-import pytest
-from unittest.mock import Mock
+"""
+Tests for the ToolRegistry implementation.
 
+This module provides comprehensive test coverage for tool registration,
+agent permissions, and tool configuration management.
+"""
+import pytest
+from unittest.mock import MagicMock, patch
+from typing import Dict, Any
+
+from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.interfaces.plugins.plugins import Tool
 
 
-class MockTool(Tool):
-    """Mock tool implementation for testing."""
-
-    def __init__(self, name: str, description: str = "Test tool"):
-        self._name = name
-        self._description = description
-        self.configured = False
-        self._schema = {"type": "object", "properties": {}}
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def description(self) -> str:
-        return self._description
-
-    def execute(self, **kwargs):
-        return {"status": "success"}
-
-    def configure(self, config):
-        self.configured = True
-        self.config = config
-
-    def get_schema(self):
-        return self._schema
-
-
-@pytest.fixture
-def tool_registry():
-    """Create a fresh tool registry for each test."""
-    return ToolRegistry(config={"test_key": "test_value"})
-
-
 @pytest.fixture
 def mock_tool():
-    """Create a mock tool instance."""
-    return MockTool("test_tool")
-
-
-def test_register_tool(tool_registry, mock_tool):
-    """Test tool registration."""
-    success = tool_registry.register_tool(mock_tool)
-
-    assert success
-    assert tool_registry.get_tool("test_tool") == mock_tool
-    assert "test_tool" in tool_registry.list_all_tools()
-
-
-def test_register_duplicate_tool(tool_registry, mock_tool):
-    """Test registering the same tool twice."""
-    tool_registry.register_tool(mock_tool)
-    success = tool_registry.register_tool(mock_tool)
-
-    assert success  # Should overwrite existing tool
-    assert len(tool_registry.list_all_tools()) == 1
-
-
-def test_get_nonexistent_tool(tool_registry):
-    """Test getting a tool that doesn't exist."""
-    tool = tool_registry.get_tool("nonexistent")
-    assert tool is None
-
-
-def test_assign_tool_to_agent(tool_registry, mock_tool):
-    """Test assigning a tool to an agent."""
-    tool_registry.register_tool(mock_tool)
-    success = tool_registry.assign_tool_to_agent("test_agent", "test_tool")
-
-    assert success
-    tools = tool_registry.get_agent_tools("test_agent")
-    assert len(tools) == 1
-    assert tools[0]["name"] == "test_tool"
-
-
-def test_assign_nonexistent_tool_to_agent(tool_registry):
-    """Test assigning a non-existent tool to an agent."""
-    success = tool_registry.assign_tool_to_agent("test_agent", "nonexistent")
-
-    assert not success
-    assert len(tool_registry.get_agent_tools("test_agent")) == 0
-
-
-def test_get_agent_tools_nonexistent_agent(tool_registry):
-    """Test getting tools for an agent that doesn't exist."""
-    tools = tool_registry.get_agent_tools("nonexistent")
-    assert len(tools) == 0
-
-
-def test_get_agent_tools_with_multiple_tools(tool_registry):
-    """Test getting multiple tools assigned to an agent."""
-    tool1 = MockTool("tool1", "First tool")
-    tool2 = MockTool("tool2", "Second tool")
-
-    tool_registry.register_tool(tool1)
-    tool_registry.register_tool(tool2)
-    tool_registry.assign_tool_to_agent("test_agent", "tool1")
-    tool_registry.assign_tool_to_agent("test_agent", "tool2")
-
-    tools = tool_registry.get_agent_tools("test_agent")
-    assert len(tools) == 2
-    assert {t["name"] for t in tools} == {"tool1", "tool2"}
-    assert all("description" in t for t in tools)
-    assert all("parameters" in t for t in tools)
-
-
-def test_list_all_tools(tool_registry):
-    """Test listing all registered tools."""
-    tools = [
-        MockTool("tool1"),
-        MockTool("tool2"),
-        MockTool("tool3")
-    ]
-
-    for tool in tools:
-        tool_registry.register_tool(tool)
-
-    all_tools = tool_registry.list_all_tools()
-    assert len(all_tools) == 3
-    assert set(all_tools) == {"tool1", "tool2", "tool3"}
-
-
-def test_configure_all_tools(tool_registry):
-    """Test configuring all tools."""
-    tools = [
-        MockTool("tool1"),
-        MockTool("tool2")
-    ]
-
-    for tool in tools:
-        tool_registry.register_tool(tool)
-
-    config = {"api_key": "test_key"}
-    tool_registry.configure_all_tools(config)
-
-    for tool_name in tool_registry.list_all_tools():
-        tool = tool_registry.get_tool(tool_name)
-        assert tool.configured
-        assert tool.config == config
-
-
-def test_tool_schema_in_agent_tools(tool_registry):
-    """Test that tool schema is included in agent tools list."""
-    tool = MockTool("schema_tool")
-    tool._schema = {
+    """Create a mock tool for testing."""
+    tool = MagicMock(spec=Tool)
+    tool.name = "test_tool"
+    tool.description = "Test tool description"
+    tool.get_schema.return_value = {
         "type": "object",
         "properties": {
-            "param1": {"type": "string"},
-            "param2": {"type": "integer"}
+            "param1": {"type": "string"}
         }
     }
+    return tool
 
-    tool_registry.register_tool(tool)
-    tool_registry.assign_tool_to_agent("test_agent", "schema_tool")
 
-    tools = tool_registry.get_agent_tools("test_agent")
-    assert len(tools) == 1
-    assert tools[0]["parameters"] == tool._schema
+@pytest.fixture
+def config():
+    """Sample configuration for testing."""
+    return {
+        "api_key": "test_key",
+        "endpoint": "https://api.test.com"
+    }
+
+
+@pytest.fixture
+def mock_tool_registry():
+    """Create a mock tool registry."""
+    registry = MagicMock(spec=ToolRegistry)
+    registry.get_tool = MagicMock(return_value=None)
+    # Make configure_all_tools a MagicMock to support assert_called_once_with
+    registry.configure_all_tools = MagicMock()
+    return registry
+
+
+class TestToolRegistry:
+    """Test suite for ToolRegistry."""
+
+    def test_init_default(self):
+        """Test initialization with default values."""
+        registry = ToolRegistry()
+        assert registry._tools == {}
+        assert registry._agent_tools == {}
+        assert registry._config == {}
+
+    def test_init_with_config(self, config):
+        """Test initialization with configuration."""
+        registry = ToolRegistry(config)
+        assert registry._config == config
+
+    def test_register_tool_success(self, mock_tool, config):
+        """Test successful tool registration."""
+        registry = ToolRegistry(config)
+        success = registry.register_tool(mock_tool)
+
+        assert success is True
+        assert registry._tools[mock_tool.name] == mock_tool
+        mock_tool.configure.assert_called_once_with(config)
+
+    def test_register_tool_failure(self, mock_tool):
+        """Test tool registration failure."""
+        mock_tool.configure.side_effect = Exception("Config failed")
+        registry = ToolRegistry()
+
+        success = registry.register_tool(mock_tool)
+        assert success is False
+        assert mock_tool.name not in registry._tools
+
+    def test_get_tool_existing(self, mock_tool):
+        """Test retrieving an existing tool."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+
+        tool = registry.get_tool(mock_tool.name)
+        assert tool == mock_tool
+
+    def test_get_tool_non_existing(self):
+        """Test retrieving a non-existing tool."""
+        registry = ToolRegistry()
+        tool = registry.get_tool("non_existing")
+        assert tool is None
+
+    def test_assign_tool_to_agent_new_agent(self, mock_tool):
+        """Test assigning tool to new agent."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+
+        success = registry.assign_tool_to_agent("test_agent", mock_tool.name)
+        assert success is True
+        assert registry._agent_tools["test_agent"] == [mock_tool.name]
+
+    def test_assign_tool_to_existing_agent(self, mock_tool):
+        """Test assigning additional tool to existing agent."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+        registry._agent_tools["test_agent"] = ["existing_tool"]
+
+        success = registry.assign_tool_to_agent("test_agent", mock_tool.name)
+        assert success is True
+        assert set(registry._agent_tools["test_agent"]) == {
+            "existing_tool", mock_tool.name}
+
+    def test_assign_tool_already_assigned(self, mock_tool):
+        """Test assigning already assigned tool."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+        registry._agent_tools["test_agent"] = [mock_tool.name]
+
+        success = registry.assign_tool_to_agent("test_agent", mock_tool.name)
+        assert success is True
+        assert registry._agent_tools["test_agent"] == [mock_tool.name]
+
+    def test_assign_non_existing_tool(self):
+        """Test assigning non-existing tool."""
+        registry = ToolRegistry()
+        success = registry.assign_tool_to_agent("test_agent", "non_existing")
+        assert success is False
+        assert "test_agent" not in registry._agent_tools
+
+    def test_get_agent_tools_existing(self, mock_tool):
+        """Test getting tools for existing agent."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+        registry._agent_tools["test_agent"] = [mock_tool.name]
+
+        tools = registry.get_agent_tools("test_agent")
+        assert len(tools) == 1
+        assert tools[0]["name"] == mock_tool.name
+        assert tools[0]["description"] == mock_tool.description
+        assert tools[0]["parameters"] == mock_tool.get_schema.return_value
+
+    def test_get_agent_tools_non_existing(self):
+        """Test getting tools for non-existing agent."""
+        registry = ToolRegistry()
+        tools = registry.get_agent_tools("non_existing")
+        assert tools == []
+
+    def test_get_agent_tools_with_missing_tool(self, mock_tool):
+        """Test getting agent tools when some tools are missing."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+        registry._agent_tools["test_agent"] = [mock_tool.name, "missing_tool"]
+
+        tools = registry.get_agent_tools("test_agent")
+        assert len(tools) == 1
+        assert tools[0]["name"] == mock_tool.name
+
+    def test_list_all_tools(self, mock_tool):
+        """Test listing all registered tools."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+
+        tools = registry.list_all_tools()
+        assert tools == [mock_tool.name]
+
+    def test_configure_all_tools(self, mock_tool, config):
+        """Test configuring all tools."""
+        registry = ToolRegistry()
+        registry._tools[mock_tool.name] = mock_tool
+
+        registry.configure_all_tools(config)
+        mock_tool.configure.assert_called_once_with(config)
+
+    def test_configure_all_tools_with_error(self, mock_tool, config):
+        """Test configuring tools when one fails."""
+        registry = ToolRegistry()
+        mock_tool2 = MagicMock(spec=Tool)
+        mock_tool2.name = "test_tool2"
+        mock_tool2.configure.side_effect = Exception("Config failed")
+
+        registry._tools = {
+            mock_tool.name: mock_tool,
+            mock_tool2.name: mock_tool2
+        }
+
+        # Should not raise exception
+        registry.configure_all_tools(config)
+
+        # Verify both tools were attempted
+        mock_tool.configure.assert_called_once_with(config)
+        mock_tool2.configure.assert_called_once_with(config)
+        # Verify config was updated
+        assert registry._config == config

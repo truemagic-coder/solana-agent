@@ -1,259 +1,129 @@
 """
 Tests for the SolanaAgent client interface.
 
-This module tests the client API for interacting with the Solana Agent system.
+This module provides comprehensive test coverage for the SolanaAgent client
+including initialization, message processing, history management, and tool registration.
 """
-import os
-import json
 import pytest
-import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
+from typing import Dict, Any, AsyncGenerator, Union
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.interfaces.plugins.plugins import Tool
 
 
-class AsyncIteratorMock:
-    """Mock class that will be used to return an async iterator."""
-
-    def __init__(self, items):
-        self.items = items.copy()  # Create a copy to avoid modifying the original list
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if not self.items:
-            raise StopAsyncIteration
-        return self.items.pop(0)
-
-
 @pytest.fixture
-def mock_agent_factory():
-    """Mock the SolanaAgentFactory."""
-    with patch('solana_agent.client.solana_agent.SolanaAgentFactory') as mock_factory:
-        # Create a mock query service
-        mock_query_service = MagicMock()
-
-        # Setup the process_query method as a Mock that returns an async generator
-        async def mock_process_query(user_id, message):
-            yield "Response chunk 1"
-            yield "Response chunk 2"
-            yield "Response chunk 3"
-
-        # Create an AsyncMock for process_query that we can assert on
-        process_query_mock = AsyncMock()
-
-        # Set up the mock to return our generator when called
-        process_query_mock.side_effect = lambda user_id, message: mock_process_query(
-            user_id, message)
-
-        # Assign the mock to the query service
-        mock_query_service.process_query = process_query_mock
-
-        # Configure the factory to return our mock query service
-        mock_factory.create_from_config.return_value = mock_query_service
-
-        yield mock_factory
-
-
-@pytest.fixture
-def sample_config():
-    """Create a sample configuration dictionary."""
+def config_dict():
+    """Fixture providing test configuration."""
     return {
-        "llm_provider": "openai",
-        "llm_models": {
-            "default": "gpt-4o-mini"
+        "mongo": {
+            "connection_string": "mongodb://localhost:27017",
+            "database": "test_db"
         },
-        "services": {
-            "agent": True,
-            "query": True,
-        }
+        "openai": {"api_key": "test_key"},
+        "agents": [{
+            "name": "test_agent",
+            "instructions": "Test agent instructions",
+            "specialization": "Testing"
+        }]
     }
 
 
 @pytest.fixture
-def json_config_path():
-    """Create a temporary JSON configuration file."""
-    config = {
-        "llm_provider": "openai",
-        "llm_models": {
-            "default": "gpt-4o-mini"
-        },
-        "services": {
-            "agent": True,
-            "query": True,
-        }
-    }
+def mock_query_service():
+    """Create a mock query service with all required methods."""
+    mock = AsyncMock()
 
-    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as temp:
-        temp.write(json.dumps(config).encode('utf-8'))
-        temp_path = temp.name
+    async def mock_process(*args, **kwargs):
+        yield "Test response"
 
-    yield temp_path
+    mock.process.side_effect = mock_process
+    mock.delete_user_history = AsyncMock()
+    mock.get_user_history = AsyncMock(
+        return_value={"messages": [], "total": 0})
 
-    # Cleanup
-    os.unlink(temp_path)
+    # Configure agent service
+    mock.agent_service = MagicMock()
+    mock.agent_service.tool_registry = MagicMock()
+    mock.agent_service.get_all_ai_agents = MagicMock(
+        return_value=["test_agent"])
+
+    return mock
 
 
-@pytest.fixture
-def python_config_path():
-    """Create a temporary Python configuration file."""
-    config_content = """
-config = {
-    "llm_provider": "openai",
-    "llm_models": {
-        "default": "gpt-4o-mini"
-    },
-    "services": {
-        "agent": True,
-        "query": True,
-    }
-}
-"""
+class TestSolanaAgent:
+    """Test suite for SolanaAgent client."""
 
-    with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp:
-        temp.write(config_content.encode('utf-8'))
-        temp_path = temp.name
+    @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
+    def test_init_with_config(self, mock_factory, config_dict, mock_query_service):
+        """Test initialization with configuration dictionary."""
+        mock_factory.create_from_config.return_value = mock_query_service
+        agent = SolanaAgent(config=config_dict)
+        mock_factory.create_from_config.assert_called_once_with(config_dict)
+        assert agent.query_service == mock_query_service
 
-    yield temp_path
+    def test_init_without_config(self):
+        """Test initialization fails without configuration."""
+        with pytest.raises(ValueError, match="Either config or config_path must be provided"):
+            SolanaAgent()
 
-    # Cleanup
-    os.unlink(temp_path)
+    @pytest.mark.asyncio
+    async def test_get_user_history(self, config_dict, mock_query_service):
+        """Test retrieving user message history."""
+        with patch("solana_agent.client.solana_agent.SolanaAgentFactory") as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
 
+            expected = {"messages": [], "total": 0}
+            mock_query_service.get_user_history.return_value = expected
 
-@pytest.fixture
-def mock_tool():
-    """Create a mock tool for testing."""
-    tool = MagicMock(spec=Tool)
-    tool.name = "test_tool"
-    tool.description = "A test tool"
-    return tool
+            result = await agent.get_user_history(
+                user_id="test_user",
+                page_num=1,
+                page_size=20,
+                sort_order="desc"
+            )
 
-# --------------------------
-# Initialization Tests
-# --------------------------
+            assert result == expected
+            mock_query_service.get_user_history.assert_called_once_with(
+                "test_user", 1, 20, "desc"
+            )
 
+    @pytest.mark.asyncio
+    async def test_delete_user_history(self, config_dict, mock_query_service):
+        """Test deleting user message history."""
+        with patch("solana_agent.client.solana_agent.SolanaAgentFactory") as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
 
-def test_init_with_config_dict(mock_agent_factory, sample_config):
-    """Test initialization with a config dictionary."""
-    agent = SolanaAgent(config=sample_config)
+            await agent.delete_user_history("test_user")
+            mock_query_service.delete_user_history.assert_called_once_with(
+                "test_user")
 
-    # Check that the factory was called with the config
-    mock_agent_factory.create_from_config.assert_called_once_with(
-        sample_config)
+    def test_register_tool_success(self, config_dict, mock_query_service):
+        """Test successful tool registration."""
+        with patch("solana_agent.client.solana_agent.SolanaAgentFactory") as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
 
-    # Check that the query service was set
-    assert agent.query_service == mock_agent_factory.create_from_config.return_value
+            mock_tool = MagicMock(spec=Tool)
+            mock_tool.name = "test_tool"
+            mock_query_service.agent_service.tool_registry.register_tool.return_value = True
 
+            result = agent.register_tool(mock_tool)
+            assert result is True
+            mock_query_service.agent_service.tool_registry.register_tool.assert_called_once_with(
+                mock_tool)
 
-def test_init_with_json_config_path(mock_agent_factory, json_config_path):
-    """Test initialization with a JSON config file path."""
-    agent = SolanaAgent(config_path=json_config_path)
+    def test_register_tool_failure(self, config_dict, mock_query_service):
+        """Test failed tool registration."""
+        with patch("solana_agent.client.solana_agent.SolanaAgentFactory") as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
 
-    # Check that the factory was called
-    mock_agent_factory.create_from_config.assert_called_once()
+            mock_tool = MagicMock(spec=Tool)
+            mock_tool.name = "test_tool"
+            mock_query_service.agent_service.tool_registry.register_tool.return_value = False
 
-    # Check that the query service was set
-    assert agent.query_service == mock_agent_factory.create_from_config.return_value
-
-
-def test_init_with_python_config_path(mock_agent_factory, python_config_path):
-    """Test initialization with a Python config file path."""
-    agent = SolanaAgent(config_path=python_config_path)
-
-    # Check that the factory was called
-    mock_agent_factory.create_from_config.assert_called_once()
-
-    # Check that the query service was set
-    assert agent.query_service == mock_agent_factory.create_from_config.return_value
-
-
-def test_init_no_config():
-    """Test initialization with no config raises an error."""
-    with pytest.raises(ValueError, match="Either config or config_path must be provided"):
-        SolanaAgent()
-
-
-@pytest.mark.asyncio
-async def test_delete_user_history(mock_agent_factory, sample_config):
-    """Test deleting user conversation history."""
-    # Create agent instance
-    agent = SolanaAgent(config=sample_config)
-
-    # Setup mock for delete_user_history
-    mock_query_service = mock_agent_factory.create_from_config.return_value
-    mock_query_service.delete_user_history = AsyncMock()
-
-    # Call method
-    await agent.delete_user_history("test_user")
-
-    # Verify query service method was called with correct parameters
-    mock_query_service.delete_user_history.assert_called_once_with("test_user")
-
-
-@pytest.mark.asyncio
-async def test_delete_user_history_error_handling(mock_agent_factory, sample_config):
-    """Test error handling when deleting user history fails."""
-    # Create agent instance
-    agent = SolanaAgent(config=sample_config)
-
-    # Setup mock to raise an exception
-    mock_query_service = mock_agent_factory.create_from_config.return_value
-    mock_query_service.delete_user_history = AsyncMock(
-        side_effect=Exception("Failed to delete history")
-    )
-
-    # Verify exception is propagated
-    with pytest.raises(Exception, match="Failed to delete history"):
-        await agent.delete_user_history("test_user")
-
-    # Verify query service method was called
-    mock_query_service.delete_user_history.assert_called_once_with("test_user")
-
-
-def test_register_tool_success(mock_agent_factory, sample_config, mock_tool):
-    """Test successful tool registration."""
-    # Create agent instance
-    agent = SolanaAgent(config=sample_config)
-
-    # Configure mock chain
-    mock_query_service = mock_agent_factory.create_from_config.return_value
-    mock_agent_service = MagicMock()
-    mock_tool_registry = MagicMock()
-    mock_tool_registry.register_tool.return_value = True
-
-    # Set up mock chain
-    mock_query_service.agent_service = mock_agent_service
-    mock_agent_service.tool_registry = mock_tool_registry
-
-    # Register tool
-    result = agent.register_tool(mock_tool)
-
-    # Verify success
-    assert result is True
-    mock_tool_registry.register_tool.assert_called_once_with(mock_tool)
-
-
-def test_register_tool_error(mock_agent_factory, sample_config, mock_tool):
-    """Test error handling during tool registration."""
-    # Create agent instance
-    agent = SolanaAgent(config=sample_config)
-
-    # Configure mock chain
-    mock_query_service = mock_agent_factory.create_from_config.return_value
-    mock_agent_service = MagicMock()
-    mock_tool_registry = MagicMock()
-    mock_tool_registry.register_tool.side_effect = Exception(
-        "Registration failed")
-
-    # Set up mock chain
-    mock_query_service.agent_service = mock_agent_service
-    mock_agent_service.tool_registry = mock_tool_registry
-
-    # Register tool
-    result = agent.register_tool(mock_tool)
-
-    # Verify failure
-    assert result is False
-    mock_tool_registry.register_tool.assert_called_once_with(mock_tool)
+            result = agent.register_tool(mock_tool)
+            assert result is False

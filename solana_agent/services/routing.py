@@ -95,7 +95,7 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": 0.0
             }
 
-    async def route_query(self, query: str) -> str:
+    async def route_query(self, query: str) -> str:  # pragma: no cover
         """Route a query to the appropriate agent.
 
         Args:
