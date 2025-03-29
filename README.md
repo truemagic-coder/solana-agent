@@ -23,6 +23,7 @@ Build your AI business in three lines of code!
 * Extensible Tooling
 * Simple Business Definition
 * Tested & Secure
+* Support for MCP
 * Built in Python
 * Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
@@ -36,6 +37,7 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline classes
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
+* Ability to access any MCP via a URL
 
 ## Stack
 
@@ -218,6 +220,7 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
 `pip install sakit`
 
+#### Internet Search
 ```python
 from solana_agent import SolanaAgent
 
@@ -238,6 +241,44 @@ config = {
             "instructions": "You are an expert researcher who synthesizes complex information clearly.",
             "specialization": "Research and knowledge synthesis",
             "tools": ["search_internet"],
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+    print(response, end="")
+```
+
+#### MCP
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "tools": {
+        "mcp": {
+            "server_urls": [
+                "http://mcp-server1.com/mcp",
+                "http://mcp-server2.com/mcp",
+                "http://mcp-server3.com/mcp"
+            ]
+        }
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+            "tools": ["mcp"],
         },
         {
             "name": "customer_support",
