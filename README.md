@@ -377,7 +377,7 @@ solana_agent = SolanaAgent(config=config)
 
 test_tool = TestTool()
 
-solana_agent.register_tool(test_tool)
+solana_agent.register_tool("customer_support", test_tool)
 
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
