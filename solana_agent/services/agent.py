@@ -12,7 +12,6 @@ from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
-from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, BusinessMission

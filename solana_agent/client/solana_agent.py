@@ -11,6 +11,7 @@ from typing import AsyncGenerator, Dict, Any, Literal, Optional, Union
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -54,6 +55,7 @@ class SolanaAgent(SolanaAgentInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        router: Optional[RoutingInterface] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
 
@@ -63,9 +65,10 @@ class SolanaAgent(SolanaAgentInterface):
             prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
             audio_voice: Voice to use for audio output
-            audio_instructions: Optional instructions for audio synthesis
+            audio_instructions: Not used currently
             audio_output_format: Audio output format
             audio_input_format: Audio input format
+            router: Optional routing service for processing
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
@@ -79,6 +82,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
             prompt=prompt,
+            router=router,
         ):
             yield chunk
 

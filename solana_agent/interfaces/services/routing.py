@@ -10,7 +10,6 @@ class RoutingService(ABC):
         """Route a query to the appropriate agent.
 
         Args:
-            user_id: User ID
             query: User query
 
         Returns:
