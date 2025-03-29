@@ -389,7 +389,6 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 * Solana Agent agents choose the best tool for the job.
 * Solana Agent tools do not use OpenAI function calling.
 * Solana Agent tools are async functions.
-* Solana Agent will use OpenAI for audio and Ollama and for text if both config vars are set
 
 ## Local Setup
 
