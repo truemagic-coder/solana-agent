@@ -50,7 +50,7 @@ You can install Solana Agent using pip:
 
 `pip install solana-agent`
 
-## Basic Usage
+## Basic Example - Text/Text Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -98,6 +98,97 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
+## Basic Example - Audio/Audio Streaming
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+audio_content = audio_file.read()
+
+async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
+    print(response, end="")
+```
+
+## Basic Example - Text/Audio Streaming
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
+    print(response, end="")
+```
+
+## Basic Example - Audio/Text Streaming
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+audio_content = audio_file.read()
+
+async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
+    print(response, end="")
+```
+
 ## Plugin Usage
 
 Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
@@ -108,30 +199,8 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "business": { # optional
-        "mission": "To provide users with a one-stop shop for their queries.",
-        "values": {
-            "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
-            "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
-        },
-        "goals": [
-            "Empower users with great answers to their queries.",
-        ],
-        "voice": "The voice of the brand is that of a research business."
-    },
-    "openai": { # optional
+    "openai": {
         "api_key": "your-openai-api-key",
-    },
-    "ollama": { # optional
-        "url": "your-ollama-url",
-    },
-    "mongo": { # optional
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
-    "zep": { # optional
-        "api_key": "your-zep-api-key",
-        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
     "tools": {
         "search_internet": {
@@ -216,30 +285,8 @@ class TestTool(Tool):
             }
 
 config = {
-    "business": { # optional
-        "mission": "To provide users with a one-stop shop for their queries.",
-        "values": {
-            "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
-            "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
-        },
-        "goals": [
-            "Empower users with great answers to their queries.",
-        ],
-        "voice": "The voice of the brand is that of a research business."
-    },
-    "openai": { # optional
+    "openai": {
         "api_key": "your-openai-api-key",
-    },
-    "ollama": { # optional
-        "url": "your-ollama-url",
-    },
-    "mongo": { # optional
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
-    "zep": { # optional
-        "api_key": "your-zep-api-key",
-        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
     "agents": [
         {
@@ -262,6 +309,35 @@ test_tool = TestTool()
 solana_agent.register_tool(test_tool)
 
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+    print(response, end="")
+```
+
+## Custom Prompt Injection at Runtime
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?", "Always end your sentences with eh?"):
     print(response, end="")
 ```
 

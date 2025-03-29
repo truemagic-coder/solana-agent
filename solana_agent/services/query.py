@@ -8,6 +8,7 @@ clean separation of concerns.
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
+from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.interfaces.providers.memory import MemoryProvider
@@ -47,6 +48,7 @@ class QueryService(QueryServiceInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
+        router: Optional[RoutingServiceInterface] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
@@ -59,6 +61,7 @@ class QueryService(QueryServiceInterface):
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
+            router: Optional routing service for processing
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -96,7 +99,11 @@ class QueryService(QueryServiceInterface):
                 memory_context = await self.memory_provider.retrieve(user_id)
 
             # Route query to appropriate agent
-            agent_name = await self.routing_service.route_query(user_text)
+            if router:
+                agent_name = await router.route_query(user_text)
+            else:
+                agent_name = await self.routing_service.route_query(user_text)
+
             print(f"Routed to agent: {agent_name}")
 
             # Generate response
