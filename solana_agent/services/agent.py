@@ -13,6 +13,7 @@ from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
+from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, BusinessMission
 
@@ -40,8 +41,10 @@ class AgentService(AgentServiceInterface):
         self.tool_registry = ToolRegistry(config=self.config)
         self.agents: List[AIAgent] = []
 
-        # Will be set by factory if plugin system is enabled
-        self.plugin_manager = None
+        self.plugin_manager = PluginManager(
+            config=self.config,
+            tool_registry=self.tool_registry,
+        )
 
     def register_ai_agent(
         self, name: str, instructions: str, specialization: str,

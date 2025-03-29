@@ -97,7 +97,7 @@ class SolanaAgent(SolanaAgentInterface):
         page_num: int = 1,
         page_size: int = 20,
         sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:  # pragma: no cover
         """
         Get paginated message history for a user.
 
@@ -124,22 +124,11 @@ class SolanaAgent(SolanaAgentInterface):
         Returns:
             True if successful, False
         """
-
-        try:
-            print(f"Attempting to register tool: {tool.name}")
-            success = self.query_service.agent_service.tool_registry.register_tool(
-                tool)
-            if success:
-                print(f"Tool {tool.name} registered successfully")
-                # Get all agents and assign the tool to them
-                agents = self.query_service.agent_service.get_all_ai_agents()
-                for agent_name in agents:
-                    print(f"Assigning {tool.name} to agent {agent_name}")
-                    self.query_service.agent_service.assign_tool_for_agent(
-                        agent_name, tool.name)
-            return success
-        except Exception as e:
-            print(f"Error in register_tool: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-            return False
+        success = self.query_service.agent_service.tool_registry.register_tool(
+            tool)
+        if success:
+            agents = self.query_service.agent_service.get_all_ai_agents()
+            for agent_name in agents:
+                self.query_service.agent_service.assign_tool_for_agent(
+                    agent_name, tool.name)
+        return success

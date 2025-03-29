@@ -35,19 +35,21 @@ class PluginManager(PluginManagerInterface):
             True if registration succeeded, False otherwise
         """
         try:
-            # Store plugin by name
-            self._plugins[plugin.name] = plugin
-
-            # Initialize the plugin with the tool registry
+            # Initialize the plugin with the tool registry first
             plugin.initialize(self.tool_registry)
 
-            # *** ADD THIS LINE: Configure the plugin with our config ***
-            print(f"Configuring plugin {plugin.name} with config")
+            # Then configure the plugin
             plugin.configure(self.config)
 
+            # Only store plugin if both initialize and configure succeed
+            self._plugins[plugin.name] = plugin
+            print(f"Successfully registered plugin {plugin.name}")
             return True
+
         except Exception as e:
             print(f"Error registering plugin {plugin.name}: {e}")
+            # Remove plugin from registry if it was added
+            self._plugins.pop(plugin.name, None)
             return False
 
     def load_plugins(self) -> List[str]:
@@ -59,30 +61,27 @@ class PluginManager(PluginManagerInterface):
         loaded_plugins = []
 
         # Discover plugins through entry points
-        try:
-            for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
-                # Skip if this entry point has already been loaded
-                entry_point_id = f"{entry_point.name}:{entry_point.value}"
-                if entry_point_id in PluginManager._loaded_entry_points:
-                    print(
-                        f"Skipping already loaded plugin: {entry_point.name}")
-                    continue
+        for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
+            # Skip if this entry point has already been loaded
+            entry_point_id = f"{entry_point.name}:{entry_point.value}"
+            if entry_point_id in PluginManager._loaded_entry_points:
+                print(
+                    f"Skipping already loaded plugin: {entry_point.name}")
+                continue
 
-                try:
-                    print(f"Found plugin entry point: {entry_point.name}")
-                    PluginManager._loaded_entry_points.add(entry_point_id)
-                    plugin_factory = entry_point.load()
-                    plugin = plugin_factory()
+            try:
+                print(f"Found plugin entry point: {entry_point.name}")
+                PluginManager._loaded_entry_points.add(entry_point_id)
+                plugin_factory = entry_point.load()
+                plugin = plugin_factory()
 
-                    # Register the plugin
-                    if self.register_plugin(plugin):
-                        # Use entry_point.name instead of plugin.name
-                        loaded_plugins.append(entry_point.name)
+                # Register the plugin
+                if self.register_plugin(plugin):
+                    # Use entry_point.name instead of plugin.name
+                    loaded_plugins.append(entry_point.name)
 
-                except Exception as e:
-                    print(f"Error loading plugin {entry_point.name}: {e}")
-        except Exception as e:
-            print(f"Error discovering plugins: {e}")
+            except Exception as e:
+                print(f"Error loading plugin {entry_point.name}: {e}")
 
         return loaded_plugins
 

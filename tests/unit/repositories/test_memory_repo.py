@@ -1,167 +1,336 @@
-from typing import Dict, List, Any
+"""
+Tests for the MemoryRepository implementation.
+
+This module provides comprehensive test coverage for the combined
+Zep and MongoDB memory provider implementation.
+"""
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
+from datetime import datetime
 
 from solana_agent.repositories.memory import MemoryRepository
-
-# Test constants
-TEST_USER_ID = "test_user123"
-TEST_USER_MESSAGE = "What is Solana?"
-TEST_ASSISTANT_MESSAGE = "Solana is a high-performance blockchain..."
-TEST_SUMMARY = "Discussion about Solana blockchain."
-TEST_MESSAGES = [
-    {"role": "user", "content": TEST_USER_MESSAGE},
-    {"role": "assistant", "content": TEST_ASSISTANT_MESSAGE}
-]
+from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
+from zep_cloud.types import Memory
 
 
 @pytest.fixture
 def mock_mongo_adapter():
-    adapter = Mock()
-    adapter.create_collection = AsyncMock()
-    adapter.create_index = AsyncMock()
-    adapter.insert_one = AsyncMock()
-    adapter.delete_all = AsyncMock()
-    adapter.find = Mock(return_value=[])
-    adapter.count_documents = Mock(return_value=0)
+    """Create a mock MongoDB adapter."""
+    adapter = MagicMock(spec=MongoDBAdapter)
+    adapter.create_collection = MagicMock()
+    adapter.create_index = MagicMock()
+    adapter.insert_one = MagicMock()
+    adapter.delete_all = MagicMock()
+    adapter.find = MagicMock(return_value=[])
+    adapter.count_documents = MagicMock(return_value=0)
     return adapter
 
 
 @pytest.fixture
-def mock_zep_client():
-    client = Mock()
-    # Mock memory methods
-    memory = AsyncMock()
-    memory.add = AsyncMock()
-    memory.get = AsyncMock(return_value=Mock(context=TEST_SUMMARY))
-    memory.delete = AsyncMock()
-    memory.add_session = AsyncMock()
-    client.memory = memory
-    # Mock user methods
-    user = AsyncMock()
-    user.add = AsyncMock()
-    user.delete = AsyncMock()
-    client.user = user
-    return client
+def mock_zep():
+    """Create a mock Zep client."""
+    mock = AsyncMock()
+    mock.user = AsyncMock()
+    mock.memory = AsyncMock()
+    memory = MagicMock(spec=Memory)
+    memory.context = "Test memory context"
+    mock.memory.get.return_value = memory
+    return mock
 
 
 @pytest.fixture
-def memory_repository_no_zep(mock_mongo_adapter):
-    """Create a memory repository without Zep configuration."""
-    return MemoryRepository(
-        mongo_adapter=mock_mongo_adapter,
-        zep_api_key=None,
-        zep_base_url=None
-    )
+def valid_messages():
+    """Valid message list for testing."""
+    return [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there"}
+    ]
 
 
 @pytest.fixture
-def memory_repository_with_zep(mock_mongo_adapter):
-    """Create a memory repository with Zep configuration."""
-    with patch('solana_agent.repositories.memory.AsyncZep', autospec=True) as mock_zep_class:
-        mock_zep = Mock()
-        # Setup memory methods
-        mock_memory = AsyncMock()
-        mock_memory.add = AsyncMock()
-        mock_memory.get = AsyncMock(return_value=Mock(context=TEST_SUMMARY))
-        mock_memory.delete = AsyncMock()
-        mock_memory.add_session = AsyncMock()
-        mock_zep.memory = mock_memory
-        # Setup user methods
-        mock_user = AsyncMock()
-        mock_user.add = AsyncMock()
-        mock_user.delete = AsyncMock()
-        mock_zep.user = mock_user
+def invalid_messages():
+    """Invalid message formats for testing."""
+    return [
+        {"invalid_role": "user", "content": "Missing role"},
+        {"role": "user", "invalid_content": "Missing content"},
+        {"role": "invalid", "content": "Invalid role"},
+        {},  # Empty message
+        None,  # None message
+    ]
 
-        mock_zep_class.return_value = mock_zep
 
+class TestMemoryRepository:
+    """Test suite for MemoryRepository."""
+
+    def test_init_default(self):
+        """Test initialization with no parameters."""
+        repo = MemoryRepository()
+        assert repo.mongo is None
+        assert repo.collection is None
+        assert repo.zep is None
+
+    def test_init_mongo_only(self, mock_mongo_adapter):
+        """Test initialization with MongoDB only."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        assert repo.mongo == mock_mongo_adapter
+        assert repo.collection == "conversations"
+        mock_mongo_adapter.create_collection.assert_called_once()
+        assert mock_mongo_adapter.create_index.call_count == 2
+
+    def test_init_mongo_error(self, mock_mongo_adapter):
+        """Test handling MongoDB initialization errors."""
+        mock_mongo_adapter.create_collection.side_effect = Exception(
+            "DB Error")
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        assert repo.mongo == mock_mongo_adapter
+
+    @patch('solana_agent.repositories.memory.AsyncZepCloud')
+    def test_init_zep_cloud(self, mock_zep_cloud):
+        """Test initialization with Zep Cloud."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        mock_zep_cloud.assert_called_once_with(api_key="test_key")
+
+    @patch('solana_agent.repositories.memory.AsyncZep')
+    def test_init_zep_local(self, mock_zep_local):
+        """Test initialization with local Zep."""
+        repo = MemoryRepository(zep_api_key="test_key",
+                                zep_base_url="http://localhost:8000")
+        mock_zep_local.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_store_validation_errors(self, mock_mongo_adapter, invalid_messages):
+        """Test message validation errors."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+
+        with pytest.raises(ValueError):
+            await repo.store("", valid_messages)  # Empty user_id
+
+        with pytest.raises(ValueError):
+            await repo.store(123, valid_messages)  # Non-string user_id
+
+        with pytest.raises(ValueError):
+            await repo.store("user123", [])  # Empty messages
+
+        with pytest.raises(ValueError):
+            await repo.store("user123", None)  # None messages
+
+        for invalid_msg in invalid_messages:
+            with pytest.raises(ValueError):
+                await repo.store("user123", [invalid_msg])
+
+    @pytest.mark.asyncio
+    async def test_store_mongo_success(self, mock_mongo_adapter, valid_messages):
+        """Test successful MongoDB storage."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        await repo.store("user123", valid_messages)
+
+        mock_mongo_adapter.insert_one.assert_called_once()
+        args = mock_mongo_adapter.insert_one.call_args[0]
+        assert args[0] == "conversations"
+        assert args[1]["user_id"] == "user123"
+        assert args[1]["user_message"] == "Hello"
+        assert args[1]["assistant_message"] == "Hi there"
+        assert isinstance(args[1]["timestamp"], datetime)
+
+    @pytest.mark.asyncio
+    async def test_store_mongo_error(self, mock_mongo_adapter, valid_messages):
+        """Test handling MongoDB storage error."""
+        mock_mongo_adapter.insert_one.side_effect = Exception("Storage error")
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        await repo.store("user123", valid_messages)
+        mock_mongo_adapter.insert_one.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_store_zep_success(self, mock_zep, valid_messages):
+        """Test successful Zep storage."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.store("user123", valid_messages)
+
+        mock_zep.user.add.assert_called_once_with(user_id="user123")
+        mock_zep.memory.add_session.assert_called_once()
+        mock_zep.memory.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_store_zep_errors(self, mock_zep, valid_messages):
+        """Test handling Zep storage errors."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+
+        # Test user addition error
+        mock_zep.user.add.side_effect = Exception("User error")
+        await repo.store("user123", valid_messages)
+        mock_zep.memory.add_session.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_success(self, mock_zep):
+        """Test successful memory retrieval."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        result = await repo.retrieve("user123")
+        assert result == "Test memory context"
+        mock_zep.memory.get.assert_called_once_with(session_id="user123")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_success_no_zep(self):
+        """Test successful memory retrieval."""
+        repo = MemoryRepository()
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_errors(self, mock_zep):
+        """Test memory retrieval errors."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+
+        # Test None memory
+        mock_zep.memory.get.return_value = None
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+        # Test missing context
+        memory = MagicMock(spec=Memory)
+        memory.context = None
+        mock_zep.memory.get.return_value = memory
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+        # Test retrieval error
+        mock_zep.memory.get.side_effect = Exception("Retrieval error")
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_delete_success(self, mock_mongo_adapter, mock_zep):
+        """Test successful memory deletion."""
         repo = MemoryRepository(
-            mongo_adapter=mock_mongo_adapter,
-            zep_api_key="test-key",
-            zep_base_url="http://test-url"
+            mongo_adapter=mock_mongo_adapter, zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.delete("user123")
+
+        mock_mongo_adapter.delete_all.assert_called_once_with(
+            "conversations", {"user_id": "user123"}
         )
-        repo.zep = mock_zep  # Ensure mock is properly set
-        return repo
+        mock_zep.memory.delete.assert_called_once_with(session_id="user123")
+        mock_zep.user.delete.assert_called_once_with(user_id="user123")
 
-# Test cases without Zep
+    def test_find_success(self, mock_mongo_adapter):
+        """Test successful document find."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.return_value = [{"test": "doc"}]
 
+        result = repo.find("conversations", {"query": "test"})
+        assert result == [{"test": "doc"}]
+        mock_mongo_adapter.find.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_store_no_zep(memory_repository_no_zep, mock_mongo_adapter):
-    """Test message storage with only MongoDB."""
-    await memory_repository_no_zep.store(TEST_USER_ID, TEST_MESSAGES)
+    def test_count_documents_success(self, mock_mongo_adapter):
+        """Test successful document count."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.count_documents.return_value = 5
 
-    mock_mongo_adapter.insert_one.assert_called_once()
-    call_args = mock_mongo_adapter.insert_one.call_args[0]
-    assert call_args[0] == "conversations"
-    doc = call_args[1]
-    assert doc["user_id"] == TEST_USER_ID
-    assert doc["user_message"] == TEST_USER_MESSAGE
-    assert doc["assistant_message"] == TEST_ASSISTANT_MESSAGE
-    assert isinstance(doc["timestamp"], datetime)
+        result = repo.count_documents("conversations", {"query": "test"})
+        assert result == 5
+        mock_mongo_adapter.count_documents.assert_called_once()
 
+    def test_count_documents_success_no_mongo(self, mock_mongo_adapter):
+        """Test successful document count."""
+        repo = MemoryRepository()
+        mock_mongo_adapter.count_documents.return_value = 0
 
-@pytest.mark.asyncio
-async def test_retrieve_no_zep(memory_repository_no_zep):
-    """Test memory retrieval without Zep."""
-    result = await memory_repository_no_zep.retrieve(TEST_USER_ID)
-    assert result == ""
+        result = repo.count_documents("conversations", {"query": "test"})
+        assert result == 0
+        mock_mongo_adapter.count_documents.assert_not_called()
 
+    def test_truncate_text(self):
+        """Test text truncation."""
+        repo = MemoryRepository()
 
-@pytest.mark.asyncio
-async def test_delete_no_zep(memory_repository_no_zep, mock_mongo_adapter):
-    """Test deletion with only MongoDB."""
-    await memory_repository_no_zep.delete(TEST_USER_ID)
-    mock_mongo_adapter.delete_all.assert_called_once_with(
-        "conversations",
-        {"user_id": TEST_USER_ID}
-    )
+        # Test within limit
+        assert repo._truncate("Short text") == "Short text"
 
-# Test cases with Zep
+        # Test at period
+        assert repo._truncate(
+            "First sentence. Second sentence.", 20) == "First sentence."
 
+        # Test with ellipsis
+        result = repo._truncate("a" * 3000)
+        assert len(result) <= 2503
+        assert result.endswith("...")
 
-@pytest.mark.asyncio
-async def test_store_with_zep(memory_repository_with_zep, mock_mongo_adapter):
-    """Test message storage in both systems."""
-    await memory_repository_with_zep.store(TEST_USER_ID, TEST_MESSAGES)
+        # Test empty text
+        assert repo._truncate("") == ""
 
-    # Verify MongoDB storage
-    mock_mongo_adapter.insert_one.assert_called_once()
-    call_args = mock_mongo_adapter.insert_one.call_args[0]
-    assert call_args[0] == "conversations"
-    doc = call_args[1]
-    assert doc["user_id"] == TEST_USER_ID
-    assert doc["user_message"] == TEST_USER_MESSAGE
-    assert doc["assistant_message"] == TEST_ASSISTANT_MESSAGE
-    assert isinstance(doc["timestamp"], datetime)
+        # Test None
+        with pytest.raises(AttributeError):
+            repo._truncate(None)
 
-    # Verify Zep storage
-    memory_repository_with_zep.zep.memory.add.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_store_empty_user_id(self):
+        """Test storing with empty user_id."""
+        repo = MemoryRepository()
+        with pytest.raises(ValueError):
+            await repo.store("", [{"role": "user", "content": "test"}])
 
+    @pytest.mark.asyncio
+    async def test_store_missing_messages_pair(self, mock_mongo_adapter):
+        """Test storing without a user-assistant message pair."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "user", "content": "Another user message"}
+        ]
+        await repo.store("user123", messages)
+        mock_mongo_adapter.insert_one.assert_not_called()
 
-@pytest.mark.asyncio
-async def test_retrieve_with_zep(memory_repository_with_zep):
-    """Test memory retrieval from Zep."""
-    result = await memory_repository_with_zep.retrieve(TEST_USER_ID)
-    assert result == TEST_SUMMARY
-    memory_repository_with_zep.zep.memory.get.assert_called_once_with(
-        session_id=TEST_USER_ID
-    )
+    @pytest.mark.asyncio
+    async def test_store_zep_session_error(self, mock_zep, valid_messages):
+        """Test Zep session creation failure."""
+        mock_zep.memory.add_session.side_effect = Exception("Session error")
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.store("user123", valid_messages)
+        mock_zep.memory.add.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_store_zep_memory_error(self, mock_zep, valid_messages):
+        """Test Zep memory addition failure."""
+        mock_zep.memory.add.side_effect = Exception("Memory error")
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.store("user123", valid_messages)
+        mock_zep.memory.add_session.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_delete_with_zep(memory_repository_with_zep, mock_mongo_adapter):
-    """Test deletion from both systems."""
-    await memory_repository_with_zep.delete(TEST_USER_ID)
+    @pytest.mark.asyncio
+    async def test_delete_mongo_error(self, mock_mongo_adapter):
+        """Test MongoDB deletion error."""
+        mock_mongo_adapter.delete_all.side_effect = Exception("Delete error")
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        await repo.delete("user123")
+        mock_mongo_adapter.delete_all.assert_called_once()
 
-    mock_mongo_adapter.delete_all.assert_called_once_with(
-        "conversations",
-        {"user_id": TEST_USER_ID}
-    )
-    memory_repository_with_zep.zep.memory.delete.assert_called_once_with(
-        session_id=TEST_USER_ID
-    )
-    memory_repository_with_zep.zep.user.delete.assert_called_once_with(
-        user_id=TEST_USER_ID
-    )
+    @pytest.mark.asyncio
+    async def test_delete_zep_memory_error(self, mock_zep):
+        """Test Zep memory deletion error."""
+        mock_zep.memory.delete.side_effect = Exception("Memory delete error")
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.delete("user123")
+        mock_zep.user.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_zep_user_error(self, mock_zep):
+        """Test Zep user deletion error."""
+        mock_zep.user.delete.side_effect = Exception("User delete error")
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        await repo.delete("user123")
+        mock_zep.memory.delete.assert_called_once()
+
+    def test_find_mongo_error(self, mock_mongo_adapter):
+        """Test MongoDB find error."""
+        mock_mongo_adapter.find.side_effect = Exception("Find error")
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        result = repo.find("conversations", {})
+        assert result == []
+        mock_mongo_adapter.find.assert_called_once()

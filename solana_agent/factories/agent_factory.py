@@ -109,8 +109,12 @@ class SolanaAgentFactory:
             config=config,
             tool_registry=agent_service.tool_registry
         )
-        loaded_plugins = agent_service.plugin_manager.load_plugins()
-        print(f"Loaded {loaded_plugins} plugins")
+        try:
+            loaded_plugins = agent_service.plugin_manager.load_plugins()
+            print(f"Loaded {loaded_plugins} plugins")
+        except Exception as e:
+            print(f"Error loading plugins: {e}")
+            loaded_plugins = 0
 
         # Register predefined agents
         for agent_config in config.get("agents", []):
@@ -125,25 +129,18 @@ class SolanaAgentFactory:
                 for tool_name in agent_config["tools"]:
                     print(
                         f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
-                    try:
-                        agent_service.assign_tool_for_agent(
-                            agent_config["name"], tool_name
-                        )
-                        print(
-                            f"Successfully registered {tool_name} for agent {agent_config['name']}")
-                    except ValueError as e:
-                        print(
-                            f"Error registering tool {tool_name} for agent {agent_config['name']}: {e}")
+                    agent_service.assign_tool_for_agent(
+                        agent_config["name"], tool_name
+                    )
+                    print(
+                        f"Successfully registered {tool_name} for agent {agent_config['name']}")
 
         # Global tool registrations
         if "agent_tools" in config:
             for agent_name, tools in config["agent_tools"].items():
                 for tool_name in tools:
-                    try:
-                        agent_service.assign_tool_for_agent(
-                            agent_name, tool_name)
-                    except ValueError as e:
-                        print(f"Error registering tool: {e}")
+                    agent_service.assign_tool_for_agent(
+                        agent_name, tool_name)
 
         # Create and return the query service
         query_service = QueryService(

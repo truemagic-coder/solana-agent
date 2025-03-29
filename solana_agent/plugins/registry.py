@@ -76,6 +76,23 @@ class ToolRegistry(ToolRegistryInterface):
         return list(self._tools.keys())
 
     def configure_all_tools(self, config: Dict[str, Any]) -> None:
-        """Configure all registered tools with the same config."""
-        for tool in self._tools.values():
-            tool.configure(config)
+        """Configure all registered tools with new configuration.
+
+        Args:
+            config: Configuration dictionary to apply
+        """
+        self._config.update(config)
+        configure_errors = []
+
+        for name, tool in self._tools.items():
+            try:
+                print(f"Configuring tool: {name}")
+                tool.configure(self._config)
+            except Exception as e:
+                print(f"Error configuring tool {name}: {e}")
+                configure_errors.append((name, str(e)))
+
+        if configure_errors:
+            print("The following tools failed to configure:")
+            for name, error in configure_errors:
+                print(f"- {name}: {error}")

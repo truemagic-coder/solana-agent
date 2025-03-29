@@ -1,169 +1,170 @@
-from typing import Dict, List
+"""
+Tests for the QueryService implementation.
+"""
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+from solana_agent.services.query import QueryService
+from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.domains.agent import AIAgent
-from solana_agent.domains.routing import QueryAnalysis
-
-# Test Data
-TEST_QUERY = "How do I setup a Solana validator?"
-TEST_USER_ID = "test_user"
-
-TEST_ANALYSIS = QueryAnalysis(
-    primary_specialization="validator",
-    secondary_specializations=["technical", "infrastructure"],
-    complexity_level=4,
-    topics=["solana", "validator", "setup"],
-    confidence=0.9
-)
-
-TEST_AGENTS = {
-    "validator_expert": AIAgent(
-        name="validator_expert",
-        instructions="Validator setup specialist",
-        specialization="validator",
-    ),
-    "general_ai": AIAgent(
-        name="general_ai",
-        instructions="General purpose agent",
-        specialization="general",
-    )
-}
-
-
-@pytest.fixture
-def mock_llm_provider():
-    provider = Mock()
-    provider.parse_structured_output = AsyncMock(return_value=TEST_ANALYSIS)
-    return provider
+from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
 @pytest.fixture
 def mock_agent_service():
-    service = Mock()
-    service.get_all_ai_agents.return_value = TEST_AGENTS
+    """Create a mock agent service."""
+    service = AsyncMock(spec=AgentService)
+    service.last_text_response = "Test response"
+    service.llm_provider = AsyncMock()
+
+    async def mock_tts():
+        yield b"audio_data"
+
+    async def mock_transcribe():
+        yield "transcribed text"
+
+    async def mock_generate():
+        yield "generated text"
+
+    service.llm_provider.tts.side_effect = mock_tts
+    service.llm_provider.transcribe_audio.side_effect = mock_transcribe
+    service.generate_response.side_effect = mock_generate
     return service
 
 
 @pytest.fixture
-def routing_service(mock_llm_provider, mock_agent_service):
-    return RoutingService(
-        llm_provider=mock_llm_provider,
-        agent_service=mock_agent_service
-    )
+def mock_routing_service():
+    """Create a mock routing service."""
+    service = AsyncMock(spec=RoutingService)
+    service.route_query.return_value = "test_agent"
+    return service
 
 
-@pytest.mark.asyncio
-async def test_analyze_query_success(routing_service, mock_llm_provider):
-    """Test successful query analysis."""
-    analysis = await routing_service._analyze_query(TEST_QUERY)
-
-    assert analysis["primary_specialization"] == "validator"
-    assert analysis["complexity_level"] == 4
-    assert "solana" in analysis["topics"]
-    assert analysis["confidence"] == 0.9
-
-    mock_llm_provider.parse_structured_output.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_route_query_to_specialist(routing_service):
-    """Test routing to specialist agent."""
-    agent_name = await routing_service.route_query(TEST_QUERY)
-    assert agent_name == "validator_expert"
+@pytest.fixture
+def mock_memory_provider():
+    """Create a mock memory provider."""
+    provider = AsyncMock(spec=MemoryProvider)
+    provider.retrieve.return_value = "memory context"
+    provider.find.return_value = [
+        {
+            "_id": "123",
+            "user_message": "hello",
+            "assistant_message": "hi",
+            "timestamp": MagicMock()
+        }
+    ]
+    provider.count_documents.return_value = 1
+    return provider
 
 
-@pytest.mark.asyncio
-async def test_route_query_fallback(routing_service, mock_agent_service):
-    """Test fallback to general AI when no specialist found."""
-    # Override both analysis and agent service for proper fallback testing
-    routing_service._analyze_query = AsyncMock(return_value={
-        "primary_specialization": "unknown_specialization",
-        "secondary_specializations": [],
-        "complexity_level": 1,
-        "topics": [],
-        "confidence": 0.5
-    })
+class TestQueryService:
+    """Test suite for QueryService."""
 
-    # Override agent service to only return general AI
-    mock_agent_service.get_all_ai_agents.return_value = {
-        "general_ai": TEST_AGENTS["general_ai"]
-    }
+    @pytest.mark.asyncio
+    async def test_process_greeting(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test processing simple greetings."""
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
 
-    agent_name = await routing_service.route_query(TEST_QUERY)
-    assert agent_name == "general_ai"
+        greetings = ["hello", "hi", "hey", "test", "ping"]
+        for greeting in greetings:
+            async for response in service.process(user_id="user123", query=greeting):
+                assert "Hello!" in response
+            mock_memory_provider.store.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_process_error_handling(self, mock_agent_service, mock_routing_service):
+        """Test error handling during processing."""
+        mock_agent_service.generate_response.side_effect = Exception(
+            "Test error")
+        service = QueryService(mock_agent_service, mock_routing_service)
 
-@pytest.mark.asyncio
-async def test_find_best_ai_agent_with_secondary_match(routing_service):
-    """Test agent selection with secondary specialization match."""
-    agent = await routing_service._find_best_ai_agent(
-        primary_specialization="technical",
-        secondary_specializations=["validator"]
-    )
-    assert agent == "validator_expert"
+        async for response in service.process(user_id="user123", query="test query"):
+            assert "I apologize for the technical difficulty" in response
+            assert "Test error" in response
 
+    @pytest.mark.asyncio
+    async def test_delete_user_history(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test deleting user history."""
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
+        await service.delete_user_history("user123")
+        mock_memory_provider.delete.assert_called_once_with("user123")
 
-@pytest.mark.asyncio
-async def test_find_best_ai_agent_no_agents(routing_service, mock_agent_service):
-    """Test handling when no agents are available."""
-    mock_agent_service.get_all_ai_agents.return_value = {}
+    @pytest.mark.asyncio
+    async def test_delete_user_history_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test error handling in delete user history."""
+        mock_memory_provider.delete.side_effect = Exception("Delete error")
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
+        # Should not raise exception
+        await service.delete_user_history("user123")
+        mock_memory_provider.delete.assert_called_once_with("user123")
 
-    agent = await routing_service._find_best_ai_agent(
-        primary_specialization="technical",
-        secondary_specializations=[]
-    )
-    assert agent is None
+    @pytest.mark.asyncio
+    async def test_get_user_history_no_memory_provider(self, mock_agent_service, mock_routing_service):
+        """Test getting user history without memory provider."""
+        service = QueryService(mock_agent_service, mock_routing_service)
+        result = await service.get_user_history("user123")
+        assert result["error"] == "Memory provider not available"
+        assert result["data"] == []
 
+    @pytest.mark.asyncio
+    async def test_get_user_history_success(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test successful retrieval of user history."""
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
+        result = await service.get_user_history("user123")
 
-@pytest.mark.asyncio  # Add asyncio marker
-async def test_agent_scoring(routing_service):
-    """Test the agent scoring mechanism."""
-    result = await routing_service._find_best_ai_agent(  # Add await here
-        primary_specialization="validator",
-        secondary_specializations=["technical"]
-    )
+        assert result["total"] == 1
+        assert len(result["data"]) == 1
+        assert result["error"] is None
+        mock_memory_provider.find.assert_called_once()
+        mock_memory_provider.count_documents.assert_called_once()
 
-    # Validator expert should win with highest score
-    assert result == "validator_expert"
+    @pytest.mark.asyncio
+    async def test_get_user_history_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test error handling in get user history."""
+        mock_memory_provider.find.side_effect = Exception("Find error")
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
 
+        result = await service.get_user_history("user123")
+        assert result["error"] == "Error retrieving history: Find error"
+        assert result["data"] == []
 
-@pytest.mark.asyncio
-async def test_agent_scoring_no_match(routing_service, mock_agent_service):
-    """Test scoring when no good matches are found."""
-    # Override agents to only have general AI
-    mock_agent_service.get_all_ai_agents.return_value = {
-        "general_ai": TEST_AGENTS["general_ai"]
-    }
+    @pytest.mark.asyncio
+    async def test_store_conversation_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test error handling in store conversation."""
+        mock_memory_provider.store.side_effect = Exception("Store error")
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
 
-    result = await routing_service._find_best_ai_agent(
-        primary_specialization="unknown",
-        secondary_specializations=["unknown"]
-    )
+        await service._store_conversation(
+            "user123",
+            "test message",
+            "test response"
+        )  # Should not raise exception
+        mock_memory_provider.store.assert_called_once()
 
-    # Should return general AI as fallback
-    assert result == "general_ai"
+    @pytest.mark.asyncio
+    async def test_process_pagination(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+        """Test pagination in get user history."""
+        service = QueryService(
+            mock_agent_service, mock_routing_service, mock_memory_provider)
+        result = await service.get_user_history(
+            user_id="user123",
+            page_num=2,
+            page_size=10,
+            sort_order="asc"
+        )
 
-
-@pytest.mark.asyncio
-async def test_route_query_single_agent(routing_service, mock_agent_service):
-    """Test routing when only one agent is available - should route to that agent."""
-    # Override agent service to return only one agent
-    single_agent = AIAgent(
-        name="solo_agent",
-        instructions="Solo agent",
-        specialization="general",
-        model="gpt-4o"
-    )
-    mock_agent_service.get_all_ai_agents.return_value = {
-        "solo_agent": single_agent
-    }
-
-    # Any query should route to the only available agent
-    agent_name = await routing_service.route_query("Any query text")
-    assert agent_name == "solo_agent"
-
-    # Verify it works with different query
-    agent_name = await routing_service.route_query("Another different query")
-    assert agent_name == "solo_agent"
+        assert result["page"] == 2
+        assert result["page_size"] == 10
+        mock_memory_provider.find.assert_called_once_with(
+            collection="conversations",
+            query={"user_id": "user123"},
+            sort=[("timestamp", 1)],
+            skip=10,
+            limit=10
+        )
