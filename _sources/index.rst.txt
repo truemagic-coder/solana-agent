@@ -19,15 +19,13 @@ Installation
 
    pip install solana-agent
 
-Text/Text Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Business Alignment Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   from solana_agent import SolanaAgent
-
    config = {
-      "business": { # optional
+      "business": {
          "mission": "To provide users with a one-stop shop for their queries.",
          "values": {
                "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -38,14 +36,40 @@ Text/Text Streaming
          ],
          "voice": "The voice of the brand is that of a research business."
       },
-      "mongo": { # optional
+   }
+
+Conversational History Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "mongo": {
          "connection_string": "mongodb://localhost:27017",
          "database": "solana_agent"
       },
-      "zep": { # optional
+   }
+
+Conversational Memory Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+   
+   config = {
+      "zep": {
          "api_key": "your-zep-api-key",
          "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
       },
+   }
+
+Text/Text Streaming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
       "openai": {
          "api_key": "your-openai-api-key",
       },

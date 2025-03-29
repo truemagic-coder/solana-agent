@@ -91,12 +91,10 @@
 </pre></div>
 </div>
 </section>
-<section id="text-text-streaming">
-<h3>Text/Text Streaming<a class="headerlink" href="#text-text-streaming" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;business&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
+<section id="business-alignment-config-optional">
+<h3>Business Alignment Config - Optional<a class="headerlink" href="#business-alignment-config-optional" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;business&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;mission&quot;</span><span class="p">:</span> <span class="s2">&quot;To provide users with a one-stop shop for their queries.&quot;</span><span class="p">,</span>
       <span class="s2">&quot;values&quot;</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">&quot;Friendliness&quot;</span><span class="p">:</span> <span class="s2">&quot;Users must be treated fairly, openly, and with friendliness.&quot;</span><span class="p">,</span>
@@ -107,14 +105,37 @@
       <span class="p">],</span>
       <span class="s2">&quot;voice&quot;</span><span class="p">:</span> <span class="s2">&quot;The voice of the brand is that of a research business.&quot;</span>
    <span class="p">},</span>
-   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="conversational-history-config-optional">
+<h3>Conversational History Config - Optional<a class="headerlink" href="#conversational-history-config-optional" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;mongodb://localhost:27017&quot;</span><span class="p">,</span>
       <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_agent&quot;</span>
    <span class="p">},</span>
-   <span class="s2">&quot;zep&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="conversational-memory-config-optional">
+<h3>Conversational Memory Config - Optional<a class="headerlink" href="#conversational-memory-config-optional" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;zep&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-api-key&quot;</span><span class="p">,</span>
       <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-base-url&quot;</span><span class="p">,</span> <span class="c1"># not applicable if using Zep Cloud</span>
    <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="text-text-streaming">
+<h3>Text/Text Streaming<a class="headerlink" href="#text-text-streaming" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
