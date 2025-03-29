@@ -52,13 +52,11 @@ You can install Solana Agent using pip:
 
 ## Usage
 
-### Text/Text Streaming
+### Business Alignment Config - Optional
 
 ```python
-from solana_agent import SolanaAgent
-
 config = {
-    "business": { # optional
+    "business": {
         "mission": "To provide users with a one-stop shop for their queries.",
         "values": {
             "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
@@ -69,14 +67,37 @@ config = {
         ],
         "voice": "The voice of the brand is that of a research business."
     },
-    "mongo": { # optional
+}
+```
+
+### Conversational History Config - Optional
+
+```python
+config = {
+    "mongo": {
         "connection_string": "mongodb://localhost:27017",
         "database": "solana_agent"
     },
-    "zep": { # optional
+}
+```
+
+### Conversational Memory Config - Optional
+
+```python
+config = {
+    "zep": {
         "api_key": "your-zep-api-key",
         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
     },
+}
+```
+
+### Text/Text Streaming
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
     "openai": {
         "api_key": "your-openai-api-key",
     },
