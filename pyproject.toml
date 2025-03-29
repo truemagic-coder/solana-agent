@@ -11,8 +11,8 @@ keywords = ["ai", "openai", "ai agents", "agi"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3 :: 3.12",
-    "Programming Language :: Python :: 3 :: 3.13",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 packages = [{ include = "solana_agent" }]
