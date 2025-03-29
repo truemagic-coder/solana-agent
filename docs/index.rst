@@ -19,7 +19,7 @@ Installation
 
    pip install solana-agent
 
-Basic Example - Text/Text Streaming
+Text/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -68,7 +68,7 @@ Basic Example - Text/Text Streaming
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
-Basic Example - Audio/Audio Streaming
+Audio/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -101,7 +101,7 @@ Basic Example - Audio/Audio Streaming
       print(response, end="")
 
 
-Basic Example - Text/Audio Streaming
+Text/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -132,7 +132,7 @@ Basic Example - Text/Audio Streaming
    async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
       print(response, end="")
 
-Basic Example - Audio/Text Streaming
+Audio/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -164,7 +164,7 @@ Basic Example - Audio/Text Streaming
    async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
       print(response, end="")
 
-Plugin Usage
+Plugins
 ~~~~~~~~
 
 Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.

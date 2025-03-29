@@ -50,7 +50,9 @@ You can install Solana Agent using pip:
 
 `pip install solana-agent`
 
-## Basic Example - Text/Text Streaming
+## Usage
+
+### Text/Text Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -98,7 +100,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Basic Example - Audio/Audio Streaming
+### Audio/Audio Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -129,7 +131,7 @@ async for response in solana_agent.process("user123", audio_content, output_form
     print(response, end="")
 ```
 
-## Basic Example - Text/Audio Streaming
+### Text/Audio Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -158,7 +160,7 @@ async for response in solana_agent.process("user123", "What is the latest news o
     print(response, end="")
 ```
 
-## Basic Example - Audio/Text Streaming
+### Audio/Text Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -189,7 +191,7 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
-## Plugin Usage
+### Plugins
 
 Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
@@ -232,7 +234,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 
 To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
 
-## Custom Inline Tool Usage
+### Custom Inline Tools
 
 ```python
 from solana_agent import SolanaAgent
@@ -312,7 +314,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Custom Prompt Injection at Runtime
+### Custom Prompt Injection at Runtime
 
 ```python
 from solana_agent import SolanaAgent
