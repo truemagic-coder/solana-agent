@@ -101,7 +101,8 @@ class MemoryRepository(MemoryProvider):
             if "role" in msg and "content" in msg:
                 zep_msg = Message(
                     role=msg["role"],
-                    content=msg["content"]
+                    content=msg["content"],
+                    role_type=msg["role"],
                 )
                 zep_messages.append(zep_msg)
 
