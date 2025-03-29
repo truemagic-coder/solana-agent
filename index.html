@@ -91,8 +91,8 @@
 </pre></div>
 </div>
 </section>
-<section id="basic-usage">
-<h3>Basic Usage<a class="headerlink" href="#basic-usage" title="Link to this heading"></a></h3>
+<section id="basic-example-text-text-streaming">
+<h3>Basic Example - Text/Text Streaming<a class="headerlink" href="#basic-example-text-text-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -139,43 +139,113 @@
 </pre></div>
 </div>
 </section>
-<section id="plugin-usage">
-<h3>Plugin Usage<a class="headerlink" href="#plugin-usage" title="Link to this heading"></a></h3>
-<p>Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
-</pre></div>
-</div>
+<section id="basic-example-audio-audio-streaming">
+<h3>Basic Example - Audio/Audio Streaming<a class="headerlink" href="#basic-example-audio-audio-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;business&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;mission&quot;</span><span class="p">:</span> <span class="s2">&quot;To provide users with a one-stop shop for their queries.&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;values&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;Friendliness&quot;</span><span class="p">:</span> <span class="s2">&quot;Users must be treated fairly, openly, and with friendliness.&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ethical&quot;</span><span class="p">:</span> <span class="s2">&quot;Agents must use a strong ethical framework in their interactions with users.&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
       <span class="p">},</span>
-      <span class="s2">&quot;goals&quot;</span><span class="p">:</span> <span class="p">[</span>
-            <span class="s2">&quot;Empower users with great answers to their queries.&quot;</span><span class="p">,</span>
-      <span class="p">],</span>
-      <span class="s2">&quot;voice&quot;</span><span class="p">:</span> <span class="s2">&quot;The voice of the brand is that of a research business.&quot;</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="n">audio_content</span> <span class="o">=</span> <span class="n">audio_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="n">audio_content</span><span class="p">,</span> <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span> <span class="n">audio_voice</span><span class="o">=</span><span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;webm&quot;</span><span class="p">,</span> <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;aac&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="basic-example-text-audio-streaming">
+<h3>Basic Example - Text/Audio Streaming<a class="headerlink" href="#basic-example-text-audio-streaming" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
-   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;mongodb://localhost:27017&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_agent&quot;</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is the latest news on Elon Musk?&quot;</span><span class="p">,</span> <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span> <span class="n">audio_voice</span><span class="o">=</span><span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;aac&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="basic-example-audio-text-streaming">
+<h3>Basic Example - Audio/Text Streaming<a class="headerlink" href="#basic-example-audio-text-streaming" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
-   <span class="s2">&quot;zep&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-api-key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-base-url&quot;</span><span class="p">,</span> <span class="c1"># not applicable if using Zep Cloud</span>
-   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="n">audio_content</span> <span class="o">=</span> <span class="n">audio_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="n">audio_content</span><span class="p">,</span> <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;aac&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="plugin-usage">
+<h3>Plugin Usage<a class="headerlink" href="#plugin-usage" title="Link to this heading"></a></h3>
+<p>Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.</p>
+<p><cite>pip install sakit</cite></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
-     <span class="s2">&quot;search_internet&quot;</span><span class="p">:</span> <span class="p">{</span>
-         <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-perplexity-key&quot;</span><span class="p">,</span> <span class="c1"># Required</span>
-         <span class="s2">&quot;citations&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="c1"># Optional, defaults to True</span>
-         <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;sonar&quot;</span>  <span class="c1"># Optional, defaults to &quot;sonar&quot;</span>
-     <span class="p">},</span>
+      <span class="s2">&quot;search_internet&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-perplexity-key&quot;</span><span class="p">,</span> <span class="c1"># Required</span>
+            <span class="s2">&quot;citations&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="c1"># Optional, defaults to True</span>
+            <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;sonar&quot;</span>  <span class="c1"># Optional, defaults to &quot;sonar&quot;</span>
+      <span class="p">},</span>
    <span class="p">},</span>
    <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
@@ -198,11 +268,10 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>To create a plugin like Solana Agent Kit - read the code at <a class="reference external" href="https://github.com/truemagic-coder/solana-agent-kit">https://github.com/truemagic-coder/solana-agent-kit</a></p>
+<p>To create a plugin like Solana Agent Kit - read the [code](<a class="reference external" href="https://github.com/truemagic-coder/solana-agent-kit">https://github.com/truemagic-coder/solana-agent-kit</a>)</p>
 </section>
 <section id="custom-inline-tool-usage">
 <h3>Custom Inline Tool Usage<a class="headerlink" href="#custom-inline-tool-usage" title="Link to this heading"></a></h3>
-<p>Creating a custom inline tool will register it will all agents.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span>
 
@@ -253,25 +322,6 @@
             <span class="p">}</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;business&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;mission&quot;</span><span class="p">:</span> <span class="s2">&quot;To provide users with a one-stop shop for their queries.&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;values&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;Friendliness&quot;</span><span class="p">:</span> <span class="s2">&quot;Users must be treated fairly, openly, and with friendliness.&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ethical&quot;</span><span class="p">:</span> <span class="s2">&quot;Agents must use a strong ethical framework in their interactions with users.&quot;</span><span class="p">,</span>
-      <span class="p">},</span>
-      <span class="s2">&quot;goals&quot;</span><span class="p">:</span> <span class="p">[</span>
-            <span class="s2">&quot;Empower users with great answers to their queries.&quot;</span><span class="p">,</span>
-      <span class="p">],</span>
-      <span class="s2">&quot;voice&quot;</span><span class="p">:</span> <span class="s2">&quot;The voice of the brand is that of a research business.&quot;</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;mongodb://localhost:27017&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_agent&quot;</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;zep&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="c1"># optional</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-api-key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;your-zep-base-url&quot;</span><span class="p">,</span> <span class="c1"># not applicable if using Zep Cloud</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -296,6 +346,35 @@
 <span class="n">solana_agent</span><span class="o">.</span><span class="n">register_tool</span><span class="p">(</span><span class="n">test_tool</span><span class="p">)</span>
 
 <span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="custom-prompt-injection-at-runtime">
+<h3>Custom Prompt Injection at Runtime<a class="headerlink" href="#custom-prompt-injection-at-runtime" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">,</span> <span class="s2">&quot;Always end your sentences with eh?&quot;</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>

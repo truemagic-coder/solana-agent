@@ -82,6 +82,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.factories.agent_factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgentFactory</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.client.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span> <span class="k">as</span> <span class="n">SolanaAgentInterface</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingInterface</span>
 
 
 <div class="viewcode-block" id="SolanaAgent">
@@ -129,6 +130,7 @@
         <span class="n">audio_input_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
             <span class="s2">&quot;flac&quot;</span><span class="p">,</span> <span class="s2">&quot;mp3&quot;</span><span class="p">,</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span> <span class="s2">&quot;mpeg&quot;</span><span class="p">,</span> <span class="s2">&quot;mpga&quot;</span><span class="p">,</span> <span class="s2">&quot;m4a&quot;</span><span class="p">,</span> <span class="s2">&quot;ogg&quot;</span><span class="p">,</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span> <span class="s2">&quot;webm&quot;</span>
         <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
+        <span class="n">router</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">RoutingInterface</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncGenerator</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">],</span> <span class="kc">None</span><span class="p">]:</span>  <span class="c1"># pragma: no cover</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Process a user message and return the response stream.</span>
 
@@ -138,9 +140,10 @@
 <span class="sd">            prompt: Optional prompt for the agent</span>
 <span class="sd">            output_format: Response format (&quot;text&quot; or &quot;audio&quot;)</span>
 <span class="sd">            audio_voice: Voice to use for audio output</span>
-<span class="sd">            audio_instructions: Optional instructions for audio synthesis</span>
+<span class="sd">            audio_instructions: Not used currently</span>
 <span class="sd">            audio_output_format: Audio output format</span>
 <span class="sd">            audio_input_format: Audio input format</span>
+<span class="sd">            router: Optional routing service for processing</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            Async generator yielding response chunks (text strings or audio bytes)</span>
@@ -154,6 +157,7 @@
             <span class="n">audio_output_format</span><span class="o">=</span><span class="n">audio_output_format</span><span class="p">,</span>
             <span class="n">audio_input_format</span><span class="o">=</span><span class="n">audio_input_format</span><span class="p">,</span>
             <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+            <span class="n">router</span><span class="o">=</span><span class="n">router</span><span class="p">,</span>
         <span class="p">):</span>
             <span class="k">yield</span> <span class="n">chunk</span></div>
 
