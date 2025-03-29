@@ -195,6 +195,9 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
 `pip install sakit`
 
+Search Internet Plugin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 .. code-block:: python
 
    from solana_agent import SolanaAgent
@@ -225,6 +228,43 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
       ],
    }
 
+   solana_agent = SolanaAgent(config=config)
+
+   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+      print(response, end="")
+
+MCP Plugin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "openai": {
+         "api_key": "your-openai-api-key",
+      },
+      "tools": {
+            "mcp": {
+               "server_urls": [
+                  "http://mcp-server1.com/mcp",
+                  "http://mcp-server2.com/mcp",
+                  "http://mcp-server3.com/mcp"
+               ]
+            }
+      },
+      "agents": [
+         {
+               "name": "research_specialist",
+               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+               "specialization": "Research and knowledge synthesis",
+               "tools": ["mcp"],
+         },
+         {
+               "name": "customer_support",
+               "instructions": "You provide friendly, helpful customer support responses.",
+               "specialization": "Customer inquiries",
+         }
+      ],
+   }
    solana_agent = SolanaAgent(config=config)
 
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):

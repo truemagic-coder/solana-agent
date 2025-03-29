@@ -255,6 +255,9 @@
 <h3>Plugins<a class="headerlink" href="#plugins" title="Link to this heading"></a></h3>
 <p>Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.</p>
 <p><cite>pip install sakit</cite></p>
+</section>
+<section id="search-internet-plugin">
+<h3>Search Internet Plugin<a class="headerlink" href="#search-internet-plugin" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -283,6 +286,42 @@
    <span class="p">],</span>
 <span class="p">}</span>
 
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="mcp-plugin">
+<h3>MCP Plugin<a class="headerlink" href="#mcp-plugin" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
+         <span class="s2">&quot;mcp&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;server_urls&quot;</span><span class="p">:</span> <span class="p">[</span>
+               <span class="s2">&quot;http://mcp-server1.com/mcp&quot;</span><span class="p">,</span>
+               <span class="s2">&quot;http://mcp-server2.com/mcp&quot;</span><span class="p">,</span>
+               <span class="s2">&quot;http://mcp-server3.com/mcp&quot;</span>
+            <span class="p">]</span>
+         <span class="p">}</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;mcp&quot;</span><span class="p">],</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
 <span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
