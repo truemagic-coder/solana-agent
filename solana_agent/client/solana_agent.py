@@ -118,11 +118,12 @@ class SolanaAgent(SolanaAgentInterface):
             user_id, page_num, page_size, sort_order
         )
 
-    def register_tool(self, tool: Tool) -> bool:
+    def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """
         Register a tool with the agent system.
 
         Args:
+            agent_name: Name of the agent to register the tool with
             tool: Tool instance to register
 
         Returns:
@@ -131,8 +132,6 @@ class SolanaAgent(SolanaAgentInterface):
         success = self.query_service.agent_service.tool_registry.register_tool(
             tool)
         if success:
-            agents = self.query_service.agent_service.get_all_ai_agents()
-            for agent_name in agents:
-                self.query_service.agent_service.assign_tool_for_agent(
-                    agent_name, tool.name)
+            self.query_service.agent_service.assign_tool_for_agent(
+                agent_name, tool.name)
         return success

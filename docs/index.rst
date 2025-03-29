@@ -19,49 +19,6 @@ Installation
 
    pip install solana-agent
 
-Business Alignment Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "business": {
-         "mission": "To provide users with a one-stop shop for their queries.",
-         "values": {
-               "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
-               "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
-         },
-         "goals": [
-               "Empower users with great answers to their queries.",
-         ],
-         "voice": "The voice of the brand is that of a research business."
-      },
-   }
-
-Conversational History Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "mongo": {
-         "connection_string": "mongodb://localhost:27017",
-         "database": "solana_agent"
-      },
-   }
-
-Conversational Memory Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-   
-   config = {
-      "zep": {
-         "api_key": "your-zep-api-key",
-         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
-      },
-   }
-
 Text/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -187,6 +144,49 @@ Audio/Text Streaming
 
    async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
       print(response, end="")
+
+Business Alignment Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "business": {
+         "mission": "To provide users with a one-stop shop for their queries.",
+         "values": {
+               "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
+               "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
+         },
+         "goals": [
+               "Empower users with great answers to their queries.",
+         ],
+         "voice": "The voice of the brand is that of a research business."
+      },
+   }
+
+Conversational History Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "mongo": {
+         "connection_string": "mongodb://localhost:27017",
+         "database": "solana_agent"
+      },
+   }
+
+Conversational Memory Config - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+   
+   config = {
+      "zep": {
+         "api_key": "your-zep-api-key",
+         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+      },
+   }
 
 Plugins
 ~~~~~~~~

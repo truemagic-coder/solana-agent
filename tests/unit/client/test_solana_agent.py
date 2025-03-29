@@ -106,14 +106,20 @@ class TestSolanaAgent:
             mock_factory.create_from_config.return_value = mock_query_service
             agent = SolanaAgent(config=config_dict)
 
+            # Setup mock tool and registry
             mock_tool = MagicMock(spec=Tool)
             mock_tool.name = "test_tool"
             mock_query_service.agent_service.tool_registry.register_tool.return_value = True
 
-            result = agent.register_tool(mock_tool)
+            # Test registration
+            result = agent.register_tool("test_agent", mock_tool)
+
+            # Verify results
             assert result is True
             mock_query_service.agent_service.tool_registry.register_tool.assert_called_once_with(
                 mock_tool)
+            mock_query_service.agent_service.assign_tool_for_agent.assert_called_once_with(
+                "test_agent", "test_tool")
 
     def test_register_tool_failure(self, config_dict, mock_query_service):
         """Test failed tool registration."""
@@ -121,9 +127,17 @@ class TestSolanaAgent:
             mock_factory.create_from_config.return_value = mock_query_service
             agent = SolanaAgent(config=config_dict)
 
+            # Setup mock tool and registry
             mock_tool = MagicMock(spec=Tool)
             mock_tool.name = "test_tool"
             mock_query_service.agent_service.tool_registry.register_tool.return_value = False
 
-            result = agent.register_tool(mock_tool)
+            # Test registration
+            result = agent.register_tool("test_agent", mock_tool)
+
+            # Verify results
             assert result is False
+            mock_query_service.agent_service.tool_registry.register_tool.assert_called_once_with(
+                mock_tool)
+            # Verify assign_tool_for_agent was not called
+            mock_query_service.agent_service.assign_tool_for_agent.assert_not_called()

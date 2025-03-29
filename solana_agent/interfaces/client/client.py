@@ -38,6 +38,6 @@ class SolanaAgent(ABC):
         pass
 
     @abstractmethod
-    def register_tool(self, tool: Tool) -> bool:
+    def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """Register a tool in the registry."""
         pass
