@@ -228,11 +228,14 @@ the agent system without dealing with internal implementation details.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.register_tool">
-<span class="sig-name descname"><span class="pre">register_tool</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tool</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.register_tool"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">register_tool</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tool</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.register_tool"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool" title="Link to this definition"></a></dt>
 <dd><p>Register a tool with the agent system.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>tool</strong> (<a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool" title="solana_agent.interfaces.plugins.plugins.Tool"><em>Tool</em></a>) – Tool instance to register</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>agent_name</strong> (<em>str</em>) – Name of the agent to register the tool with</p></li>
+<li><p><strong>tool</strong> (<a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool" title="solana_agent.interfaces.plugins.plugins.Tool"><em>Tool</em></a>) – Tool instance to register</p></li>
+</ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>True if successful, False</p>

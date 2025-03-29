@@ -202,11 +202,12 @@
 
 <div class="viewcode-block" id="SolanaAgent.register_tool">
 <a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.register_tool">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">register_tool</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tool</span><span class="p">:</span> <span class="n">Tool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_tool</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tool</span><span class="p">:</span> <span class="n">Tool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Register a tool with the agent system.</span>
 
 <span class="sd">        Args:</span>
+<span class="sd">            agent_name: Name of the agent to register the tool with</span>
 <span class="sd">            tool: Tool instance to register</span>
 
 <span class="sd">        Returns:</span>
@@ -215,10 +216,8 @@
         <span class="n">success</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">tool_registry</span><span class="o">.</span><span class="n">register_tool</span><span class="p">(</span>
             <span class="n">tool</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
-            <span class="n">agents</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">get_all_ai_agents</span><span class="p">()</span>
-            <span class="k">for</span> <span class="n">agent_name</span> <span class="ow">in</span> <span class="n">agents</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">assign_tool_for_agent</span><span class="p">(</span>
-                    <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">assign_tool_for_agent</span><span class="p">(</span>
+                <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">success</span></div>
 </div>
 
