@@ -110,19 +110,21 @@
 <span class="sd">            True if registration succeeded, False otherwise</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="c1"># Store plugin by name</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_plugins</span><span class="p">[</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">plugin</span>
-
-            <span class="c1"># Initialize the plugin with the tool registry</span>
+            <span class="c1"># Initialize the plugin with the tool registry first</span>
             <span class="n">plugin</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tool_registry</span><span class="p">)</span>
 
-            <span class="c1"># *** ADD THIS LINE: Configure the plugin with our config ***</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Configuring plugin </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> with config&quot;</span><span class="p">)</span>
+            <span class="c1"># Then configure the plugin</span>
             <span class="n">plugin</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
 
+            <span class="c1"># Only store plugin if both initialize and configure succeed</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_plugins</span><span class="p">[</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">plugin</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully registered plugin </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">True</span>
+
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error registering plugin </span><span class="si">{</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="c1"># Remove plugin from registry if it was added</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_plugins</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">False</span></div>
 
 
@@ -137,30 +139,27 @@
         <span class="n">loaded_plugins</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="c1"># Discover plugins through entry points</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="k">for</span> <span class="n">entry_point</span> <span class="ow">in</span> <span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">entry_points</span><span class="p">(</span><span class="n">group</span><span class="o">=</span><span class="s1">&#39;solana_agent.plugins&#39;</span><span class="p">):</span>
-                <span class="c1"># Skip if this entry point has already been loaded</span>
-                <span class="n">entry_point_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="k">if</span> <span class="n">entry_point_id</span> <span class="ow">in</span> <span class="n">PluginManager</span><span class="o">.</span><span class="n">_loaded_entry_points</span><span class="p">:</span>
-                    <span class="nb">print</span><span class="p">(</span>
-                        <span class="sa">f</span><span class="s2">&quot;Skipping already loaded plugin: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                    <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">entry_point</span> <span class="ow">in</span> <span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">entry_points</span><span class="p">(</span><span class="n">group</span><span class="o">=</span><span class="s1">&#39;solana_agent.plugins&#39;</span><span class="p">):</span>
+            <span class="c1"># Skip if this entry point has already been loaded</span>
+            <span class="n">entry_point_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="k">if</span> <span class="n">entry_point_id</span> <span class="ow">in</span> <span class="n">PluginManager</span><span class="o">.</span><span class="n">_loaded_entry_points</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Skipping already loaded plugin: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">continue</span>
 
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found plugin entry point: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-                    <span class="n">PluginManager</span><span class="o">.</span><span class="n">_loaded_entry_points</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">entry_point_id</span><span class="p">)</span>
-                    <span class="n">plugin_factory</span> <span class="o">=</span> <span class="n">entry_point</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
-                    <span class="n">plugin</span> <span class="o">=</span> <span class="n">plugin_factory</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found plugin entry point: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="n">PluginManager</span><span class="o">.</span><span class="n">_loaded_entry_points</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">entry_point_id</span><span class="p">)</span>
+                <span class="n">plugin_factory</span> <span class="o">=</span> <span class="n">entry_point</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+                <span class="n">plugin</span> <span class="o">=</span> <span class="n">plugin_factory</span><span class="p">()</span>
 
-                    <span class="c1"># Register the plugin</span>
-                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">register_plugin</span><span class="p">(</span><span class="n">plugin</span><span class="p">):</span>
-                        <span class="c1"># Use entry_point.name instead of plugin.name</span>
-                        <span class="n">loaded_plugins</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+                <span class="c1"># Register the plugin</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">register_plugin</span><span class="p">(</span><span class="n">plugin</span><span class="p">):</span>
+                    <span class="c1"># Use entry_point.name instead of plugin.name</span>
+                    <span class="n">loaded_plugins</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
 
-                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-                    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error loading plugin </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error discovering plugins: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error loading plugin </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
         <span class="k">return</span> <span class="n">loaded_plugins</span></div>
 
