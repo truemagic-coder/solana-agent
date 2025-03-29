@@ -31,7 +31,7 @@ Build your AI business in three lines of code!
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
 * Streamlined message history for all agent interactions
-* Intelligent query routing to agents with optimal domain expertise
+* Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline classes
 * Assigned tools are utilized by agents automatically and effectively
@@ -340,6 +340,47 @@ config = {
 solana_agent = SolanaAgent(config=config)
 
 async for response in solana_agent.process("user123", "What are the latest AI developments?", "Always end your sentences with eh?"):
+    print(response, end="")
+```
+
+### Custom Routing
+
+```python
+from solana_agent import SolanaAgent
+from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+class Router(RoutingServiceInterface)
+    def __init__(self):
+        # your router initialization - delete the following pass
+        pass
+
+    async def route_query(self, query: str) -> str:
+        # a simple example to route always to customer_support agent
+        return "customer_support"
+
+router = Router()
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?", router=router):
     print(response, end="")
 ```
 

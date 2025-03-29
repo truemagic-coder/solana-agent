@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "20.1.0"
+version = "20.1.1"
 description = "Agentic IQ"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -11,6 +11,7 @@ keywords = ["ai", "openai", "ai agents", "agi"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
