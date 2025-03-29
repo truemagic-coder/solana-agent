@@ -15,7 +15,8 @@
 Build your AI business in three lines of code!
 
 ## Why?
-* Three lines of code required
+* Three lines of code setup
+* Multi-Agent Swarm
 * Multi-Modal Streaming
 * Conversational Memory & History
 * Intelligent Routing
@@ -29,15 +30,17 @@ Build your AI business in three lines of code!
 
 ## Features
 
+* Easy three lines of code setup
+* Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
 * Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
-* Powerful tool integration using standard Python packages and/or inline classes
+* Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
-* Ability to access any MCP server via a URL
+* Ability to access any MCP server via URL
 
 ## Stack
 
@@ -53,46 +56,6 @@ You can install Solana Agent using pip:
 `pip install solana-agent`
 
 ## Usage
-
-### Business Alignment Config - Optional
-
-```python
-config = {
-    "business": {
-        "mission": "To provide users with a one-stop shop for their queries.",
-        "values": {
-            "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
-            "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
-        },
-        "goals": [
-            "Empower users with great answers to their queries.",
-        ],
-        "voice": "The voice of the brand is that of a research business."
-    },
-}
-```
-
-### Conversational History Config - Optional
-
-```python
-config = {
-    "mongo": {
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
-    },
-}
-```
-
-### Conversational Memory Config - Optional
-
-```python
-config = {
-    "zep": {
-        "api_key": "your-zep-api-key",
-        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
-    },
-}
-```
 
 ### Text/Text Streaming
 
@@ -214,13 +177,55 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
-### Plugins
+## Optional Feature Configs
+
+### Business Alignment
+
+```python
+config = {
+    "business": {
+        "mission": "To provide users with a one-stop shop for their queries.",
+        "values": {
+            "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
+            "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
+        },
+        "goals": [
+            "Empower users with great answers to their queries.",
+        ],
+        "voice": "The voice of the brand is that of a research business."
+    },
+}
+```
+
+### Conversational History
+
+```python
+config = {
+    "mongo": {
+        "connection_string": "mongodb://localhost:27017",
+        "database": "solana_agent"
+    },
+}
+```
+
+### Conversational Memory
+
+```python
+config = {
+    "zep": {
+        "api_key": "your-zep-api-key",
+        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+    },
+}
+```
+
+## Plugins
 
 Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
 `pip install sakit`
 
-#### Internet Search
+### Internet Search
 ```python
 from solana_agent import SolanaAgent
 
@@ -256,7 +261,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-#### MCP
+### MCP
 ```python
 from solana_agent import SolanaAgent
 
@@ -295,6 +300,8 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 ```
 
 To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
+
+## Advanced
 
 ### Custom Inline Tools
 
