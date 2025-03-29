@@ -23,7 +23,7 @@ python_paths = [".", "tests"]
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
 openai = "^1.68.2"
-pydantic = "^2.10.6"
+pydantic = "^2.11.1"
 pymongo = "^4.11.3"
 zep-cloud = "^2.8.0"
 zep-python = "^2.0.2"
