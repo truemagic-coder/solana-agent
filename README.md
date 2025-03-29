@@ -23,7 +23,7 @@ Build your AI business in three lines of code!
 * Extensible Tooling
 * Simple Business Definition
 * Tested & Secure
-* Support for MCP
+* Support for MCP Servers
 * Built in Python
 * Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
@@ -37,7 +37,7 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline classes
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
-* Ability to access any MCP via a URL
+* Ability to access any MCP server via a URL
 
 ## Stack
 
