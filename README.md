@@ -19,6 +19,7 @@ Build your AI business in three lines of code!
 * Multi-Agent Swarm
 * Multi-Modal Streaming
 * Conversational Memory & History
+* Built-in Internet Search
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
@@ -34,6 +35,7 @@ Build your AI business in three lines of code!
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
+* Quick built-in Internet Search to answer your queries
 * Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
@@ -225,42 +227,6 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
 `pip install sakit`
 
-### Internet Search
-```python
-from solana_agent import SolanaAgent
-
-config = {
-    "openai": {
-        "api_key": "your-openai-api-key",
-    },
-    "tools": {
-        "search_internet": {
-            "api_key": "your-perplexity-key", # Required
-            "citations": True, # Optional, defaults to True
-            "model": "sonar"  # Optional, defaults to "sonar"
-        },
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-            "tools": ["search_internet"],
-        },
-        {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-        }
-    ],
-}
-
-solana_agent = SolanaAgent(config=config)
-
-async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-    print(response, end="")
-```
-
 ### MCP
 ```python
 from solana_agent import SolanaAgent
@@ -384,6 +350,8 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 ```
 
 ### Custom Prompt Injection at Runtime
+
+Useful for Knowledge Base answers and FAQs
 
 ```python
 from solana_agent import SolanaAgent

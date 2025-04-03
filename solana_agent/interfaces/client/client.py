@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
 
 class SolanaAgent(ABC):
@@ -12,6 +13,7 @@ class SolanaAgent(ABC):
         self,
         user_id: str,
         message: Union[str, bytes],
+        prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
@@ -21,7 +23,8 @@ class SolanaAgent(ABC):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
-        prompt: Optional[str] = None,
+        router: Optional[RoutingInterface] = None,
+        use_openai_search: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process a user message and return the response stream."""
         pass
