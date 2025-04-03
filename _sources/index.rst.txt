@@ -195,44 +195,6 @@ Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
 
 `pip install sakit`
 
-Search Internet Plugin
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "tools": {
-         "search_internet": {
-               "api_key": "your-perplexity-key", # Required
-               "citations": True, # Optional, defaults to True
-               "model": "sonar"  # Optional, defaults to "sonar"
-         },
-      },
-      "agents": [
-         {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
-               "tools": ["search_internet"],
-         },
-         {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-      print(response, end="")
-
 MCP Plugin
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -355,6 +317,8 @@ Custom Inline Tool Usage
 
 Custom Prompt Injection at Runtime
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Useful for Knowledge Base answers and FAQs.
 
 .. code-block:: python
 
