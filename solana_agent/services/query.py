@@ -49,6 +49,7 @@ class QueryService(QueryServiceInterface):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
+        use_openai_search: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
@@ -62,6 +63,7 @@ class QueryService(QueryServiceInterface):
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
             router: Optional routing service for processing
+            use_openai_search: Flag to use OpenAI search
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -119,6 +121,7 @@ class QueryService(QueryServiceInterface):
                     audio_output_format=audio_output_format,
                     audio_instructions=audio_instructions,
                     prompt=prompt,
+                    use_openai_search=use_openai_search,
                 ):
                     yield audio_chunk
 
@@ -137,6 +140,7 @@ class QueryService(QueryServiceInterface):
                     memory_context=memory_context,
                     output_format="text",
                     prompt=prompt,
+                    use_openai_search=use_openai_search,
                 ):
                     yield chunk
                     full_text_response += chunk

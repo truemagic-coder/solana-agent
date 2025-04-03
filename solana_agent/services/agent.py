@@ -176,6 +176,7 @@ class AgentService(AgentServiceInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
+        use_openai_search: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output.
 
@@ -190,6 +191,7 @@ class AgentService(AgentServiceInterface):
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
+            use_openai_search: Flag to use OpenAI search
 
         Yields:
             Text chunks or audio bytes depending on output_format
@@ -237,6 +239,7 @@ class AgentService(AgentServiceInterface):
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
                 system_prompt=system_prompt,
+                search=use_openai_search,
             ):
                 # Check for JSON start
                 if chunk.strip().startswith("{") and not is_json:

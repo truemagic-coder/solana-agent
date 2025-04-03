@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "21.0.0"
+version = "21.1.0"
 description = "Agentic IQ"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -23,15 +23,15 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "^1.68.2"
-pydantic = "^2.11.1"
+openai = "^1.70.0"
+pydantic = "^2.11.2"
 pymongo = "^4.11.3"
-zep-cloud = "^2.8.0"
+zep-cloud = "^2.9.0"
 zep-python = "^2.0.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
-pytest-cov = "^6.0.0"
+pytest-cov = "^6.1.0"
 pytest-asyncio = "^0.26.0"
 pytest-mock = "^3.14.0"
 pytest-github-actions-annotate-failures = "^0.3.0"
