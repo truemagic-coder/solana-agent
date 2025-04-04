@@ -521,7 +521,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 | Feature                | Solana Agent                                   | PydanticAI                                   |
 |------------------------|-----------------------------------------------|---------------------------------------------|
-| **Multi-Modal**        | Full audio/text streaming built-in            | Text only                                   |
+| **Multi-Modal**        | Full audio/text streaming built-in            | Text output only, input depends on LLM      |
 | **Memory**             | Built-in conversation history                 | Not included                                |
 | **Multi-Agent**        | First-class multi-agent support               | Single agent focus with composition patterns|
 | **Tool Creation**      | Python classes with execute method            | Function decorators with schema             |
