@@ -225,12 +225,12 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
     print(response, end="")
 ```
 
-### Customize your Agent audio voice
+### Customize Audio Voice
 
 This is an audio to audio example using the `audio_instructions` parameter.
 
 ```python
-async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American Southern Accent"):
+async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
     print(response, end="")
 ```
 
