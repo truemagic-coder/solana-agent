@@ -1,12 +1,13 @@
 # Solana Agent
 
 [![PyPI - Version](https://img.shields.io/pypi/v/solana-agent)](https://pypi.org/project/solana-agent/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/solana-agent?color=yellow)](https://pypi.org/project/solana-agent/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/solana-agent)](https://pypi.org/project/solana-agent/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-orange.svg)](https://www.python.org/downloads/)
 [![codecov](https://img.shields.io/codecov/c/github/truemagic-coder/solana-agent/main.svg)](https://codecov.io/gh/truemagic-coder/solana-agent)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/ci.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/ci.yml)
 [![Lines of Code](https://tokei.rs/b1/github/truemagic-coder/solana-agent?type=python&category=code&style=flat)](https://github.com/truemagic-coder/solana-agent)
+[![Libraries.io dependency status for GitHub repo](https://img.shields.io/librariesio/github/truemagic-coder/solana-agent)](https://libraries.io/pypi/solana-agent)
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
@@ -17,7 +18,7 @@ Build your AI business in three lines of code!
 ## Why?
 * Three lines of code setup
 * Multi-Agent Swarm
-* Multi-Modal Streaming
+* Multi-Modal Streaming (Text & Audio)
 * Conversational Memory & History
 * Built-in Internet Search
 * Intelligent Routing
@@ -26,15 +27,16 @@ Build your AI business in three lines of code!
 * Simple Business Definition
 * Tested & Secure
 * Built in Python
-* Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
+* Powers [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
 ## Features
 
 * Easy three lines of code setup
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
+* Configurable audio voice characteristics via prompting
 * Persistent memory that preserves context across all agent interactions
-* Quick built-in Internet Search to answer your queries
+* Quick built-in Internet search to answer your queries
 * Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
@@ -228,6 +230,16 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
 ### Customize Audio Voice
 
 This is an audio to audio example using the `audio_instructions` parameter.
+
+You can prompt the model to control aspects of speech, including:
+
+* Accent
+* Emotional range
+* Intonation
+* Impressions
+* Speed of speech
+* Tone
+* Whispering
 
 ```python
 async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
