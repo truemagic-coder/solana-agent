@@ -41,7 +41,7 @@ class QueryService(QueryServiceInterface):
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        audio_instructions: Optional[str] = None,
+        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[
@@ -58,7 +58,7 @@ class QueryService(QueryServiceInterface):
             query: Text query or audio bytes
             output_format: Response format ("text" or "audio")
             audio_voice: Voice for TTS (text-to-speech)
-            audio_instructions: Optional instructions for TTS
+            audio_instructions: Audio voice instructions
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
@@ -84,7 +84,8 @@ class QueryService(QueryServiceInterface):
                     async for chunk in self.agent_service.llm_provider.tts(
                         text=response,
                         voice=audio_voice,
-                        response_format=audio_output_format
+                        response_format=audio_output_format,
+                        instructions=audio_instructions,
                     ):
                         yield chunk
                 else:

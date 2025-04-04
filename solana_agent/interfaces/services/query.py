@@ -13,7 +13,7 @@ class QueryService(ABC):
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        audio_instructions: Optional[str] = None,
+        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[

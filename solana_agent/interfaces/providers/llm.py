@@ -31,7 +31,7 @@ class LLMProvider(ABC):
     async def tts(
         self,
         text: str,
-        instructions: str = "",
+        instructions: str = "You speak in a friendly and helpful manner.",
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         response_format: Literal['mp3', 'opus',
