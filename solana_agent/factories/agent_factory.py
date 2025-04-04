@@ -74,17 +74,16 @@ class SolanaAgentFactory:
             if "api_key" not in config["zep"]:
                 raise ValueError("Zep API key is required.")
             memory_provider = MemoryRepository(
-                db_adapter, config["zep"].get("api_key"), config["zep"].get("base_url"))
+                mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key"))
 
         if "mongo" in config and not "zep" in config:
-            memory_provider = MemoryRepository(db_adapter)
+            memory_provider = MemoryRepository(mongo_adapter=db_adapter)
 
         if "zep" in config and not "mongo" in config:
             if "api_key" not in config["zep"]:
                 raise ValueError("Zep API key is required.")
             memory_provider = MemoryRepository(
-                zep_api_key=config["zep"].get("api_key"),
-                zep_base_url=config["zep"].get("base_url")
+                zep_api_key=config["zep"].get("api_key")
             )
 
         # Create primary services

@@ -49,7 +49,7 @@ Build your AI business in three lines of code!
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
-* [Zep](https://getzep.com) - Conversational Memory (optional)
+* [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
 ## Installation
 
@@ -215,57 +215,17 @@ config = {
 ```python
 config = {
     "zep": {
-        "api_key": "your-zep-api-key",
-        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+        "api_key": "your-zep-cloud-api-key",
     },
 }
 ```
 
-## Plugins
+### Disable Internet Searching
 
-Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
-
-`pip install sakit`
-
-### MCP
 ```python
-from solana_agent import SolanaAgent
-
-config = {
-    "openai": {
-        "api_key": "your-openai-api-key",
-    },
-    "tools": {
-        "mcp": {
-            "server_urls": [
-                "http://mcp-server1.com/mcp",
-                "http://mcp-server2.com/mcp",
-                "http://mcp-server3.com/mcp"
-            ]
-        }
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-            "tools": ["mcp"],
-        },
-        {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-        }
-    ],
-}
-
-solana_agent = SolanaAgent(config=config)
-
-async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
     print(response, end="")
 ```
-
-To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
 
 ## Advanced
 

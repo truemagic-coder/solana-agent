@@ -35,7 +35,6 @@ def full_config():
         },
         "zep": {
             "api_key": "zep_key",
-            "base_url": "http://localhost:8000"
         },
         "business": {
             "mission": "Test mission",
@@ -149,7 +148,6 @@ class TestSolanaAgentFactory:
         config = {
             "openai": {"api_key": "test_key"},
             "zep": {
-                "base_url": "http://localhost:8000"
                 # Missing api_key
             }
         }
@@ -164,7 +162,6 @@ class TestSolanaAgentFactory:
         config = {
             "openai": {"api_key": "test_key"},
             "zep": {
-                "base_url": "http://localhost:8000"
                 # Missing api_key
             },
             "mongo": {
@@ -185,7 +182,6 @@ class TestSolanaAgentFactory:
             "openai": {"api_key": "test_key"},
             "zep": {
                 "api_key": "zep_test_key",
-                "base_url": "http://localhost:8000"
             },
             "mongo": {
                 "connection_string": "mongodb://localhost:27017",
@@ -206,7 +202,6 @@ class TestSolanaAgentFactory:
             "openai": {"api_key": "test_key"},
             "zep": {
                 "api_key": "zep_test_key",
-                "base_url": "http://localhost:8000"
             }
         }
 

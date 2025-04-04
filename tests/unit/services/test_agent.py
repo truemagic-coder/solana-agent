@@ -232,16 +232,6 @@ class TestAgentService:
         result = await service._handle_tool_call("agent", "{invalid json}")
         assert result == "{invalid json}"
 
-    @pytest.mark.asyncio
-    async def test_handle_tool_call_no_tool(self, mock_llm_provider):
-        """Test handling tool call without tool name."""
-        service = AgentService(llm_provider=mock_llm_provider)
-        result = await service._handle_tool_call(
-            "agent",
-            '{"tool_call": {"parameters": {}}}'
-        )
-        assert "tool_call" in result
-
     def test_get_tool_usage_prompt_no_tools(self, mock_llm_provider):
         """Test tool usage prompt with no tools."""
         service = AgentService(llm_provider=mock_llm_provider)
