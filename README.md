@@ -255,7 +255,7 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via custom inlin
 * Tools do not use OpenAI function calling
 * Tools are async functions
 
-### Tool Usage Example
+### Tool Example
 
 `pip install sakit`
 
