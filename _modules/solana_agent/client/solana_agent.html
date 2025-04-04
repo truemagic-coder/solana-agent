@@ -124,7 +124,7 @@
         <span class="n">output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;audio&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span>
         <span class="n">audio_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;alloy&quot;</span><span class="p">,</span> <span class="s2">&quot;ash&quot;</span><span class="p">,</span> <span class="s2">&quot;ballad&quot;</span><span class="p">,</span> <span class="s2">&quot;coral&quot;</span><span class="p">,</span> <span class="s2">&quot;echo&quot;</span><span class="p">,</span>
                              <span class="s2">&quot;fable&quot;</span><span class="p">,</span> <span class="s2">&quot;onyx&quot;</span><span class="p">,</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="s2">&quot;sage&quot;</span><span class="p">,</span> <span class="s2">&quot;shimmer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
-        <span class="n">audio_instructions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">audio_instructions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;You speak in a friendly and helpful manner.&quot;</span><span class="p">,</span>
         <span class="n">audio_output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">&#39;mp3&#39;</span><span class="p">,</span> <span class="s1">&#39;opus&#39;</span><span class="p">,</span>
                                      <span class="s1">&#39;aac&#39;</span><span class="p">,</span> <span class="s1">&#39;flac&#39;</span><span class="p">,</span> <span class="s1">&#39;wav&#39;</span><span class="p">,</span> <span class="s1">&#39;pcm&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
         <span class="n">audio_input_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
@@ -141,7 +141,7 @@
 <span class="sd">            prompt: Optional prompt for the agent</span>
 <span class="sd">            output_format: Response format (&quot;text&quot; or &quot;audio&quot;)</span>
 <span class="sd">            audio_voice: Voice to use for audio output</span>
-<span class="sd">            audio_instructions: Not used currently</span>
+<span class="sd">            audio_instructions: Audio voice instructions</span>
 <span class="sd">            audio_output_format: Audio output format</span>
 <span class="sd">            audio_input_format: Audio input format</span>
 <span class="sd">            router: Optional routing service for processing</span>

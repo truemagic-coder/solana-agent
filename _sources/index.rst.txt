@@ -196,6 +196,17 @@ Disable Internet Searching
       print(response, end="")
 
 
+Customize Audio Voice
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This is an audio to audio example using the `audio_instructions` parameter.
+
+.. code-block:: python
+   
+   async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
+      print(response, end="")
+
+
 Plugin Usage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
