@@ -278,15 +278,13 @@
    <span class="p">},</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;search_internet&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-perplexity-key&quot;</span><span class="p">,</span> <span class="c1"># Required</span>
-            <span class="s2">&quot;citations&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="c1"># Optional, defaults to True</span>
-            <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;sonar&quot;</span>  <span class="c1"># Optional, defaults to &quot;sonar&quot;</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-perplexity-api-key&quot;</span><span class="p">,</span>
       <span class="p">},</span>
    <span class="p">},</span>
    <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
             <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.&quot;</span><span class="p">,</span>
             <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
             <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;search_internet&quot;</span><span class="p">],</span>
       <span class="p">},</span>

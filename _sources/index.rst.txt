@@ -224,15 +224,13 @@ Plugin Usage
       },
       "tools": {
          "search_internet": {
-               "api_key": "your-perplexity-key", # Required
-               "citations": True, # Optional, defaults to True
-               "model": "sonar"  # Optional, defaults to "sonar"
+               "api_key": "your-perplexity-api-key",
          },
       },
       "agents": [
          {
                "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+               "instructions": "You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.",
                "specialization": "Research and knowledge synthesis",
                "tools": ["search_internet"],
          },
