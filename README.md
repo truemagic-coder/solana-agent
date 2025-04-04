@@ -549,7 +549,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - You're using multiple LLM providers with OpenAI-compatible APIs.
 - You need configurable guardrails for safety.
 - You prefer a code-first approach to agent definition.
-- Developer experience and debugging tools are a priority.
 
 #### Choose **LangGraph** when:
 - You need complex, multi-step workflows with branching logic.
