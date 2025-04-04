@@ -521,14 +521,14 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 | Feature                | Solana Agent                                   | PydanticAI                                   |
 |------------------------|-----------------------------------------------|---------------------------------------------|
-| **Primary Focus**      | Complete agent platform                       | Structured output parsing                   |
-| **Scope**              | End-to-end agent ecosystem                   | Function calling utility                    |
-| **Data Validation**    | Basic tool schema                             | Advanced with Pydantic models               |
+| **Primary Focus**      | Complete agent platform                       | Production-grade agent framework            |
+| **Multi-Modal**        | Full audio/text streaming built-in            | Text only                                   |
 | **Memory Management**  | Built-in conversation history                 | Not included                                |
-| **Multi-Agent**        | First-class multi-agent support               | Single agent focus                          |
+| **Multi-Agent**        | First-class multi-agent support               | Single agent focus with composition patterns|
 | **Tool Creation**      | Python classes with execute method            | Function decorators with schema             |
-| **Integration**        | Standalone framework                          | Integrates with any LLM framework           |
-| **Type Safety**        | Basic typing                                  | Strong type guarantees via Pydantic         |
+| **Integration**        | Standalone framework                          | Integrates with many LLM frameworks         |
+| **Debugging**          | Standard logging                              | Pydantic Logfire integration                |
+| **Flow Control**       | Implicit routing                              | Python control flow with graph support      |
 
 ---
 
@@ -571,10 +571,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Your workflow involves complex multi-step tasks.
 
 #### Choose **PydanticAI** when:
-- You primarily need structured output from LLMs.
-- Your focus is on function calling with validated inputs/outputs.
-- Type safety and validation are critical.
-- You need a lightweight solution rather than a full framework.
-- You want to integrate structured LLM calls into an existing system.
-- Your use case centers on data extraction and transformation.
-- You're already using Pydantic in your application.
+- You want to use multiple LLM providers in one codebase.
+- Your team values Python-native development patterns.
+- You need real-time debugging and monitoring of agent behavior.
+- You require structured responses with validation guarantees.
+- Your application needs dependency injection for easier testing.
+- You want to leverage your existing Pydantic knowledge.
+- You need both simple control flow and complex graph capabilities.
