@@ -276,7 +276,7 @@ class AgentService(AgentServiceInterface):
                                     tool_response += processed_chunk
 
                                 # Add to our complete text record and full audio buffer
-                                tool_response = self._remove_markdown(
+                                tool_response = self._clean_for_audio(
                                     tool_response)
                                 complete_text_response += tool_response
                                 full_response_buffer += tool_response
@@ -318,8 +318,8 @@ class AgentService(AgentServiceInterface):
 
             # For audio output, now process the complete response
             if output_format == "audio" and full_response_buffer:
-                # Clean markdown before TTS
-                full_response_buffer = self._remove_markdown(
+                # Clean text before TTS
+                full_response_buffer = self._clean_for_audio(
                     full_response_buffer)
 
                 # Process the entire response with TTS
@@ -427,14 +427,14 @@ class AgentService(AgentServiceInterface):
        - Use exact tool names as shown in AVAILABLE TOOLS
     """
 
-    def _remove_markdown(self, text: str) -> str:
-        """Remove Markdown formatting and links from text.
+    def _clean_for_audio(self, text: str) -> str:
+        """Remove Markdown formatting, emojis, and non-pronounceable characters from text.
 
         Args:
-            text: Input text with potential Markdown formatting
+            text: Input text with potential Markdown formatting and special characters
 
         Returns:
-            Clean text without Markdown formatting
+            Clean text without Markdown, emojis, and special characters
         """
         import re
 
@@ -468,5 +468,35 @@ class AgentService(AgentServiceInterface):
 
         # Remove multiple consecutive newlines (keep just one)
         text = re.sub(r'\n{3,}', '\n\n', text)
+
+        # Remove emojis and other non-pronounceable characters
+        # Common emoji Unicode ranges
+        emoji_pattern = re.compile(
+            "["
+            "\U0001F600-\U0001F64F"  # emoticons
+            "\U0001F300-\U0001F5FF"  # symbols & pictographs
+            "\U0001F680-\U0001F6FF"  # transport & map symbols
+            "\U0001F700-\U0001F77F"  # alchemical symbols
+            "\U0001F780-\U0001F7FF"  # Geometric Shapes
+            "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+            "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+            "\U0001FA00-\U0001FA6F"  # Chess Symbols
+            "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+            "\U00002702-\U000027B0"  # Dingbats
+            "\U000024C2-\U0000257F"  # Enclosed characters
+            "\U00002600-\U000026FF"  # Miscellaneous Symbols
+            "\U00002700-\U000027BF"  # Dingbats
+            "\U0000FE00-\U0000FE0F"  # Variation Selectors
+            "\U0001F1E0-\U0001F1FF"  # Flags (iOS)
+            "]+",
+            flags=re.UNICODE
+        )
+        text = emoji_pattern.sub(r' ', text)
+
+        # Replace special characters that can cause issues with TTS
+        text = re.sub(r'[^\w\s\.\,\;\:\?\!\'\"\-\(\)]', ' ', text)
+
+        # Replace multiple spaces with a single space
+        text = re.sub(r'\s+', ' ', text)
 
         return text.strip()
