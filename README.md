@@ -521,7 +521,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 | Feature                | Solana Agent                                   | PydanticAI                                   |
 |------------------------|-----------------------------------------------|---------------------------------------------|
-| **Primary Focus**      | Complete agent platform                       | Production-grade agent framework            |
 | **Multi-Modal**        | Full audio/text streaming built-in            | Text only                                   |
 | **Memory Management**  | Built-in conversation history                 | Not included                                |
 | **Multi-Agent**        | First-class multi-agent support               | Single agent focus with composition patterns|
@@ -572,7 +571,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 #### Choose **PydanticAI** when:
 - You want to use multiple LLM providers in one codebase.
-- Your team values Python-native development patterns.
 - You need real-time debugging and monitoring of agent behavior.
 - You require structured responses with validation guarantees.
 - Your application needs dependency injection for easier testing.
