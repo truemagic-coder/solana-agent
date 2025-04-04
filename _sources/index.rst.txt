@@ -184,55 +184,17 @@ Conversational Memory Config - Optional
    config = {
       "zep": {
          "api_key": "your-zep-api-key",
-         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
       },
    }
 
-Plugins
-~~~~~~~~
-
-Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
-
-`pip install sakit`
-
-MCP Plugin
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Disable Internet Searching
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "tools": {
-            "mcp": {
-               "server_urls": [
-                  "http://mcp-server1.com/mcp",
-                  "http://mcp-server2.com/mcp",
-                  "http://mcp-server3.com/mcp"
-               ]
-            }
-      },
-      "agents": [
-         {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
-               "tools": ["mcp"],
-         },
-         {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
-         }
-      ],
-   }
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+   async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
       print(response, end="")
 
-To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
 
 Custom Inline Tool Usage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
