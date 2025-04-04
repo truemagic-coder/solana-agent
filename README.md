@@ -231,7 +231,7 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
 
 This is an audio to audio example using the `audio_instructions` parameter.
 
-You can prompt the model to control aspects of speech, including:
+You can prompt to control aspects of speech, including:
 
 * Accent
 * Emotional range
