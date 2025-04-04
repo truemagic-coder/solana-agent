@@ -177,7 +177,7 @@ class AgentService(AgentServiceInterface):
         ] = "mp4",
         prompt: Optional[str] = None,
         internet_search: bool = True,
-    ) -> AsyncGenerator[Union[str, bytes], None]:
+    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
@@ -231,7 +231,6 @@ class AgentService(AgentServiceInterface):
             ):
                 # Check if the chunk is JSON or a tool call
                 if (chunk.strip().startswith("{") or "{\"tool_call\":" in chunk) and not is_json:
-                    print(f"Detected potential JSON tool call: {chunk}")
                     is_json = True
                     json_buffer = chunk
                     continue

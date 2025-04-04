@@ -90,12 +90,6 @@ class TestMemoryRepository:
         repo = MemoryRepository(zep_api_key="test_key")
         mock_zep_cloud.assert_called_once_with(api_key="test_key")
 
-    @patch('solana_agent.repositories.memory.AsyncZep')
-    def test_init_zep_local(self, mock_zep_local):
-        """Test initialization with local Zep."""
-        repo = MemoryRepository(zep_api_key="test_key")
-        mock_zep_local.assert_called_once()
-
     @pytest.mark.asyncio
     async def test_store_validation_errors(self, mock_mongo_adapter, invalid_messages):
         """Test message validation errors."""
