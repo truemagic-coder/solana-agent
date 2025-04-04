@@ -47,7 +47,7 @@ Build your AI business in three lines of code!
 ## Stack
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) - LLMs
+* [OpenAI](https://openai.com) - LLM Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
@@ -466,3 +466,115 @@ The official example app written in FastAPI and Next.js
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Agent Framework Comparisons
+
+### Solana Agent vs OpenAI Agents SDK
+
+| Feature                | Solana Agent                                   | OpenAI Agents SDK                              |
+|------------------------|-----------------------------------------------|-----------------------------------------------|
+| **Architecture**       | Service-oriented with query routing           | Agent-based with explicit handoffs            |
+| **Configuration**      | JSON-based config with minimal code           | Python code-based agent definitions           |
+| **Multi-Agent**        | Automatic specialization routing              | Direct agent-to-agent handoffs                |
+| **Memory**             | Integrated MongoDB/Zep persistence            | In-context memory within message history      |
+| **Multi-Modal**        | Full audio/text streaming built-in            | Optional voice support via add-on package     |
+| **Model Support**      | Currently OpenAI focused                      | Any provider with OpenAI-compatible API       |
+| **Tool Integration**   | Class-based tools with registry               | Function decorators with `@function_tool`     |
+| **Debugging**          | Standard logging                              | Advanced tracing with visualization           |
+| **Safety**             | Basic error handling                          | Configurable guardrails for I/O validation    |
+| **Output Handling**    | Streaming yield pattern                       | Structured output types with validation       |
+| **Business Focus**     | Business mission/values framework             | General purpose agent framework               |
+
+---
+
+### Solana Agent vs LangGraph
+
+| Feature                | Solana Agent                                   | LangGraph                                      |
+|------------------------|-----------------------------------------------|-----------------------------------------------|
+| **Architecture**       | Service-oriented with agents                  | Graph-based state machine                     |
+| **Workflow Design**    | Implicit routing by specialization            | Explicit node connections and state transitions |
+| **Learning Curve**     | Simple setup with config objects              | Steeper with graph concepts and states        |
+| **Streaming**          | Native streaming for all I/O                  | Requires additional configuration             |
+| **Visualization**      | None built-in                                 | Graph visualization of agent workflows        |
+| **State Management**   | Implicit state via memory                     | Explicit state transitions and persistence    |
+| **Integration**        | Standalone framework                          | Part of LangChain ecosystem                   |
+| **Flexibility**        | Fixed routing paradigm                        | Highly customizable flow control              |
+
+---
+
+### Solana Agent vs CrewAI
+
+| Feature                | Solana Agent                                   | CrewAI                                        |
+|------------------------|-----------------------------------------------|-----------------------------------------------|
+| **Multi-Agent Design** | Specialist agents with router                 | Agent crews with explicit roles              |
+| **Agent Interaction**  | Query router determines agent                 | Direct agent-to-agent delegation             |
+| **Configuration**      | JSON-based configuration                      | Python class-based agent definitions         |
+| **Task Structure**     | Query-based interactions                      | Task-based with goals and workflows          |
+| **Memory Sharing**     | Shared memory store                           | Agent-specific memories                      |
+| **Human Interaction**  | Built for direct human queries                | Designed for autonomous operation            |
+| **Streaming**          | Native streaming support                      | Limited streaming support                    |
+| **Team Dynamics**      | Flat specialist structure                     | Hierarchical with managers and workers       |
+
+---
+
+### Solana Agent vs PydanticAI
+
+| Feature                | Solana Agent                                   | PydanticAI                                   |
+|------------------------|-----------------------------------------------|---------------------------------------------|
+| **Primary Focus**      | Complete agent platform                       | Structured output parsing                   |
+| **Scope**              | End-to-end agent ecosystem                   | Function calling utility                    |
+| **Data Validation**    | Basic tool schema                             | Advanced with Pydantic models               |
+| **Memory Management**  | Built-in conversation history                 | Not included                                |
+| **Multi-Agent**        | First-class multi-agent support               | Single agent focus                          |
+| **Tool Creation**      | Python classes with execute method            | Function decorators with schema             |
+| **Integration**        | Standalone framework                          | Integrates with any LLM framework           |
+| **Type Safety**        | Basic typing                                  | Strong type guarantees via Pydantic         |
+
+---
+
+### When to Use Each Framework
+
+#### Choose **Solana Agent** when:
+- You need a simple, quick-to-deploy agent system.
+- Multi-modal support (text/audio) is essential.
+- You want automatic routing between specialized agents.
+- Business mission alignment is important.
+- You prefer configuration over code.
+- Persistent memory across conversations is needed.
+- You want streaming responses out of the box.
+
+#### Choose **OpenAI Agents SDK** when:
+- You need detailed tracing for debugging complex agent workflows.
+- You want explicit control over agent handoffs.
+- Your architecture requires structured output validation.
+- You're using multiple LLM providers with OpenAI-compatible APIs.
+- You need configurable guardrails for safety.
+- You prefer a code-first approach to agent definition.
+- Developer experience and debugging tools are a priority.
+
+#### Choose **LangGraph** when:
+- You need complex, multi-step workflows with branching logic.
+- Your use case requires explicit state management.
+- You want to visualize the flow of your agent system.
+- You're already in the LangChain ecosystem.
+- You need fine-grained control over agent decision paths.
+- Your application has complex conditional flows.
+- You want to model your agent system as a state machine.
+
+#### Choose **CrewAI** when:
+- You need agents to work together with minimal human input.
+- Your use case involves complex team collaboration.
+- You need hierarchical task delegation between agents.
+- You want agents with specific roles and responsibilities.
+- Your application requires autonomous operation.
+- You need explicit agent-to-agent communication.
+- Your workflow involves complex multi-step tasks.
+
+#### Choose **PydanticAI** when:
+- You primarily need structured output from LLMs.
+- Your focus is on function calling with validated inputs/outputs.
+- Type safety and validation are critical.
+- You need a lightweight solution rather than a full framework.
+- You want to integrate structured LLM calls into an existing system.
+- Your use case centers on data extraction and transformation.
+- You're already using Pydantic in your application.
