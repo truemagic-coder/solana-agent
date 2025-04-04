@@ -364,7 +364,9 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 
 Many use-cases for Solana Agent require training your agents on your company data.
 
-This can be accomplished via runtime prompt injection. Integrations that work well with this method are KBs like Pinecone and FAQs.
+This can be accomplished via runtime prompt injection. Integrations that work well with this method are vector stores like Pinecone and FAQs.
+
+This knowledge applies to all your AI agents.
 
 ```python
 from solana_agent import SolanaAgent
@@ -375,11 +377,6 @@ config = {
     },
     "agents": [
         {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-        },
-        {
             "name": "customer_support",
             "instructions": "You provide friendly, helpful customer support responses.",
             "specialization": "Customer inquiries",
@@ -389,7 +386,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-async for response in solana_agent.process("user123", "What are the latest AI developments?", "This is my FAQ"):
+async for response in solana_agent.process("user123", "How do replace the latch on my dishwasher?", "This is my corporate appliance fixing FAQ"):
     print(response, end="")
 ```
 
