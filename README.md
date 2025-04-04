@@ -248,7 +248,7 @@ async for response in solana_agent.process("user123", audio_content, output_form
 
 ## Tools
 
-Tools can be used from plugins like Solana Agent Kit (sakit) or via custom inline tools. Tools available via plugins integrate automatically with Solana Agent.
+Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
 
 * Agents can only call one tool per response
 * Agents choose the best tool for the job
@@ -292,7 +292,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-### Custom Inline Tool Example
+### Inline Tool Example
 
 ```python
 from solana_agent import SolanaAgent

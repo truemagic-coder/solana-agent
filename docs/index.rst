@@ -258,7 +258,7 @@ Tool Example
       print(response, end="")
 
 
-Custom Inline Tool Example
+Inline Tool Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -339,7 +339,7 @@ Custom Inline Tool Example
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
-Custom Prompt Injection at Runtime Example
+Prompt Injection at Runtime Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Useful for Knowledge Base answers and FAQs.
