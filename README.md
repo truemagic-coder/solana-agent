@@ -522,10 +522,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 | Feature                | Solana Agent                                   | PydanticAI                                   |
 |------------------------|-----------------------------------------------|---------------------------------------------|
 | **Multi-Modal**        | Full audio/text streaming built-in            | Text only                                   |
-| **Memory Management**  | Built-in conversation history                 | Not included                                |
+| **Memory**             | Built-in conversation history                 | Not included                                |
 | **Multi-Agent**        | First-class multi-agent support               | Single agent focus with composition patterns|
 | **Tool Creation**      | Python classes with execute method            | Function decorators with schema             |
-| **Integration**        | Standalone framework                          | Integrates with many LLM frameworks         |
+| **Model Support**      | Currently OpenAI focused                      | Integrates with many LLMs                   |
 | **Debugging**          | Standard logging                              | Pydantic Logfire integration                |
 | **Flow Control**       | Implicit routing                              | Python control flow with graph support      |
 
