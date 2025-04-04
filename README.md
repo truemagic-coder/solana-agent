@@ -25,7 +25,6 @@ Build your AI business in three lines of code!
 * Extensible Tooling
 * Simple Business Definition
 * Tested & Secure
-* Support for MCP Servers
 * Built in Python
 * Deployed by [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
 
@@ -42,7 +41,6 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
-* Ability to access any MCP server via URL
 
 ## Stack
 
@@ -227,9 +225,50 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
     print(response, end="")
 ```
 
-## Advanced
+## Tools
 
-### Custom Inline Tools
+Tools can be used from plugins like Solana Agent Kit (sakit) or via custom inline tools. Tools available via plugins integrate automatically with Solana Agent.
+
+### Plugin Usage Example
+
+`pip install sakit`
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "tools": {
+        "search_internet": {
+            "api_key": "your-perplexity-key", # Required
+            "citations": True, # Optional, defaults to True
+            "model": "sonar"  # Optional, defaults to "sonar"
+        },
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+            "tools": ["search_internet"],
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?", internet_search=False):
+    print(response, end="")
+```
+
+### Custom Inline Tool Example
 
 ```python
 from solana_agent import SolanaAgent
@@ -309,9 +348,11 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-### Custom Prompt Injection at Runtime
+## Training your Agents
 
-Useful for Knowledge Base answers and FAQs
+Many use-cases for Solana Agent require training your agents on your company data.
+
+This can be accomplished via runtime prompt injection. Integrations that work well with this method are KBs like Pinecone and FAQs.
 
 ```python
 from solana_agent import SolanaAgent
@@ -336,11 +377,13 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-async for response in solana_agent.process("user123", "What are the latest AI developments?", "Always end your sentences with eh?"):
+async for response in solana_agent.process("user123", "What are the latest AI developments?", "This is my FAQ"):
     print(response, end="")
 ```
 
-### Custom Routing
+## Custom Routing
+
+In advanced cases like implementing a ticketing system on-top of Solana Agent - you can use your own router.
 
 ```python
 from solana_agent import SolanaAgent
