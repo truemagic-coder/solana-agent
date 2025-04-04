@@ -1705,24 +1705,7 @@ httpx = ">=0.21.2"
 pydantic = ">=1.9.2"
 typing_extensions = ">=4.0.0"
 
-[[package]]
-name = "zep-python"
-version = "2.0.2"
-description = ""
-optional = false
-python-versions = "<4.0,>=3.8"
-groups = ["main"]
-files = [
-    {file = "zep_python-2.0.2-py3-none-any.whl", hash = "sha256:d7b2cadf1eb15007825362cae5ddff9c9d0ada5b4f75cf91e5b87986459f7817"},
-    {file = "zep_python-2.0.2.tar.gz", hash = "sha256:919fd635ad5801f30d9ef6da0bb99e854ed4c3cd1357dc8ada4a39b8171a41bc"},
-]
-
-[package.dependencies]
-httpx = ">=0.21.2"
-pydantic = ">=1.9.2"
-typing_extensions = ">=4.0.0"
-
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "532b0558d8c3b15cec73a74713972f70c98071aab0a070d4fab981be4dc50032"
+content-hash = "f8b959cb40efc93ed7dd416cf2b9f0ad0fd059ac94e2b7c1eb85b13f0cc51a68"
