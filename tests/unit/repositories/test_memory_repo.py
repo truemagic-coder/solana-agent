@@ -93,8 +93,7 @@ class TestMemoryRepository:
     @patch('solana_agent.repositories.memory.AsyncZep')
     def test_init_zep_local(self, mock_zep_local):
         """Test initialization with local Zep."""
-        repo = MemoryRepository(zep_api_key="test_key",
-                                zep_base_url="http://localhost:8000")
+        repo = MemoryRepository(zep_api_key="test_key")
         mock_zep_local.assert_called_once()
 
     @pytest.mark.asyncio

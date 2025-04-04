@@ -1,7 +1,7 @@
+from copy import deepcopy
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 from zep_cloud.client import AsyncZep as AsyncZepCloud
-from zep_python.client import AsyncZep
 from zep_cloud.types import Message
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
@@ -14,7 +14,6 @@ class MemoryRepository(MemoryProvider):
         self,
         mongo_adapter: Optional[MongoDBAdapter] = None,
         zep_api_key: Optional[str] = None,
-        zep_base_url: Optional[str] = None
     ):
         """Initialize the combined memory provider."""
         if not mongo_adapter:
@@ -33,13 +32,10 @@ class MemoryRepository(MemoryProvider):
             except Exception as e:
                 print(f"Error initializing MongoDB: {e}")
 
+        self.zep = None
         # Initialize Zep
-        if zep_api_key and not zep_base_url:
+        if zep_api_key:
             self.zep = AsyncZepCloud(api_key=zep_api_key)
-        elif zep_api_key and zep_base_url:
-            self.zep = AsyncZep(api_key=zep_api_key, base_url=zep_base_url)
-        else:
-            self.zep = None
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         """Store messages in both Zep and MongoDB."""
@@ -99,9 +95,10 @@ class MemoryRepository(MemoryProvider):
         zep_messages = []
         for msg in messages:
             if "role" in msg and "content" in msg:
+                content = self._truncate(deepcopy(msg["content"]))
                 zep_msg = Message(
                     role=msg["role"],
-                    content=msg["content"],
+                    content=content,
                     role_type=msg["role"],
                 )
                 zep_messages.append(zep_msg)
@@ -196,4 +193,4 @@ class MemoryRepository(MemoryProvider):
             return text[:last_period + 1]
 
         # If no period found, truncate at limit and add ellipsis
-        return text[:limit] + "..."
+        return text[:limit-3] + "..."

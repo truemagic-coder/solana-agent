@@ -34,7 +34,7 @@ class AgentService(ABC):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
-        use_openai_search: bool = True,
+        internet_search: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
         pass

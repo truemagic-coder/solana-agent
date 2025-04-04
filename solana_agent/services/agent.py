@@ -176,31 +176,15 @@ class AgentService(AgentServiceInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
-        use_openai_search: bool = True,
-    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Generate a response with support for text/audio input/output.
-
-        Args:
-            agent_name: Agent name
-            user_id: User ID
-            query: Text query or audio bytes
-            memory_context: Optional conversation context
-            output_format: Response format ("text" or "audio")
-            audio_voice: Voice to use for audio output
-            audio_instructions: Optional instructions for audio synthesis
-            audio_output_format: Audio output format
-            audio_input_format: Audio input format
-            prompt: Optional prompt for the agent
-            use_openai_search: Flag to use OpenAI search
-
-        Yields:
-            Text chunks or audio bytes depending on output_format
-        """
+        internet_search: bool = True,
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """Generate a response with support for text/audio input/output."""
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             if output_format == "audio":
-                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions, response_format=audio_output_format, voice=audio_voice):
+                async for chunk in self.llm_provider.tts(error_msg, instructions=audio_instructions,
+                                                         response_format=audio_output_format, voice=audio_voice):
                     yield chunk
             else:
                 yield error_msg
@@ -229,20 +213,25 @@ class AgentService(AgentServiceInterface):
             if prompt:
                 system_prompt += f"\n\nADDITIONAL PROMPT: {prompt}"
 
-            # Keep track of the complete text response
+            # Variables for tracking the response
             complete_text_response = ""
+
+            # For audio output, we'll collect everything first
+            full_response_buffer = ""
+
+            # Variables for handling JSON processing
             json_buffer = ""
             is_json = False
-            text_buffer = ""
 
             # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
                 system_prompt=system_prompt,
-                search=use_openai_search,
+                internet_search=internet_search,
             ):
-                # Check for JSON start
-                if chunk.strip().startswith("{") and not is_json:
+                # Check if the chunk is JSON or a tool call
+                if (chunk.strip().startswith("{") or "{\"tool_call\":" in chunk) and not is_json:
+                    print(f"Detected potential JSON tool call: {chunk}")
                     is_json = True
                     json_buffer = chunk
                     continue
@@ -256,107 +245,105 @@ class AgentService(AgentServiceInterface):
 
                         # Valid JSON found, handle it
                         if "tool_call" in data:
-                            # Process tool call with existing method
                             response_text = await self._handle_tool_call(
                                 agent_name=agent_name,
                                 json_chunk=json_buffer
                             )
 
-                            system_prompt = system_prompt + \
+                            # Update system prompt to prevent further tool calls
+                            tool_system_prompt = system_prompt + \
                                 "\n DO NOT make any tool calls or return JSON."
 
+                            # Create prompt with tool response
                             user_prompt = f"\n USER QUERY: {query_text} \n"
                             user_prompt += f"\n TOOL RESPONSE: {response_text} \n"
 
-                            # Collect all processed text first
-                            processed_text = ""
-                            async for processed_chunk in self.llm_provider.generate_text(
-                                prompt=user_prompt,
-                                system_prompt=system_prompt,
-                            ):
-                                processed_text += processed_chunk
-                                # For text output, yield chunks as they come
-                                if output_format == "text":
-                                    yield processed_chunk
-
-                            # Add to complete response
-                            complete_text_response += processed_text
-
-                            # For audio output, process the complete text
-                            if output_format == "audio":
-                                async for audio_chunk in self.llm_provider.tts(
-                                    text=processed_text,
-                                    voice=audio_voice,
-                                    response_format=audio_output_format
+                            # For text output, process chunks directly
+                            if output_format == "text":
+                                # Stream text response for text output
+                                async for processed_chunk in self.llm_provider.generate_text(
+                                    prompt=user_prompt,
+                                    system_prompt=tool_system_prompt,
                                 ):
-                                    yield audio_chunk
+                                    complete_text_response += processed_chunk
+                                    yield processed_chunk
+                            else:
+                                # For audio output, collect the full tool response first
+                                tool_response = ""
+                                async for processed_chunk in self.llm_provider.generate_text(
+                                    prompt=user_prompt,
+                                    system_prompt=tool_system_prompt,
+                                ):
+                                    tool_response += processed_chunk
+
+                                # Add to our complete text record and full audio buffer
+                                tool_response = self._remove_markdown(
+                                    tool_response)
+                                complete_text_response += tool_response
+                                full_response_buffer += tool_response
                         else:
                             # For non-tool JSON, still capture the text
                             complete_text_response += json_buffer
 
-                            if output_format == "audio":
-                                async for audio_chunk in self.llm_provider.tts(
-                                    text=json_buffer,
-                                    voice=audio_voice,
-                                    response_format=audio_output_format
-                                ):
-                                    yield audio_chunk
-                            else:
+                            if output_format == "text":
                                 yield json_buffer
+                            else:
+                                # Add to full response buffer for audio
+                                full_response_buffer += json_buffer
 
                         # Reset JSON handling
                         is_json = False
                         json_buffer = ""
 
                     except json.JSONDecodeError:
+                        # JSON not complete yet, continue collecting
                         pass
                 else:
-                    # For regular text, always add to the complete response
+                    # For regular text
                     complete_text_response += chunk
 
-                    # Handle audio buffering or direct text output
-                    if output_format == "audio":
-                        text_buffer += chunk
-                        if any(punct in chunk for punct in ".!?"):
-                            async for audio_chunk in self.llm_provider.tts(
-                                text=text_buffer,
-                                voice=audio_voice,
-                                response_format=audio_output_format
-                            ):
-                                yield audio_chunk
-                            text_buffer = ""
-                    else:
+                    if output_format == "text":
+                        # For text output, yield directly
                         yield chunk
+                    else:
+                        # For audio output, add to the full response buffer
+                        full_response_buffer += chunk
 
-            # Handle any remaining text or incomplete JSON
-            remaining_text = ""
-            if text_buffer:
-                remaining_text += text_buffer
-            if is_json and json_buffer:
-                remaining_text += json_buffer
-
-            if remaining_text:
-                # Add remaining text to complete response
-                complete_text_response += remaining_text
-
-                if output_format == "audio":
-                    async for audio_chunk in self.llm_provider.tts(
-                        text=remaining_text,
-                        voice=audio_voice,
-                        response_format=audio_output_format
-                    ):
-                        yield audio_chunk
+            # Handle any leftover JSON buffer
+            if json_buffer:
+                complete_text_response += json_buffer
+                if output_format == "text":
+                    yield json_buffer
                 else:
-                    yield remaining_text
+                    full_response_buffer += json_buffer
 
-            # Store the complete text response for the caller to access
-            # This needs to be done in the query service using the self.last_text_response
+            # For audio output, now process the complete response
+            if output_format == "audio" and full_response_buffer:
+                # Clean markdown before TTS
+                full_response_buffer = self._remove_markdown(
+                    full_response_buffer)
+
+                # Process the entire response with TTS
+                async for audio_chunk in self.llm_provider.tts(
+                    text=full_response_buffer,
+                    voice=audio_voice,
+                    response_format=audio_output_format,
+                    instructions=audio_instructions
+                ):
+                    yield audio_chunk
+
+            # Store the complete text response
             self.last_text_response = complete_text_response
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
             if output_format == "audio":
-                async for chunk in self.llm_provider.tts(error_msg, voice=audio_voice, response_format=audio_output_format):
+                async for chunk in self.llm_provider.tts(
+                    error_msg,
+                    voice=audio_voice,
+                    response_format=audio_output_format,
+                    instructions=audio_instructions
+                ):
                     yield chunk
             else:
                 yield error_msg
@@ -379,15 +366,31 @@ class AgentService(AgentServiceInterface):
                 parameters = tool_data.get("parameters", {})
 
                 if tool_name:
-                    result = await self.execute_tool(
-                        agent_name, tool_name, parameters)
+                    # Execute the tool and get the result
+                    result = await self.execute_tool(agent_name, tool_name, parameters)
+
                     if result.get("status") == "success":
-                        return result.get("result", "")
+                        tool_result = result.get("result", "")
+                        return tool_result
                     else:
-                        return f"I apologize, but I encountered an issue: {result.get('message', 'Unknown error')}"
+                        error_message = f"I apologize, but I encountered an issue with the {tool_name} tool: {result.get('message', 'Unknown error')}"
+                        print(f"Tool error: {error_message}")
+                        return error_message
+                else:
+                    return "Tool name was not provided in the tool call."
+            else:
+                print(f"JSON received but no tool_call found: {json_chunk}")
+
+            # If we get here, it wasn't properly handled as a tool
+            return f"The following request was not processed as a valid tool call:\n{json_chunk}"
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error in tool call: {e}")
             return json_chunk
-        except json.JSONDecodeError:
-            return json_chunk
+        except Exception as e:
+            print(f"Unexpected error in tool call handling: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return f"Error processing tool call: {str(e)}"
 
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
         """Generate JSON-based instructions for tool usage."""
@@ -424,3 +427,47 @@ class AgentService(AgentServiceInterface):
        - No explanation text before or after
        - Use exact tool names as shown in AVAILABLE TOOLS
     """
+
+    def _remove_markdown(self, text: str) -> str:
+        """Remove Markdown formatting and links from text.
+
+        Args:
+            text: Input text with potential Markdown formatting
+
+        Returns:
+            Clean text without Markdown formatting
+        """
+        import re
+
+        if not text:
+            return ""
+
+        # Remove Markdown links - [text](url) -> text
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+
+        # Remove inline code with backticks
+        text = re.sub(r'`([^`]+)`', r'\1', text)
+
+        # Remove bold formatting - **text** or __text__ -> text
+        text = re.sub(r'(\*\*|__)(.*?)\1', r'\2', text)
+
+        # Remove italic formatting - *text* or _text_ -> text
+        text = re.sub(r'(\*|_)(.*?)\1', r'\2', text)
+
+        # Remove headers - ## Header -> Header
+        text = re.sub(r'^\s*#+\s*(.*?)$', r'\1', text, flags=re.MULTILINE)
+
+        # Remove blockquotes - > Text -> Text
+        text = re.sub(r'^\s*>\s*(.*?)$', r'\1', text, flags=re.MULTILINE)
+
+        # Remove horizontal rules (---, ***, ___)
+        text = re.sub(r'^\s*[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+
+        # Remove list markers - * Item or - Item or 1. Item -> Item
+        text = re.sub(r'^\s*[-*+]\s+(.*?)$', r'\1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\s*\d+\.\s+(.*?)$', r'\1', text, flags=re.MULTILINE)
+
+        # Remove multiple consecutive newlines (keep just one)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        return text.strip()

@@ -49,7 +49,7 @@ Build your AI business in three lines of code!
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLMs
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
-* [Zep](https://getzep.com) - Conversational Memory (optional)
+* [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
 ## Installation
 
@@ -215,11 +215,18 @@ config = {
 ```python
 config = {
     "zep": {
-        "api_key": "your-zep-api-key",
-        "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
+        "api_key": "your-zep-cloud-api-key",
     },
 }
 ```
+
+### Disable Internet Searching
+
+```python
+async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
+    print(response, end="")
+```
+
 
 ## Plugins
 

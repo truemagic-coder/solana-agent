@@ -184,9 +184,18 @@ Conversational Memory Config - Optional
    config = {
       "zep": {
          "api_key": "your-zep-api-key",
-         "base_url": "your-zep-base-url", # not applicable if using Zep Cloud
       },
    }
+
+Disable Internet Searching
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+   
+   async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
+      print(response, end="")
+
+
 
 Plugins
 ~~~~~~~~

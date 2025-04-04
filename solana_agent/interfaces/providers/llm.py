@@ -15,7 +15,7 @@ class LLMProvider(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
-        search: bool = False,
+        internet_search: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Generate text from the language model."""
         pass

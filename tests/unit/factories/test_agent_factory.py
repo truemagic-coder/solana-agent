@@ -35,7 +35,6 @@ def full_config():
         },
         "zep": {
             "api_key": "zep_key",
-            "base_url": "http://localhost:8000"
         },
         "business": {
             "mission": "Test mission",
