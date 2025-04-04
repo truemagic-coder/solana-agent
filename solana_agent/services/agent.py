@@ -5,6 +5,7 @@ This service manages AI and human agents, their registration, tool assignments,
 and response generation.
 """
 import asyncio
+from copy import deepcopy
 import datetime as main_datetime
 from datetime import datetime
 import json
@@ -199,12 +200,8 @@ class AgentService(AgentServiceInterface):
             else:
                 query_text = query
 
-            # Get system prompt and add tool instructions
+            # Get system prompt
             system_prompt = self.get_agent_system_prompt(agent_name)
-            if self.tool_registry:
-                tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
-                if tool_usage_prompt:
-                    system_prompt = f"{system_prompt}\n\n{tool_usage_prompt}"
 
             # Add User ID and memory context
             system_prompt += f"\n\nUser ID: {user_id}"
@@ -212,6 +209,13 @@ class AgentService(AgentServiceInterface):
                 system_prompt += f"\n\nMEMORY CONTEXT: {memory_context}"
             if prompt:
                 system_prompt += f"\n\nADDITIONAL PROMPT: {prompt}"
+
+            # make tool calling prompt
+            tool_calling_system_prompt = deepcopy(system_prompt)
+            if self.tool_registry:
+                tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
+                if tool_usage_prompt:
+                    tool_calling_system_prompt += f"\n\nTOOL CALLING PROMPT: {tool_usage_prompt}"
 
             # Variables for tracking the response
             complete_text_response = ""
@@ -226,7 +230,7 @@ class AgentService(AgentServiceInterface):
             # Generate and stream response
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
-                system_prompt=system_prompt,
+                system_prompt=tool_calling_system_prompt,
                 internet_search=internet_search,
             ):
                 # Check if the chunk is JSON or a tool call
