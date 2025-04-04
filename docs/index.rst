@@ -207,7 +207,7 @@ This is an audio to audio example using the `audio_instructions` parameter.
       print(response, end="")
 
 
-Plugin Usage
+Tool Usage Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
@@ -248,7 +248,7 @@ Plugin Usage
       print(response, end="")
 
 
-Custom Inline Tool Usage
+Custom Inline Tool Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -329,7 +329,7 @@ Custom Inline Tool Usage
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
-Custom Prompt Injection at Runtime
+Custom Prompt Injection at Runtime Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Useful for Knowledge Base answers and FAQs.
@@ -361,7 +361,7 @@ Useful for Knowledge Base answers and FAQs.
    async for response in solana_agent.process("user123", "What are the latest AI developments?", "Always end your sentences with eh?"):
       print(response, end="")
 
-Custom Routing
+Custom Routing Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -402,13 +402,6 @@ Custom Routing
 
    async for response in solana_agent.process("user123", "What are the latest AI developments?", router=router):
       print(response, end="")
-
-Notes on Tools
------
-* Solana Agent agents can only call one tool per response.
-* Solana Agent agents choose the best tool for the job.
-* Solana Agent tools do not use OpenAI function calling.
-* Solana Agent tools are async functions.
 
 API Reference
 ------------

@@ -238,7 +238,12 @@ async for response in solana_agent.process("user123", audio_content, output_form
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via custom inline tools. Tools available via plugins integrate automatically with Solana Agent.
 
-### Plugin Usage Example
+* Agents can only call one tool per response
+* Agents choose the best tool for the job
+* Tools do not use OpenAI function calling
+* Tools are async functions
+
+### Tool Usage Example
 
 `pip install sakit`
 
@@ -355,7 +360,7 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Training your Agents
+## Agent Training
 
 Many use-cases for Solana Agent require training your agents on your company data.
 
@@ -430,16 +435,6 @@ solana_agent = SolanaAgent(config=config)
 async for response in solana_agent.process("user123", "What are the latest AI developments?", router=router):
     print(response, end="")
 ```
-
-## Notes
-* Solana Agent agents can only call one tool per response.
-* Solana Agent agents choose the best tool for the job.
-* Solana Agent tools do not use OpenAI function calling.
-* Solana Agent tools are async functions.
-
-## Local Setup
-
-A Docker Compose and Zep Config file is available at the root of this project
 
 ## API Documentation
 
