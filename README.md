@@ -227,7 +227,7 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
     print(response, end="")
 ```
 
-### Customize Audio Voice
+### Customize Speech
 
 This is an audio to audio example using the `audio_instructions` parameter.
 

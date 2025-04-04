@@ -196,10 +196,20 @@ Disable Internet Searching
       print(response, end="")
 
 
-Customize Audio Voice
+Customize Speech
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This is an audio to audio example using the `audio_instructions` parameter.
+
+You can prompt to control aspects of speech, including:
+
+* Accent
+* Emotional range
+* Intonation
+* Impressions
+* Speed of speech
+* Tone
+* Whispering
 
 .. code-block:: python
    
@@ -207,7 +217,7 @@ This is an audio to audio example using the `audio_instructions` parameter.
       print(response, end="")
 
 
-Tool Usage Example
+Tool Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
