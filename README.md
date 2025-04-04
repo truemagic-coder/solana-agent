@@ -36,7 +36,7 @@ Build your AI business in three lines of code!
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
 * Persistent memory that preserves context across all agent interactions
-* Quick built-in Internet search to answer your queries
+* Quick built-in Internet search to answer users' queries
 * Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
