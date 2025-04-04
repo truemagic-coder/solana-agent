@@ -9,9 +9,9 @@
 | **Multi-Agent**        | Automatic specialization routing              | Direct agent-to-agent handoffs                |
 | **Memory**             | Integrated MongoDB/Zep persistence            | In-context memory within message history      |
 | **Multi-Modal**        | Full audio/text streaming built-in            | Optional voice support via add-on package     |
-| **Model Support**      | Currently OpenAI focused                      | Any provider with OpenAI-compatible API       |
+| **Model Support**      | OpenAI only                                   | Any provider with OpenAI-compatible API       |
 | **Tool Integration**   | Class-based tools with registry               | Function decorators with `@function_tool`     |
-| **Debugging**          | Standard logging                              | Advanced tracing with visualization           |
+| **Debugging**          | OpenAI logging                                | Advanced tracing with visualization           |
 | **Safety**             | Basic error handling                          | Configurable guardrails for I/O validation    |
 | **Output Handling**    | Streaming yield pattern                       | Structured output types with validation       |
 | **Business Focus**     | Business mission/values framework             | General purpose agent framework               |
@@ -56,8 +56,8 @@
 | **Memory**             | Built-in conversation history                 | Not included                                |
 | **Multi-Agent**        | First-class multi-agent support               | Single agent focus with composition patterns|
 | **Tool Creation**      | Python classes with execute method            | Function decorators with schema             |
-| **Model Support**      | Currently OpenAI focused                      | Integrates with many LLMs                   |
-| **Debugging**          | Standard logging                              | Pydantic Logfire integration                |
+| **Model Support**      | OpenAI only                                   | Integrates with many LLMs                   |
+| **Debugging**          | OpenAI logging                                | Pydantic Logfire integration                |
 | **Flow Control**       | Implicit routing                              | Python control flow with graph support      |
 
 ---
