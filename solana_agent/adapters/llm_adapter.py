@@ -22,12 +22,12 @@ class OpenAIAdapter(LLMProvider):
         self.text_model = "gpt-4o-mini"
         self.internet_search_model = "gpt-4o-mini-search-preview"
         self.transcription_model = "gpt-4o-mini-transcribe"
-        self.tts_model = "tts-1"
+        self.tts_model = "gpt-4o-mini-tts"
 
     async def tts(
         self,
         text: str,
-        instructions: str = "",
+        instructions: str = "You speak in a friendly and helpful manner.",
         voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                        "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
         response_format: Literal['mp3', 'opus',
@@ -45,16 +45,16 @@ class OpenAIAdapter(LLMProvider):
             Audio bytes as they become available
         """
         try:
-            stream = self.client.audio.speech.create(
+            with self.client.audio.speech.with_streaming_response.create(
                 model=self.tts_model,
                 voice=voice,
+                instructions=instructions,
                 input=text,
                 response_format=response_format
-            )
-
-            # Stream the bytes in chunks
-            for chunk in stream.iter_bytes(chunk_size=1024 * 16):  # 16KB chunks
-                yield chunk
+            ) as stream:
+                # Stream the bytes in 16KB chunks
+                for chunk in stream.iter_bytes(chunk_size=1024 * 16):
+                    yield chunk
 
         except Exception as e:
             print(f"Error in text_to_speech: {str(e)}")
@@ -66,7 +66,7 @@ class OpenAIAdapter(LLMProvider):
             print(f"Error in text_to_speech: {str(e)}")
             import traceback
             print(traceback.format_exc())
-            yield f"I apologize, but I encountered an error converting text to speech: {str(e)}"
+            yield b""  # Return empty bytes on error
 
     async def transcribe_audio(
         self,
@@ -85,16 +85,14 @@ class OpenAIAdapter(LLMProvider):
             Transcript text chunks as they become available
         """
         try:
-            stream = self.client.audio.transcriptions.create(
+            with self.client.audio.transcriptions.with_streaming_response.create(
                 model=self.transcription_model,
                 file=(f"file.{input_format}", audio_bytes),
                 response_format="text",
-                stream=True
-            )
-
-            for event in stream:
-                if hasattr(event, 'text') and event.text:
-                    yield event.text
+            ) as stream:
+                # Stream the text in 16KB chunks
+                for chunk in stream.iter_text(chunk_size=1024 * 16):
+                    yield chunk
 
         except Exception as e:
             print(f"Error in transcribe_audio: {str(e)}")

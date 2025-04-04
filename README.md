@@ -225,6 +225,15 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
     print(response, end="")
 ```
 
+### Customize your Agent audio voice
+
+This is an audio to audio example using the `audio_instructions` parameter.
+
+```python
+async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American Southern Accent"):
+    print(response, end="")
+```
+
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via custom inline tools. Tools available via plugins integrate automatically with Solana Agent.

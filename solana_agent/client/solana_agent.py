@@ -49,7 +49,7 @@ class SolanaAgent(SolanaAgentInterface):
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
                              "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        audio_instructions: Optional[str] = None,
+        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
         audio_input_format: Literal[
@@ -66,7 +66,7 @@ class SolanaAgent(SolanaAgentInterface):
             prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
             audio_voice: Voice to use for audio output
-            audio_instructions: Not used currently
+            audio_instructions: Audio voice instructions
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             router: Optional routing service for processing
