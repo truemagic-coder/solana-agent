@@ -217,7 +217,7 @@ You can prompt to control aspects of speech, including:
       print(response, end="")
 
 
-Tool Example
+Plugin Tool Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
