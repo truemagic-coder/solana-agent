@@ -227,53 +227,6 @@ async for response in solana_agent.process("user123", "Write me a poem.", intern
     print(response, end="")
 ```
 
-
-## Plugins
-
-Plugins like Solana Agent Kit (sakit) integrate automatically with Solana Agent.
-
-`pip install sakit`
-
-### MCP
-```python
-from solana_agent import SolanaAgent
-
-config = {
-    "openai": {
-        "api_key": "your-openai-api-key",
-    },
-    "tools": {
-        "mcp": {
-            "server_urls": [
-                "http://mcp-server1.com/mcp",
-                "http://mcp-server2.com/mcp",
-                "http://mcp-server3.com/mcp"
-            ]
-        }
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-            "tools": ["mcp"],
-        },
-        {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-        }
-    ],
-}
-
-solana_agent = SolanaAgent(config=config)
-
-async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-    print(response, end="")
-```
-
-To create a plugin like Solana Agent Kit - read the [code](https://github.com/truemagic-coder/solana-agent-kit)
-
 ## Advanced
 
 ### Custom Inline Tools
