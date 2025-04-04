@@ -257,6 +257,46 @@
 </pre></div>
 </div>
 </section>
+<section id="plugin-usage">
+<h3>Plugin Usage<a class="headerlink" href="#plugin-usage" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;search_internet&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-perplexity-key&quot;</span><span class="p">,</span> <span class="c1"># Required</span>
+            <span class="s2">&quot;citations&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="c1"># Optional, defaults to True</span>
+            <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;sonar&quot;</span>  <span class="c1"># Optional, defaults to &quot;sonar&quot;</span>
+      <span class="p">},</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;search_internet&quot;</span><span class="p">],</span>
+      <span class="p">},</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">,</span> <span class="n">internet_search</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
 <section id="custom-inline-tool-usage">
 <h3>Custom Inline Tool Usage<a class="headerlink" href="#custom-inline-tool-usage" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>

@@ -196,6 +196,49 @@ Disable Internet Searching
       print(response, end="")
 
 
+Plugin Usage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+   
+   pip install sakit
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "openai": {
+         "api_key": "your-openai-api-key",
+      },
+      "tools": {
+         "search_internet": {
+               "api_key": "your-perplexity-key", # Required
+               "citations": True, # Optional, defaults to True
+               "model": "sonar"  # Optional, defaults to "sonar"
+         },
+      },
+      "agents": [
+         {
+               "name": "research_specialist",
+               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+               "specialization": "Research and knowledge synthesis",
+               "tools": ["search_internet"],
+         },
+         {
+               "name": "customer_support",
+               "instructions": "You provide friendly, helpful customer support responses.",
+               "specialization": "Customer inquiries",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   async for response in solana_agent.process("user123", "What are the latest AI developments?", internet_search=False):
+      print(response, end="")
+
+
 Custom Inline Tool Usage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
