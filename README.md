@@ -220,10 +220,18 @@ config = {
 }
 ```
 
-### Disable Internet Searching
+### Internet Search
+
+This mode is great for text output where the default response from OpenAI is enough.
+
+However, it is also found to sometimes not not call tools when the tool should be called.
+
+It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
+
+The default mode is disabled due to the issue of not calling tools properly.
 
 ```python
-async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
+async for response in solana_agent.process("user123", "Write me a poem.", internet_search=True):
     print(response, end="")
 ```
 
@@ -268,7 +276,8 @@ config = {
     },
     "tools": {
         "search_internet": {
-            "api_key": "your-perplexity-api-key",
+            "api_key": "your-api-key", # Required - either a Perplexity or OpenAI API key
+            "provider": "perplexity", # Optional, defaults to perplexity - can also be openai (lowercase)
         },
     },
     "agents": [
@@ -288,7 +297,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-async for response in solana_agent.process("user123", "What are the latest AI developments?", internet_search=False):
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
 
