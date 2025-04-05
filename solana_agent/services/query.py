@@ -49,7 +49,7 @@ class QueryService(QueryServiceInterface):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
-        internet_search: bool = True,
+        internet_search: bool = False,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 

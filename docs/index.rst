@@ -32,14 +32,14 @@ Text/Text Streaming
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -62,14 +62,14 @@ Audio/Audio Streaming
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -96,14 +96,14 @@ Text/Audio Streaming
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -126,14 +126,14 @@ Audio/Text Streaming
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -187,12 +187,20 @@ Conversational Memory Config - Optional
       },
    }
 
-Disable Internet Searching
+Internet Search - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This mode is great for text output where the default response from OpenAI is enough.
+
+However, it is also found to sometimes not not call tools when the tool should be called.
+
+It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
+
+The default mode is disabled due to the issue of not calling tools properly.
 
 .. code-block:: python
 
-   async for response in solana_agent.process("user123", "Write me a poem.", internet_search=False):
+   async for response in solana_agent.process("user123", "Write me a poem.", internet_search=True):
       print(response, end="")
 
 
@@ -234,27 +242,28 @@ Plugin Tool Example
       },
       "tools": {
          "search_internet": {
-               "api_key": "your-perplexity-api-key",
+            "api_key": "your-api-key", # Required - either a Perplexity or OpenAI API key
+            "provider": "perplexity", # Optional, defaults to perplexity - can also be openai (lowercase)
          },
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.",
-               "specialization": "Research and knowledge synthesis",
-               "tools": ["search_internet"],
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.",
+            "specialization": "Research and knowledge synthesis",
+            "tools": ["search_internet"],
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
 
    solana_agent = SolanaAgent(config=config)
 
-   async for response in solana_agent.process("user123", "What are the latest AI developments?", internet_search=False):
+   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
 
@@ -289,28 +298,28 @@ Inline Tool Example
       def get_schema(self) -> Dict[str, Any]:
          # this is an example schema
          return {
-               "type": "object",
-               "properties": {
-                  "query": {"type": "string", "description": "Search query text"},
-                  "user_id": {"type": "string", "description": "User ID for the search session"}
-               },
-               "required": ["query", "user_id"]
+            "type": "object",
+            "properties": {
+               "query": {"type": "string", "description": "Search query text"},
+               "user_id": {"type": "string", "description": "User ID for the search session"}
+            },
+            "required": ["query", "user_id"]
          }
 
       async def execute(self, **params) -> Dict[str, Any]:
          try:
-               # your tool logic
-               result = "Your tool results"
+            # your tool logic
+            result = "Your tool results"
 
-               return {
-                  "status": "success",
-                  "result": result,
-               }
+            return {
+               "status": "success",
+               "result": result,
+            }
          except Exception as e:
-               return {
-                  "status": "error",
-                  "message": f"Error: {str(e)}",
-               }
+            return {
+               "status": "error",
+               "message": f"Error: {str(e)}",
+            }
 
    config = {
       "openai": {
@@ -318,14 +327,14 @@ Inline Tool Example
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -354,14 +363,14 @@ Useful for Knowledge Base answers and FAQs.
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }
@@ -385,14 +394,14 @@ Custom Routing Example
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
          },
          {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
          }
       ],
    }

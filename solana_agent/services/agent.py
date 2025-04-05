@@ -177,7 +177,7 @@ class AgentService(AgentServiceInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
-        internet_search: bool = True,
+        internet_search: bool = False,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
         agent = next((a for a in self.agents if a.name == agent_name), None)
