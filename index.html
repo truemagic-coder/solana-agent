@@ -158,8 +158,16 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>OpenAI API calls with no tool call = 1 (text)</p>
-<p>OpenAI API calls with tool call = 2 (text, text)</p>
+<p>Single Agent:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 1 (text)</p></li>
+<li><p>OpenAI API calls with tool call = 2 (text, text)</p></li>
+</ul>
+<p>Multiple Agents:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 2 (router, text)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (router, text, text)</p></li>
+</ul>
 </section>
 <section id="audio-audio-streaming">
 <h3>Audio/Audio Streaming<a class="headerlink" href="#audio-audio-streaming" title="Link to this heading"></a></h3>
@@ -191,8 +199,16 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)</p>
-<p>OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)</p>
+<p>Single Agent:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)</p></li>
+</ul>
+<p>Multiple Agents:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 4 (router, audio transcribe, text, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 5 (router, audio transcribe, text, text, TTS)</p></li>
+</ul>
 </section>
 <section id="text-audio-streaming">
 <h3>Text/Audio Streaming<a class="headerlink" href="#text-audio-streaming" title="Link to this heading"></a></h3>
@@ -222,8 +238,16 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>OpenAI API calls with no tool call = 2 (text, TTS)</p>
-<p>OpenAI API calls with tool call = 3 (text, text, TTS)</p>
+<p>Single Agent:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 2 (text, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (text, text, TTS)</p></li>
+</ul>
+<p>Multiple Agents:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 3 (router, text, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (router, text, text, TTS)</p></li>
+</ul>
 </section>
 <section id="audio-text-streaming">
 <h3>Audio/Text Streaming<a class="headerlink" href="#audio-text-streaming" title="Link to this heading"></a></h3>
@@ -255,8 +279,16 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>OpenAI API calls with no tool call = 2 (audio transcribe, text)</p>
-<p>OpenAI API calls with tool call = 3 (audio transcribe, text, text)</p>
+<p>Single Agent:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 2 (audio transcribe, text)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (audio transcribe, text, text)</p></li>
+</ul>
+<p>Multiple Agents:</p>
+<ul class="simple">
+<li><p>OpenAI API calls with no tool call = 3 (router, audio transcribe, text)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (router, audio transcribe, text, text)</p></li>
+</ul>
 </section>
 <section id="business-alignment-config-optional">
 <h3>Business Alignment Config - Optional<a class="headerlink" href="#business-alignment-config-optional" title="Link to this heading"></a></h3>
@@ -296,6 +328,11 @@
 <span class="p">}</span>
 </pre></div>
 </div>
+<p>API Calls:</p>
+<ul class="simple">
+<li><p>Zep adds 2 API calls per user query (GET and POST)</p></li>
+<li><p>If the Zep user and session isn’t created it creates them for 2 API calls (POST)</p></li>
+</ul>
 </section>
 <section id="internet-search-optional">
 <h3>Internet Search - Optional<a class="headerlink" href="#internet-search-optional" title="Link to this heading"></a></h3>
