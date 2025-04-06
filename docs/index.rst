@@ -196,11 +196,11 @@ However, it is also found to sometimes not not call tools when the tool should b
 
 It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
 
-The default mode is disabled due to the issue of not calling tools properly.
+The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
 
 .. code-block:: python
 
-   async for response in solana_agent.process("user123", "Write me a poem.", internet_search=True):
+   async for response in solana_agent.process("user123", "What is the latest news on Canada?", internet_search=True):
       print(response, end="")
 
 

@@ -57,6 +57,47 @@ You can install Solana Agent using pip:
 
 `pip install solana-agent`
 
+## Flows
+
+In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).
+
+An agent can have multiple tools and will choose the best one to answer the user query.
+
+Routing is determined by optimal domain expertise of the agent for the user query.
+
+Keep this in mind while designing your agentic systems using Solana Agent.
+
+```ascii
+                       Single Agent                                     
+                                                                        
+     ┌────────┐        ┌─────────┐        ┌────────┐                    
+     │        │        │         │        │        │                    
+     │        │        │         │        │        │                    
+     │  User  │◄──────►│  Agent  │◄──────►│  Tool  │                    
+     │        │        │         │        │        │                    
+     │        │        │         │        │        │                    
+     └────────┘        └─────────┘        └────────┘                    
+                                                                        
+                                                                        
+                                                                        
+                                                                        
+                                                                        
+                      Multiple Agents                                   
+                                                                        
+     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
+     │        │        │          │        │         │        │        │
+     │        │        │          │        │         │        │        │
+┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
+│    │        │        │          │        │         │        │        │
+│    │        │        │          │        │         │        │        │
+│    └────────┘        └──────────┘        └────┬────┘        └────────┘
+│                                               │                       
+│                                               │                       
+│                                               │                       
+│                                               │                       
+└───────────────────────────────────────────────┘                       
+```
+
 ## Usage
 
 ### Text/Text Streaming
@@ -228,10 +269,10 @@ However, it is also found to sometimes not not call tools when the tool should b
 
 It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
 
-The default mode is disabled due to the issue of not calling tools properly.
+The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
 
 ```python
-async for response in solana_agent.process("user123", "Write me a poem.", internet_search=True):
+async for response in solana_agent.process("user123", "What is the latest news on Canada?", internet_search=True):
     print(response, end="")
 ```
 
