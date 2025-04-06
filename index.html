@@ -255,8 +255,8 @@
 <p>This mode is great for text output where the default response from OpenAI is enough.</p>
 <p>However, it is also found to sometimes not not call tools when the tool should be called.</p>
 <p>It is faster than calling <cite>search_internet</cite> from <cite>sakit</cite> and saves at least 2 API calls.</p>
-<p>The default mode is disabled due to the issue of not calling tools properly.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Write me a poem.&quot;</span><span class="p">,</span> <span class="n">internet_search</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<p>The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is the latest news on Canada?&quot;</span><span class="p">,</span> <span class="n">internet_search</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
