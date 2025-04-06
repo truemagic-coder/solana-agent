@@ -74,7 +74,7 @@ An agent can have multiple tools and will choose the best one to answer the user
 
 Routing is determined by optimal domain expertise of the agent for the user query.
 
-When the agent uses a tool it feeds the tool output back into the agent to generate the final response.
+When the agent uses a tool it feeds the tool output back to itself to generate the final response.
 
 This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
 
@@ -333,11 +333,11 @@ API Calls:
 
 This mode is great for text output where the default response from OpenAI is enough.
 
-However, it is also found to sometimes to not call tools when the tool should be called.
+It is not suitable for audio as the OpenAI search results contain links and markdown.
 
-It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
+Also it may not call tools when they should be called as it thinks the search results answer the user query.
 
-The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
+It is much faster than calling `search_internet` from `sakit` as it saves 2 API calls.
 
 ```python
 async for response in solana_agent.process("user123", "What is the latest news on Canada?", internet_search=True):

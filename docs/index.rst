@@ -293,11 +293,11 @@ Internet Search - Optional
 
 This mode is great for text output where the default response from OpenAI is enough.
 
-However, it is also found to sometimes to not call tools when the tool should be called.
+It is not suitable for audio as the OpenAI search results contain links and markdown.
 
-It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
+Also it may not call tools when they should be called as it thinks the search results answer the user query.
 
-The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
+It is much faster than calling `search_internet` from `sakit` as it saves 2 API calls.
 
 .. code-block:: python
 
