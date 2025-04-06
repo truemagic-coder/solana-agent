@@ -160,13 +160,13 @@
 </div>
 <p>Single Agent:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 1 (text)</p></li>
-<li><p>OpenAI API calls with tool call = 2 (text, text)</p></li>
+<li><p>OpenAI API calls with no tool call = 1 (agent)</p></li>
+<li><p>OpenAI API calls with tool call = 2 (agent, agent)</p></li>
 </ul>
 <p>Multiple Agents:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (router, text)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (router, text, text)</p></li>
+<li><p>OpenAI API calls with no tool call = 2 (router, agent)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (router, agent, agent)</p></li>
 </ul>
 </section>
 <section id="audio-audio-streaming">
@@ -201,17 +201,17 @@
 </div>
 <p>Single Agent:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)</p></li>
+<li><p>OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)</p></li>
 </ul>
 <p>Multiple Agents:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 4 (router, audio transcribe, text, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 5 (router, audio transcribe, text, text, TTS)</p></li>
+<li><p>OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)</p></li>
 </ul>
 </section>
-<section id="text-audio-streaming">
-<h3>Text/Audio Streaming<a class="headerlink" href="#text-audio-streaming" title="Link to this heading"></a></h3>
+<section id="agent-audio-streaming">
+<h3>agent/Audio Streaming<a class="headerlink" href="#agent-audio-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -240,13 +240,13 @@
 </div>
 <p>Single Agent:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (text, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (text, text, TTS)</p></li>
+<li><p>OpenAI API calls with no tool call = 2 (agent, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (agent, agent, TTS)</p></li>
 </ul>
 <p>Multiple Agents:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (router, text, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (router, text, text, TTS)</p></li>
+<li><p>OpenAI API calls with no tool call = 3 (router, agent, TTS)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (router, agent, agent, TTS)</p></li>
 </ul>
 </section>
 <section id="audio-text-streaming">
@@ -281,13 +281,13 @@
 </div>
 <p>Single Agent:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (audio transcribe, text)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (audio transcribe, text, text)</p></li>
+<li><p>OpenAI API calls with no tool call = 2 (audio transcribe, agent)</p></li>
+<li><p>OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)</p></li>
 </ul>
 <p>Multiple Agents:</p>
 <ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (router, audio transcribe, text)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (router, audio transcribe, text, text)</p></li>
+<li><p>OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)</p></li>
+<li><p>OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)</p></li>
 </ul>
 </section>
 <section id="business-alignment-config-optional">
