@@ -515,7 +515,19 @@ The official example app written in FastAPI and Next.js
 
 ## Agent Framework Comparisons
 
-[Compare Python Agent Frameworks](https://github.com/truemagic-coder/solana-agent/blob/main/compare.md)
+[Compare Python Agent Frameworks](https://github.com/truemagic-coder/solana-agent/wiki/Agent-Framework-Comparisons)
+
+## Contributing
+
+If you have a question, feedback, or feature request - please open a GitHub discussion.
+
+If you find a bug - please open a GitHub issue.
+
+We are currently not accepting pull requests at the moment.
+
+To run the documentation site locally run `make livehtml` in the root directory.
+
+To run the test suite locally run `poetry run pytest --cov=solana_agent --cov-report=html` in the root directory.
 
 ## License
 
