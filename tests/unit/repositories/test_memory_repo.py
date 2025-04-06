@@ -134,15 +134,37 @@ class TestMemoryRepository:
         mock_mongo_adapter.insert_one.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_store_zep_direct_success(self, mock_zep, valid_messages):
+        """Test successful direct Zep storage without fallback."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+
+        # Memory.add will succeed on first try
+        await repo.store("user123", valid_messages)
+
+        # Verify direct path
+        mock_zep.memory.add.assert_called_once()
+        mock_zep.user.add.assert_not_called()
+        mock_zep.memory.add_session.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_store_zep_success(self, mock_zep, valid_messages):
         """Test successful Zep storage."""
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
+
+        # Make the first memory.add call fail to trigger the fallback path
+        mock_zep.memory.add.side_effect = [Exception("First call fails"), None]
+
         await repo.store("user123", valid_messages)
 
+        # Now verify the fallback path was called
         mock_zep.user.add.assert_called_once_with(user_id="user123")
-        mock_zep.memory.add_session.assert_called_once()
-        mock_zep.memory.add.assert_called_once()
+        mock_zep.memory.add_session.assert_called_once_with(
+            session_id="user123", user_id="user123"
+        )
+        # Verify memory.add was called twice (once failing, once succeeding)
+        assert mock_zep.memory.add.call_count == 2
 
     @pytest.mark.asyncio
     async def test_store_zep_errors(self, mock_zep, valid_messages):
@@ -150,19 +172,71 @@ class TestMemoryRepository:
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
 
-        # Test user addition error
+        # Make first memory.add fail, then user.add fail
+        mock_zep.memory.add.side_effect = Exception("Memory error")
         mock_zep.user.add.side_effect = Exception("User error")
+
         await repo.store("user123", valid_messages)
-        mock_zep.memory.add_session.assert_called_once()
+
+        # Verify add_session was still called despite user.add failing
+        mock_zep.memory.add_session.assert_called_once_with(
+            session_id="user123", user_id="user123"
+        )
 
     @pytest.mark.asyncio
-    async def test_retrieve_success(self, mock_zep):
-        """Test successful memory retrieval."""
+    async def test_store_zep_session_creation_error(self, mock_zep, valid_messages):
+        """Test handling the specific case where session creation fails."""
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
-        result = await repo.retrieve("user123")
-        assert result == "Test memory context"
-        mock_zep.memory.get.assert_called_once_with(session_id="user123")
+
+        # Configure mocks to hit the specific error path:
+        # 1. First memory.add fails
+        mock_zep.memory.add.side_effect = [
+            Exception("Session not found"),  # First call fails
+            None  # Second call succeeds (we'll reach this if code continues)
+        ]
+
+        # 2. User creation succeeds
+        mock_zep.user.add.return_value = None
+
+        # 3. Session creation raises exception (this is what we want to test)
+        mock_zep.memory.add_session.side_effect = Exception(
+            "Session creation failed")
+
+        # Call the method
+        await repo.store("user123", valid_messages)
+
+        # Verify:
+        # - Initial memory.add was called and failed
+        # - User.add was called and succeeded
+        # - Memory.add_session was called and failed (our target scenario)
+        # - Code continued and tried to add messages again
+        mock_zep.memory.add.assert_called()
+        mock_zep.user.add.assert_called_once_with(user_id="user123")
+        mock_zep.memory.add_session.assert_called_once_with(
+            session_id="user123", user_id="user123"
+        )
+
+        # Verify we reached the print statement by checking call count
+        # (2 calls means we tried the second add after the session error)
+        assert mock_zep.memory.add.call_count == 2
+
+        # Optional: add a mock for print and verify it was called with the error message
+        # This requires patch("builtins.print") in the test setup
+
+    @pytest.mark.asyncio
+    async def test_store_zep_direct_success(self, mock_zep, valid_messages):
+        """Test successful direct Zep storage without fallback."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+
+        # Memory.add will succeed on first try
+        await repo.store("user123", valid_messages)
+
+        # Verify direct path
+        mock_zep.memory.add.assert_called_once()
+        mock_zep.user.add.assert_not_called()
+        mock_zep.memory.add_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_retrieve_success_no_zep(self):
@@ -170,6 +244,27 @@ class TestMemoryRepository:
         repo = MemoryRepository()
         result = await repo.retrieve("user123")
         assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_memory_context_success(self, mock_zep):
+        """Test successful retrieval of memory context from Zep."""
+        # Setup
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+
+        # Create a mock for the memory object with a context attribute
+        mock_memory = MagicMock()
+        mock_memory.context = "Sample memory context data"
+
+        # Configure the mock to return our memory object
+        mock_zep.memory.get.return_value = mock_memory
+
+        # Call retrieve method
+        result = await repo.retrieve("test_user")
+
+        # Verify correct behavior
+        mock_zep.memory.get.assert_called_once_with(session_id="test_user")
+        assert result == "Sample memory context data"
 
     @pytest.mark.asyncio
     async def test_retrieve_errors(self, mock_zep):

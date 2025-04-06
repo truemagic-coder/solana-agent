@@ -81,16 +81,6 @@ class MemoryRepository(MemoryProvider):
         if not self.zep:
             return
 
-        try:
-            await self.zep.user.add(user_id=user_id)
-        except Exception as e:
-            print(f"Zep user addition error: {e}")
-
-        try:
-            await self.zep.memory.add_session(session_id=user_id, user_id=user_id)
-        except Exception as e:
-            print(f"Zep session creation error: {e}")
-
         # Convert messages to Zep format
         zep_messages = []
         for msg in messages:
@@ -111,7 +101,23 @@ class MemoryRepository(MemoryProvider):
                     messages=zep_messages
                 )
             except Exception as e:
-                print(f"Zep memory addition error: {e}")
+                try:
+                    try:
+                        await self.zep.user.add(user_id=user_id)
+                    except Exception as e:
+                        print(f"Zep user addition error: {e}")
+
+                    try:
+                        await self.zep.memory.add_session(session_id=user_id, user_id=user_id)
+                    except Exception as e:
+                        print(f"Zep session creation error: {e}")
+                    await self.zep.memory.add(
+                        session_id=user_id,
+                        messages=zep_messages
+                    )
+                except Exception as e:
+                    print(f"Zep memory addition error: {e}")
+                    return
 
     async def retrieve(self, user_id: str) -> str:
         """Retrieve memory context from Zep only."""
