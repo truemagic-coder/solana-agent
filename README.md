@@ -376,8 +376,7 @@ config = {
     },
     "tools": {
         "search_internet": {
-            "api_key": "your-api-key", # Required - either a Perplexity or OpenAI API key
-            "provider": "perplexity", # Optional, defaults to perplexity - can also be openai (lowercase)
+            "api_key": "your-openai-api-key",
         },
     },
     "agents": [
