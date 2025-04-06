@@ -29,6 +29,10 @@ An agent can have multiple tools and will choose the best one to answer the user
 
 Routing is determined by optimal domain expertise of the agent for the user query.
 
+When the agent uses a tool it feeds the tool output back into the agent to generate the final response.
+
+This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
+
 Keep this in mind while designing your agentic systems using Solana Agent.
 
 .. code-block:: ascii
@@ -93,6 +97,9 @@ Text/Text Streaming
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
+OpenAI API calls with no tool call = 1 (text)
+OpenAI API calls with tool call = 2 (text, text)
+
 Audio/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -125,10 +132,11 @@ Audio/Audio Streaming
    async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
       print(response, end="")
 
+OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
 
 Text/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 
 .. code-block:: python
 
@@ -156,6 +164,9 @@ Text/Audio Streaming
 
    async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
       print(response, end="")
+
+OpenAI API calls with no tool call = 2 (text, TTS)
+OpenAI API calls with tool call = 3 (text, text, TTS)
 
 Audio/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -188,6 +199,9 @@ Audio/Text Streaming
 
    async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
       print(response, end="")
+
+OpenAI API calls with no tool call = 2 (audio transcribe, text)
+OpenAI API calls with tool call = 3 (audio transcribe, text, text)
 
 Business Alignment Config - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -238,7 +252,7 @@ This mode is great for text output where the default response from OpenAI is eno
 
 However, it is also found to sometimes not not call tools when the tool should be called.
 
-It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
+It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
 
 The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
 

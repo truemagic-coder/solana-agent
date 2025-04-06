@@ -96,6 +96,8 @@
 <p>In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).</p>
 <p>An agent can have multiple tools and will choose the best one to answer the user query.</p>
 <p>Routing is determined by optimal domain expertise of the agent for the user query.</p>
+<p>When the agent uses a tool it feeds the tool output back into the agent to generate the final response.</p>
+<p>This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.</p>
 <p>Keep this in mind while designing your agentic systems using Solana Agent.</p>
 <div class="highlight-ascii notranslate"><div class="highlight"><pre><span></span>                     Single Agent
 
@@ -156,6 +158,8 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>OpenAI API calls with no tool call = 1 (text)
+OpenAI API calls with tool call = 2 (text, text)</p>
 </section>
 <section id="audio-audio-streaming">
 <h3>Audio/Audio Streaming<a class="headerlink" href="#audio-audio-streaming" title="Link to this heading"></a></h3>
@@ -187,6 +191,8 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)</p>
 </section>
 <section id="text-audio-streaming">
 <h3>Text/Audio Streaming<a class="headerlink" href="#text-audio-streaming" title="Link to this heading"></a></h3>
@@ -216,6 +222,8 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>OpenAI API calls with no tool call = 2 (text, TTS)
+OpenAI API calls with tool call = 3 (text, text, TTS)</p>
 </section>
 <section id="audio-text-streaming">
 <h3>Audio/Text Streaming<a class="headerlink" href="#audio-text-streaming" title="Link to this heading"></a></h3>
@@ -247,6 +255,8 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>OpenAI API calls with no tool call = 2 (audio transcribe, text)
+OpenAI API calls with tool call = 3 (audio transcribe, text, text)</p>
 </section>
 <section id="business-alignment-config-optional">
 <h3>Business Alignment Config - Optional<a class="headerlink" href="#business-alignment-config-optional" title="Link to this heading"></a></h3>
@@ -291,7 +301,7 @@
 <h3>Internet Search - Optional<a class="headerlink" href="#internet-search-optional" title="Link to this heading"></a></h3>
 <p>This mode is great for text output where the default response from OpenAI is enough.</p>
 <p>However, it is also found to sometimes not not call tools when the tool should be called.</p>
-<p>It is faster than calling <cite>search_internet</cite> from <cite>sakit</cite> and saves at least 2 API calls.</p>
+<p>It is faster than calling <cite>search_internet</cite> from <cite>sakit</cite> by saving 2 API calls.</p>
 <p>The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is the latest news on Canada?&quot;</span><span class="p">,</span> <span class="n">internet_search</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
