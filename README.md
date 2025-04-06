@@ -133,9 +133,17 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-OpenAI API calls with no tool call = 1 (text)
+Single Agent:
 
-OpenAI API calls with tool call = 2 (text, text)
+* OpenAI API calls with no tool call = 1 (text)
+
+* OpenAI API calls with tool call = 2 (text, text)
+
+Multiple Agents:
+
+* OpenAI API calls with no tool call = 2 (router, text)
+
+* OpenAI API calls with tool call = 3 (router, text, text)
 
 ### Audio/Audio Streaming
 
@@ -168,9 +176,18 @@ async for response in solana_agent.process("user123", audio_content, output_form
     print(response, end="")
 ```
 
-OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+Single Agent:
 
-OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
+* OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+
+* OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
+
+Multiple Agents:
+
+* OpenAI API calls with no tool call = 4 (router, audio transcribe, text, TTS)
+
+* OpenAI API calls with tool call = 5 (router, audio transcribe, text, text, TTS)
+
 
 ### Text/Audio Streaming
 
@@ -201,9 +218,17 @@ async for response in solana_agent.process("user123", "What is the latest news o
     print(response, end="")
 ```
 
-OpenAI API calls with no tool call = 2 (text, TTS)
+Single Agent:
 
-OpenAI API calls with tool call = 3 (text, text, TTS)
+* OpenAI API calls with no tool call = 2 (text, TTS)
+
+* OpenAI API calls with tool call = 3 (text, text, TTS)
+
+Multiple Agents:
+
+* OpenAI API calls with no tool call = 3 (router, text, TTS)
+
+* OpenAI API calls with tool call = 4 (router, text, text, TTS)
 
 ### Audio/Text Streaming
 
@@ -236,9 +261,17 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
-OpenAI API calls with no tool call = 2 (audio transcribe, text)
+Single Agent:
 
-OpenAI API calls with tool call = 3 (audio transcribe, text, text)
+* OpenAI API calls with no tool call = 2 (audio transcribe, text)
+
+* OpenAI API calls with tool call = 3 (audio transcribe, text, text)
+
+Multiple Agents:
+
+* OpenAI API calls with no tool call = 3 (router, audio transcribe, text)
+
+* OpenAI API calls with tool call = 4 (router, audio transcribe, text, text)
 
 ## Optional Feature Configs
 
@@ -280,6 +313,12 @@ config = {
     },
 }
 ```
+
+API Calls:
+
+* Zep adds 2 API calls per user query (GET and POST)
+
+* If the Zep user and session isn't created it creates them for 2 API calls (POST)
 
 ### Internet Search
 
