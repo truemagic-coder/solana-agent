@@ -46,10 +46,19 @@ Build your AI business in three lines of code!
 
 ## Stack
 
+### Tech
+
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - LLM Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
+
+### Models
+
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [gpt-4o-mini-tts](https://platform.openai.com/docs/models/gpt-4o-mini-tts)
+* [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
+* [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview)
 
 ## Installation
 
