@@ -19,6 +19,50 @@ Installation
 
    pip install solana-agent
 
+
+Flows
+~~~~~~
+
+In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).
+
+An agent can have multiple tools and will choose the best one to answer the user query.
+
+Routing is determined by optimal domain expertise of the agent for the user query.
+
+Keep this in mind while designing your agentic systems using Solana Agent.
+
+.. code-block:: ascii
+
+                        Single Agent                                     
+                                                                           
+      ┌────────┐        ┌─────────┐        ┌────────┐                    
+      │        │        │         │        │        │                    
+      │        │        │         │        │        │                    
+      │  User  │◄──────►│  Agent  │◄──────►│  Tool  │                    
+      │        │        │         │        │        │                    
+      │        │        │         │        │        │                    
+      └────────┘        └─────────┘        └────────┘                    
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                                                                           
+                        Multiple Agents                                   
+                                                                           
+        ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
+        │        │        │          │        │         │        │        │
+        │        │        │          │        │         │        │        │
+   ┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
+   │    │        │        │          │        │         │        │        │
+   │    │        │        │          │        │         │        │        │
+   │    └────────┘        └──────────┘        └────┬────┘        └────────┘
+   │                                               │                       
+   │                                               │                       
+   │                                               │                       
+   │                                               │                       
+   └───────────────────────────────────────────────┘                       
+
+
 Text/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

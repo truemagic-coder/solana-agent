@@ -91,6 +91,43 @@
 </pre></div>
 </div>
 </section>
+<section id="flows">
+<h3>Flows<a class="headerlink" href="#flows" title="Link to this heading"></a></h3>
+<p>In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).</p>
+<p>An agent can have multiple tools and will choose the best one to answer the user query.</p>
+<p>Routing is determined by optimal domain expertise of the agent for the user query.</p>
+<p>Keep this in mind while designing your agentic systems using Solana Agent.</p>
+<div class="highlight-ascii notranslate"><div class="highlight"><pre><span></span>                     Single Agent
+
+   ┌────────┐        ┌─────────┐        ┌────────┐
+   │        │        │         │        │        │
+   │        │        │         │        │        │
+   │  User  │◄──────►│  Agent  │◄──────►│  Tool  │
+   │        │        │         │        │        │
+   │        │        │         │        │        │
+   └────────┘        └─────────┘        └────────┘
+
+
+
+
+
+                     Multiple Agents
+
+     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
+     │        │        │          │        │         │        │        │
+     │        │        │          │        │         │        │        │
+┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
+│    │        │        │          │        │         │        │        │
+│    │        │        │          │        │         │        │        │
+│    └────────┘        └──────────┘        └────┬────┘        └────────┘
+│                                               │
+│                                               │
+│                                               │
+│                                               │
+└───────────────────────────────────────────────┘
+</pre></div>
+</div>
+</section>
 <section id="text-text-streaming">
 <h3>Text/Text Streaming<a class="headerlink" href="#text-text-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
