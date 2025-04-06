@@ -65,6 +65,10 @@ An agent can have multiple tools and will choose the best one to answer the user
 
 Routing is determined by optimal domain expertise of the agent for the user query.
 
+When the agent uses a tool it feeds the tool output back into the agent to generate the final response.
+
+This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
+
 Keep this in mind while designing your agentic systems using Solana Agent.
 
 ```ascii
@@ -129,6 +133,10 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
+OpenAI API calls with no tool call = 1 (text)
+
+OpenAI API calls with tool call = 2 (text, text)
+
 ### Audio/Audio Streaming
 
 ```python
@@ -160,6 +168,10 @@ async for response in solana_agent.process("user123", audio_content, output_form
     print(response, end="")
 ```
 
+OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+
+OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
+
 ### Text/Audio Streaming
 
 ```python
@@ -188,6 +200,10 @@ solana_agent = SolanaAgent(config=config)
 async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
     print(response, end="")
 ```
+
+OpenAI API calls with no tool call = 2 (text, TTS)
+
+OpenAI API calls with tool call = 3 (text, text, TTS)
 
 ### Audio/Text Streaming
 
@@ -219,6 +235,10 @@ audio_content = audio_file.read()
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
     print(response, end="")
 ```
+
+OpenAI API calls with no tool call = 2 (audio transcribe, text)
+
+OpenAI API calls with tool call = 3 (audio transcribe, text, text)
 
 ## Optional Feature Configs
 
@@ -267,7 +287,7 @@ This mode is great for text output where the default response from OpenAI is eno
 
 However, it is also found to sometimes not not call tools when the tool should be called.
 
-It is faster than calling `search_internet` from `sakit` and saves at least 2 API calls.
+It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
 
 The default mode is disabled due to the issue of not calling tools properly and is not suitable for audio output.
 
@@ -523,7 +543,7 @@ If you have a question, feedback, or feature request - please open a GitHub disc
 
 If you find a bug - please open a GitHub issue.
 
-We are currently not accepting pull requests at the moment.
+We are currently accepting PRs if approved in discussions. Make sure all tests pass and the README & docs are updated.
 
 To run the documentation site locally run `make livehtml` in the root directory.
 
