@@ -53,7 +53,7 @@ Build your AI business in three lines of code!
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
-### Models
+### LLMs
 
 * [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
 * [gpt-4o-mini-tts](https://platform.openai.com/docs/models/gpt-4o-mini-tts)
