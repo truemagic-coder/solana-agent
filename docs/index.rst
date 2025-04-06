@@ -98,6 +98,7 @@ Text/Text Streaming
       print(response, end="")
 
 OpenAI API calls with no tool call = 1 (text)
+
 OpenAI API calls with tool call = 2 (text, text)
 
 Audio/Audio Streaming
@@ -133,6 +134,7 @@ Audio/Audio Streaming
       print(response, end="")
 
 OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+
 OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
 
 Text/Audio Streaming
@@ -166,6 +168,7 @@ Text/Audio Streaming
       print(response, end="")
 
 OpenAI API calls with no tool call = 2 (text, TTS)
+
 OpenAI API calls with tool call = 3 (text, text, TTS)
 
 Audio/Text Streaming
@@ -201,6 +204,7 @@ Audio/Text Streaming
       print(response, end="")
 
 OpenAI API calls with no tool call = 2 (audio transcribe, text)
+
 OpenAI API calls with tool call = 3 (audio transcribe, text, text)
 
 Business Alignment Config - Optional
@@ -250,7 +254,7 @@ Internet Search - Optional
 
 This mode is great for text output where the default response from OpenAI is enough.
 
-However, it is also found to sometimes not not call tools when the tool should be called.
+However, it is also found to sometimes to not call tools when the tool should be called.
 
 It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
 

@@ -285,7 +285,7 @@ config = {
 
 This mode is great for text output where the default response from OpenAI is enough.
 
-However, it is also found to sometimes not not call tools when the tool should be called.
+However, it is also found to sometimes to not call tools when the tool should be called.
 
 It is faster than calling `search_internet` from `sakit` by saving 2 API calls.
 
