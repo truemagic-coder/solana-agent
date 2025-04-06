@@ -135,15 +135,15 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 1 (text)
+* OpenAI API calls with no tool call = 1 (agent)
 
-* OpenAI API calls with tool call = 2 (text, text)
+* OpenAI API calls with tool call = 2 (agent, agent)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 2 (router, text)
+* OpenAI API calls with no tool call = 2 (router, agent)
 
-* OpenAI API calls with tool call = 3 (router, text, text)
+* OpenAI API calls with tool call = 3 (router, agent, agent)
 
 ### Audio/Audio Streaming
 
@@ -178,15 +178,15 @@ async for response in solana_agent.process("user123", audio_content, output_form
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+* OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)
 
-* OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
+* OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 4 (router, audio transcribe, text, TTS)
+* OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)
 
-* OpenAI API calls with tool call = 5 (router, audio transcribe, text, text, TTS)
+* OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)
 
 
 ### Text/Audio Streaming
@@ -220,15 +220,15 @@ async for response in solana_agent.process("user123", "What is the latest news o
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 2 (text, TTS)
+* OpenAI API calls with no tool call = 2 (agent, TTS)
 
-* OpenAI API calls with tool call = 3 (text, text, TTS)
+* OpenAI API calls with tool call = 3 (agent, agent, TTS)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 3 (router, text, TTS)
+* OpenAI API calls with no tool call = 3 (router, agent, TTS)
 
-* OpenAI API calls with tool call = 4 (router, text, text, TTS)
+* OpenAI API calls with tool call = 4 (router, agent, agent, TTS)
 
 ### Audio/Text Streaming
 
@@ -263,15 +263,15 @@ async for response in solana_agent.process("user123", audio_content, audio_input
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 2 (audio transcribe, text)
+* OpenAI API calls with no tool call = 2 (audio transcribe, agent)
 
-* OpenAI API calls with tool call = 3 (audio transcribe, text, text)
+* OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 3 (router, audio transcribe, text)
+* OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)
 
-* OpenAI API calls with tool call = 4 (router, audio transcribe, text, text)
+* OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)
 
 ## Optional Feature Configs
 

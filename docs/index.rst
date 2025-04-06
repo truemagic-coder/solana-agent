@@ -99,15 +99,15 @@ Text/Text Streaming
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 1 (text)
+* OpenAI API calls with no tool call = 1 (agent)
 
-* OpenAI API calls with tool call = 2 (text, text)
+* OpenAI API calls with tool call = 2 (agent, agent)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 2 (router, text)
+* OpenAI API calls with no tool call = 2 (router, agent)
 
-* OpenAI API calls with tool call = 3 (router, text, text)
+* OpenAI API calls with tool call = 3 (router, agent, agent)
 
 Audio/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -143,18 +143,18 @@ Audio/Audio Streaming
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 3 (audio transcribe, text, TTS)
+* OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)
 
-* OpenAI API calls with tool call = 4 (audio transcribe, text, text, TTS)
+* OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 4 (router, audio transcribe, text, TTS)
+* OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)
 
-* OpenAI API calls with tool call = 5 (router, audio transcribe, text, text, TTS)
+* OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)
 
 
-Text/Audio Streaming
+agent/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -186,15 +186,15 @@ Text/Audio Streaming
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 2 (text, TTS)
+* OpenAI API calls with no tool call = 2 (agent, TTS)
 
-* OpenAI API calls with tool call = 3 (text, text, TTS)
+* OpenAI API calls with tool call = 3 (agent, agent, TTS)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 3 (router, text, TTS)
+* OpenAI API calls with no tool call = 3 (router, agent, TTS)
 
-* OpenAI API calls with tool call = 4 (router, text, text, TTS)
+* OpenAI API calls with tool call = 4 (router, agent, agent, TTS)
 
 Audio/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -230,15 +230,15 @@ Audio/Text Streaming
 
 Single Agent:
 
-* OpenAI API calls with no tool call = 2 (audio transcribe, text)
+* OpenAI API calls with no tool call = 2 (audio transcribe, agent)
 
-* OpenAI API calls with tool call = 3 (audio transcribe, text, text)
+* OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)
 
 Multiple Agents:
 
-* OpenAI API calls with no tool call = 3 (router, audio transcribe, text)
+* OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)
 
-* OpenAI API calls with tool call = 4 (router, audio transcribe, text, text)
+* OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)
 
 Business Alignment Config - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
