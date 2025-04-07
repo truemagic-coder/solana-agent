@@ -56,7 +56,6 @@ class SolanaAgent(SolanaAgentInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         router: Optional[RoutingInterface] = None,
-        internet_search: bool = False,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
 
@@ -70,7 +69,6 @@ class SolanaAgent(SolanaAgentInterface):
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             router: Optional routing service for processing
-            internet_search: Flag to use OpenAI Internet search
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
@@ -85,7 +83,6 @@ class SolanaAgent(SolanaAgentInterface):
             audio_input_format=audio_input_format,
             prompt=prompt,
             router=router,
-            internet_search=internet_search,
         ):
             yield chunk
 

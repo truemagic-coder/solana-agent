@@ -20,7 +20,7 @@ Build your AI business in three lines of code!
 * Multi-Agent Swarm
 * Multi-Modal Streaming (Text & Audio)
 * Conversational Memory & History
-* Built-in Internet Search
+* Internet Search
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
@@ -36,7 +36,7 @@ Build your AI business in three lines of code!
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
 * Persistent memory that preserves context across all agent interactions
-* Quick built-in Internet search to answer users' queries
+* Quick Internet search to answer users' queries
 * Streamlined message history for all agent interactions
 * Intelligent query routing to agents with optimal domain expertise or your own custom routing
 * Unified value system ensuring brand-aligned agent responses
@@ -58,7 +58,6 @@ Build your AI business in three lines of code!
 * [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
 * [gpt-4o-mini-tts](https://platform.openai.com/docs/models/gpt-4o-mini-tts)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
-* [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview)
 
 ## Installation
 
@@ -329,21 +328,6 @@ API Calls:
 
 * If the Zep user and session isn't created it creates them for 2 API calls (POST)
 
-### Internet Search
-
-This mode is great for text output where the default response from OpenAI is enough.
-
-It is not suitable for audio as the OpenAI search results contain links and markdown.
-
-Also it may not call tools when they should be called as it thinks the search results answer the user query.
-
-It is much faster than calling `search_internet` from `sakit` as it saves 2 API calls.
-
-```python
-async for response in solana_agent.process("user123", "What is the latest news on Canada?", internet_search=True):
-    print(response, end="")
-```
-
 ### Customize Speech
 
 This is an audio to audio example using the `audio_instructions` parameter.
@@ -369,10 +353,10 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 
 * Agents can only call one tool per response
 * Agents choose the best tool for the job
-* Tools do not use OpenAI function calling
-* Tools are async functions
+* Solana Agent doesn't use OpenAI function calling (tools) as they don't support async functions
+* Solana Agent tools are async functions
 
-### Plugin Tool Example
+### Internet Search (Plugin Example)
 
 `pip install sakit`
 
