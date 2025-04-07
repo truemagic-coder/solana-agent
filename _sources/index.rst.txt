@@ -288,22 +288,6 @@ API Calls:
 
 * If the Zep user and session isn't created it creates them for 2 API calls (POST)
 
-Internet Search - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This mode is great for text output where the default response from OpenAI is enough.
-
-It is not suitable for audio as the OpenAI search results contain links and markdown.
-
-Also it may not call tools when they should be called as it thinks the search results answer the user query.
-
-It is much faster than calling `search_internet` from `sakit` as it saves 2 API calls.
-
-.. code-block:: python
-
-   async for response in solana_agent.process("user123", "What is the latest news on Canada?", internet_search=True):
-      print(response, end="")
-
 
 Customize Speech
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -326,7 +310,7 @@ You can prompt to control aspects of speech, including:
       print(response, end="")
 
 
-Plugin Tool Example
+Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash

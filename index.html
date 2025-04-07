@@ -334,17 +334,6 @@
 <li><p>If the Zep user and session isn’t created it creates them for 2 API calls (POST)</p></li>
 </ul>
 </section>
-<section id="internet-search-optional">
-<h3>Internet Search - Optional<a class="headerlink" href="#internet-search-optional" title="Link to this heading"></a></h3>
-<p>This mode is great for text output where the default response from OpenAI is enough.</p>
-<p>It is not suitable for audio as the OpenAI search results contain links and markdown.</p>
-<p>Also it may not call tools when they should be called as it thinks the search results answer the user query.</p>
-<p>It is much faster than calling <cite>search_internet</cite> from <cite>sakit</cite> as it saves 2 API calls.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is the latest news on Canada?&quot;</span><span class="p">,</span> <span class="n">internet_search</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
 <section id="customize-speech">
 <h3>Customize Speech<a class="headerlink" href="#customize-speech" title="Link to this heading"></a></h3>
 <p>This is an audio to audio example using the <cite>audio_instructions</cite> parameter.</p>
@@ -363,8 +352,8 @@
 </pre></div>
 </div>
 </section>
-<section id="plugin-tool-example">
-<h3>Plugin Tool Example<a class="headerlink" href="#plugin-tool-example" title="Link to this heading"></a></h3>
+<section id="internet-search-plugin-tool-example">
+<h3>Internet Search (Plugin Tool Example)<a class="headerlink" href="#internet-search-plugin-tool-example" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
 </pre></div>
 </div>
