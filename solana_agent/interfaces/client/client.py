@@ -24,7 +24,6 @@ class SolanaAgent(ABC):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         router: Optional[RoutingInterface] = None,
-        internet_search: bool = False,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process a user message and return the response stream."""
         pass

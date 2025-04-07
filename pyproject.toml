@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "23.0.7"
+version = "24.0.0"
 description = "Agentic IQ"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -23,7 +23,7 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "^1.70.0"
+openai = "^1.71.0"
 pydantic = "^2.11.2"
 pymongo = "^4.11.3"
 zep-cloud = "^2.9.0"
