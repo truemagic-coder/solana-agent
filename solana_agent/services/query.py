@@ -49,9 +49,6 @@ class QueryService(QueryServiceInterface):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process the user request with appropriate agent.
 
@@ -65,9 +62,6 @@ class QueryService(QueryServiceInterface):
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
             router: Optional routing service for processing
-            api_key: API key for LLM structured output
-            base_url: Base URL for LLM structured output
-            model: Model name for LLM structured output
 
         Yields:
             Response chunks (text strings or audio bytes)
