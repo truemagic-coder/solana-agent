@@ -231,8 +231,8 @@ Conversational History Config - Optional
 
    config = {
       "mongo": {
-         "connection_string": "mongodb://localhost:27017",
-         "database": "solana_agent"
+         "connection_string": "your-mongo-connection-string",
+         "database": "your-database-name",
       },
    }
 
