@@ -176,7 +176,6 @@ class AgentService(AgentServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
-        audio_transcription_real_time: bool = True,
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
@@ -195,22 +194,8 @@ class AgentService(AgentServiceInterface):
             # Handle audio input if provided - KEEP REAL-TIME AUDIO TRANSCRIPTION
             query_text = ""
             if not isinstance(query, str):
-                if audio_transcription_real_time and hasattr(self.llm_provider, "realtime_audio_transcription"):
-                    # Use realtime transcription for faster processing if available
-                    print("Using realtime audio transcription")
-                    async for transcript in self.llm_provider.realtime_audio_transcription(
-                        audio_generator=self._bytes_to_generator(query),
-                        transcription_config={
-                            "input_audio_format": audio_input_format}
-                    ):
-                        query_text += transcript
-                else:
-                    # Fall back to standard transcription
-                    print("Using standard audio transcription")
-                    async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
-                        query_text += transcript
-
-                print(f"Transcribed query: {query_text}")
+                async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
+                    query_text += transcript
             else:
                 query_text = query
 

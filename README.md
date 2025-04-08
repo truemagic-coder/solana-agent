@@ -349,15 +349,6 @@ async for response in solana_agent.process("user123", audio_content, output_form
     print(response, end="")
 ```
 
-### Real-Time Audio Transcription
-
-It is possible to disable real-time audio transcription responses to save on costs.
-
-```python
-async for response in solana_agent.process("user123", "What is the latest news on Canada?", audio_transcription_real_time=False):
-    print(response, end="")
-```
-
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
