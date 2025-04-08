@@ -75,6 +75,9 @@ Text/Text Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -97,18 +100,6 @@ Text/Text Streaming
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 1 (agent)
-
-* OpenAI API calls with tool call = 2 (agent, agent)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 2 (router, agent)
-
-* OpenAI API calls with tool call = 3 (router, agent, agent)
-
 Audio/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -117,6 +108,9 @@ Audio/Audio Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -141,18 +135,6 @@ Audio/Audio Streaming
    async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
       print(response, end="")
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)
-
-* OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)
-
-* OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)
-
 
 agent/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -162,6 +144,9 @@ agent/Audio Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -184,17 +169,6 @@ agent/Audio Streaming
    async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
       print(response, end="")
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 2 (agent, TTS)
-
-* OpenAI API calls with tool call = 3 (agent, agent, TTS)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 3 (router, agent, TTS)
-
-* OpenAI API calls with tool call = 4 (router, agent, agent, TTS)
 
 Audio/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -204,6 +178,9 @@ Audio/Text Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -227,18 +204,6 @@ Audio/Text Streaming
 
    async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
       print(response, end="")
-
-Single Agent:
-
-* OpenAI API calls with no tool call = 2 (audio transcribe, agent)
-
-* OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)
-
-* OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)
 
 Business Alignment Config - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -282,13 +247,6 @@ Conversational Memory Config - Optional
       },
    }
 
-API Calls:
-
-* Zep adds 2 API calls per user query (GET and POST)
-
-* If the Zep user and session isn't created it creates them for 2 API calls (POST)
-
-
 Customize Speech
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -321,6 +279,9 @@ Internet Search (Plugin Tool Example)
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -405,6 +366,9 @@ Inline Tool Example
             }
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -441,6 +405,9 @@ Useful for Knowledge Base answers and FAQs.
    from solana_agent import SolanaAgent
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -472,6 +439,9 @@ Custom Routing Example
    from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
    config = {
+      "gemini": {
+        "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },

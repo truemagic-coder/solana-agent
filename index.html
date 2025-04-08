@@ -135,6 +135,9 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -158,22 +161,15 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Single Agent:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 1 (agent)</p></li>
-<li><p>OpenAI API calls with tool call = 2 (agent, agent)</p></li>
-</ul>
-<p>Multiple Agents:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (router, agent)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (router, agent, agent)</p></li>
-</ul>
 </section>
 <section id="audio-audio-streaming">
 <h3>Audio/Audio Streaming<a class="headerlink" href="#audio-audio-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -199,22 +195,15 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Single Agent:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)</p></li>
-</ul>
-<p>Multiple Agents:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)</p></li>
-</ul>
 </section>
 <section id="agent-audio-streaming">
 <h3>agent/Audio Streaming<a class="headerlink" href="#agent-audio-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -238,22 +227,15 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Single Agent:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (agent, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (agent, agent, TTS)</p></li>
-</ul>
-<p>Multiple Agents:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (router, agent, TTS)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (router, agent, agent, TTS)</p></li>
-</ul>
 </section>
 <section id="audio-text-streaming">
 <h3>Audio/Text Streaming<a class="headerlink" href="#audio-text-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -279,16 +261,6 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p>Single Agent:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 2 (audio transcribe, agent)</p></li>
-<li><p>OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)</p></li>
-</ul>
-<p>Multiple Agents:</p>
-<ul class="simple">
-<li><p>OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)</p></li>
-<li><p>OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)</p></li>
-</ul>
 </section>
 <section id="business-alignment-config-optional">
 <h3>Business Alignment Config - Optional<a class="headerlink" href="#business-alignment-config-optional" title="Link to this heading"></a></h3>
@@ -328,11 +300,6 @@
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>API Calls:</p>
-<ul class="simple">
-<li><p>Zep adds 2 API calls per user query (GET and POST)</p></li>
-<li><p>If the Zep user and session isn’t created it creates them for 2 API calls (POST)</p></li>
-</ul>
 </section>
 <section id="customize-speech">
 <h3>Customize Speech<a class="headerlink" href="#customize-speech" title="Link to this heading"></a></h3>
@@ -360,6 +327,9 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -442,6 +412,9 @@
          <span class="p">}</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -476,6 +449,9 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -506,6 +482,9 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingServiceInterface</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+     <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
