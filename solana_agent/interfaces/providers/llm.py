@@ -49,13 +49,3 @@ class LLMProvider(ABC):
     ) -> AsyncGenerator[str, None]:
         """Transcribe audio from the language model."""
         pass
-
-    @abstractmethod
-    async def realtime_audio_transcription(
-        self,
-        audio_generator: AsyncGenerator[bytes, None],
-        transcription_config: Optional[Dict[str, Any]] = None,
-        on_event: Optional[Callable[[Dict[str, Any]], Any]] = None,
-    ) -> AsyncGenerator[str, None]:
-        """Stream real-time audio transcription from the language model."""
-        pass
