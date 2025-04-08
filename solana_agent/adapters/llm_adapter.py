@@ -3,6 +3,7 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
+from copy import deepcopy
 from typing import AsyncGenerator, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
@@ -124,7 +125,7 @@ class OpenAIAdapter(LLMProvider):
             "model": self.text_model,
         }
 
-        client = self.client
+        client = deepcopy(self.client)
 
         if api_key and base_url:
             client.api_key = api_key
