@@ -18,6 +18,9 @@ class RoutingService(RoutingServiceInterface):
         self,
         llm_provider: LLMProvider,
         agent_service: AgentService,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """Initialize the routing service.
 
@@ -27,6 +30,9 @@ class RoutingService(RoutingServiceInterface):
         """
         self.llm_provider = llm_provider
         self.agent_service = agent_service
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
 
     async def _analyze_query(self, query: str) -> Dict[str, Any]:
         """Analyze a query to determine routing information.
@@ -75,6 +81,9 @@ class RoutingService(RoutingServiceInterface):
                 prompt=prompt,
                 system_prompt="Match user queries to the most appropriate agent based on specializations.",
                 model_class=QueryAnalysis,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self.model,
             )
 
             return {

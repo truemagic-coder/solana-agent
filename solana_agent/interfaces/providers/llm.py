@@ -15,13 +15,21 @@ class LLMProvider(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Generate text from the language model."""
         pass
 
     @abstractmethod
     async def parse_structured_output(
-        self, prompt: str, system_prompt: str, model_class: Type[T],
+        self, prompt: str,
+        system_prompt: str,
+        model_class: Type[T],
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None
     ) -> T:
         """Generate structured output using a specific model class."""
         pass

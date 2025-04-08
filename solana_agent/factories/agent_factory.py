@@ -86,22 +86,42 @@ class SolanaAgentFactory:
                 zep_api_key=config["zep"].get("api_key")
             )
 
-        # Create primary services
-        agent_service = AgentService(
-            llm_provider=llm_adapter,
-            business_mission=business_mission,
-            config=config,
-        )
+        if "gemini" in config and "api_key" in config["gemini"]:
+            # Create primary services
+            agent_service = AgentService(
+                llm_provider=llm_adapter,
+                business_mission=business_mission,
+                config=config,
+                api_key=config["gemini"]["api_key"],
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                model="gemini-2.0-flash",
+            )
+
+            # Create routing service
+            routing_service = RoutingService(
+                llm_provider=llm_adapter,
+                agent_service=agent_service,
+                api_key=config["gemini"]["api_key"],
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                model="gemini-2.0-flash",
+            )
+        else:
+            # Create primary services
+            agent_service = AgentService(
+                llm_provider=llm_adapter,
+                business_mission=business_mission,
+                config=config,
+            )
+
+            # Create routing service
+            routing_service = RoutingService(
+                llm_provider=llm_adapter,
+                agent_service=agent_service,
+            )
 
         # Debug the agent service tool registry
         print(
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
-
-        # Create routing service
-        routing_service = RoutingService(
-            llm_provider=llm_adapter,
-            agent_service=agent_service,
-        )
 
         # Initialize plugin system
         agent_service.plugin_manager = PluginManager(
