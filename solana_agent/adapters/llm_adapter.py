@@ -23,7 +23,7 @@ class OpenAIAdapter(LLMProvider):
         self.parse_model = "gpt-4o-mini"
         self.text_model = "gpt-4o-mini"
         self.transcription_model = "gpt-4o-mini-transcribe"
-        self.tts_model = "gpt-4o-mini-tts"
+        self.tts_model = "tts-1"
 
     async def tts(
         self,
@@ -38,7 +38,7 @@ class OpenAIAdapter(LLMProvider):
 
         Args:
             text: Text to convert to speech
-            instructions: Optional instructions for speech generation
+            instructions: Not used in this implementation
             voice: Voice to use for synthesis
             response_format: Audio format
 
@@ -49,7 +49,6 @@ class OpenAIAdapter(LLMProvider):
             async with self.client.audio.speech.with_streaming_response.create(
                 model=self.tts_model,
                 voice=voice,
-                instructions=instructions,
                 input=text,
                 response_format=response_format
             ) as stream:
