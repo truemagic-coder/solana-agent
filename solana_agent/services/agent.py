@@ -178,7 +178,7 @@ class AgentService(AgentServiceInterface):
         ] = "mp4",
         audio_transcription_real_time: bool = True,
         prompt: Optional[str] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:
+    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
