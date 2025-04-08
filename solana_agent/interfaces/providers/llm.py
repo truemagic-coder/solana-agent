@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, List, Literal, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Optional, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -48,4 +48,14 @@ class LLMProvider(ABC):
         ] = "mp4",
     ) -> AsyncGenerator[str, None]:
         """Transcribe audio from the language model."""
+        pass
+
+    @abstractmethod
+    async def realtime_audio_transcription(
+        self,
+        audio_generator: AsyncGenerator[bytes, None],
+        transcription_config: Optional[Dict[str, Any]] = None,
+        on_event: Optional[Callable[[Dict[str, Any]], Any]] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream real-time audio transcription from the language model."""
         pass

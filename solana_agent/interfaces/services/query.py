@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
+from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
+
 
 class QueryService(ABC):
     """Interface for processing user queries."""
@@ -20,6 +22,8 @@ class QueryService(ABC):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
+        router: Optional[RoutingInterface] = None,
+        audio_transcription_real_time: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass

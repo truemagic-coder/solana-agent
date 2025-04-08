@@ -47,6 +47,7 @@ class QueryService(QueryServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        audio_transcription_real_time: bool = True,
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
@@ -60,6 +61,7 @@ class QueryService(QueryServiceInterface):
             audio_instructions: Audio voice instructions
             audio_output_format: Audio output format
             audio_input_format: Audio input format
+            audio_transcription_real_time: Flag for real-time audio transcription
             prompt: Optional prompt for the agent
             router: Optional routing service for processing
 
@@ -120,6 +122,7 @@ class QueryService(QueryServiceInterface):
                     audio_output_format=audio_output_format,
                     audio_instructions=audio_instructions,
                     prompt=prompt,
+                    audio_transcription_real_time=audio_transcription_real_time,
                 ):
                     yield audio_chunk
 
@@ -138,6 +141,7 @@ class QueryService(QueryServiceInterface):
                     memory_context=memory_context,
                     output_format="text",
                     prompt=prompt,
+                    audio_transcription_real_time=audio_transcription_real_time,
                 ):
                     yield chunk
                     full_text_response += chunk

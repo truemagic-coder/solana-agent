@@ -69,8 +69,8 @@ class MemoryRepository(MemoryProvider):
                     # Store truncated messages
                     doc = {
                         "user_id": user_id,
-                        "user_message": self._truncate(user_msg),
-                        "assistant_message": self._truncate(assistant_msg),
+                        "user_message": user_msg,
+                        "assistant_message": assistant_msg,
                         "timestamp": datetime.now(timezone.utc)
                     }
                     self.mongo.insert_one(self.collection, doc)

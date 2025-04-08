@@ -17,6 +17,7 @@ Build your AI business in three lines of code!
 
 ## Why?
 * Three lines of code setup
+* Real-Time Responses
 * Multi-Agent Swarm
 * Multi-Modal Streaming (Text & Audio)
 * Conversational Memory & History
@@ -32,6 +33,7 @@ Build your AI business in three lines of code!
 ## Features
 
 * Easy three lines of code setup
+* Real-time AI responses
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
@@ -344,6 +346,15 @@ You can prompt to control aspects of speech, including:
 
 ```python
 async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
+    print(response, end="")
+```
+
+### Real-Time Audio Transcription
+
+It is possible to disable real-time audio transcription responses to save on costs.
+
+```python
+async for response in solana_agent.process("user123", "What is the latest news on Canada?", audio_transcription_real_time=False):
     print(response, end="")
 ```
 
