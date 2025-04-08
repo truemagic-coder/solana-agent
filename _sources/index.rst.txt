@@ -310,6 +310,16 @@ You can prompt to control aspects of speech, including:
       print(response, end="")
 
 
+Real-Time Audio Transcription
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+It is possible to disable real-time audio transcription responses to save on costs.
+
+.. code-block:: python
+   async for response in solana_agent.process("user123", "What is the latest news on Canada?", audio_transcription_real_time=False):
+      print(response, end="")
+
+
 Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
