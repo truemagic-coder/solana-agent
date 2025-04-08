@@ -57,8 +57,8 @@ Build your AI business in three lines of code!
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash)
-* [gpt-4o-mini-tts](https://platform.openai.com/docs/models/gpt-4o-mini-tts)
+* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) or [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
 
 
@@ -286,25 +286,6 @@ config = {
         "api_key": "your-zep-cloud-api-key",
     },
 }
-```
-
-### Customize Speech
-
-This is an audio to audio example using the `audio_instructions` parameter.
-
-You can prompt to control aspects of speech, including:
-
-* Accent
-* Emotional range
-* Intonation
-* Impressions
-* Speed of speech
-* Tone
-* Whispering
-
-```python
-async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
-    print(response, end="")
 ```
 
 ## Tools

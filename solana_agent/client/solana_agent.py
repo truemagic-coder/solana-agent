@@ -65,7 +65,7 @@ class SolanaAgent(SolanaAgentInterface):
             prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
             audio_voice: Voice to use for audio output
-            audio_instructions: Audio voice instructions
+            audio_instructions: Not used in this version
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             router: Optional routing service for processing
