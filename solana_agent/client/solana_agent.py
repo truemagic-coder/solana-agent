@@ -55,7 +55,6 @@ class SolanaAgent(SolanaAgentInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
-        audio_transcription_real_time: bool = True,
         router: Optional[RoutingInterface] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Process a user message and return the response stream.
@@ -69,7 +68,6 @@ class SolanaAgent(SolanaAgentInterface):
             audio_instructions: Audio voice instructions
             audio_output_format: Audio output format
             audio_input_format: Audio input format
-            audio_transcription_real_time: Flag for real-time audio transcription
             router: Optional routing service for processing
 
         Returns:
@@ -85,7 +83,6 @@ class SolanaAgent(SolanaAgentInterface):
             audio_input_format=audio_input_format,
             prompt=prompt,
             router=router,
-            audio_transcription_real_time=audio_transcription_real_time,
         ):
             yield chunk
 

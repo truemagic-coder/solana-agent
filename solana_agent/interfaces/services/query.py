@@ -23,7 +23,6 @@ class QueryService(ABC):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingInterface] = None,
-        audio_transcription_real_time: bool = True,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass

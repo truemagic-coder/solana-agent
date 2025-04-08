@@ -309,17 +309,6 @@ You can prompt to control aspects of speech, including:
    async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
       print(response, end="")
 
-
-Real-Time Audio Transcription
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-It is possible to disable real-time audio transcription responses to save on costs.
-
-.. code-block:: python
-   async for response in solana_agent.process("user123", "What is the latest news on Canada?", audio_transcription_real_time=False):
-      print(response, end="")
-
-
 Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
