@@ -17,7 +17,7 @@ Build your AI business in three lines of code!
 
 ## Why?
 * Three lines of code setup
-* Real-Time Responses
+* Fast Responses
 * Multi-Agent Swarm
 * Multi-Modal Streaming (Text & Audio)
 * Conversational Memory & History
@@ -33,7 +33,7 @@ Build your AI business in three lines of code!
 ## Features
 
 * Easy three lines of code setup
-* Real-time AI responses
+* Fast AI responses
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
