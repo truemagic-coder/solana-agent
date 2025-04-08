@@ -301,24 +301,6 @@
 </pre></div>
 </div>
 </section>
-<section id="customize-speech">
-<h3>Customize Speech<a class="headerlink" href="#customize-speech" title="Link to this heading"></a></h3>
-<p>This is an audio to audio example using the <cite>audio_instructions</cite> parameter.</p>
-<p>You can prompt to control aspects of speech, including:</p>
-<ul class="simple">
-<li><p>Accent</p></li>
-<li><p>Emotional range</p></li>
-<li><p>Intonation</p></li>
-<li><p>Impressions</p></li>
-<li><p>Speed of speech</p></li>
-<li><p>Tone</p></li>
-<li><p>Whispering</p></li>
-</ul>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="n">audio_content</span><span class="p">,</span> <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span> <span class="n">audio_voice</span><span class="o">=</span><span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;webm&quot;</span><span class="p">,</span> <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;aac&quot;</span><span class="p">,</span> <span class="n">audio_instructions</span><span class="o">=</span><span class="s2">&quot;You speak with an American southern accent&quot;</span><span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
 <section id="internet-search-plugin-tool-example">
 <h3>Internet Search (Plugin Tool Example)<a class="headerlink" href="#internet-search-plugin-tool-example" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit

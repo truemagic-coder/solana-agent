@@ -247,26 +247,6 @@ Conversational Memory Config - Optional
       },
    }
 
-Customize Speech
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This is an audio to audio example using the `audio_instructions` parameter.
-
-You can prompt to control aspects of speech, including:
-
-* Accent
-* Emotional range
-* Intonation
-* Impressions
-* Speed of speech
-* Tone
-* Whispering
-
-.. code-block:: python
-   
-   async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac", audio_instructions="You speak with an American southern accent"):
-      print(response, end="")
-
 Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
