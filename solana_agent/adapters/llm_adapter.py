@@ -3,7 +3,6 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
-from copy import deepcopy
 from typing import AsyncGenerator, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
@@ -125,11 +124,10 @@ class OpenAIAdapter(LLMProvider):
             "model": self.text_model,
         }
 
-        client = deepcopy(self.client)
-
         if api_key and base_url:
-            client.api_key = api_key
-            client.base_url = base_url
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        else:
+            client = self.client
 
         if model:
             request_params["model"] = model
@@ -166,15 +164,16 @@ class OpenAIAdapter(LLMProvider):
 
         try:
             if api_key and base_url:
-                self.client.api_key = api_key
-                self.client.base_url = base_url
+                client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            else:
+                client = self.client
 
             if model:
                 self.parse_model = model
 
             # Create a patched client with TOOLS_STRICT mode
             patched_client = instructor.from_openai(
-                self.client, mode=Mode.TOOLS_STRICT)
+                client, mode=Mode.TOOLS_STRICT)
 
             # Use instructor's structured generation with function calling
             response = await patched_client.chat.completions.create(
