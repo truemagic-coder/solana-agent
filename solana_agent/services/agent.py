@@ -176,6 +176,7 @@ class AgentService(AgentServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        audio_transcription_real_time: bool = True,
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
@@ -191,11 +192,25 @@ class AgentService(AgentServiceInterface):
             return
 
         try:
-            # Handle audio input if provided
+            # Handle audio input if provided - KEEP REAL-TIME AUDIO TRANSCRIPTION
             query_text = ""
             if not isinstance(query, str):
-                async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
-                    query_text += transcript
+                if audio_transcription_real_time and hasattr(self.llm_provider, "realtime_audio_transcription"):
+                    # Use realtime transcription for faster processing if available
+                    print("Using realtime audio transcription")
+                    async for transcript in self.llm_provider.realtime_audio_transcription(
+                        audio_generator=self._bytes_to_generator(query),
+                        transcription_config={
+                            "input_audio_format": audio_input_format}
+                    ):
+                        query_text += transcript
+                else:
+                    # Fall back to standard transcription
+                    print("Using standard audio transcription")
+                    async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
+                        query_text += transcript
+
+                print(f"Transcribed query: {query_text}")
             else:
                 query_text = query
 
@@ -209,118 +224,172 @@ class AgentService(AgentServiceInterface):
             if prompt:
                 system_prompt += f"\n\nADDITIONAL PROMPT: {prompt}"
 
-            # make tool calling prompt
+            # Add tool usage prompt if tools are available
             tool_calling_system_prompt = deepcopy(system_prompt)
             if self.tool_registry:
                 tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
                 if tool_usage_prompt:
                     tool_calling_system_prompt += f"\n\nTOOL CALLING PROMPT: {tool_usage_prompt}"
+                    print(
+                        f"Tools available to agent {agent_name}: {[t.get('name') for t in self.get_agent_tools(agent_name)]}")
 
-            # Variables for tracking the response
+            # Variables for tracking the complete response
             complete_text_response = ""
-
-            # For audio output, we'll collect everything first
             full_response_buffer = ""
 
-            # Variables for handling JSON processing
-            json_buffer = ""
-            is_json = False
+            # Variables for robust handling of tool call markers that may be split across chunks
+            tool_buffer = ""
+            pending_chunk = ""  # To hold text that might contain partial markers
+            is_tool_call = False
+            window_size = 30  # Increased window size for better detection
 
-            # Generate and stream response
+            # Define start and end markers
+            start_marker = "[TOOL]"
+            end_marker = "[/TOOL]"
+
+            # Generate and stream response (ALWAYS use non-realtime for text generation)
+            print(
+                f"Generating response with {len(query_text)} characters of query text")
             async for chunk in self.llm_provider.generate_text(
                 prompt=query_text,
                 system_prompt=tool_calling_system_prompt,
             ):
-                # Check if the chunk is JSON or a tool call
-                if (chunk.strip().startswith("{") or "{\"tool_call\":" in chunk) and not is_json:
-                    is_json = True
-                    json_buffer = chunk
+                # If we have pending text from the previous chunk, combine it with this chunk
+                if pending_chunk:
+                    combined_chunk = pending_chunk + chunk
+                    pending_chunk = ""  # Reset pending chunk
+                else:
+                    combined_chunk = chunk
+
+                # STEP 1: Check for tool call start marker
+                if start_marker in combined_chunk and not is_tool_call:
+                    print(
+                        f"Found tool start marker in chunk of length {len(combined_chunk)}")
+                    is_tool_call = True
+
+                    # Extract text before the marker and the marker itself with everything after
+                    start_pos = combined_chunk.find(start_marker)
+                    before_marker = combined_chunk[:start_pos]
+                    after_marker = combined_chunk[start_pos:]
+
+                    # Yield text that appeared before the marker
+                    if before_marker and output_format == "text":
+                        yield before_marker
+
+                    # Start collecting the tool call
+                    tool_buffer = after_marker
+                    continue  # Skip to next chunk
+
+                # STEP 2: Handle ongoing tool call collection
+                if is_tool_call:
+                    tool_buffer += combined_chunk
+
+                    # Check if the tool call is complete
+                    if end_marker in tool_buffer:
+                        print(
+                            f"Tool call complete, buffer size: {len(tool_buffer)}")
+
+                        # Process the tool call
+                        response_text = await self._handle_tool_call(
+                            agent_name=agent_name,
+                            tool_text=tool_buffer
+                        )
+
+                        # Clean the response to remove any markers or formatting
+                        response_text = self._clean_tool_response(
+                            response_text)
+                        print(
+                            f"Tool execution complete, result size: {len(response_text)}")
+
+                        # Create new prompt with search/tool results
+                        # Using "Search Result" instead of "TOOL RESPONSE" to avoid model repeating "TOOL"
+                        user_prompt = f"{query_text}\n\nSearch Result: {response_text}"
+                        tool_system_prompt = system_prompt + \
+                            "\n DO NOT use the tool calling format again."
+
+                        # Generate a new response with the tool results
+                        print("Generating new response with tool results")
+                        if output_format == "text":
+                            # Stream the follow-up response for text output
+                            async for processed_chunk in self.llm_provider.generate_text(
+                                prompt=user_prompt,
+                                system_prompt=tool_system_prompt,
+                            ):
+                                complete_text_response += processed_chunk
+                                yield processed_chunk
+                        else:
+                            # For audio output, collect the full response first
+                            tool_response = ""
+                            async for processed_chunk in self.llm_provider.generate_text(
+                                prompt=user_prompt,
+                                system_prompt=tool_system_prompt,
+                            ):
+                                tool_response += processed_chunk
+
+                            # Clean and add to our complete text record and audio buffer
+                            tool_response = self._clean_for_audio(
+                                tool_response)
+                            complete_text_response += tool_response
+                            full_response_buffer += tool_response
+
+                        # Reset tool handling state
+                        is_tool_call = False
+                        tool_buffer = ""
+                        pending_chunk = ""
+                        break  # Exit the original generation loop after tool processing
+
+                    # Continue collecting tool call content without yielding
                     continue
 
-                # Collect JSON or handle normal text
-                if is_json:
-                    json_buffer += chunk
-                    try:
-                        # Try to parse complete JSON
-                        data = json.loads(json_buffer)
+                # STEP 3: Check for possible partial start markers at the end of the chunk
+                # This helps detect markers split across chunks
+                potential_marker = False
+                for i in range(1, len(start_marker)):
+                    if combined_chunk.endswith(start_marker[:i]):
+                        # Found a partial marker at the end
+                        # Save the partial marker
+                        pending_chunk = combined_chunk[-i:]
+                        # Everything except the partial marker
+                        chunk_to_yield = combined_chunk[:-i]
+                        potential_marker = True
+                        print(
+                            f"Potential partial marker detected: '{pending_chunk}'")
+                        break
 
-                        # Valid JSON found, handle it
-                        if "tool_call" in data:
-                            response_text = await self._handle_tool_call(
-                                agent_name=agent_name,
-                                json_chunk=json_buffer
-                            )
+                if potential_marker:
+                    # Process the safe part of the chunk
+                    if chunk_to_yield and output_format == "text":
+                        yield chunk_to_yield
+                    if chunk_to_yield:
+                        complete_text_response += chunk_to_yield
+                        if output_format == "audio":
+                            full_response_buffer += chunk_to_yield
+                    continue
 
-                            # Update system prompt to prevent further tool calls
-                            tool_system_prompt = system_prompt + \
-                                "\n DO NOT make any tool calls or return JSON."
-
-                            # Create prompt with tool response
-                            user_prompt = f"\n USER QUERY: {query_text} \n"
-                            user_prompt += f"\n TOOL RESPONSE: {response_text} \n"
-
-                            # For text output, process chunks directly
-                            if output_format == "text":
-                                # Stream text response for text output
-                                async for processed_chunk in self.llm_provider.generate_text(
-                                    prompt=user_prompt,
-                                    system_prompt=tool_system_prompt,
-                                ):
-                                    complete_text_response += processed_chunk
-                                    yield processed_chunk
-                            else:
-                                # For audio output, collect the full tool response first
-                                tool_response = ""
-                                async for processed_chunk in self.llm_provider.generate_text(
-                                    prompt=user_prompt,
-                                    system_prompt=tool_system_prompt,
-                                ):
-                                    tool_response += processed_chunk
-
-                                # Add to our complete text record and full audio buffer
-                                tool_response = self._clean_for_audio(
-                                    tool_response)
-                                complete_text_response += tool_response
-                                full_response_buffer += tool_response
-                        else:
-                            # For non-tool JSON, still capture the text
-                            complete_text_response += json_buffer
-
-                            if output_format == "text":
-                                yield json_buffer
-                            else:
-                                # Add to full response buffer for audio
-                                full_response_buffer += json_buffer
-
-                        # Reset JSON handling
-                        is_json = False
-                        json_buffer = ""
-
-                    except json.JSONDecodeError:
-                        # JSON not complete yet, continue collecting
-                        pass
-                else:
-                    # For regular text
-                    complete_text_response += chunk
-
-                    if output_format == "text":
-                        # For text output, yield directly
-                        yield chunk
-                    else:
-                        # For audio output, add to the full response buffer
-                        full_response_buffer += chunk
-
-            # Handle any leftover JSON buffer
-            if json_buffer:
-                complete_text_response += json_buffer
+                # STEP 4: Normal text processing for non-tool call content
                 if output_format == "text":
-                    yield json_buffer
-                else:
-                    full_response_buffer += json_buffer
+                    yield combined_chunk
 
-            # For audio output, now process the complete response
+                complete_text_response += combined_chunk
+                if output_format == "audio":
+                    full_response_buffer += combined_chunk
+
+            # Process any incomplete tool call as regular text
+            if is_tool_call and tool_buffer:
+                print(
+                    f"Incomplete tool call detected, returning as regular text: {len(tool_buffer)} chars")
+                if output_format == "text":
+                    yield tool_buffer
+
+                complete_text_response += tool_buffer
+                if output_format == "audio":
+                    full_response_buffer += tool_buffer
+
+            # For audio output, generate speech from the complete buffer
             if output_format == "audio" and full_response_buffer:
                 # Clean text before TTS
+                print(
+                    f"Processing {len(full_response_buffer)} characters for audio output")
                 full_response_buffer = self._clean_for_audio(
                     full_response_buffer)
 
@@ -335,9 +404,15 @@ class AgentService(AgentServiceInterface):
 
             # Store the complete text response
             self.last_text_response = complete_text_response
+            print(
+                f"Response generation complete: {len(complete_text_response)} chars")
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
+            print(f"Error in generate_response: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+
             if output_format == "audio":
                 async for chunk in self.llm_provider.tts(
                     error_msg,
@@ -349,52 +424,73 @@ class AgentService(AgentServiceInterface):
             else:
                 yield error_msg
 
-            print(f"Error in generate_response: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
+    async def _bytes_to_generator(self, data: bytes) -> AsyncGenerator[bytes, None]:
+        """Convert bytes to an async generator for streaming.
 
-    async def _handle_tool_call(
-        self,
-        agent_name: str,
-        json_chunk: str,
-    ) -> str:
-        """Handle tool calls and return formatted response."""
+        Args:
+            data: Bytes of audio data
+
+        Yields:
+            Chunks of audio data
+        """
+        # Define a reasonable chunk size (adjust based on your needs)
+        chunk_size = 4096
+
+        for i in range(0, len(data), chunk_size):
+            yield data[i:i + chunk_size]
+            # Small delay to simulate streaming
+            await asyncio.sleep(0.01)
+
+    async def _handle_tool_call(self, agent_name: str, tool_text: str) -> str:
+        """Handle marker-based tool calls."""
         try:
-            data = json.loads(json_chunk)
-            if "tool_call" in data:
-                tool_data = data["tool_call"]
-                tool_name = tool_data.get("name")
-                parameters = tool_data.get("parameters", {})
+            # Extract the content between markers
+            start_marker = "[TOOL]"
+            end_marker = "[/TOOL]"
 
-                if tool_name:
-                    # Execute the tool and get the result
-                    result = await self.execute_tool(agent_name, tool_name, parameters)
+            start_idx = tool_text.find(start_marker) + len(start_marker)
+            end_idx = tool_text.find(end_marker)
 
-                    if result.get("status") == "success":
-                        tool_result = result.get("result", "")
-                        return tool_result
-                    else:
-                        error_message = f"I apologize, but I encountered an issue with the {tool_name} tool: {result.get('message', 'Unknown error')}"
-                        print(f"Tool error: {error_message}")
-                        return error_message
-                else:
-                    return "Tool name was not provided in the tool call."
+            tool_content = tool_text[start_idx:end_idx].strip()
+
+            # Parse the lines to extract name and parameters
+            tool_name = None
+            parameters = {}
+
+            for line in tool_content.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+
+                if line.startswith("name:"):
+                    tool_name = line[5:].strip()
+                elif line.startswith("parameters:"):
+                    params_text = line[11:].strip()
+                    # Parse comma-separated parameters
+                    param_pairs = params_text.split(",")
+                    for pair in param_pairs:
+                        if "=" in pair:
+                            k, v = pair.split("=", 1)
+                            parameters[k.strip()] = v.strip()
+
+            # Execute the tool
+            result = await self.execute_tool(agent_name, tool_name, parameters)
+
+            # Return the result as string
+            if result.get("status") == "success":
+                tool_result = str(result.get("result", ""))
+                return tool_result
             else:
-                print(f"JSON received but no tool_call found: {json_chunk}")
+                error_msg = f"Error calling {tool_name}: {result.get('message', 'Unknown error')}"
+                return error_msg
 
-            # If we get here, it wasn't properly handled as a tool
-            return f"The following request was not processed as a valid tool call:\n{json_chunk}"
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error in tool call: {e}")
-            return json_chunk
         except Exception as e:
-            print(f"Unexpected error in tool call handling: {str(e)}")
             import traceback
             print(traceback.format_exc())
             return f"Error processing tool call: {str(e)}"
 
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
-        """Generate JSON-based instructions for tool usage."""
+        """Generate marker-based instructions for tool usage."""
         # Get tools assigned to this agent
         tools = self.get_agent_tools(agent_name)
         if not tools:
@@ -405,29 +501,38 @@ class AgentService(AgentServiceInterface):
         tools_json = json.dumps(tools, indent=2)
 
         return f"""
-    AVAILABLE TOOLS:
-    {tools_json}
-    
-    TOOL USAGE FORMAT:
-    {{
-        "tool_call": {{
-            "name": "<one_of:{', '.join(available_tool_names)}>",
-            "parameters": {{
-                // parameters as specified in tool definition above
-            }}
-        }}
-    }}
-    
-    RESPONSE RULES:
-    1. For tool usage:
-       - Only use tools from the AVAILABLE TOOLS list above
-       - Follow the exact parameter format shown in the tool definition
-    
-    2. Format Requirements:
-       - Return ONLY the JSON object for tool calls
-       - No explanation text before or after
-       - Use exact tool names as shown in AVAILABLE TOOLS
-    """
+        AVAILABLE TOOLS:
+        {tools_json}
+        
+        ⚠️ CRITICAL INSTRUCTION: When using a tool, NEVER include explanatory text.
+        Only output the exact tool call format shown below with NO other text.
+        
+        TOOL USAGE FORMAT:
+        [TOOL]
+        name: tool_name
+        parameters: key1=value1, key2=value2
+        [/TOOL]
+        
+        EXAMPLES:
+        
+        ✅ CORRECT - ONLY the tool call with NOTHING else:
+        [TOOL]
+        name: search_internet
+        parameters: query=latest news on Solana
+        [/TOOL]
+        
+        ❌ INCORRECT - Never add explanatory text like this:
+        To get the latest news on Solana, I will search the internet.
+        [TOOL]
+        name: search_internet
+        parameters: query=latest news on Solana
+        [/TOOL]
+        
+        REMEMBER:
+        1. Output ONLY the exact tool call format with NO additional text
+        2. After seeing your tool call, I will execute it automatically
+        3. You will receive the tool results and can then respond to the user
+        """
 
     def _clean_for_audio(self, text: str) -> str:
         """Remove Markdown formatting, emojis, and non-pronounceable characters from text.
@@ -500,5 +605,20 @@ class AgentService(AgentServiceInterface):
 
         # Replace multiple spaces with a single space
         text = re.sub(r'\s+', ' ', text)
+
+        return text.strip()
+
+    def _clean_tool_response(self, text: str) -> str:
+        """Remove any tool markers or formatting that might have leaked into the response."""
+        if not text:
+            return ""
+
+        # Remove any tool markers that might be in the response
+        text = text.replace("[TOOL]", "")
+        text = text.replace("[/TOOL]", "")
+
+        # Remove the word TOOL from start if it appears
+        if text.lstrip().startswith("TOOL"):
+            text = text.lstrip().replace("TOOL", "", 1)
 
         return text.strip()

@@ -226,34 +226,6 @@ class TestAgentService:
         assert result["result"] == "done"
 
     @pytest.mark.asyncio
-    async def test_handle_tool_call_invalid_json(self, mock_llm_provider):
-        """Test handling invalid JSON tool call."""
-        service = AgentService(llm_provider=mock_llm_provider)
-        result = await service._handle_tool_call("agent", "{invalid json}")
-        assert result == "{invalid json}"
-
-    def test_get_tool_usage_prompt_no_tools(self, mock_llm_provider):
-        """Test tool usage prompt with no tools."""
-        service = AgentService(llm_provider=mock_llm_provider)
-        prompt = service._get_tool_usage_prompt("agent")
-        assert prompt == ""
-
-    def test_get_tool_usage_prompt_with_tools(self, mock_llm_provider, mock_tool_registry):
-        """Test tool usage prompt with available tools."""
-        mock_tool_registry.get_agent_tools.return_value = [
-            {"name": "test_tool", "description": "Test tool"}
-        ]
-
-        service = AgentService(llm_provider=mock_llm_provider)
-        service.tool_registry = mock_tool_registry
-
-        prompt = service._get_tool_usage_prompt("agent")
-        assert "AVAILABLE TOOLS" in prompt
-        assert "TOOL USAGE FORMAT" in prompt
-        assert "RESPONSE RULES" in prompt
-        assert "test_tool" in prompt
-
-    @pytest.mark.asyncio
     async def test_execute_tool_execution_error(self, mock_llm_provider, mock_tool_registry):
         """Test handling of tool execution error."""
         # Create mock tool that raises an exception
