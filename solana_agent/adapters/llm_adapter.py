@@ -3,10 +3,12 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
-from typing import AsyncGenerator, Literal, Type, TypeVar
+from typing import AsyncGenerator, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
+import instructor
+from instructor import Mode
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 
@@ -103,6 +105,9 @@ class OpenAIAdapter(LLMProvider):
         self,
         prompt: str,
         system_prompt: str = "",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:  # pragma: no cover
         """Generate text from OpenAI models."""
         messages = []
@@ -118,8 +123,18 @@ class OpenAIAdapter(LLMProvider):
             "stream": True,
             "model": self.text_model,
         }
+
+        client = self.client
+
+        if api_key and base_url:
+            client.api_key = api_key
+            client.base_url = base_url
+
+        if model:
+            request_params["model"] = model
+
         try:
-            response = await self.client.chat.completions.create(**request_params)
+            response = await client.chat.completions.create(**request_params)
 
             async for chunk in response:
                 if chunk.choices:
@@ -138,21 +153,83 @@ class OpenAIAdapter(LLMProvider):
         prompt: str,
         system_prompt: str,
         model_class: Type[T],
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> T:  # pragma: no cover
-        """Generate structured output using Pydantic model parsing."""
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+        """Generate structured output using Pydantic model parsing with Instructor."""
 
+        messages = []
+        messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
         try:
-            # First try the beta parsing API
-            completion = await self.client.beta.chat.completions.parse(
+            if api_key and base_url:
+                self.client.api_key = api_key
+                self.client.base_url = base_url
+
+            if model:
+                self.parse_model = model
+
+            # Create a patched client with TOOLS_STRICT mode
+            patched_client = instructor.from_openai(
+                self.client, mode=Mode.TOOLS_STRICT)
+
+            # Use instructor's structured generation with function calling
+            response = await patched_client.chat.completions.create(
                 model=self.parse_model,
                 messages=messages,
-                response_format=model_class,
+                response_model=model_class,
+                max_retries=2  # Automatically retry on validation errors
             )
-            return completion.choices[0].message.parsed
+            return response
         except Exception as e:
-            print(f"Error with beta.parse method: {e}")
+            print(
+                f"Error with instructor parsing (TOOLS_STRICT mode): {e}")
+
+            try:
+                # First fallback: Try regular JSON mode
+                patched_client = instructor.from_openai(
+                    self.client, mode=Mode.JSON)
+                response = await patched_client.chat.completions.create(
+                    model=self.parse_model,
+                    messages=messages,
+                    response_model=model_class,
+                    max_retries=1
+                )
+                return response
+            except Exception as json_error:
+                print(f"JSON mode fallback also failed: {json_error}")
+
+                try:
+                    # Final fallback: Manual extraction with a detailed prompt
+                    fallback_system_prompt = f"""
+                    {system_prompt}
+
+                    You must respond with valid JSON that can be parsed as the following Pydantic model:
+                    {model_class.model_json_schema()}
+
+                    Ensure the response contains ONLY the JSON object and nothing else.
+                    """
+
+                    # Regular completion without instructor
+                    completion = await self.client.chat.completions.create(
+                        model=self.parse_model,
+                        messages=[
+                            {"role": "system", "content": fallback_system_prompt},
+                            {"role": "user", "content": prompt}
+                        ],
+                        response_format={"type": "json_object"}
+                    )
+
+                    # Extract and parse the JSON response
+                    json_str = completion.choices[0].message.content
+
+                    # Use Pydantic to parse and validate
+                    return model_class.model_validate_json(json_str)
+
+                except Exception as fallback_error:
+                    print(f"All fallback methods failed: {fallback_error}")
+                    raise ValueError(
+                        f"Failed to generate structured output: {e}. All fallbacks failed."
+                    ) from e

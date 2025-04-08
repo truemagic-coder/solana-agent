@@ -26,6 +26,9 @@ class AgentService(AgentServiceInterface):
         llm_provider: LLMProvider,
         business_mission: Optional[BusinessMission] = None,
         config: Optional[Dict[str, Any]] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ):
         """Initialize the agent service.
 
@@ -40,6 +43,9 @@ class AgentService(AgentServiceInterface):
         self.last_text_response = ""
         self.tool_registry = ToolRegistry(config=self.config)
         self.agents: List[AIAgent] = []
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
 
         self.plugin_manager = PluginManager(
             config=self.config,
@@ -173,9 +179,6 @@ class AgentService(AgentServiceInterface):
         audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
-        audio_input_format: Literal[
-            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
-        ] = "mp4",
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response with support for text/audio input/output."""
@@ -191,14 +194,6 @@ class AgentService(AgentServiceInterface):
             return
 
         try:
-            # Handle audio input if provided - KEEP REAL-TIME AUDIO TRANSCRIPTION
-            query_text = ""
-            if not isinstance(query, str):
-                async for transcript in self.llm_provider.transcribe_audio(query, input_format=audio_input_format):
-                    query_text += transcript
-            else:
-                query_text = query
-
             # Get system prompt
             system_prompt = self.get_agent_system_prompt(agent_name)
 
@@ -234,10 +229,13 @@ class AgentService(AgentServiceInterface):
 
             # Generate and stream response (ALWAYS use non-realtime for text generation)
             print(
-                f"Generating response with {len(query_text)} characters of query text")
+                f"Generating response with {len(query)} characters of query text")
             async for chunk in self.llm_provider.generate_text(
-                prompt=query_text,
+                prompt=query,
                 system_prompt=tool_calling_system_prompt,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self.model,
             ):
                 # If we have pending text from the previous chunk, combine it with this chunk
                 if pending_chunk:
@@ -288,7 +286,7 @@ class AgentService(AgentServiceInterface):
 
                         # Create new prompt with search/tool results
                         # Using "Search Result" instead of "TOOL RESPONSE" to avoid model repeating "TOOL"
-                        user_prompt = f"{query_text}\n\nSearch Result: {response_text}"
+                        user_prompt = f"{query}\n\nSearch Result: {response_text}"
                         tool_system_prompt = system_prompt + \
                             "\n DO NOT use the tool calling format again."
 
@@ -299,6 +297,9 @@ class AgentService(AgentServiceInterface):
                             async for processed_chunk in self.llm_provider.generate_text(
                                 prompt=user_prompt,
                                 system_prompt=tool_system_prompt,
+                                api_key=self.api_key,
+                                base_url=self.base_url,
+                                model=self.model,
                             ):
                                 complete_text_response += processed_chunk
                                 yield processed_chunk

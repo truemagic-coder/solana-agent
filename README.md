@@ -51,15 +51,16 @@ Build your AI business in three lines of code!
 ### Tech
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) - LLM Provider
+* [OpenAI](https://openai.com) & [Gemini](https://aistudio.google.com/) - LLM Providers
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash)
 * [gpt-4o-mini-tts](https://platform.openai.com/docs/models/gpt-4o-mini-tts)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
+
 
 ## Installation
 
@@ -120,6 +121,9 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -143,24 +147,15 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 1 (agent)
-
-* OpenAI API calls with tool call = 2 (agent, agent)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 2 (router, agent)
-
-* OpenAI API calls with tool call = 3 (router, agent, agent)
-
 ### Audio/Audio Streaming
 
 ```python
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -186,25 +181,15 @@ async for response in solana_agent.process("user123", audio_content, output_form
     print(response, end="")
 ```
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 3 (audio transcribe, agent, TTS)
-
-* OpenAI API calls with tool call = 4 (audio transcribe, agent, agent, TTS)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 4 (router, audio transcribe, agent, TTS)
-
-* OpenAI API calls with tool call = 5 (router, audio transcribe, agent, agent, TTS)
-
-
 ### Text/Audio Streaming
 
 ```python
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -228,24 +213,15 @@ async for response in solana_agent.process("user123", "What is the latest news o
     print(response, end="")
 ```
 
-Single Agent:
-
-* OpenAI API calls with no tool call = 2 (agent, TTS)
-
-* OpenAI API calls with tool call = 3 (agent, agent, TTS)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 3 (router, agent, TTS)
-
-* OpenAI API calls with tool call = 4 (router, agent, agent, TTS)
-
 ### Audio/Text Streaming
 
 ```python
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -270,18 +246,6 @@ audio_content = audio_file.read()
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
     print(response, end="")
 ```
-
-Single Agent:
-
-* OpenAI API calls with no tool call = 2 (audio transcribe, agent)
-
-* OpenAI API calls with tool call = 3 (audio transcribe, agent, agent)
-
-Multiple Agents:
-
-* OpenAI API calls with no tool call = 3 (router, audio transcribe, agent)
-
-* OpenAI API calls with tool call = 4 (router, audio transcribe, agent, agent)
 
 ## Optional Feature Configs
 
@@ -308,8 +272,8 @@ config = {
 ```python
 config = {
     "mongo": {
-        "connection_string": "mongodb://localhost:27017",
-        "database": "solana_agent"
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
     },
 }
 ```
@@ -323,12 +287,6 @@ config = {
     },
 }
 ```
-
-API Calls:
-
-* Zep adds 2 API calls per user query (GET and POST)
-
-* If the Zep user and session isn't created it creates them for 2 API calls (POST)
 
 ### Customize Speech
 
@@ -366,6 +324,9 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -448,6 +409,9 @@ class TestTool(Tool):
             }
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -487,6 +451,9 @@ This knowledge is accessible to all your AI agents.
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -514,6 +481,9 @@ from solana_agent import SolanaAgent
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },

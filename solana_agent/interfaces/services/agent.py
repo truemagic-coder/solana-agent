@@ -30,9 +30,6 @@ class AgentService(ABC):
         audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal['mp3', 'opus',
                                      'aac', 'flac', 'wav', 'pcm'] = "aac",
-        audio_input_format: Literal[
-            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
-        ] = "mp4",
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
