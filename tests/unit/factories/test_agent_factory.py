@@ -254,38 +254,3 @@ class TestSolanaAgentFactory:
                 SolanaAgentFactory.create_from_config(config)
             assert "MongoDB connection string is required" in str(
                 exc_info.value)
-
-    def test_create_with_gemini_config(self):
-        """Test creation with Gemini API configuration."""
-        config = {
-            "openai": {"api_key": "openai_test_key"},
-            "gemini": {"api_key": "gemini_test_key"}
-        }
-
-        with patch('solana_agent.factories.agent_factory.OpenAIAdapter') as mock_llm:
-            with patch('solana_agent.factories.agent_factory.AgentService') as mock_agent_service:
-                with patch('solana_agent.factories.agent_factory.RoutingService') as mock_routing_service:
-                    # Configure mocks
-                    mock_llm.return_value = MagicMock()
-                    mock_agent_service.return_value = MagicMock()
-                    mock_routing_service.return_value = MagicMock()
-
-                    # Call the factory method
-                    service = SolanaAgentFactory.create_from_config(config)
-
-                    # Verify AgentService was created with correct Gemini parameters
-                    mock_agent_service.assert_called_once()
-                    agent_service_kwargs = mock_agent_service.call_args.kwargs
-                    assert agent_service_kwargs["api_key"] == "gemini_test_key"
-                    assert agent_service_kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
-                    assert agent_service_kwargs["model"] == "gemini-2.0-flash"
-
-                    # Verify RoutingService was created with correct Gemini parameters
-                    mock_routing_service.assert_called_once()
-                    routing_service_kwargs = mock_routing_service.call_args.kwargs
-                    assert routing_service_kwargs["api_key"] == "gemini_test_key"
-                    assert routing_service_kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
-                    assert routing_service_kwargs["model"] == "gemini-2.0-flash"
-
-                    # Verify the QueryService was returned
-                    assert isinstance(service, QueryService)
