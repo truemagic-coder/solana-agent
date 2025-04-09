@@ -51,7 +51,7 @@ Build your AI business in three lines of code!
 ### Tech
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) & [Gemini](https://aistudio.google.com/) - LLM Providers
+* [OpenAI](https://openai.com) - LLM Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
@@ -150,9 +150,6 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -378,9 +375,6 @@ class TestTool(Tool):
             }
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -498,6 +492,12 @@ The official collection of tools in one plugin
 The official example app written in FastAPI and Next.js
 
 [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
+
+## Demo App
+
+The official demo app written in FastAPI and Next.js
+
+[Solana Agent Demo App](https://demo.solana-agent.com)
 
 ## Agent Framework Comparisons
 
