@@ -57,7 +57,7 @@ Build your AI business in three lines of code!
 
 ### LLMs
 
-* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) or [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
 
@@ -121,9 +121,6 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -187,9 +184,6 @@ async for response in solana_agent.process("user123", audio_content, output_form
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -219,9 +213,6 @@ async for response in solana_agent.process("user123", "What is the latest news o
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -305,9 +296,6 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -432,9 +420,6 @@ This knowledge is accessible to all your AI agents.
 from solana_agent import SolanaAgent
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -462,9 +447,6 @@ from solana_agent import SolanaAgent
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
 config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
