@@ -61,8 +61,6 @@ Build your AI business in three lines of code!
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
 
-It is recommended to use OpenAI, Gemini, and Grok together to have fast reasoning multi-modal agent swarm.
-
 ## Installation
 
 You can install Solana Agent using pip:
@@ -122,6 +120,9 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
     "gemini": {
         "api_key": "your-gemini-api-key",
     },
@@ -154,6 +155,12 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -185,6 +192,12 @@ async for response in solana_agent.process("user123", audio_content, output_form
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -214,6 +227,12 @@ async for response in solana_agent.process("user123", "What is the latest news o
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -280,34 +299,6 @@ config = {
 }
 ```
 
-### Gemini for Agent and Router
-
-Gemini is much faster model than OpenAI.
-
-It is recommended to use OpenAI (audio), Gemini (router), and Grok (text) to have the best setup!
-
-```python
-config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
-}
-```
-
-### Grok for Agent
-
-Grok is a much better model than Gemini or OpenAI as it reasoning and fast.
-
-It is recommended to use OpenAI (audio), Gemini (router), and Grok (text) to have the best setup!
-
-```python
-config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-}
-```
-
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
@@ -325,6 +316,12 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -407,6 +404,12 @@ class TestTool(Tool):
             }
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -446,6 +449,12 @@ This knowledge is accessible to all your AI agents.
 from solana_agent import SolanaAgent
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -473,6 +482,12 @@ from solana_agent import SolanaAgent
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
 config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
