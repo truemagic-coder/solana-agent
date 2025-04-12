@@ -57,10 +57,11 @@ Build your AI business in three lines of code!
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) or [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) and/or [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
 
+It is recommended to use OpenAI, Gemini, and Grok together to have fast reasoning multi-modal agent swarm.
 
 ## Installation
 
@@ -121,6 +122,9 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -276,11 +280,11 @@ config = {
 }
 ```
 
-### Gemini for Agent Model
+### Gemini for Agent and Router
 
-Gemini uses `gemini-2.0-flash` rather than `gpt-4o-mini`
+Gemini is much faster model than OpenAI.
 
-You still need to use `openai` for the audio models
+It is recommended to use OpenAI (audio), Gemini (router), and Grok (text) to have the best setup!
 
 ```python
 config = {
@@ -290,11 +294,11 @@ config = {
 }
 ```
 
-### Grok for Agent Model
+### Grok for Agent
 
-Gemini uses `grok-3-mini-fast-beta` rather than `gpt-4o-mini`
+Grok is a much better model than Gemini or OpenAI as it reasoning and fast.
 
-You still need to use `openai` for the audio models
+It is recommended to use OpenAI (audio), Gemini (router), and Grok (text) to have the best setup!
 
 ```python
 config = {

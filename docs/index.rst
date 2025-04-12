@@ -235,7 +235,7 @@ Conversational Memory Config - Optional
       },
    }
 
-Gemini for Agent Model
+Gemini for Agent and Router
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -246,7 +246,7 @@ Gemini for Agent Model
       },
    }
 
-Grok for Agent Model
+Grok for Agent
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
