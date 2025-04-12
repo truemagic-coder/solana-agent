@@ -254,3 +254,103 @@ class TestSolanaAgentFactory:
                 SolanaAgentFactory.create_from_config(config)
             assert "MongoDB connection string is required" in str(
                 exc_info.value)
+
+    def test_create_with_gemini_config(self):
+        """Test creation with Google Gemini API configuration."""
+        config = {
+            "openai": {"api_key": "openai_test_key"},
+            "gemini": {"api_key": "gemini_test_key"}
+        }
+
+        with patch('solana_agent.factories.agent_factory.OpenAIAdapter') as mock_llm:
+            with patch('solana_agent.factories.agent_factory.AgentService') as mock_agent_service:
+                with patch('solana_agent.factories.agent_factory.RoutingService') as mock_routing_service:
+                    mock_llm_instance = MagicMock()
+                    mock_llm.return_value = mock_llm_instance
+
+                    # Create mock services
+                    mock_agent_instance = MagicMock()
+                    mock_routing_instance = MagicMock()
+                    mock_agent_service.return_value = mock_agent_instance
+                    mock_routing_service.return_value = mock_routing_instance
+
+                    # Also mock QueryService
+                    with patch('solana_agent.factories.agent_factory.QueryService') as mock_query_service:
+                        mock_query_instance = MagicMock()
+                        mock_query_service.return_value = mock_query_instance
+
+                        # Call factory method
+                        result = SolanaAgentFactory.create_from_config(config)
+
+                        # Verify AgentService was created with correct parameters
+                        mock_agent_service.assert_called_once()
+                        agent_kwargs = mock_agent_service.call_args.kwargs
+                        assert agent_kwargs["api_key"] == "gemini_test_key"
+                        assert agent_kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+                        assert agent_kwargs["model"] == "gemini-2.0-flash"
+
+                        # Verify RoutingService was created with correct parameters
+                        mock_routing_service.assert_called_once()
+                        routing_kwargs = mock_routing_service.call_args.kwargs
+                        assert routing_kwargs["api_key"] == "gemini_test_key"
+                        assert routing_kwargs["base_url"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+                        assert routing_kwargs["model"] == "gemini-2.0-flash"
+
+                        # Verify QueryService was created with the right services
+                        mock_query_service.assert_called_once()
+                        query_kwargs = mock_query_service.call_args.kwargs
+                        assert query_kwargs["agent_service"] == mock_agent_instance
+                        assert query_kwargs["routing_service"] == mock_routing_instance
+
+                        # Verify the expected result was returned
+                        assert result == mock_query_instance
+
+    def test_create_with_grok_config(self):
+        """Test creation with X.AI Grok API configuration."""
+        config = {
+            "openai": {"api_key": "openai_test_key"},
+            "grok": {"api_key": "grok_test_key"}
+        }
+
+        with patch('solana_agent.factories.agent_factory.OpenAIAdapter') as mock_llm:
+            with patch('solana_agent.factories.agent_factory.AgentService') as mock_agent_service:
+                with patch('solana_agent.factories.agent_factory.RoutingService') as mock_routing_service:
+                    mock_llm_instance = MagicMock()
+                    mock_llm.return_value = mock_llm_instance
+
+                    # Create mock services
+                    mock_agent_instance = MagicMock()
+                    mock_routing_instance = MagicMock()
+                    mock_agent_service.return_value = mock_agent_instance
+                    mock_routing_service.return_value = mock_routing_instance
+
+                    # Also mock QueryService
+                    with patch('solana_agent.factories.agent_factory.QueryService') as mock_query_service:
+                        mock_query_instance = MagicMock()
+                        mock_query_service.return_value = mock_query_instance
+
+                        # Call factory method
+                        result = SolanaAgentFactory.create_from_config(config)
+
+                        # Verify AgentService was created with correct parameters
+                        mock_agent_service.assert_called_once()
+                        agent_kwargs = mock_agent_service.call_args.kwargs
+                        assert agent_kwargs["api_key"] == "grok_test_key"
+                        assert agent_kwargs["base_url"] == "https://api.x.ai/v1"
+                        assert agent_kwargs["model"] == "grok-3-mini-fast-beta"
+
+                        # Verify RoutingService was created with correct parameters
+                        mock_routing_service.assert_called_once()
+                        routing_kwargs = mock_routing_service.call_args.kwargs
+                        assert routing_kwargs["api_key"] == "grok_test_key"
+                        assert routing_kwargs["base_url"] == "https://api.x.ai/v1"
+                        assert routing_kwargs["model"] == "grok-3-mini-fast-beta"
+
+                        # Verify QueryService was created with the right services
+                        mock_query_service.assert_called_once()
+                        query_kwargs = mock_query_service.call_args.kwargs
+                        assert query_kwargs["agent_service"] == mock_agent_instance
+                        assert query_kwargs["routing_service"] == mock_routing_instance
+
+                        # Verify the expected result was returned
+                        assert result == mock_query_instance

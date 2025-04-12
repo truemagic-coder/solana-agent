@@ -57,7 +57,7 @@ Build your AI business in three lines of code!
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) or [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
 
@@ -272,6 +272,34 @@ config = {
 config = {
     "zep": {
         "api_key": "your-zep-cloud-api-key",
+    },
+}
+```
+
+### Gemini for Agent Model
+
+Gemini uses `gemini-2.0-flash` rather than `gpt-4o-mini`
+
+You still need to use `openai` for the audio models
+
+```python
+config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
+}
+```
+
+### Grok for Agent Model
+
+Gemini uses `grok-3-mini-fast-beta` rather than `gpt-4o-mini`
+
+You still need to use `openai` for the audio models
+
+```python
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
     },
 }
 ```
