@@ -51,15 +51,25 @@ Build your AI business in three lines of code!
 ### Tech
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) - LLM Provider
+* [OpenAI](https://openai.com), [Google](https://ai.google.dev), [xAI](https://x.ai) - LLM Providers
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini) or [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) and/or [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
+* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
+* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash)
+* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
+
+It is recommended to use all three LLM providers as it is the best setup.
+
+Gemini makes the routing about 2x faster.
+
+Grok is a fast reasoning model and makes the answers and conversation much better.
+
+OpenAI is required while Gemini and Grok are optional.
 
 ## Installation
 
