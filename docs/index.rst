@@ -235,6 +235,28 @@ Conversational Memory Config - Optional
       },
    }
 
+Gemini for Agent and Router
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
+   }
+
+Grok for Agent
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+   }
+
 Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -170,7 +170,6 @@ class OpenAIAdapter(LLMProvider):
             if model:
                 self.parse_model = model
 
-            # Create a patched client with TOOLS_STRICT mode
             patched_client = instructor.from_openai(
                 client, mode=Mode.TOOLS_STRICT)
 
@@ -187,9 +186,17 @@ class OpenAIAdapter(LLMProvider):
                 f"Error with instructor parsing (TOOLS_STRICT mode): {e}")
 
             try:
+                if api_key and base_url:
+                    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                else:
+                    client = self.client
+
+                if model:
+                    self.parse_model = model
+
                 # First fallback: Try regular JSON mode
                 patched_client = instructor.from_openai(
-                    self.client, mode=Mode.JSON)
+                    client, mode=Mode.JSON)
                 response = await patched_client.chat.completions.create(
                     model=self.parse_model,
                     messages=messages,
@@ -201,6 +208,15 @@ class OpenAIAdapter(LLMProvider):
                 print(f"JSON mode fallback also failed: {json_error}")
 
                 try:
+                    if api_key and base_url:
+                        client = AsyncOpenAI(
+                            api_key=api_key, base_url=base_url)
+                    else:
+                        client = self.client
+
+                    if model:
+                        self.parse_model = model
+
                     # Final fallback: Manual extraction with a detailed prompt
                     fallback_system_prompt = f"""
                     {system_prompt}
@@ -212,7 +228,7 @@ class OpenAIAdapter(LLMProvider):
                     """
 
                     # Regular completion without instructor
-                    completion = await self.client.chat.completions.create(
+                    completion = await client.chat.completions.create(
                         model=self.parse_model,
                         messages=[
                             {"role": "system", "content": fallback_system_prompt},
