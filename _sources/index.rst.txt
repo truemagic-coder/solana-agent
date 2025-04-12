@@ -75,6 +75,12 @@ Text/Text Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -105,6 +111,12 @@ Audio/Audio Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -138,6 +150,12 @@ agent/Audio Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -169,6 +187,12 @@ Audio/Text Streaming
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -235,28 +259,6 @@ Conversational Memory Config - Optional
       },
    }
 
-Gemini for Agent and Router
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "gemini": {
-         "api_key": "your-gemini-api-key",
-      },
-   }
-
-Grok for Agent
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "grok": {
-         "api_key": "your-grok-api-key",
-      },
-   }
-
 Internet Search (Plugin Tool Example)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -269,6 +271,12 @@ Internet Search (Plugin Tool Example)
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -389,6 +397,12 @@ Useful for Knowledge Base answers and FAQs.
    from solana_agent import SolanaAgent
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
@@ -420,6 +434,12 @@ Custom Routing Example
    from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
    config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
       "openai": {
          "api_key": "your-openai-api-key",
       },
