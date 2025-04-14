@@ -1611,3 +1611,36 @@ class TestKnowledgeBase:
             assert meta["document_id"] == f"{parent_doc_id}_chunk_{i}"
             assert meta["parent_document_id"] == parent_doc_id
             assert meta["is_chunk"] is True
+
+    @pytest.mark.asyncio
+    async def test_add_pdf_document_no_chunks_generated(
+        self, knowledge_base: KnowledgeBase, mock_pdf_reader,
+        sample_pdf_data, sample_pdf_metadata
+    ):
+        """Test adding PDF returns early if semantic splitter generates no nodes."""
+        parent_doc_id = "pdf-no-chunks-test"
+
+        # Configure splitter mock to return empty list
+        knowledge_base.mock_splitter_instance.get_nodes_from_documents.return_value = []
+
+        result_id = await knowledge_base.add_pdf_document(
+            pdf_data=sample_pdf_data,
+            metadata=sample_pdf_metadata,
+            document_id=parent_doc_id,
+            namespace="ns_pdf_no_chunks"
+        )
+
+        # Assert the parent ID is returned
+        assert result_id == parent_doc_id
+
+        # Check PDF reading and Mongo insert happened
+        mock_pdf_reader.assert_called_once()
+        knowledge_base.mongo.insert_one.assert_called_once()
+        mongo_doc = knowledge_base.mongo.insert_one.call_args[0][1]
+        assert mongo_doc["document_id"] == parent_doc_id
+
+        # Check splitter was called
+        knowledge_base.mock_splitter_instance.get_nodes_from_documents.assert_called_once()
+
+        # Check Pinecone upsert was NOT called because nodes list was empty
+        knowledge_base.pinecone.upsert_text.assert_not_called()
