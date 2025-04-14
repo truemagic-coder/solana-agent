@@ -243,3 +243,30 @@ class SolanaAgent(SolanaAgentInterface):
         """
         kb = self._ensure_kb()
         return await kb.add_documents_batch(documents, namespace, batch_size)
+
+    async def kb_add_pdf_document(
+        self,
+        pdf_data: Union[bytes, str],
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        chunk_batch_size: int = 50
+    ) -> str:
+        """
+        Add a PDF document to the knowledge base via the client.
+
+        Args:
+            pdf_data: PDF content as bytes or a path to the PDF file.
+            metadata: Document metadata.
+            document_id: Optional parent document ID.
+            namespace: Optional Pinecone namespace for chunks.
+            chunk_batch_size: Batch size for upserting chunks.
+
+        Returns:
+            The parent document ID.
+        """
+        kb = self._ensure_kb()
+        # Type check added for clarity, though handled in service
+        if not isinstance(pdf_data, (bytes, str)):
+            raise TypeError("pdf_data must be bytes or a file path string.")
+        return await kb.add_pdf_document(pdf_data, metadata, document_id, namespace, chunk_batch_size)

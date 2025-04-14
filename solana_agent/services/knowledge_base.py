@@ -1,45 +1,96 @@
 from datetime import datetime as dt
-import datetime
 from typing import Dict, List, Any, Optional, Union
 import uuid
 import asyncio
+import io  # For handling bytes streams
+
+# PDF and Chunking Imports
+import pypdf
+from llama_index.core import Document as LlamaDocument
+from llama_index.core.node_parser import SemanticSplitterNodeParser
 
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.interfaces.services.knowledge_base import KnowledgeService as KnowledgeServiceInterface
+from solana_agent.interfaces.services.knowledge_base import KnowledgeService as KnowledgeBaseInterface
+from solana_agent.interfaces.providers.llm import LLMProvider  # Needed for embeddings
 
 
-class KnowledgeBase(KnowledgeServiceInterface):
+class KnowledgeBase(KnowledgeBaseInterface):
     """
-    Knowledge Base service that uses Pinecone for vector search and MongoDB for metadata storage.
-    Provides an integrated solution for storing, retrieving, and managing knowledge documents.
+    Knowledge Base service using Pinecone for vector search and MongoDB for metadata/full document storage.
+    Supports text documents and PDF semantic chunking.
     """
 
     def __init__(
         self,
         pinecone_adapter: PineconeAdapter,
         mongodb_adapter: MongoDBAdapter,
+        llm_provider: LLMProvider,  # Required for semantic chunking embeddings
         collection_name: str = "knowledge_documents",
         rerank_results: bool = False,
-        rerank_top_k: int = 3
+        rerank_top_k: int = 3,
+        # Semantic Splitter Config
+        splitter_buffer_size: int = 1,
+        splitter_breakpoint_percentile: int = 95,
     ):
         """
         Initialize the Knowledge Base service.
 
         Args:
-            pinecone_adapter: Configured PineconeAdapter instance
-            mongodb_adapter: Configured MongoDBAdapter instance
-            collection_name: MongoDB collection for storing document metadata
-            rerank_results: Whether to rerank results (requires Pinecone adapter with reranking enabled)
-            rerank_top_k: Number of results to return after reranking
+            pinecone_adapter: Configured PineconeAdapter instance.
+            mongodb_adapter: Configured MongoDBAdapter instance.
+            llm_provider: Configured LLMProvider instance (for embeddings).
+            collection_name: MongoDB collection for storing document metadata and full PDFs.
+            rerank_results: Whether to rerank results via PineconeAdapter.
+            rerank_top_k: Number of results to return after reranking.
+            splitter_buffer_size: Buffer size for SemanticSplitterNodeParser.
+            splitter_breakpoint_percentile: Breakpoint percentile for SemanticSplitterNodeParser.
         """
         self.pinecone = pinecone_adapter
         self.mongo = mongodb_adapter
+        self.llm_provider = llm_provider
         self.collection = collection_name
         self.rerank_results = rerank_results
         self.rerank_top_k = rerank_top_k
 
-        # Ensure the collection exists with proper indexes
+        # --- Initialize Semantic Splitter ---
+        # Ensure the LLM provider has the embed_text method
+        if not hasattr(self.llm_provider, 'embed_text'):
+            raise ValueError(
+                "LLMProvider must have an 'embed_text' method for semantic chunking.")
+
+        # Create a LlamaIndex compatible embedding model wrapper
+        # This assumes llm_provider.embed_text returns List[float]
+        # You might need a more specific wrapper depending on your LLMProvider implementation
+        class LLMProviderEmbeddingAdapter:
+            def __init__(self, provider: LLMProvider, model_name: Optional[str] = None, dimensions: Optional[int] = None):
+                self._provider = provider
+                self.model_name = model_name or "default_embed_model"  # LlamaIndex needs a name
+                self._dimensions = dimensions
+
+            async def _aget_text_embedding(self, text: str) -> List[float]:
+                # Use the provider's embed_text method
+                return await self._provider.embed_text(text, model=self.model_name, dimensions=self._dimensions)
+
+            # LlamaIndex SemanticSplitter uses these sync methods internally via asyncio.run
+            # or similar mechanisms if called from sync code, but prefers async.
+            # We provide the async method it needs.
+            # If LlamaIndex version changes behavior, sync versions might be needed.
+
+        # Use the embedding dimension configured in the Pinecone adapter for consistency
+        embed_dimensions = self.pinecone.embedding_dimensions
+        llama_embed_model = LLMProviderEmbeddingAdapter(
+            self.llm_provider,
+            dimensions=embed_dimensions
+        )
+
+        self.semantic_splitter = SemanticSplitterNodeParser(
+            buffer_size=splitter_buffer_size,
+            breakpoint_percentile_threshold=splitter_breakpoint_percentile,
+            embed_model=llama_embed_model
+        )
+        # --- End Semantic Splitter Init ---
+
         self._ensure_collection()
 
     def _ensure_collection(self) -> None:
@@ -47,12 +98,16 @@ class KnowledgeBase(KnowledgeServiceInterface):
         if not self.mongo.collection_exists(self.collection):
             self.mongo.create_collection(self.collection)
 
-        # Create indexes for faster retrieval
+        # Indexes for retrieval and filtering
         self.mongo.create_index(
             self.collection, [("document_id", 1)], unique=True)
+        # Index for finding chunks related to a parent PDF
+        self.mongo.create_index(self.collection, [("parent_document_id", 1)])
         self.mongo.create_index(self.collection, [("source", 1)])
         self.mongo.create_index(self.collection, [("created_at", -1)])
         self.mongo.create_index(self.collection, [("tags", 1)])
+        # Index to differentiate between full docs and chunks
+        self.mongo.create_index(self.collection, [("is_chunk", 1)])
 
     async def add_document(
         self,
@@ -62,39 +117,41 @@ class KnowledgeBase(KnowledgeServiceInterface):
         namespace: Optional[str] = None
     ) -> str:
         """
-        Add a document to the knowledge base.
+        Add a plain text document to the knowledge base.
 
         Args:
-            text: Document text content to be embedded
-            metadata: Document metadata to store in MongoDB
-            document_id: Optional document ID (will generate UUID if not provided)
-            namespace: Optional Pinecone namespace
+            text: Document text content.
+            metadata: Document metadata.
+            document_id: Optional document ID.
+            namespace: Optional Pinecone namespace.
 
         Returns:
-            The document ID
+            The document ID.
         """
-        # Generate or use provided document ID
         doc_id = document_id or str(uuid.uuid4())
 
-        # Store metadata in MongoDB
+        # Store metadata and content in MongoDB
         mongo_doc = {
             "document_id": doc_id,
-            "content": text,  # Store full text content
-            **metadata,  # Include all provided metadata
+            "content": text,  # Store full text
+            "is_chunk": False,  # Mark as not a chunk
+            "parent_document_id": None,  # No parent for full text doc
+            **metadata,
             "created_at": metadata.get("created_at", dt.now()),
             "updated_at": dt.now()
         }
-
-        # Insert into MongoDB first to ensure metadata is available
         self.mongo.insert_one(self.collection, mongo_doc)
 
-        # Store embedding in Pinecone with minimal metadata
+        # Prepare minimal metadata for Pinecone vector
         pinecone_metadata = {
-            "document_id": doc_id,  # This links back to MongoDB
-            # Optional source for filtering
+            "document_id": doc_id,  # Links back to MongoDB full doc
+            "is_chunk": False,
             "source": metadata.get("source", "unknown"),
-            "tags": metadata.get("tags", [])  # Optional tags for filtering
+            "tags": metadata.get("tags", [])
         }
+        # Add text itself if reranking is used
+        if self.pinecone.use_reranking:
+            pinecone_metadata[self.pinecone.rerank_text_field] = text
 
         # Add embedding to Pinecone
         await self.pinecone.upsert_text(
@@ -103,8 +160,149 @@ class KnowledgeBase(KnowledgeServiceInterface):
             metadatas=[pinecone_metadata],
             namespace=namespace
         )
-
         return doc_id
+
+    async def add_pdf_document(
+        self,
+        pdf_data: Union[bytes, str],  # PDF bytes or file path
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        chunk_batch_size: int = 50
+    ) -> str:
+        """
+        Add a PDF document, performs semantic chunking, stores full PDF in Mongo,
+        and chunks in Pinecone.
+
+        Args:
+            pdf_data: PDF content as bytes or a path to the PDF file.
+            metadata: Document metadata (applies to the parent PDF).
+            document_id: Optional parent document ID.
+            namespace: Optional Pinecone namespace for chunks.
+            chunk_batch_size: Batch size for upserting chunks to Pinecone.
+
+        Returns:
+            The parent document ID.
+        """
+        parent_doc_id = document_id or str(uuid.uuid4())
+        pdf_bytes: bytes
+
+        # --- 1. Read PDF and Extract Text ---
+        try:
+            if isinstance(pdf_data, str):
+                with open(pdf_data, "rb") as f:
+                    pdf_bytes = f.read()
+            elif isinstance(pdf_data, bytes):
+                pdf_bytes = pdf_data
+            else:
+                raise ValueError(
+                    "pdf_data must be bytes or a file path string.")
+
+            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            extracted_text = "".join(
+                page.extract_text() or "" for page in reader.pages)
+            if not extracted_text.strip():
+                print(f"Warning: No text extracted from PDF {parent_doc_id}.")
+                # Optionally raise error or return early
+                # return parent_doc_id # Or raise
+
+        except Exception as e:
+            print(
+                f"Error reading or extracting text from PDF {parent_doc_id}: {e}")
+            raise  # Re-raise the error
+
+        # --- 2. Store Full PDF and Metadata in MongoDB ---
+        mongo_parent_doc = {
+            "document_id": parent_doc_id,
+            "content": extracted_text,
+            # Store raw bytes directly - PyMongo handles BSON conversion
+            "pdf_data": pdf_bytes,
+            "is_chunk": False,
+            "parent_document_id": None,
+            **metadata,
+            "created_at": metadata.get("created_at", dt.now()),
+            "updated_at": dt.now()
+        }
+        self.mongo.insert_one(self.collection, mongo_parent_doc)
+        print(f"Stored full PDF {parent_doc_id} in MongoDB.")
+
+        # --- 3. Semantic Chunking ---
+        if not extracted_text.strip():
+            print(
+                f"Skipping chunking for PDF {parent_doc_id} due to no extracted text.")
+            return parent_doc_id
+
+        try:
+            # Create a LlamaIndex Document object
+            llama_doc = LlamaDocument(text=extracted_text)
+            # Get semantic chunks (nodes)
+            nodes = self.semantic_splitter.get_nodes_from_documents([
+                                                                    llama_doc])
+            print(
+                f"Generated {len(nodes)} semantic chunks for PDF {parent_doc_id}.")
+        except Exception as e:
+            print(
+                f"Error during semantic chunking for PDF {parent_doc_id}: {e}")
+            # Decide how to handle: maybe store PDF but no chunks?
+            raise  # Re-raise for now
+
+        # --- 4. Prepare and Batch Upsert Chunks to Pinecone ---
+        if not nodes:
+            return parent_doc_id  # No chunks generated
+
+        pinecone_chunk_texts = []
+        pinecone_chunk_ids = []
+        pinecone_chunk_metadatas = []
+
+        for i, node in enumerate(nodes):
+            chunk_text = node.get_content()
+            chunk_id = f"{parent_doc_id}_chunk_{i}"
+
+            pinecone_chunk_texts.append(chunk_text)
+            pinecone_chunk_ids.append(chunk_id)
+
+            # Metadata for the chunk vector
+            chunk_metadata = {
+                "document_id": chunk_id,  # Unique ID for the chunk itself
+                "parent_document_id": parent_doc_id,  # Link back to the PDF
+                "chunk_index": i,
+                "is_chunk": True,
+                "source": metadata.get("source", "unknown"),  # Inherit source
+                "tags": metadata.get("tags", [])  # Inherit tags
+            }
+            # Add chunk text itself if reranking is used
+            if self.pinecone.use_reranking:
+                chunk_metadata[self.pinecone.rerank_text_field] = chunk_text
+
+            pinecone_chunk_metadatas.append(chunk_metadata)
+
+        # Upsert chunks in batches
+        print(
+            f"Upserting {len(pinecone_chunk_ids)} chunks to Pinecone in batches of {chunk_batch_size}...")
+        for i in range(0, len(pinecone_chunk_ids), chunk_batch_size):
+            batch_texts = pinecone_chunk_texts[i:i+chunk_batch_size]
+            batch_ids = pinecone_chunk_ids[i:i+chunk_batch_size]
+            batch_metadatas = pinecone_chunk_metadatas[i:i+chunk_batch_size]
+
+            try:
+                await self.pinecone.upsert_text(
+                    texts=batch_texts,
+                    ids=batch_ids,
+                    metadatas=batch_metadatas,
+                    namespace=namespace
+                )
+                print(f"Upserted batch {i//chunk_batch_size + 1}...")
+            except Exception as e:
+                print(
+                    f"Error upserting chunk batch {i//chunk_batch_size + 1} to Pinecone: {e}")
+                # Decide on error handling: continue? stop? log?
+                # For now, just print and continue
+            # Optional delay between batches
+            if i + chunk_batch_size < len(pinecone_chunk_ids):
+                await asyncio.sleep(0.2)
+
+        print(f"Finished processing PDF {parent_doc_id}.")
+        return parent_doc_id
 
     async def query(
         self,
@@ -112,241 +310,357 @@ class KnowledgeBase(KnowledgeServiceInterface):
         filter: Optional[Dict[str, Any]] = None,
         top_k: int = 5,
         namespace: Optional[str] = None,
-        include_content: bool = True,
+        include_content: bool = True,  # Now refers to chunk content if it's a chunk
         include_metadata: bool = True
     ) -> List[Dict[str, Any]]:
-        """
-        Query the knowledge base with semantic search.
+        # ...existing code...
 
-        Args:
-            query_text: Search query text
-            filter: Optional filter criteria for Pinecone
-            top_k: Maximum number of results to return
-            namespace: Optional Pinecone namespace
-            include_content: Whether to include document content in results
-            include_metadata: Whether to include document metadata in results
-
-        Returns:
-            List of matching documents with combined data from Pinecone and MongoDB
-        """
-        # Set the effective top_k based on configuration and parameters
-        effective_top_k = self.rerank_top_k if self.rerank_results else top_k
-
-        # Perform semantic search in Pinecone
-        try:
-            pinecone_results = await self.pinecone.query_text(
-                query_text=query_text,
-                filter=filter,
-                top_k=effective_top_k,
-                namespace=namespace,
-                include_values=False,
-                include_metadata=True
+        # --- Fetch corresponding data from MongoDB ---
+        # We need the content (text or chunk text) and potentially more metadata
+        # Fetch based on the IDs returned by Pinecone
+        mongo_docs_map = {}  # FIX: Initialize as empty
+        try:  # FIX: Add try-except block for find
+            mongo_docs = self.mongo.find(
+                self.collection,
+                {"document_id": {"$in": result_ids}}
             )
+            mongo_docs_map = {doc["document_id"]: doc for doc in mongo_docs}
         except Exception as e:
-            print(f"Error querying Pinecone: {e}")
-            return []  # Return empty list on Pinecone error
+            print(f"Error fetching documents from MongoDB: {e}")
+            # Proceed with empty mongo_docs_map, results will lack Mongo data
 
-        if not pinecone_results:
-            return []
-
-        # Extract document IDs from Pinecone results
-        doc_ids = [match.get("id") for match in pinecone_results]
-        scores = {match.get("id"): match.get("score")
-                  for match in pinecone_results}
-
-        # Get full metadata from MongoDB
-        mongo_docs = self.mongo.find(
-            self.collection,
-            {"document_id": {"$in": doc_ids}}
-        )
-
-        # Create a lookup map for efficient document retrieval
-        mongo_docs_map = {doc["document_id"]: doc for doc in mongo_docs}
-
-        # Combine results in the same order as Pinecone returned them
+        # --- Combine Results ---
         results = []
-        for doc_id in doc_ids:
-            if doc_id in mongo_docs_map:
-                mongo_doc = mongo_docs_map[doc_id]
-                result = {
-                    "document_id": doc_id,
-                    "score": scores.get(doc_id, 0.0),
-                }
+        for res_id in result_ids:  # Iterate in Pinecone's score order
+            pinecone_meta = pinecone_metadatas.get(res_id, {})
+            # Use get() for safety, although find should have handled errors
+            mongo_doc = mongo_docs_map.get(res_id)
 
-                # Include content if requested
-                if include_content:
-                    result["content"] = mongo_doc.get("content", "")
+            # Basic result structure
+            result = {
+                "document_id": res_id,  # This is the chunk_id if it's a chunk
+                "score": scores.get(res_id, 0.0),
+                "is_chunk": pinecone_meta.get("is_chunk", False),
+                # Important for chunks
+                "parent_document_id": pinecone_meta.get("parent_document_id"),
+            }
 
-                # Include metadata if requested
-                if include_metadata:
-                    # Copy all fields except internal ones
-                    result["metadata"] = {
+            # Include content (chunk text or full doc text)
+            if include_content:
+                content = None
+                # Priority 1: Reranking field in Pinecone metadata
+                if self.pinecone.use_reranking and self.pinecone.rerank_text_field in pinecone_meta:
+                    content = pinecone_meta[self.pinecone.rerank_text_field]
+                # Priority 2: If it's a chunk, get parent content from Mongo
+                elif result["is_chunk"]:  # FIX: Check if it's a chunk first
+                    parent_doc_id_for_content = pinecone_meta.get(
+                        "parent_document_id")
+                    if parent_doc_id_for_content:
+                        # Fetch parent doc (could optimize caching later)
+                        parent_doc_for_content = None
+                        try:  # FIX: Add try-except for find_one for content
+                            parent_doc_for_content = self.mongo.find_one(
+                                self.collection, {"document_id": parent_doc_id_for_content})
+                        except Exception as e:
+                            print(
+                                f"Error fetching parent document {parent_doc_id_for_content} for chunk content: {e}")
+                        if parent_doc_for_content:
+                            content = parent_doc_for_content.get("content")
+                # Priority 3: If it's a non-chunk, get content from its own Mongo doc
+                elif mongo_doc:
+                    content = mongo_doc.get("content")
+
+                # Use empty string if no content found
+                result["content"] = content or ""
+
+            # Include metadata
+            if include_metadata:
+                # Combine metadata from Pinecone (chunk info) and Mongo (original meta)
+                combined_meta = {}
+                # Get original metadata from parent if it's a chunk and parent exists
+                parent_doc_id = pinecone_meta.get("parent_document_id")
+                parent_mongo_doc = None
+                if parent_doc_id:
+                    # Avoid hitting DB repeatedly if multiple chunks from same parent
+                    # This simple approach fetches each time, could optimize later
+                    try:  # FIX: Add try-except for find_one for metadata
+                        parent_mongo_doc = self.mongo.find_one(
+                            self.collection, {"document_id": parent_doc_id})
+                    except Exception as e:
+                        print(
+                            f"Error fetching parent document {parent_doc_id} for metadata: {e}")
+                        parent_mongo_doc = None  # Ensure it's None on error
+
+                if parent_mongo_doc:  # Use parent's original metadata
+                    combined_meta = {
+                        k: v for k, v in parent_mongo_doc.items()
+                        if k not in ["_id", "document_id", "content", "pdf_data", "is_chunk", "parent_document_id"]
+                    }
+                # Use non-chunk doc's metadata
+                elif mongo_doc and not result["is_chunk"]:
+                    combined_meta = {
                         k: v for k, v in mongo_doc.items()
-                        if k not in ["_id", "document_id", "content"]
+                        if k not in ["_id", "document_id", "content", "pdf_data", "is_chunk", "parent_document_id"]
                     }
 
-                results.append(result)
+                # Add chunk-specific info from Pinecone meta
+                combined_meta.update({
+                    k: v for k, v in pinecone_meta.items()
+                    # Avoid redundancy
+                    if k not in ["document_id", self.pinecone.rerank_text_field]
+                })
+                result["metadata"] = combined_meta
+
+            results.append(result)
 
         return results
 
     async def delete_document(
         self,
-        document_id: str,
+        document_id: str,  # Can be a parent PDF ID or a plain text doc ID
         namespace: Optional[str] = None
     ) -> bool:
         """
-        Delete a document from both Pinecone and MongoDB.
+        Delete a document (plain text or PDF) and all its associated chunks.
 
         Args:
-            document_id: ID of document to delete
-            namespace: Optional Pinecone namespace
+            document_id: ID of the parent document (or plain text document).
+            namespace: Optional Pinecone namespace.
 
         Returns:
-            True if document was deleted successfully
+            True if deletion was successful (or partially successful).
         """
-        # Delete from Pinecone first
-        try:
-            await self.pinecone.delete(ids=[document_id], namespace=namespace)
-        except Exception as e:
-            print(f"Error deleting document {document_id} from Pinecone: {e}")
-            return False
+        print(
+            f"Attempting to delete document and associated chunks for ID: {document_id}")
+        mongo_deleted_count = 0
+        pinecone_deleted = False
 
-        # Then delete from MongoDB
-        mongo_deleted = self.mongo.delete_one(
+        # --- 1. Find all associated items in MongoDB ---
+        # This includes the parent doc and potentially chunk metadata if we stored it
+        docs_to_delete_mongo = list(self.mongo.find(
             self.collection,
-            {"document_id": document_id}
-        )
+            {"$or": [{"document_id": document_id}, {
+                "parent_document_id": document_id}]}
+        ))
+        mongo_ids_to_delete = [doc["document_id"]
+                               for doc in docs_to_delete_mongo]
 
-        return mongo_deleted
+        # --- 2. Find all associated vectors in Pinecone ---
+        # These are the parent doc vector (if text) and all chunk vectors
+        # We can use the mongo_ids_to_delete list
+        pinecone_ids_to_delete = mongo_ids_to_delete  # IDs are the same
+
+        # --- 3. Delete from Pinecone ---
+        if pinecone_ids_to_delete:
+            try:
+                # Delete in batches if necessary, though Pinecone delete handles lists
+                await self.pinecone.delete(ids=pinecone_ids_to_delete, namespace=namespace)
+                print(
+                    f"Deleted {len(pinecone_ids_to_delete)} vectors from Pinecone for parent {document_id}.")
+                pinecone_deleted = True
+            except Exception as e:
+                print(
+                    f"Error deleting vectors from Pinecone for {document_id}: {e}")
+                # Continue to delete from Mongo even if Pinecone fails
+
+        # --- 4. Delete from MongoDB ---
+        if mongo_ids_to_delete:
+            try:
+                delete_result = self.mongo.delete_many(
+                    self.collection,
+                    {"document_id": {"$in": mongo_ids_to_delete}}
+                )
+                mongo_deleted_count = delete_result.deleted_count
+                print(
+                    f"Deleted {mongo_deleted_count} documents from MongoDB for parent {document_id}.")
+            except Exception as e:
+                print(
+                    f"Error deleting documents from MongoDB for {document_id}: {e}")
+
+        # Return True if at least something was deleted
+        return pinecone_deleted or mongo_deleted_count > 0
 
     async def update_document(
         self,
         document_id: str,
-        text: Optional[str] = None,
+        text: Optional[str] = None,  # For plain text docs
         metadata: Optional[Dict[str, Any]] = None,
         namespace: Optional[str] = None
+        # pdf_data: Union[bytes, str] = None # Updating PDFs requires re-chunking, complex.
     ) -> bool:
         """
-        Update an existing document in the knowledge base.
+        Update an existing plain text document or metadata.
+        Updating PDF content requires deleting and re-adding.
 
         Args:
-            document_id: ID of document to update
-            text: Optional new text content (if not provided, only metadata will be updated)
-            metadata: Optional metadata to update
-            namespace: Optional Pinecone namespace
+            document_id: ID of document to update.
+            text: Optional new text content (for plain text docs only).
+            metadata: Optional metadata to update.
+            namespace: Optional Pinecone namespace.
 
         Returns:
-            True if document was updated successfully
+            True if successful.
         """
-        # Fetch current document to get text if not provided
+        # Fetch current document
         current_doc = self.mongo.find_one(
             self.collection, {"document_id": document_id})
         if not current_doc:
-            print(f"Document {document_id} not found in MongoDB")
+            print(f"Document {document_id} not found.")
             return False
 
-        update_text = text is not None
+        # Disallow updating content of chunks or full PDFs via this method
+        if current_doc.get("is_chunk"):
+            print(
+                f"Cannot update chunk {document_id} directly. Update the parent PDF.")
+            return False
+        if current_doc.get("pdf_data") and text is not None:
+            print(
+                f"Cannot update PDF content via this method. Delete and re-add the PDF.")
+            return False
+
+        update_text = text is not None and not current_doc.get("pdf_data")
         text_content = text if update_text else current_doc.get("content", "")
 
-        # Update MongoDB document
+        # --- Update MongoDB ---
         mongo_update = {}
-
         if metadata:
-            for key, value in metadata.items():
-                mongo_update[key] = value
-
+            # Update only specified metadata fields
+            mongo_update.update(metadata)
         if update_text:
             mongo_update["content"] = text_content
-
         mongo_update["updated_at"] = dt.now()
 
-        self.mongo.update_one(
+        update_result = self.mongo.update_one(
             self.collection,
             {"document_id": document_id},
             {"$set": mongo_update}
         )
+        mongo_updated = update_result.modified_count > 0
 
-        # Only update Pinecone if text content changed (requires re-embedding)
+        # --- Update Pinecone (only if text changed) ---
+        pinecone_updated = False
         if update_text:
-            # Minimal metadata for Pinecone
+            # Prepare metadata for Pinecone vector
+            # Use potentially updated metadata if provided, else current
+            final_metadata = {**current_doc, **(metadata or {})}
             pinecone_metadata = {
                 "document_id": document_id,
-                "source": metadata.get("source", current_doc.get("source", "unknown")),
-                "tags": metadata.get("tags", current_doc.get("tags", []))
+                "is_chunk": False,
+                # "source": final_metadata.get("source", "unknown"), # FIX: Remove hardcoding
+                # "tags": final_metadata.get("tags", []) # FIX: Remove hardcoding
             }
+            # FIX: Add all relevant metadata fields from the merged dict
+            for key, value in final_metadata.items():
+                # Exclude internal/large fields not suitable for Pinecone metadata
+                if key not in ["_id", "content", "pdf_data", "created_at", "updated_at", "document_id", "is_chunk", "parent_document_id"]:
+                    pinecone_metadata[key] = value
 
-            await self.pinecone.upsert_text(
-                texts=[text_content],
-                ids=[document_id],
-                metadatas=[pinecone_metadata],
-                namespace=namespace
-            )
+            if self.pinecone.use_reranking:
+                pinecone_metadata[self.pinecone.rerank_text_field] = text_content
 
-        return True
+            try:
+                await self.pinecone.upsert_text(
+                    texts=[text_content],
+                    ids=[document_id],
+                    metadatas=[pinecone_metadata],
+                    namespace=namespace
+                )
+                pinecone_updated = True
+            except Exception as e:
+                print(
+                    f"Error updating vector in Pinecone for {document_id}: {e}")
+                # Mongo update might have succeeded, but Pinecone failed
+
+        # Return True if either Mongo or Pinecone (if applicable) was updated
+        return mongo_updated or pinecone_updated
 
     async def add_documents_batch(
         self,
+        # Expects {'text': ..., 'metadata': ...}
         documents: List[Dict[str, Any]],
         namespace: Optional[str] = None,
         batch_size: int = 50
     ) -> List[str]:
         """
-        Add multiple documents in batches.
+        Add multiple plain text documents in batches.
+        Use add_pdf_document for PDFs.
 
         Args:
-            documents: List of documents, each with 'text' and 'metadata' fields
-            namespace: Optional Pinecone namespace
-            batch_size: Number of documents per batch
+            documents: List of documents, each with 'text' and 'metadata'.
+            namespace: Optional Pinecone namespace.
+            batch_size: Number of documents per batch.
 
         Returns:
-            List of document IDs
+            List of added document IDs.
         """
-        document_ids = []
-
-        # Process in batches
+        all_doc_ids = []
         for i in range(0, len(documents), batch_size):
-            batch = documents[i:i+batch_size]
-            batch_ids = [doc.get("document_id", str(uuid.uuid4()))
-                         for doc in batch]
-            document_ids.extend(batch_ids)
+            batch_docs_input = documents[i:i+batch_size]
+            batch_texts = [doc['text'] for doc in batch_docs_input]
+            batch_metadatas = [doc['metadata'] for doc in batch_docs_input]
+            batch_doc_ids = [doc['metadata'].get(
+                'document_id', str(uuid.uuid4())) for doc in batch_docs_input]
+            all_doc_ids.extend(batch_doc_ids)
 
-            # Prepare MongoDB documents
-            mongo_docs = []
-            for j, doc in enumerate(batch):
+            # Prepare MongoDB docs
+            mongo_batch = []
+            for idx, text in enumerate(batch_texts):
+                doc_id = batch_doc_ids[idx]
+                metadata = batch_metadatas[idx]
                 mongo_doc = {
-                    "document_id": batch_ids[j],
-                    "content": doc["text"],
-                    **doc["metadata"],
-                    "created_at": doc["metadata"].get("created_at", dt.now()),
+                    "document_id": doc_id,
+                    "content": text,
+                    "is_chunk": False,
+                    "parent_document_id": None,
+                    **metadata,
+                    "created_at": metadata.get("created_at", dt.now()),
                     "updated_at": dt.now()
                 }
-                mongo_docs.append(mongo_doc)
+                mongo_batch.append(mongo_doc)
 
-            # Insert MongoDB documents
-            for doc in mongo_docs:
-                self.mongo.insert_one(self.collection, doc)
+            # Insert into MongoDB
+            if mongo_batch:
+                self.mongo.insert_many(self.collection, mongo_batch)
 
-            # Prepare Pinecone documents
-            texts = [doc["text"] for doc in batch]
-            pinecone_metadatas = [
-                {
-                    "document_id": batch_ids[j],
-                    "source": doc["metadata"].get("source", "unknown"),
-                    "tags": doc["metadata"].get("tags", [])
+            # Prepare Pinecone metadata
+            pinecone_batch_metadatas = []
+            for idx, doc_id in enumerate(batch_doc_ids):
+                metadata = batch_metadatas[idx]
+                pinecone_meta = {
+                    "document_id": doc_id,
+                    "is_chunk": False,
+                    "source": metadata.get("source", "unknown"),
+                    "tags": metadata.get("tags", [])
                 }
-                for j, doc in enumerate(batch)
-            ]
+                if self.pinecone.use_reranking:
+                    pinecone_meta[self.pinecone.rerank_text_field] = batch_texts[idx]
+                pinecone_batch_metadatas.append(pinecone_meta)
 
-            # Insert into Pinecone
-            await self.pinecone.upsert_text(
-                texts=texts,
-                ids=batch_ids,
-                metadatas=pinecone_metadatas,
-                namespace=namespace
-            )
+            # Upsert to Pinecone
+            try:
+                await self.pinecone.upsert_text(
+                    texts=batch_texts,
+                    ids=batch_doc_ids,
+                    metadatas=pinecone_batch_metadatas,
+                    namespace=namespace
+                )
+            except Exception as e:
+                print(
+                    f"Error upserting text batch {i//batch_size + 1} to Pinecone: {e}")
 
-            # Add small delay between batches, but not after the last batch
             if i + batch_size < len(documents):
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
 
-        return document_ids
+        return all_doc_ids
+
+    async def get_full_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve the full document entry (including PDF data if applicable) from MongoDB.
+
+        Args:
+            document_id: The ID of the document (parent ID if it was a PDF).
+
+        Returns:
+            The document dictionary from MongoDB, or None if not found.
+        """
+        return self.mongo.find_one(self.collection, {"document_id": document_id})

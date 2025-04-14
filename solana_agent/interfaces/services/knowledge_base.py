@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 
 
 class KnowledgeService(ABC):
@@ -68,5 +68,19 @@ class KnowledgeService(ABC):
     ) -> List[str]:
         """
         Add multiple documents in batches.
+        """
+        pass
+
+    @abstractmethod
+    async def add_pdf_document(
+        self,
+        pdf_data: Union[bytes, str],  # PDF bytes or file path
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        chunk_batch_size: int = 50
+    ) -> str:
+        """
+        Add a PDF document to the knowledge base.
         """
         pass

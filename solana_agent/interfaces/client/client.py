@@ -101,3 +101,15 @@ class SolanaAgent(ABC):
     ) -> List[str]:
         """Add multiple documents to the knowledge base in batches."""
         pass
+
+    @abstractmethod
+    async def kb_add_pdf_document(
+        self,
+        pdf_data: Union[bytes, str],
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None,
+        chunk_batch_size: int = 50
+    ) -> str:
+        """Add a PDF document to the knowledge base."""
+        pass
