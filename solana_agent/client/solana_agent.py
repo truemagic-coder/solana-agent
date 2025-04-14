@@ -11,6 +11,7 @@ from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Union
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.interfaces.services.knowledge_base import KnowledgeService
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
 
@@ -135,6 +136,14 @@ class SolanaAgent(SolanaAgentInterface):
             self.query_service.agent_service.assign_tool_for_agent(
                 agent_name, tool.name)
         return success
+
+    def _ensure_kb(self) -> KnowledgeService:
+        """Checks if the knowledge base service is available and returns it."""
+        if hasattr(self.query_service, 'knowledge_base') and self.query_service.knowledge_base:
+            return self.query_service.knowledge_base
+        else:
+            raise AttributeError(
+                "Knowledge base service not configured or available.")
 
     async def kb_add_document(
         self,

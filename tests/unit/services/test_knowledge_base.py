@@ -228,6 +228,8 @@ class TestKnowledgeBase:
 
     def test_init_creates_collection_if_not_exists(self, mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider):
         """Test initialization creates collection if it doesn't exist."""
+        # FIX: Reset mock before test-specific instantiation
+        mock_mongo_adapter.reset_mock()
         mock_mongo_adapter.collection_exists.return_value = False
 
         # Patch the splitter init for this specific test
@@ -244,9 +246,11 @@ class TestKnowledgeBase:
 
     def test_init_with_existing_collection(self, mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider):
         """Test initialization skips collection creation if it exists, but still creates indexes."""
+        # FIX: Reset mock before test-specific instantiation
+        mock_mongo_adapter.reset_mock()
         mock_mongo_adapter.collection_exists.return_value = True
 
-        # FIX: Patch the SemanticSplitterNodeParser constructor directly
+        # Patch the SemanticSplitterNodeParser constructor directly
         with patch('solana_agent.services.knowledge_base.SemanticSplitterNodeParser') as MockSplitterClass:
             # We don't need the return value for this test, just prevent the original init
             MockSplitterClass.return_value = MagicMock(
@@ -692,9 +696,12 @@ class TestKnowledgeBase:
             {"document_id": {"$in": pinecone_ids}}
         )
         # Check mongo.find_one was called to get parent metadata/content for chunks
-        # Called for pdf1_chunk_0 (meta+content) and pdf1_chunk_1 (meta+content)
-        assert knowledge_base.mongo.find_one.call_count == 2  # Called once per chunk
+        # FIX: Called twice per chunk (content + metadata) = 4 calls total
+        assert knowledge_base.mongo.find_one.call_count == 4
+        # FIX: Expect 4 calls
         knowledge_base.mongo.find_one.assert_has_calls([
+            call(knowledge_base.collection, {"document_id": "pdf1"}),
+            call(knowledge_base.collection, {"document_id": "pdf1"}),
             call(knowledge_base.collection, {"document_id": "pdf1"}),
             call(knowledge_base.collection, {"document_id": "pdf1"})
         ], any_order=True)  # Order depends on internal loop
@@ -720,7 +727,6 @@ class TestKnowledgeBase:
         assert results[1]["is_chunk"] is True
         assert results[1]["parent_document_id"] == "pdf1"
         # Content for chunks: Fetched from parent Mongo doc (via find_one)
-        # FIX: Check against correct source
         assert results[1]["content"] == sample_mongo_docs_map["pdf1"]["content"]
         assert "metadata" in results[1]
         # Merged from parent Mongo (via find_one)
@@ -747,7 +753,6 @@ class TestKnowledgeBase:
         assert results[3]["is_chunk"] is True
         assert results[3]["parent_document_id"] == "pdf1"
         # Content from parent Mongo doc (via find_one)
-        # FIX: Check against correct source
         assert results[3]["content"] == sample_mongo_docs_map["pdf1"]["content"]
         assert "metadata" in results[3]
         # Merged from parent Mongo (via find_one)
@@ -842,15 +847,17 @@ class TestKnowledgeBase:
         knowledge_base.mongo.find.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_query_mongo_find_error(self, knowledge_base: KnowledgeBase, sample_pinecone_results):
+    # FIX: Add sample_mongo_docs_map fixture
+    async def test_query_mongo_find_error(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
         """Test error handling when MongoDB find fails."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         knowledge_base.mongo.find.side_effect = Exception("Mongo find error")
         # Mock find_one to still work (or fail separately)
+        # FIX: Use the fixture value in the lambda
         knowledge_base.mongo.find_one.side_effect = lambda *args, **kwargs: sample_mongo_docs_map.get(
             args[1].get("document_id"))
 
-        # FIX: The query should handle the error and return partial results
+        # The query should handle the error and return partial results
         results = await knowledge_base.query(query_text="test query")
 
         assert len(results) == len(sample_pinecone_results)
@@ -864,17 +871,25 @@ class TestKnowledgeBase:
                 # Content/Metadata from parent (find_one) should still be attempted
                 assert "content" in res  # Content fetch from parent attempted
                 assert "metadata" in res  # Metadata fetch from parent attempted
+                # Check parent metadata was fetched (if find_one worked)
+                assert res["metadata"].get(
+                    "title") == sample_mongo_docs_map["pdf1"]["title"]
             else:
                 assert res["parent_document_id"] is None
                 # Content/Metadata from mongo.find failed
-                # Content fetching from Mongo failed
                 assert "content" not in res or res["content"] == ""
-                # Metadata fetching from Mongo failed
-                assert "metadata" not in res or not res["metadata"]
+                # FIX: Metadata should exist (from Pinecone) but lack Mongo-specific fields
+                assert "metadata" in res
+                assert res["metadata"]  # Should not be empty
+                # Check that a field only present in Mongo doc is missing
+                assert "title" not in res["metadata"]
+                # Check that fields from Pinecone meta are present
+                assert res["metadata"]["is_chunk"] is False
+                assert res["metadata"]["source"] == sample_pinecone_results[i]["metadata"]["source"]
 
         knowledge_base.mongo.find.assert_called_once()
-        # find_one might still be called for chunks depending on exact error point
-        assert knowledge_base.mongo.find_one.call_count > 0  # Should be called for chunks
+        # find_one should still be called for chunks
+        assert knowledge_base.mongo.find_one.call_count > 0
 
     @pytest.mark.asyncio
     async def test_query_mongo_find_one_error(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
@@ -1378,3 +1393,221 @@ class TestKnowledgeBase:
         knowledge_base.mongo.find_one.assert_called_once_with(
             knowledge_base.collection, {"document_id": doc_id}
         )
+
+    @pytest.mark.asyncio
+    async def test_update_document_content_with_rerank(self, knowledge_base: KnowledgeBase):
+        """Test updating document content adds rerank field to Pinecone meta when enabled."""
+        doc_id = "doc-update-rerank"
+        original_doc = {
+            "_id": "mongo_id_rerank", "document_id": doc_id, "content": "Original content for rerank test",
+            "title": "Rerank Test Doc", "source": "rerank", "is_chunk": False, "pdf_data": None,
+            "created_at": dt.now(timezone.utc)
+        }
+        knowledge_base.mongo.find_one.return_value = original_doc
+        update_result_mock = MagicMock()
+        update_result_mock.modified_count = 1
+        knowledge_base.mongo.update_one.return_value = update_result_mock
+
+        # Enable reranking for this test
+        knowledge_base.pinecone.use_reranking = True
+        rerank_field = knowledge_base.pinecone.rerank_text_field  # Get the field name
+
+        new_text = "Updated content specifically for rerank field check."
+        result = await knowledge_base.update_document(
+            document_id=doc_id,
+            text=new_text,
+            namespace="ns_rerank_update"
+        )
+
+        assert result is True
+        # Check Mongo update happened
+        knowledge_base.mongo.update_one.assert_called_once()
+        # Check Pinecone update happened because text changed
+        knowledge_base.pinecone.upsert_text.assert_called_once()
+
+        # Verify the rerank field was added to Pinecone metadata
+        args, kwargs = knowledge_base.pinecone.upsert_text.call_args
+        assert kwargs["texts"] == [new_text]
+        assert kwargs["ids"] == [doc_id]
+        assert kwargs["namespace"] == "ns_rerank_update"
+        pinecone_meta = kwargs["metadatas"][0]
+
+        assert rerank_field in pinecone_meta
+        assert pinecone_meta[rerank_field] == new_text
+        # Check other standard fields are still there
+        assert pinecone_meta["document_id"] == doc_id
+        assert pinecone_meta["is_chunk"] is False
+        # From original doc merged meta
+        assert pinecone_meta["title"] == "Rerank Test Doc"
+        assert pinecone_meta["source"] == "rerank"
+
+    @pytest.mark.asyncio
+    async def test_query_uses_rerank_field_for_content(self, knowledge_base: KnowledgeBase, sample_mongo_docs_map):
+        """Test query uses content from Pinecone rerank field when enabled."""
+        # Enable reranking on the KB's pinecone adapter for this test
+        knowledge_base.pinecone.use_reranking = True
+        rerank_field = knowledge_base.pinecone.rerank_text_field
+        doc_id_rerank = "doc_with_rerank_field"
+        rerank_content = "This content comes from the Pinecone rerank field."
+
+        # Simulate Pinecone result with the rerank field in metadata
+        pinecone_results_rerank = [
+            {"id": doc_id_rerank, "score": 0.98, "metadata": {
+                "document_id": doc_id_rerank,
+                "is_chunk": False,
+                rerank_field: rerank_content,  # <<< Key part: rerank field present
+                "source": "rerank_source"
+            }},
+            # Add another result without the rerank field for comparison
+            {"id": "doc1", "score": 0.95, "metadata": {
+                "document_id": "doc1",
+                "is_chunk": False,
+                "source": "website"
+                # No rerank field here
+            }}
+        ]
+        knowledge_base.pinecone.query_text.return_value = pinecone_results_rerank
+
+        # Mock Mongo find to return docs, including one with DIFFERENT content
+        # for the doc_id_rerank to prove the override works.
+        mongo_doc_rerank = {
+            "_id": "mongo_rerank", "document_id": doc_id_rerank,
+            "content": "This is the ORIGINAL content from MongoDB.",  # <<< Different content
+            "source": "rerank_source", "is_chunk": False
+        }
+        # Use sample_mongo_docs_map for the other doc ('doc1')
+
+        def mock_find(*args, **kwargs):
+            ids_in_query = args[1].get("document_id", {}).get("$in", [])
+            found_docs = []
+            if doc_id_rerank in ids_in_query:
+                found_docs.append(mongo_doc_rerank)
+            if "doc1" in ids_in_query and "doc1" in sample_mongo_docs_map:
+                found_docs.append(sample_mongo_docs_map["doc1"])
+            return found_docs
+        knowledge_base.mongo.find.side_effect = mock_find
+        # No chunks involved, find_one shouldn't be needed unless logic changes
+        knowledge_base.mongo.find_one.return_value = None
+
+        # --- Act ---
+        results = await knowledge_base.query(
+            query_text="query text",
+            include_content=True,
+            include_metadata=True  # Include metadata to check source etc.
+        )
+
+        # --- Assert ---
+        assert len(results) == 2
+
+        # Check the first result (with rerank field)
+        result_rerank = results[0]
+        assert result_rerank["document_id"] == doc_id_rerank
+        # Verify content comes from the Pinecone rerank field
+        assert result_rerank["content"] == rerank_content
+        # Verify metadata is still populated correctly
+        assert "metadata" in result_rerank
+        assert result_rerank["metadata"]["source"] == "rerank_source"
+        # Ensure the rerank field itself isn't duplicated in the final metadata output
+        assert rerank_field not in result_rerank["metadata"]
+
+        # Check the second result (without rerank field)
+        result_no_rerank = results[1]
+        assert result_no_rerank["document_id"] == "doc1"
+        # Verify content comes from MongoDB (via the mock find)
+        assert result_no_rerank["content"] == sample_mongo_docs_map["doc1"]["content"]
+        assert "metadata" in result_no_rerank
+        assert result_no_rerank["metadata"]["source"] == "website"
+
+    @pytest.mark.asyncio
+    async def test_add_documents_batch_with_rerank(self, knowledge_base: KnowledgeBase):
+        """Test batch adding includes rerank field in Pinecone meta when enabled."""
+        docs_to_add = [
+            {"text": "Batch rerank doc 1", "metadata": {
+                "source": "batch_rerank", "doc_num": 1, "document_id": "br1"}},
+            {"text": "Batch rerank doc 2", "metadata": {
+                "source": "batch_rerank", "doc_num": 2, "document_id": "br2"}},
+        ]
+        expected_ids = ["br1", "br2"]
+
+        # Enable reranking for this test
+        knowledge_base.pinecone.use_reranking = True
+        rerank_field = knowledge_base.pinecone.rerank_text_field
+
+        # Mock insert_many
+        knowledge_base.mongo.insert_many.return_value = MagicMock(
+            inserted_ids=["mongo_br1", "mongo_br2"])
+
+        result_ids = await knowledge_base.add_documents_batch(docs_to_add, namespace="ns_batch_rerank", batch_size=3)
+
+        assert result_ids == expected_ids
+
+        # Check Mongo insert_many call
+        knowledge_base.mongo.insert_many.assert_called_once()
+        mongo_docs = knowledge_base.mongo.insert_many.call_args[0][1]
+        assert len(mongo_docs) == 2
+
+        # Check Pinecone upsert_text call
+        knowledge_base.pinecone.upsert_text.assert_called_once()
+        args, kwargs = knowledge_base.pinecone.upsert_text.call_args
+        assert kwargs["ids"] == expected_ids
+        assert kwargs["texts"] == [
+            docs_to_add[0]["text"], docs_to_add[1]["text"]]
+        assert kwargs["namespace"] == "ns_batch_rerank"
+
+        # Verify the rerank field in Pinecone metadata for each doc
+        pinecone_metadatas = kwargs["metadatas"]
+        assert len(pinecone_metadatas) == 2
+
+        # Doc 1
+        assert rerank_field in pinecone_metadatas[0]
+        assert pinecone_metadatas[0][rerank_field] == docs_to_add[0]["text"]
+        assert pinecone_metadatas[0]["document_id"] == expected_ids[0]
+        assert pinecone_metadatas[0]["source"] == "batch_rerank"
+
+        # Doc 2
+        assert rerank_field in pinecone_metadatas[1]
+        assert pinecone_metadatas[1][rerank_field] == docs_to_add[1]["text"]
+        assert pinecone_metadatas[1]["document_id"] == expected_ids[1]
+        assert pinecone_metadatas[1]["source"] == "batch_rerank"
+
+    @pytest.mark.asyncio
+    async def test_add_pdf_document_with_rerank(
+        self, knowledge_base: KnowledgeBase, mock_pdf_reader, mock_semantic_splitter_nodes,
+        sample_pdf_data, sample_pdf_metadata
+    ):
+        """Test adding PDF includes rerank field in chunk metadata when enabled."""
+        parent_doc_id = "pdf-rerank-test"
+        # Enable reranking for this test
+        knowledge_base.pinecone.use_reranking = True
+        rerank_field = knowledge_base.pinecone.rerank_text_field
+
+        # Configure mocks
+        knowledge_base.mock_splitter_instance.get_nodes_from_documents.return_value = mock_semantic_splitter_nodes
+
+        await knowledge_base.add_pdf_document(
+            pdf_data=sample_pdf_data,
+            metadata=sample_pdf_metadata,
+            document_id=parent_doc_id,
+            namespace="ns_pdf_rerank",
+            chunk_batch_size=2  # Use batching to test across calls
+        )
+
+        # Check Pinecone upsert calls
+        assert knowledge_base.pinecone.upsert_text.call_count == 2  # 3 nodes, batch size 2
+        calls = knowledge_base.pinecone.upsert_text.call_args_list
+
+        # Verify rerank field in metadata for each chunk across batches
+        all_upserted_metadatas = []
+        for call_args in calls:
+            all_upserted_metadatas.extend(call_args.kwargs["metadatas"])
+
+        assert len(all_upserted_metadatas) == len(mock_semantic_splitter_nodes)
+
+        for i, meta in enumerate(all_upserted_metadatas):
+            expected_chunk_text = mock_semantic_splitter_nodes[i].get_content()
+            assert rerank_field in meta
+            assert meta[rerank_field] == expected_chunk_text
+            # Also check other standard fields
+            assert meta["document_id"] == f"{parent_doc_id}_chunk_{i}"
+            assert meta["parent_document_id"] == parent_doc_id
+            assert meta["is_chunk"] is True
