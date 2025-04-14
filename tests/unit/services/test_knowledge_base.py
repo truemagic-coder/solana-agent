@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch, call
-from datetime import datetime, timezone
+from datetime import datetime as dt, timezone
 import uuid
 import io
 

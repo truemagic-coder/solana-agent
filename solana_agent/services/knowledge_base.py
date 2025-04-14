@@ -313,7 +313,45 @@ class KnowledgeBase(KnowledgeBaseInterface):
         include_content: bool = True,  # Now refers to chunk content if it's a chunk
         include_metadata: bool = True
     ) -> List[Dict[str, Any]]:
-        # ...existing code...
+        """
+        Query the knowledge base using semantic search.
+
+        Args:
+            query_text: The query text.
+            filter: Optional Pinecone metadata filter.
+            top_k: Number of results to return.
+            namespace: Optional Pinecone namespace.
+            include_content: Whether to include document/chunk content in results.
+            include_metadata: Whether to include document/chunk metadata in results.
+
+        Returns:
+            List of result dictionaries, each containing score, document_id,
+            and optionally content and metadata.
+        """
+        effective_top_k = self.rerank_top_k if self.rerank_results else top_k
+
+        # --- Query Pinecone ---
+        try:
+            pinecone_results = await self.pinecone.query_text(
+                query_text=query_text,
+                filter=filter,
+                top_k=effective_top_k,
+                namespace=namespace,
+                include_values=False,  # Don't need embeddings in the result
+                include_metadata=True  # Need metadata for linking and info
+            )
+        except Exception as e:
+            print(f"Error querying Pinecone: {e}")
+            return []
+
+        if not pinecone_results:
+            return []
+
+        # Extract IDs, scores, and metadata from Pinecone results
+        result_ids = [res['id'] for res in pinecone_results]
+        scores = {res['id']: res['score'] for res in pinecone_results}
+        pinecone_metadatas = {res['id']: res.get(
+            'metadata', {}) for res in pinecone_results}
 
         # --- Fetch corresponding data from MongoDB ---
         # We need the content (text or chunk text) and potentially more metadata
