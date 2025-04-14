@@ -309,6 +309,90 @@ config = {
 }
 ```
 
+### Knowledge Base
+
+```python
+config = {
+    "knowledge_base": {
+        "collection": "knowledge_documents", # Optional: Name for the KB MongoDB collection (default: "knowledge_documents")
+        "results_count": 5, # Optional: Number of results to retrieve (default: 5)
+        "pinecone": { # Required: Pinecone configuration
+            "api_key": "your-pinecone-api-key", # Required
+            "index_name": "your-pinecone-index-name", # Required
+            "embedding_dimensions": 3072, # Optional: Dimensions for embeddings (default: 3072)
+            "create_index_if_not_exists": True, # Optional: Create index if it doesn't exist (default: True)
+            "cloud_provider": "aws", # Optional: Pinecone cloud provider (default: 'aws')
+            "region": "us-east-1", # Optional: Pinecone region (default: 'us-east-1')
+            "metric": "cosine", # Optional: Distance metric for similarity search (default: 'cosine')
+            "use_pinecone_embeddings": False, # Optional: Use Pinecone's embedding model (default: False)
+            "pinecone_embedding_model": None, # Optional: Specific Pinecone embedding model (default: None)
+            "pinecone_embedding_dimension_override": None, # Optional: Override dimension for Pinecone model (default: None)
+            "use_reranking": False, # Optional: Enable result reranking (default: False)
+            "rerank_model": None, # Optional: Reranking model (default: None, 'cohere-rerank-3.5' if use_reranking=True)
+            "rerank_top_k": 3, # Optional: Number of results to rerank (default: 3)
+            "initial_query_top_k_multiplier": 5, # Optional: Multiplier for initial query results before reranking (default: 5)
+            "rerank_text_field": "text" # Optional: Field in metadata to use for reranking (default: 'text')
+        }
+    },
+    # Requires mongo config as well for metadata storage
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+}
+```
+
+#### Example
+
+```python
+from solana_agent import SolanaAgent
+
+# Use the config from above, ensuring API keys and connection strings are set
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "knowledge_base": {
+        "collection": "my_company_docs",
+        "results_count": 3,
+        "pinecone": {
+            "api_key": "YOUR_PINECONE_API_KEY",
+            "index_name": "solana-agent-kb-index",
+        }
+    },
+    "mongo": {
+        "connection_string": "YOUR_MONGO_CONNECTION_STRING",
+        "database": "solana_agent_db"
+    },
+    "agents": [
+        {
+            "name": "kb_expert",
+            "instructions": "You answer questions based on the provided knowledge base documents.",
+            "specialization": "Company Knowledge",
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+doc_text = "Solana Agent is a Python framework for building multi-agent AI systems."
+doc_metadata = {
+    "source": "internal_docs",
+    "version": "1.0",
+    "tags": ["framework", "python", "ai"]
+}
+await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
+
+async for response in solana_agent.process("user123", "What is Solana Agent?"):
+    print(response, end="")
+```
+
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
@@ -447,11 +531,11 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Agent Training
+## Runtime Prompt Injection
 
 Many use cases for Solana Agent require training your agents on your company data.
 
-This can be accomplished via runtime prompt injection. Integrations that work well with this method are vector stores like Pinecone and FAQs.
+This can be accomplished via runtime prompt injection. Integrations that work well with FAQs.
 
 This knowledge is accessible to all your AI agents.
 

@@ -6,7 +6,7 @@ the agent system without dealing with internal implementation details.
 """
 import json
 import importlib.util
-from typing import AsyncGenerator, Dict, Any, Literal, Optional, Union
+from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Union
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
@@ -135,3 +135,111 @@ class SolanaAgent(SolanaAgentInterface):
             self.query_service.agent_service.assign_tool_for_agent(
                 agent_name, tool.name)
         return success
+
+    async def kb_add_document(
+        self,
+        text: str,
+        metadata: Dict[str, Any],
+        document_id: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> str:
+        """
+        Add a document to the knowledge base.
+
+        Args:
+            text: Document text content.
+            metadata: Document metadata.
+            document_id: Optional document ID.
+            namespace: Optional Pinecone namespace.
+
+        Returns:
+            The document ID.
+        """
+        kb = self._ensure_kb()
+        return await kb.add_document(text, metadata, document_id, namespace)
+
+    async def kb_query(
+        self,
+        query_text: str,
+        filter: Optional[Dict[str, Any]] = None,
+        top_k: int = 5,
+        namespace: Optional[str] = None,
+        include_content: bool = True,
+        include_metadata: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Query the knowledge base.
+
+        Args:
+            query_text: Search query text.
+            filter: Optional filter criteria.
+            top_k: Maximum number of results.
+            namespace: Optional Pinecone namespace.
+            include_content: Include document content in results.
+            include_metadata: Include document metadata in results.
+
+        Returns:
+            List of matching documents.
+        """
+        kb = self._ensure_kb()
+        return await kb.query(query_text, filter, top_k, namespace, include_content, include_metadata)
+
+    async def kb_delete_document(
+        self,
+        document_id: str,
+        namespace: Optional[str] = None
+    ) -> bool:
+        """
+        Delete a document from the knowledge base.
+
+        Args:
+            document_id: ID of document to delete.
+            namespace: Optional Pinecone namespace.
+
+        Returns:
+            True if successful.
+        """
+        kb = self._ensure_kb()
+        return await kb.delete_document(document_id, namespace)
+
+    async def kb_update_document(
+        self,
+        document_id: str,
+        text: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        namespace: Optional[str] = None
+    ) -> bool:
+        """
+        Update an existing document in the knowledge base.
+
+        Args:
+            document_id: ID of document to update.
+            text: Optional new text content.
+            metadata: Optional metadata to update.
+            namespace: Optional Pinecone namespace.
+
+        Returns:
+            True if successful.
+        """
+        kb = self._ensure_kb()
+        return await kb.update_document(document_id, text, metadata, namespace)
+
+    async def kb_add_documents_batch(
+        self,
+        documents: List[Dict[str, Any]],
+        namespace: Optional[str] = None,
+        batch_size: int = 50
+    ) -> List[str]:
+        """
+        Add multiple documents to the knowledge base in batches.
+
+        Args:
+            documents: List of documents ({'text': ..., 'metadata': ...}).
+            namespace: Optional Pinecone namespace.
+            batch_size: Number of documents per batch.
+
+        Returns:
+            List of added document IDs.
+        """
+        kb = self._ensure_kb()
+        return await kb.add_documents_batch(documents, namespace, batch_size)

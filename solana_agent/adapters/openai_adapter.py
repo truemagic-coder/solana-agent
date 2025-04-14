@@ -3,7 +3,7 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
-from typing import AsyncGenerator, Literal, Optional, Type, TypeVar
+from typing import AsyncGenerator, List, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -14,16 +14,25 @@ from solana_agent.interfaces.providers.llm import LLMProvider
 
 T = TypeVar('T', bound=BaseModel)
 
+DEFAULT_CHAT_MODEL = "gpt-4o-mini"
+DEFAULT_PARSE_MODEL = "gpt-4o-mini"
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+DEFAULT_EMBEDDING_DIMENSIONS = 3072
+DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+DEFAULT_TTS_MODEL = "tts-1"
+
 
 class OpenAIAdapter(LLMProvider):
     """OpenAI implementation of LLMProvider with web search capabilities."""
 
     def __init__(self, api_key: str):
         self.client = AsyncOpenAI(api_key=api_key)
-        self.parse_model = "gpt-4o-mini"
-        self.text_model = "gpt-4o-mini"
-        self.transcription_model = "gpt-4o-mini-transcribe"
-        self.tts_model = "tts-1"
+        self.parse_model = DEFAULT_PARSE_MODEL
+        self.text_model = DEFAULT_CHAT_MODEL
+        self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
+        self.tts_model = DEFAULT_TTS_MODEL
+        self.embedding_model = DEFAULT_EMBEDDING_MODEL
+        self.embedding_dimensions = DEFAULT_EMBEDDING_DIMENSIONS
 
     async def tts(
         self,
@@ -248,3 +257,48 @@ class OpenAIAdapter(LLMProvider):
                     raise ValueError(
                         f"Failed to generate structured output: {e}. All fallbacks failed."
                     ) from e
+
+    async def embed_text(
+        self,
+        text: str,
+        model: Optional[str] = None,
+        dimensions: Optional[int] = None
+    ) -> List[float]:  # pragma: no cover
+        """Generate an embedding for the given text using OpenAI.
+
+        Args:
+            text: The text to embed.
+            model: The embedding model to use (defaults to text-embedding-3-large).
+            dimensions: Desired output dimensions for the embedding.
+
+        Returns:
+            A list of floats representing the embedding vector.
+        """
+        if not text:
+            raise ValueError("Text cannot be empty")
+
+        try:
+            # Use provided model/dimensions or fall back to defaults
+            embedding_model = model or self.embedding_model
+            embedding_dimensions = dimensions or self.embedding_dimensions
+
+            # Replace newlines with spaces as recommended by OpenAI
+            text = text.replace("\n", " ")
+
+            response = await self.client.embeddings.create(
+                input=[text],
+                model=embedding_model,
+                dimensions=embedding_dimensions
+            )
+
+            if response.data and response.data[0].embedding:
+                return response.data[0].embedding
+            else:
+                raise ValueError(
+                    "Failed to retrieve embedding from OpenAI response")
+
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise

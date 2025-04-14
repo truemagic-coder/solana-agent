@@ -7,6 +7,7 @@ services and components used in the system.
 from typing import Dict, Any
 
 # Service imports
+from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -15,7 +16,7 @@ from solana_agent.services.routing import RoutingService
 from solana_agent.repositories.memory import MemoryRepository
 
 # Adapter imports
-from solana_agent.adapters.llm_adapter import OpenAIAdapter
+from solana_agent.adapters.openai_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
 # Domain and plugin imports
@@ -39,11 +40,6 @@ class SolanaAgentFactory:
         # Create adapters
 
         if "mongo" in config:
-            # MongoDB connection string and database name
-            if "connection_string" not in config["mongo"]:
-                raise ValueError("MongoDB connection string is required.")
-            if "database" not in config["mongo"]:
-                raise ValueError("MongoDB database name is required.")
             db_adapter = MongoDBAdapter(
                 connection_string=config["mongo"]["connection_string"],
                 database_name=config["mongo"]["database"],
@@ -71,8 +67,6 @@ class SolanaAgentFactory:
         memory_provider = None
 
         if "zep" in config and "mongo" in config:
-            if "api_key" not in config["zep"]:
-                raise ValueError("Zep API key is required.")
             memory_provider = MemoryRepository(
                 mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key"))
 
@@ -198,11 +192,54 @@ class SolanaAgentFactory:
                     agent_service.assign_tool_for_agent(
                         agent_name, tool_name)
 
+        # Initialize Knowledge Base if configured
+        knowledge_base = None
+        if "knowledge_base" in config and "mongo" in config:
+            try:
+                pinecone_config = config["knowledge_base"].get("pinecone", {})
+
+                # Create Pinecone adapter for KB
+                pinecone_adapter = PineconeAdapter(
+                    api_key=pinecone_config.get("api_key"),
+                    index_name=pinecone_config.get("index_name"),
+                    llm_provider=llm_adapter,  # Reuse the LLM adapter
+                    embedding_dimensions=pinecone_config.get(
+                        "embedding_dimensions", 3072),
+                    create_index_if_not_exists=pinecone_config.get(
+                        "create_index", True),
+                    use_pinecone_embeddings=pinecone_config.get(
+                        "use_pinecone_embeddings", False),
+                    pinecone_embedding_model=pinecone_config.get(
+                        "embedding_model"),
+                    use_reranking=pinecone_config.get("use_reranking", False),
+                    rerank_model=pinecone_config.get("rerank_model")
+                )
+
+                # Create the KB service
+                knowledge_base = KnowledgeBase(
+                    pinecone_adapter=pinecone_adapter,
+                    mongodb_adapter=db_adapter,
+                    collection_name=config["knowledge_base"].get(
+                        "collection", "knowledge_documents"),
+                    rerank_results=pinecone_config.get("use_reranking", False),
+                    rerank_top_k=config["knowledge_base"].get(
+                        "results_count", 3)
+                )
+                print("Knowledge Base initialized successfully")
+
+            except Exception as e:
+                print(f"Failed to initialize Knowledge Base: {e}")
+                import traceback
+                print(traceback.format_exc())
+
         # Create and return the query service
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,
             memory_provider=memory_provider,
+            knowledge_base=knowledge_base,
+            kb_results_count=config.get(
+                "knowledge_base", {}).get("results_count", 3)
         )
 
         return query_service
