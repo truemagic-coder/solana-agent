@@ -57,19 +57,12 @@ Build your AI business in three lines of code!
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
-* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash)
-* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
+* [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
+* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-mini) (router)
+* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
+* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 * [tts-1](https://platform.openai.com/docs/models/tts-1)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
-
-It is recommended to use all three LLM providers as it is the best setup.
-
-Gemini makes the routing about 2x faster.
-
-Grok is a fast reasoning model and makes the answers and conversation much better.
-
-OpenAI is required while Gemini and Grok are optional.
 
 ## Installation
 
@@ -130,12 +123,6 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -165,12 +152,6 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -202,12 +183,6 @@ async for response in solana_agent.process("user123", audio_content, output_form
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -237,12 +212,6 @@ async for response in solana_agent.process("user123", "What is the latest news o
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -309,6 +278,30 @@ config = {
 }
 ```
 
+### Gemini
+
+This allows Gemini to replace OpenAI for agent and router.
+
+```python
+config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
+}
+```
+
+### Grok
+
+This allows Grok to replace OpenAI (or Gemini) for agent.
+
+```python
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+}
+```
+
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
@@ -326,12 +319,6 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -414,12 +401,6 @@ class TestTool(Tool):
             }
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -459,12 +440,6 @@ This knowledge is accessible to all your AI agents.
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -492,12 +467,6 @@ from solana_agent import SolanaAgent
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },

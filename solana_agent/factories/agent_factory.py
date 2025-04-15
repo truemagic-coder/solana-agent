@@ -15,7 +15,7 @@ from solana_agent.services.routing import RoutingService
 from solana_agent.repositories.memory import MemoryRepository
 
 # Adapter imports
-from solana_agent.adapters.llm_adapter import OpenAIAdapter
+from solana_agent.adapters.openai_adapter import OpenAIAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
 # Domain and plugin imports

@@ -2,14 +2,10 @@
 Tests for the SolanaAgentFactory implementation.
 """
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from typing import Dict, Any
+from unittest.mock import MagicMock, patch
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.services.query import QueryService
-from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.adapters.llm_adapter import OpenAIAdapter
-from solana_agent.plugins.manager import PluginManager
 
 
 @pytest.fixture
