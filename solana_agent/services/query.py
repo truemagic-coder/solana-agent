@@ -11,7 +11,7 @@ from solana_agent.interfaces.services.query import QueryService as QueryServiceI
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.interfaces.services.knowledge_base import KnowledgeBaseService
+from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
@@ -116,7 +116,7 @@ class QueryService(QueryServiceInterface):
                     )
 
                     if kb_results:
-                        kb_context = "RELEVANT KNOWLEDGE:\n"
+                        kb_context = "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**\n"
                         for i, result in enumerate(kb_results, 1):
                             content = result.get("content", "").strip()
                             kb_context += f"[{i}] {content}\n\n"
@@ -144,7 +144,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
-                    memory_context=memory_context,
+                    memory_context=combined_context,
                     output_format="audio",
                     audio_voice=audio_voice,
                     audio_output_format=audio_output_format,
@@ -165,7 +165,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
-                    memory_context=memory_context,
+                    memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
                 ):

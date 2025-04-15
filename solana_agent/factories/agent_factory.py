@@ -220,6 +220,7 @@ class SolanaAgentFactory:
                 knowledge_base = KnowledgeBaseService(
                     pinecone_adapter=pinecone_adapter,
                     mongodb_adapter=db_adapter,
+                    llm_provider=llm_adapter,
                     collection_name=config["knowledge_base"].get(
                         "collection", "knowledge_documents"),
                     rerank_results=pinecone_config.get("use_reranking", False),

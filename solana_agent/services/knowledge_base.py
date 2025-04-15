@@ -8,6 +8,7 @@ import io  # For handling bytes streams
 import pypdf
 from llama_index.core import Document as LlamaDocument
 from llama_index.core.node_parser import SemanticSplitterNodeParser
+from llama_index.core.embeddings import BaseEmbedding
 
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
@@ -54,30 +55,62 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         self.rerank_top_k = rerank_top_k
 
         # --- Initialize Semantic Splitter ---
-        # Ensure the LLM provider has the embed_text method
         if not hasattr(self.llm_provider, 'embed_text'):
             raise ValueError(
                 "LLMProvider must have an 'embed_text' method for semantic chunking.")
 
-        # Create a LlamaIndex compatible embedding model wrapper
-        # This assumes llm_provider.embed_text returns List[float]
-        # You might need a more specific wrapper depending on your LLMProvider implementation
-        class LLMProviderEmbeddingAdapter:
+        class LLMProviderEmbeddingAdapter(BaseEmbedding):
             def __init__(self, provider: LLMProvider, model_name: Optional[str] = None, dimensions: Optional[int] = None):
                 self._provider = provider
-                self.model_name = model_name or "default_embed_model"  # LlamaIndex needs a name
+                super().__init__(model_name=model_name or "default_embed_model")
                 self._dimensions = dimensions
 
+            # Text Embedding Methods (for documents/nodes)
             async def _aget_text_embedding(self, text: str) -> List[float]:
-                # Use the provider's embed_text method
                 return await self._provider.embed_text(text, model=self.model_name, dimensions=self._dimensions)
 
-            # LlamaIndex SemanticSplitter uses these sync methods internally via asyncio.run
-            # or similar mechanisms if called from sync code, but prefers async.
-            # We provide the async method it needs.
-            # If LlamaIndex version changes behavior, sync versions might be needed.
+            async def _aget_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+                tasks = [self._aget_text_embedding(text) for text in texts]
+                return await asyncio.gather(*tasks)
 
-        # Use the embedding dimension configured in the Pinecone adapter for consistency
+            def _get_text_embedding(self, text: str) -> List[float]:
+                try:
+                    loop = asyncio.get_running_loop()
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._aget_text_embedding(text), loop)
+                    return future.result()
+                except RuntimeError:
+                    return asyncio.run(self._aget_text_embedding(text))
+
+            def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+                try:
+                    loop = asyncio.get_running_loop()
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._aget_text_embeddings(texts), loop)
+                    return future.result()
+                except RuntimeError:
+                    return asyncio.run(self._aget_text_embeddings(texts))
+
+            # FIX: Implement Query Embedding Methods
+            async def _aget_query_embedding(self, query: str) -> List[float]:
+                # Often the same as text embedding, but could differ based on provider
+                return await self._provider.embed_text(query, model=self.model_name, dimensions=self._dimensions)
+
+            def _get_query_embedding(self, query: str) -> List[float]:
+                # Sync wrapper for query embedding
+                try:
+                    loop = asyncio.get_running_loop()
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._aget_query_embedding(query), loop)
+                    return future.result()
+                except RuntimeError:
+                    return asyncio.run(self._aget_query_embedding(query))
+
+            # Optional: Add embed_batch_size if needed/available
+            # @property
+            # def embed_batch_size(self) -> int:
+            #     return 10 # Or get from provider
+
         embed_dimensions = self.pinecone.embedding_dimensions
         llama_embed_model = LLMProviderEmbeddingAdapter(
             self.llm_provider,
