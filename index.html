@@ -311,6 +311,113 @@
 </pre></div>
 </div>
 </section>
+<section id="knowledge-base-optional">
+<h3>Knowledge Base - Optional<a class="headerlink" href="#knowledge-base-optional" title="Link to this heading"></a></h3>
+<p>The Knowledge Base (KB) is meant to store text values and/or small PDFs.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;knowledge_base&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;pinecone&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-api-key&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;index_name&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-index-name&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;your-mongo-connection-string&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;your-database-name&quot;</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="example-for-kb-text">
+<h3>Example for KB (text)<a class="headerlink" href="#example-for-kb-text" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;knowledge_base&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;pinecone&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-api-key&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;index_name&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-index-name&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;your-mongo-connection-string&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;your-database-name&quot;</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;kb_expert&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You answer questions based on the provided knowledge base documents.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Company Knowledge&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">]</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="n">doc_text</span> <span class="o">=</span> <span class="s2">&quot;Solana Agent is a Python framework for building multi-agent AI systems.&quot;</span>
+<span class="n">doc_metadata</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;internal_docs&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="s2">&quot;1.0&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;framework&quot;</span><span class="p">,</span> <span class="s2">&quot;python&quot;</span><span class="p">,</span> <span class="s2">&quot;ai&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+<span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">kb_add_document</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">doc_text</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="n">doc_metadata</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is Solana Agent?&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="example-for-kb-pdf">
+<h3>Example for KB (pdf)<a class="headerlink" href="#example-for-kb-pdf" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;knowledge_base&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;pinecone&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-api-key&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;index_name&quot;</span><span class="p">:</span> <span class="s2">&quot;your-pinecone-index-name&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;mongo&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;connection_string&quot;</span><span class="p">:</span> <span class="s2">&quot;your-mongo-connection-string&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;your-database-name&quot;</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;kb_expert&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You answer questions based on the provided knowledge base documents.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Company Knowledge&quot;</span><span class="p">,</span>
+      <span class="p">}</span>
+   <span class="p">]</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="n">pdf_bytes</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pdf_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="n">pdf_metadata</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;annual_report_2024.pdf&quot;</span><span class="p">,</span>
+   <span class="s2">&quot;year&quot;</span><span class="p">:</span> <span class="mi">2024</span><span class="p">,</span>
+   <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;finance&quot;</span><span class="p">,</span> <span class="s2">&quot;report&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+
+<span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">kb_add_pdf_document</span><span class="p">(</span>
+   <span class="n">pdf_data</span><span class="o">=</span><span class="n">pdf_bytes</span><span class="p">,</span>
+   <span class="n">metadata</span><span class="o">=</span><span class="n">pdf_metadata</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Summarize the annual report for 2024.&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
 <section id="internet-search-plugin-tool-example">
 <h3>Internet Search (Plugin Tool Example)<a class="headerlink" href="#internet-search-plugin-tool-example" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit

@@ -77,11 +77,12 @@
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncGenerator</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncGenerator</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.factories.agent_factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgentFactory</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.client.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span> <span class="k">as</span> <span class="n">SolanaAgentInterface</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.services.knowledge_base</span><span class="w"> </span><span class="kn">import</span> <span class="n">KnowledgeBaseService</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingInterface</span>
 
 
@@ -219,6 +220,167 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">assign_tool_for_agent</span><span class="p">(</span>
                 <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">success</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_kb</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">KnowledgeBaseService</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Checks if the knowledge base service is available and returns it.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="p">,</span> <span class="s1">&#39;knowledge_base&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">knowledge_base</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">knowledge_base</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span>
+                <span class="s2">&quot;Knowledge base service not configured or available.&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="SolanaAgent.kb_add_document">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_add_document">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_add_document</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">document_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add a document to the knowledge base.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            text: Document text content.</span>
+<span class="sd">            metadata: Document metadata.</span>
+<span class="sd">            document_id: Optional document ID.</span>
+<span class="sd">            namespace: Optional Pinecone namespace.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The document ID.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">add_document</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">document_id</span><span class="p">,</span> <span class="n">namespace</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.kb_query">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_query">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_query</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">query_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="nb">filter</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">include_content</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">include_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Query the knowledge base.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            query_text: Search query text.</span>
+<span class="sd">            filter: Optional filter criteria.</span>
+<span class="sd">            top_k: Maximum number of results.</span>
+<span class="sd">            namespace: Optional Pinecone namespace.</span>
+<span class="sd">            include_content: Include document content in results.</span>
+<span class="sd">            include_metadata: Include document metadata in results.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of matching documents.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">query_text</span><span class="p">,</span> <span class="nb">filter</span><span class="p">,</span> <span class="n">top_k</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">include_content</span><span class="p">,</span> <span class="n">include_metadata</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.kb_delete_document">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_delete_document">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_delete_document</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">document_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Delete a document from the knowledge base.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            document_id: ID of document to delete.</span>
+<span class="sd">            namespace: Optional Pinecone namespace.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if successful.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">delete_document</span><span class="p">(</span><span class="n">document_id</span><span class="p">,</span> <span class="n">namespace</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.kb_update_document">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_update_document">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_update_document</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">document_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">text</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update an existing document in the knowledge base.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            document_id: ID of document to update.</span>
+<span class="sd">            text: Optional new text content.</span>
+<span class="sd">            metadata: Optional metadata to update.</span>
+<span class="sd">            namespace: Optional Pinecone namespace.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if successful.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">update_document</span><span class="p">(</span><span class="n">document_id</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">namespace</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.kb_add_documents_batch">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_add_documents_batch">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_add_documents_batch</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">documents</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add multiple documents to the knowledge base in batches.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            documents: List of documents ({&#39;text&#39;: ..., &#39;metadata&#39;: ...}).</span>
+<span class="sd">            namespace: Optional Pinecone namespace.</span>
+<span class="sd">            batch_size: Number of documents per batch.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of added document IDs.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">add_documents_batch</span><span class="p">(</span><span class="n">documents</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.kb_add_pdf_document">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_add_pdf_document">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_add_pdf_document</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">pdf_data</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+        <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="n">document_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">chunk_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add a PDF document to the knowledge base via the client.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            pdf_data: PDF content as bytes or a path to the PDF file.</span>
+<span class="sd">            metadata: Document metadata.</span>
+<span class="sd">            document_id: Optional parent document ID.</span>
+<span class="sd">            namespace: Optional Pinecone namespace for chunks.</span>
+<span class="sd">            chunk_batch_size: Batch size for upserting chunks.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The parent document ID.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
+        <span class="c1"># Type check added for clarity, though handled in service</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pdf_data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;pdf_data must be bytes or a file path string.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">add_pdf_document</span><span class="p">(</span><span class="n">pdf_data</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">document_id</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">chunk_batch_size</span><span class="p">)</span></div>
 </div>
 
 </pre></div>

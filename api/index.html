@@ -50,6 +50,12 @@
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.delete_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.delete_user_history()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_user_history()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.register_tool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_document"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_add_document()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_query"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_delete_document"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_delete_document()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_update_document"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_update_document()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_documents_batch"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_add_documents_batch()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_pdf_document"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.kb_add_pdf_document()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -242,6 +248,138 @@ the agent system without dealing with internal implementation details.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_add_document">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_add_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_add_document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_document" title="Link to this definition"></a></dt>
+<dd><p>Add a document to the knowledge base.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>text</strong> (<em>str</em>) – Document text content.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Document metadata.</p></li>
+<li><p><strong>document_id</strong> (<em>str</em><em> | </em><em>None</em>) – Optional document ID.</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The document ID.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_query">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query_text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top_k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_content</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_query"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_query" title="Link to this definition"></a></dt>
+<dd><p>Query the knowledge base.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>query_text</strong> (<em>str</em>) – Search query text.</p></li>
+<li><p><strong>filter</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Optional filter criteria.</p></li>
+<li><p><strong>top_k</strong> (<em>int</em>) – Maximum number of results.</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace.</p></li>
+<li><p><strong>include_content</strong> (<em>bool</em>) – Include document content in results.</p></li>
+<li><p><strong>include_metadata</strong> (<em>bool</em>) – Include document metadata in results.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of matching documents.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>List</em>[<em>Dict</em>[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_delete_document">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_delete_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_delete_document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_delete_document" title="Link to this definition"></a></dt>
+<dd><p>Delete a document from the knowledge base.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>document_id</strong> (<em>str</em>) – ID of document to delete.</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if successful.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_update_document">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_update_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_update_document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_update_document" title="Link to this definition"></a></dt>
+<dd><p>Update an existing document in the knowledge base.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>document_id</strong> (<em>str</em>) – ID of document to update.</p></li>
+<li><p><strong>text</strong> (<em>str</em><em> | </em><em>None</em>) – Optional new text content.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Optional metadata to update.</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if successful.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_add_documents_batch">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_add_documents_batch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">documents</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_add_documents_batch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_documents_batch" title="Link to this definition"></a></dt>
+<dd><p>Add multiple documents to the knowledge base in batches.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>documents</strong> (<em>List</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – List of documents ({‘text’: …, ‘metadata’: …}).</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace.</p></li>
+<li><p><strong>batch_size</strong> (<em>int</em>) – Number of documents per batch.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of added document IDs.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>List</em>[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.kb_add_pdf_document">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kb_add_pdf_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pdf_data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">namespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.kb_add_pdf_document"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.kb_add_pdf_document" title="Link to this definition"></a></dt>
+<dd><p>Add a PDF document to the knowledge base via the client.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>pdf_data</strong> (<em>bytes</em><em> | </em><em>str</em>) – PDF content as bytes or a path to the PDF file.</p></li>
+<li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Document metadata.</p></li>
+<li><p><strong>document_id</strong> (<em>str</em><em> | </em><em>None</em>) – Optional parent document ID.</p></li>
+<li><p><strong>namespace</strong> (<em>str</em><em> | </em><em>None</em>) – Optional Pinecone namespace for chunks.</p></li>
+<li><p><strong>chunk_batch_size</strong> (<em>int</em>) – Batch size for upserting chunks.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The parent document ID.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
 </dd>
 </dl>
 </dd></dl>
