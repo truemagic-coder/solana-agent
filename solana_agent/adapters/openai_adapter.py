@@ -20,8 +20,8 @@ class OpenAIAdapter(LLMProvider):
 
     def __init__(self, api_key: str):
         self.client = AsyncOpenAI(api_key=api_key)
-        self.parse_model = "gpt-4o-mini"
-        self.text_model = "gpt-4o-mini"
+        self.parse_model = "gpt-4.1-nano"
+        self.text_model = "gpt-4.1-mini"
         self.transcription_model = "gpt-4o-mini-transcribe"
         self.tts_model = "tts-1"
 
