@@ -266,6 +266,8 @@ This allows Grok to replace OpenAI (or Gemini) for agent.
 Knowledge Base - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+The Knowledge Base (KB) is meant to store text values and/or small PDFs.
+
 .. code-block:: python
 
    config = {
