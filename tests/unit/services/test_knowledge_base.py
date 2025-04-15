@@ -767,8 +767,17 @@ class TestKnowledgeBaseServiceQuery:
             include_values=False,
             include_metadata=True
         )
-        mock_mongodb_adapter.find.assert_called_once_with(
-            service.collection, {"document_id": {"$in": ["pdf1", "doc2"]}})
+        # NEW ORDER-INSENSITIVE ASSERTION:
+        mock_mongodb_adapter.find.assert_called_once()  # Check it was called once
+        call_args, call_kwargs = mock_mongodb_adapter.find.call_args
+        # Check collection name
+        assert call_args[0] == service.collection
+        # Check query structure and compare IDs ignoring order
+        assert "document_id" in call_args[1]
+        assert "$in" in call_args[1]["document_id"]
+        actual_ids = call_args[1]["document_id"]["$in"]
+        expected_ids = ["pdf1", "doc2"]
+        assert sorted(actual_ids) == sorted(expected_ids)
 
         # Check combined results
         assert len(results) == 2

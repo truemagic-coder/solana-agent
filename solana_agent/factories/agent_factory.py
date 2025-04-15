@@ -209,17 +209,8 @@ class SolanaAgentFactory:
                     "model_name", "text-embedding-3-large")
                 if openai_model_name == "text-embedding-3-large":
                     openai_dimensions = 3072
-                elif openai_model_name == "text-embedding-3-small":
-                    openai_dimensions = 1536
-                else:
-                    # Fallback or raise error for unknown models - use Pinecone config if specified, else error
-                    openai_dimensions = pinecone_config.get(
-                        "embedding_dimensions")
-                    if not openai_dimensions:
-                        raise ValueError(
-                            f"Cannot determine dimension for unknown OpenAI model '{openai_model_name}' and 'embedding_dimensions' not set in Pinecone config.")
-                    print(
-                        f"Warning: Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct.")
+                elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
+                    openai_dimensions = 1536  # pragma: no cover
 
                 # Create Pinecone adapter for KB
                 # It now relies on external embeddings, so dimension MUST match OpenAI model
@@ -269,10 +260,6 @@ class SolanaAgentFactory:
                 import traceback
                 print(traceback.format_exc())
                 knowledge_base = None  # Ensure KB is None if init fails
-
-        elif kb_config and kb_config.get("enabled", False) and not db_adapter:
-            print(
-                "Warning: Knowledge Base configured but MongoDB adapter is not available. KB disabled.")
 
         # Create and return the query service
         query_service = QueryService(

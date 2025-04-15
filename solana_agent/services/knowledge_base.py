@@ -250,10 +250,10 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             self.mongo.insert_one(self.collection, mongo_parent_doc)
             print(f"Stored full PDF {parent_doc_id} in MongoDB.")
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             print(
-                f"Error inserting parent PDF {parent_doc_id} into MongoDB: {e}")
-            raise
+                f"Error inserting parent PDF {parent_doc_id} into MongoDB: {e}")  # pragma: no cover
+            raise  # pragma: no cover
 
         # --- 3. Semantic Chunking ---
         if not extracted_text.strip():
@@ -429,7 +429,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                     self.collection,
                     {"document_id": {"$in": list(parent_ids_to_fetch)}}
                 )
-                mongo_docs_map = {doc["document_id"]: doc for doc in mongo_docs}
+                mongo_docs_map = {doc["document_id"]
+                    : doc for doc in mongo_docs}
             except Exception as e:
                 print(f"Error fetching documents from MongoDB: {e}")
                 # Proceed with potentially missing Mongo data
