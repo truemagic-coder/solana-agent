@@ -135,12 +135,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -170,12 +164,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -207,12 +195,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -242,12 +224,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -313,6 +289,28 @@
 </pre></div>
 </div>
 </section>
+<section id="gemini-optional">
+<h3>Gemini - Optional<a class="headerlink" href="#gemini-optional" title="Link to this heading"></a></h3>
+<p>This allows Gemini to replace OpenAI for agent and router.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="grok-optional">
+<h3>Grok - Optional<a class="headerlink" href="#grok-optional" title="Link to this heading"></a></h3>
+<p>This allows Grok to replace OpenAI (or Gemini) for agent.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
 <section id="internet-search-plugin-tool-example">
 <h3>Internet Search (Plugin Tool Example)<a class="headerlink" href="#internet-search-plugin-tool-example" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
@@ -321,12 +319,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -443,12 +435,6 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
@@ -479,12 +465,6 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingServiceInterface</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
    <span class="s2">&quot;openai&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
