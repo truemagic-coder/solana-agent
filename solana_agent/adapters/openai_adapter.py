@@ -14,8 +14,8 @@ from solana_agent.interfaces.providers.llm import LLMProvider
 
 T = TypeVar('T', bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-4o-mini"
-DEFAULT_PARSE_MODEL = "gpt-4o-mini"
+DEFAULT_CHAT_MODEL = "gpt-4.1-mini"
+DEFAULT_PARSE_MODEL = "gpt-4.1-nano"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 DEFAULT_EMBEDDING_DIMENSIONS = 3072
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"

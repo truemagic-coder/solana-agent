@@ -54,22 +54,17 @@ Build your AI business in three lines of code!
 * [OpenAI](https://openai.com), [Google](https://ai.google.dev), [xAI](https://x.ai) - LLM Providers
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
+* [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 
 ### LLMs
 
-* [gpt-4o-mini](https://platform.openai.com/docs/models/gpt-4o-mini)
-* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash)
-* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing)
-* [tts-1](https://platform.openai.com/docs/models/tts-1)
-* [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
-
-It is recommended to use all three LLM providers as it is the best setup.
-
-Gemini makes the routing about 2x faster.
-
-Grok is a fast reasoning model and makes the answers and conversation much better.
-
-OpenAI is required while Gemini and Grok are optional.
+* [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
+* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
+* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embeddings)
+* [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
+* [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
+* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
+* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 
 ## Installation
 
@@ -130,12 +125,6 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -165,12 +154,6 @@ async for response in solana_agent.process("user123", "What are the latest AI de
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -190,7 +173,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-audio_content = audio_file.read()
+audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
     print(response, end="")
@@ -202,12 +185,6 @@ async for response in solana_agent.process("user123", audio_content, output_form
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -237,12 +214,6 @@ async for response in solana_agent.process("user123", "What is the latest news o
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -262,7 +233,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-audio_content = audio_file.read()
+audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
     print(response, end="")
@@ -308,7 +279,6 @@ config = {
     },
 }
 ```
-
 ### Knowledge Base
 
 ```python
@@ -338,23 +308,14 @@ config = {
     "mongo": {
         "connection_string": "your-mongo-connection-string",
         "database": "your-database-name"
-    },
-}
 ```
 
-#### Example
+#### Example for KB (text)
 
 ```python
 from solana_agent import SolanaAgent
 
-# Use the config from above, ensuring API keys and connection strings are set
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -393,6 +354,71 @@ async for response in solana_agent.process("user123", "What is Solana Agent?"):
     print(response, end="")
 ```
 
+#### Example for KB (pdf)
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "knowledge_base": {
+        "collection": "my_company_docs",
+        "results_count": 3,
+        "pinecone": {
+            "api_key": "YOUR_PINECONE_API_KEY",
+            "index_name": "solana-agent-kb-index",
+        }
+    },
+    "mongo": {
+        "connection_string": "YOUR_MONGO_CONNECTION_STRING",
+        "database": "solana_agent_db"
+    },
+    "agents": [
+        {
+            "name": "kb_expert",
+            "instructions": "You answer questions based on the provided knowledge base documents.",
+            "specialization": "Company Knowledge",
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+pdf = pdf_file.read()
+
+await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
+
+async for response in solana_agent.process("user123", "What is Solana Agent?"):
+    print(response, end="")
+```
+
+
+### Gemini
+
+This allows Gemini to replace OpenAI for agent and router.
+
+```python
+config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
+}
+```
+
+### Grok
+
+This allows Grok to replace OpenAI (or Gemini) for agent.
+
+```python
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+}
+```
+
 ## Tools
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
@@ -410,12 +436,6 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -498,12 +518,6 @@ class TestTool(Tool):
             }
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -543,12 +557,6 @@ This knowledge is accessible to all your AI agents.
 from solana_agent import SolanaAgent
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
@@ -576,12 +584,6 @@ from solana_agent import SolanaAgent
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
 config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
     "openai": {
         "api_key": "your-openai-api-key",
     },
