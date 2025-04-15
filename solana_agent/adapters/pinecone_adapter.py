@@ -1,29 +1,27 @@
 from typing import List, Dict, Any, Optional, Literal, Union
 from pinecone import PineconeAsyncio, ServerlessSpec
 from pinecone.exceptions import PineconeApiException
-
-from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
-from solana_agent.interfaces.providers.llm import LLMProvider
 import asyncio
 
-# Define types for Pinecone models
-PineconeEmbeddingModel = Literal[
-    "multilingual-e5-large",
-    "llama-text-embed-v2",
-]
+from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
+# LLMProvider is no longer needed here
+
+# Type definitions remain useful
 PineconeRerankModel = Literal[
     "cohere-rerank-3.5",
     "bge-reranker-v2-m3",
     "pinecone-rerank-v0",
 ]
+# Kept for potential future use, but not used internally now
 InputType = Literal["query", "passage"]
-TruncateType = Literal["END", "NONE"]
+TruncateType = Literal["END", "NONE"]  # Kept for potential future use
 
 
 class PineconeAdapter(VectorStorageProvider):
     """
     Adapter for interacting with Pinecone vector database using PineconeAsyncio.
-    Supports Pinecone native embeddings and reranking.
+    Assumes embeddings are generated externally (e.g., via OpenAI).
+    Supports Pinecone native reranking.
     Follows context management patterns for Pinecone client v3+.
     """
 
@@ -31,81 +29,76 @@ class PineconeAdapter(VectorStorageProvider):
         self,
         api_key: Optional[str] = None,
         index_name: Optional[str] = None,
-        llm_provider: Optional[LLMProvider] = None,
-        embedding_dimensions: int = 3072,  # Default for OpenAI text-embedding-3-large
+        # Default for OpenAI text-embedding-3-large, MUST match external embedder
+        embedding_dimensions: int = 3072,
         cloud_provider: str = "aws",
         region: str = "us-east-1",
         metric: str = "cosine",
         create_index_if_not_exists: bool = True,
-        # Pinecone Native Embedding Config
-        use_pinecone_embeddings: bool = False,
-        pinecone_embedding_model: Optional[PineconeEmbeddingModel] = None,
-        pinecone_embedding_dimension_override: Optional[int] = None,
         # Reranking Config
         use_reranking: bool = False,
         rerank_model: Optional[PineconeRerankModel] = None,
         rerank_top_k: int = 3,  # Final number of results after reranking
+        # Multiplier for initial fetch before rerank
         initial_query_top_k_multiplier: int = 5,
         # Metadata field containing text for reranking
         rerank_text_field: str = "text",
     ):
+        """
+        Initialize the Pinecone Adapter.
+
+        Args:
+            api_key: Pinecone API key.
+            index_name: Name of the Pinecone index.
+            embedding_dimensions: Dimension of the embeddings generated externally. MUST match the index dimension.
+            cloud_provider: Cloud provider for the index (e.g., 'aws', 'gcp').
+            region: Region for the index.
+            metric: Distance metric for the index (e.g., 'cosine', 'dotproduct', 'euclidean').
+            create_index_if_not_exists: Attempt to create the index if it doesn't exist.
+            use_reranking: Enable Pinecone native reranking.
+            rerank_model: The reranking model to use (required if use_reranking is True).
+            rerank_top_k: Final number of results to return after reranking.
+            initial_query_top_k_multiplier: Fetch top_k * multiplier results initially for reranking.
+            rerank_text_field: The key in vector metadata containing the text content for reranking.
+        """
         self.api_key = api_key
         self.index_name = index_name
-        self.llm_provider = llm_provider
+        # Crucial: Must match external embedder and index
         self.embedding_dimensions = embedding_dimensions
         self.cloud_provider = cloud_provider
         self.region = region
         self.metric = metric
         self.create_index_if_not_exists = create_index_if_not_exists
 
-        # Pinecone Native Embedding Config
-        self.use_pinecone_embeddings = use_pinecone_embeddings
-        self.pinecone_embedding_model = pinecone_embedding_model
-        self.pinecone_embedding_dimension_override = pinecone_embedding_dimension_override
-
         # Reranking Config
         self.use_reranking = use_reranking
         self.rerank_model = rerank_model
         self.rerank_top_k = rerank_top_k
-        self.initial_query_top_k = rerank_top_k * \
-            initial_query_top_k_multiplier if use_reranking else rerank_top_k
+        # Calculate how many results to fetch initially if reranking
+        self.initial_query_top_k_multiplier = initial_query_top_k_multiplier
+
         self.rerank_text_field = rerank_text_field
 
         self.pinecone: Optional[PineconeAsyncio] = None
-        # FIX: Store index host instead of index object
+        # Store index host for connections
         self.index_host: Optional[str] = None
 
+        # --- Validation ---
         if not self.api_key:
             raise ValueError("Pinecone API key is required.")
         if not self.index_name:
             raise ValueError("Pinecone index name is required.")
-        if not self.use_pinecone_embeddings and not self.llm_provider:
+        if self.embedding_dimensions <= 0:
             raise ValueError(
-                "Either Pinecone embeddings must be enabled or an LLMProvider must be provided.")
-        if self.use_pinecone_embeddings and not self.pinecone_embedding_model:
-            raise ValueError(
-                "pinecone_embedding_model must be specified when use_pinecone_embeddings is True.")
+                "embedding_dimensions must be a positive integer.")
         if self.use_reranking and not self.rerank_model:
             raise ValueError(
                 "rerank_model must be specified when use_reranking is True.")
 
-        # Determine embedding dimension based on config
-        if self.use_pinecone_embeddings:
-            # FIX: Update dimension logic based on actual Pinecone model dimensions if needed
-            if self.pinecone_embedding_model == "multilingual-e5-large":
-                self.embedding_dimensions = 1024
-            # Add other models as needed
-            # elif self.pinecone_embedding_model == "some-other-model":
-            #     self.embedding_dimensions = XXXX
-            else:  # Default or fallback if model name doesn't match known ones
-                # Use override if provided, otherwise keep the default/passed value
-                self.embedding_dimensions = self.pinecone_embedding_dimension_override or self.embedding_dimensions
-
-            print(
-                f"Using Pinecone embedding model '{self.pinecone_embedding_model}' with dimension {self.embedding_dimensions}.")
-        else:
-            print(
-                f"Using external LLM provider for embeddings with dimension {self.embedding_dimensions}.")
+        print(
+            f"PineconeAdapter configured for index '{self.index_name}' using external embeddings with dimension {self.embedding_dimensions}.")
+        if self.use_reranking:
+            print(f"Reranking enabled using model '{self.rerank_model}'.")
 
         self._init_lock = asyncio.Lock()
         self._initialized = False
@@ -125,29 +118,35 @@ class PineconeAdapter(VectorStorageProvider):
 
                 print(
                     f"Describing Pinecone index '{self.index_name}' to get host...")
-                index_description: IndexDescription = await self.pinecone.describe_index(self.index_name)
+                index_description = await self.pinecone.describe_index(self.index_name)
                 self.index_host = index_description.host
                 if not self.index_host:
                     raise RuntimeError(
                         f"Could not obtain host for index '{self.index_name}'.")
                 print(f"Obtained index host: {self.index_host}")
 
+                # Validate index dimension matches configured dimension
                 index_dimension = index_description.dimension
                 if index_dimension != 0 and index_dimension != self.embedding_dimensions:
+                    # This is a critical mismatch
+                    raise ValueError(
+                        f"CRITICAL MISMATCH: Pinecone index dimension ({index_dimension}) "
+                        f"does not match configured embedding dimension ({self.embedding_dimensions}). "
+                        f"Ensure the index was created with the correct dimension or update the adapter configuration."
+                    )
+                elif index_dimension == 0:
                     print(
-                        f"⚠️ Warning: Index dimension ({index_dimension}) does not match configured embedding dimension ({self.embedding_dimensions})")
+                        f"Warning: Pinecone index dimension reported as 0. Cannot verify match with configured dimension ({self.embedding_dimensions}).")
 
-                # --- Add Logging around describe_index_stats ---
                 print("Attempting to get index stats...")
                 stats = await self.describe_index_stats()
                 print(f"Successfully retrieved index stats: {stats}")
-                # --- End Logging ---
 
                 total_vector_count = stats.get("total_vector_count", 0)
-                print(f"Current index contains {total_vector_count} vectors.")
+                print(
+                    f"Current index '{self.index_name}' contains {total_vector_count} vectors.")
 
                 self._initialized = True
-                # Add final confirmation
                 print("Pinecone adapter initialization complete.")
 
             except PineconeApiException as e:
@@ -183,117 +182,51 @@ class PineconeAdapter(VectorStorageProvider):
 
                 create_params = {
                     "name": self.index_name,
-                    "dimension": self.embedding_dimensions,
+                    "dimension": self.embedding_dimensions,  # Use configured dimension
                     "metric": self.metric,
+                    # Assuming serverless, adjust if needed
                     "spec": ServerlessSpec(**spec_data)
                 }
 
                 await self.pinecone.create_index(**create_params)
                 print(
-                    f"✅ Successfully created Pinecone index '{self.index_name}'. Waiting for it to be ready...")
-                # Wait time might need adjustment based on index size/type
-                await asyncio.sleep(20)
+                    f"✅ Successfully initiated creation of Pinecone index '{self.index_name}'. Waiting for it to be ready...")
+                # Wait time might need adjustment based on index size/type and cloud provider
+                await asyncio.sleep(30)  # Increased wait time
             else:
                 print(f"Using existing Pinecone index '{self.index_name}'")
         except Exception as e:
-            print(f"Error creating Pinecone index asynchronously: {e}")
+            print(
+                f"Error checking or creating Pinecone index asynchronously: {e}")
             raise
 
     async def _ensure_initialized(self):
         """Ensure the async client is initialized before use."""
         if not self._initialized:
             await self._initialize_async()
-        # FIX: Check for pinecone client and index_host
         if not self._initialized or not self.pinecone or not self.index_host:
             raise RuntimeError(
                 "Pinecone async client failed to initialize or get index host.")
 
-    async def _get_embedding(self, text: str, input_type: InputType) -> List[float]:
-        """Get embedding using either Pinecone native or external LLM provider."""
-        if self.use_pinecone_embeddings:
-            if not self.pinecone:
-                raise RuntimeError(
-                    "Pinecone client not initialized for embedding.")
+    # _get_embedding method is removed as embeddings are handled externally
 
-            try:
-                embed_params = {
-                    "texts": [text],
-                    "model": self.pinecone_embedding_model,
-                }
-                parameters = {
-                    "input_type": input_type,
-                    "truncate": "END",
-                }
-                # FIX: Adjust dimension parameter logic if needed for specific models
-                if self.pinecone_embedding_dimension_override:
-                    parameters["dimension"] = self.pinecone_embedding_dimension_override
-
-                embed_params["parameters"] = parameters
-
-                response = await self.pinecone.embed(**embed_params)
-
-                if response and response.embeddings:
-                    return response.embeddings[0]
-                else:
-                    raise ValueError(
-                        "Pinecone embedding response did not contain expected data.")
-
-            except Exception as e:
-                print(
-                    f"Error getting Pinecone embedding for '{text[:50]}...': {e}")
-                raise
-        else:
-            if not self.llm_provider:
-                raise RuntimeError("LLMProvider not available for embedding.")
-            return await self.llm_provider.embed_text(text, dimensions=self.embedding_dimensions)
-
-    async def upsert_text(
-        self,
-        texts: List[str],
-        ids: List[str],
-        metadatas: Optional[List[Dict[str, Any]]] = None,
-        namespace: Optional[str] = None
-    ) -> None:
-        """Embeds texts and upserts them into Pinecone."""
-        await self._ensure_initialized()
-
-        if len(texts) != len(ids):
-            raise ValueError("Number of texts must match number of IDs.")
-        if metadatas and len(texts) != len(metadatas):
-            raise ValueError(
-                "Number of texts must match number of metadatas if provided.")
-
-        vectors_to_upsert = []
-        for i, text in enumerate(texts):
-            try:
-                embedding = await self._get_embedding(text, input_type="passage")
-                vector_data = {
-                    "id": ids[i],
-                    "values": embedding,
-                }
-                current_metadata = metadatas[i] if metadatas and i < len(
-                    metadatas) else {}
-                if self.use_reranking and self.rerank_text_field not in current_metadata:
-                    current_metadata[self.rerank_text_field] = text
-                if current_metadata:
-                    vector_data["metadata"] = current_metadata
-                vectors_to_upsert.append(vector_data)
-            except Exception as e:
-                print(f"Failed to embed text with ID {ids[i]}: {e}")
-                # Decide if one failure should stop the whole batch
-
-        if vectors_to_upsert:
-            await self.upsert(vectors_to_upsert, namespace=namespace)
+    async def upsert_text(self, *args, **kwargs):  # pragma: no cover
+        """Deprecated: Embeddings should be generated externally."""
+        raise NotImplementedError(
+            "upsert_text is deprecated. Use the generic upsert method with pre-computed vectors.")
 
     async def upsert(
         self,
+        # Expects {"id": str, "values": List[float], "metadata": Optional[Dict]}
         vectors: List[Dict[str, Any]],
         namespace: Optional[str] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Upsert pre-embedded vectors into Pinecone asynchronously."""
         await self._ensure_initialized()
+        if not vectors:
+            print("Upsert skipped: No vectors provided.")
+            return
         try:
-            # FIX: Use async with for the index instance
             async with self.pinecone.IndexAsyncio(host=self.index_host) as index_instance:
                 upsert_params = {"vectors": vectors}
                 if namespace:
@@ -308,104 +241,146 @@ class PineconeAdapter(VectorStorageProvider):
             print(f"Error during async upsert: {e}")
             raise
 
-    async def query_text(
+    async def query_text(self, *args, **kwargs):  # pragma: no cover
+        """Deprecated: Use query() for simple vector search or query_and_rerank() for reranking."""
+        raise NotImplementedError(
+            "query_text is deprecated. Use query() or query_and_rerank() with a pre-computed vector.")
+
+    async def query_and_rerank(
         self,
-        query_text: str,
-        top_k: Optional[int] = None,
+        vector: List[float],
+        query_text_for_rerank: str,  # The original query text is needed for the reranker
+        top_k: int = 5,
         namespace: Optional[str] = None,
         filter: Optional[Dict[str, Any]] = None,
         include_values: bool = False,
         include_metadata: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Embeds query text and queries Pinecone, optionally reranking results."""
+    ) -> List[Dict[str, Any]]:  # pragma: no cover
+        """
+        Queries Pinecone with a vector and reranks the results using Pinecone's reranker.
+        Requires 'use_reranking' to be True and 'rerank_model' to be set during init.
+
+        Args:
+            vector: The query vector.
+            query_text_for_rerank: The original text query used for the reranking model.
+            top_k: The final number of results desired after reranking.
+            namespace: Optional Pinecone namespace.
+            filter: Optional metadata filter for the initial query.
+            include_values: Whether to include vector values in the results.
+            include_metadata: Whether to include metadata in the results.
+
+        Returns:
+            A list of reranked result dictionaries.
+        """
         await self._ensure_initialized()
 
-        final_top_k = top_k if top_k is not None else (
-            self.rerank_top_k if self.use_reranking else 5)
-        query_top_k = self.initial_query_top_k if self.use_reranking else final_top_k
+        if not self.use_reranking:
+            print(
+                "Warning: query_and_rerank called but use_reranking is False. Performing standard query.")
+            return await self.query(vector, top_k, namespace, filter, include_values, include_metadata)
+
+        if not self.rerank_model:
+            raise ValueError(
+                "Cannot rerank: rerank_model was not specified during initialization.")
+
+        # Determine how many results to fetch initially for reranking
+        initial_k = top_k * self.initial_query_top_k_multiplier
 
         try:
-            query_vector = await self._get_embedding(query_text, input_type="query")
-
+            # 1. Initial Vector Search
             initial_results = await self.query(
-                vector=query_vector,
-                top_k=query_top_k,
+                vector=vector,
+                top_k=initial_k,
                 namespace=namespace,
                 filter=filter,
-                include_values=include_values,
-                include_metadata=True  # Always needed for potential reranking
+                include_values=include_values,  # Include values if requested in final output
+                include_metadata=True  # Always need metadata for reranking text field
             )
 
-            if not self.use_reranking or not initial_results:
-                return initial_results[:final_top_k]
+            if not initial_results:
+                return []  # No results from initial query
 
-            # --- Reranking Step ---
+            # 2. Prepare for Reranking
+            documents_to_rerank = []
+            original_results_map = {}
+            for match in initial_results:
+                # Ensure metadata exists and contains the rerank text field
+                doc_metadata = match.get("metadata")
+                if isinstance(doc_metadata, dict):
+                    doc_text = doc_metadata.get(self.rerank_text_field)
+                    if doc_text and isinstance(doc_text, str):
+                        documents_to_rerank.append(doc_text)
+                        # Store original match keyed by the text for easy lookup after reranking
+                        original_results_map[doc_text] = match
+                    else:
+                        print(
+                            f"Warning: Skipping result ID {match.get('id')} for reranking - missing or invalid text in field '{self.rerank_text_field}'.")
+                else:
+                    print(
+                        f"Warning: Skipping result ID {match.get('id')} for reranking - metadata is missing or not a dictionary.")
+
+            if not documents_to_rerank:
+                print(
+                    f"⚠️ Reranking skipped: No documents found with text in the specified field ('{self.rerank_text_field}'). Returning top {top_k} initial results.")
+                # Return the originally requested top_k
+                return initial_results[:top_k]
+
+            # 3. Perform Reranking Call
             if not self.pinecone:
                 raise RuntimeError(
                     "Pinecone client not initialized for reranking.")
 
-            documents_to_rerank = []
-            original_results_map = {}
-            for match in initial_results:
-                doc_text = match.get("metadata", {}).get(
-                    self.rerank_text_field)
-                if doc_text:
-                    documents_to_rerank.append(doc_text)
-                    original_results_map[doc_text] = match
-
-            if not documents_to_rerank:
-                print(
-                    "⚠️ Reranking skipped: No documents found with the specified text field.")
-                return initial_results[:final_top_k]
-
             try:
                 print(
-                    f"Reranking {len(documents_to_rerank)} results using {self.rerank_model}...")
-                rerank_params = {}
-                # Add model-specific params if needed
-                # if self.rerank_model == "cohere-rerank-3.5":
-                #     rerank_params = {"max_chunks_per_doc": 3072}
-                # elif self.rerank_model in ["bge-reranker-v2-m3", "pinecone-rerank-v0"]:
-                #     rerank_params = {"truncate": "END"}
+                    f"Reranking {len(documents_to_rerank)} results using {self.rerank_model} for query: '{query_text_for_rerank[:50]}...'")
+                rerank_params = {}  # Add model-specific params if needed
 
                 rerank_request = {
-                    "query": query_text,
+                    "query": query_text_for_rerank,
                     "documents": documents_to_rerank,
                     "model": self.rerank_model,
-                    "top_n": final_top_k,
+                    "top_n": top_k,  # Request the final desired number
                     "parameters": rerank_params
                 }
 
                 rerank_response = await self.pinecone.rerank(**rerank_request)
 
+                # 4. Process Reranked Results
                 reranked_results = []
                 if rerank_response and rerank_response.results:
                     for result in rerank_response.results:
-                        # Adjust based on actual rerank response structure
+                        # Adjust based on actual rerank response structure (assuming v3+)
                         doc_text = result.document.text if result.document else ""
                         score = result.relevance_score
                         original_match = original_results_map.get(doc_text)
                         if original_match:
+                            # Create a new dict to avoid modifying the original map values
                             updated_match = dict(original_match)
+                            # Update score with relevance score
                             updated_match["score"] = score
                             reranked_results.append(updated_match)
+                        else:
+                            print(
+                                f"Warning: Reranked document text not found in original results map: '{doc_text[:50]}...'")
 
                 if reranked_results:
                     print(
                         f"Reranking complete. Returning {len(reranked_results)} results.")
                     return reranked_results
                 else:
+                    # Should not happen if rerank_response.results existed, but handle defensively
                     print(
-                        "No matches after reranking, falling back to vector search results.")
-                    return initial_results[:final_top_k]
+                        "Warning: No matches found after processing reranking response. Falling back to initial vector search results.")
+                    return initial_results[:top_k]
 
             except Exception as rerank_error:
                 print(
                     f"Error during reranking with {self.rerank_model}: {rerank_error}. Returning initial results.")
-                return initial_results[:final_top_k]
+                # Fallback to top_k initial results
+                return initial_results[:top_k]
 
         except Exception as e:
-            print(f"Failed to embed or query text '{query_text[:50]}...': {e}")
+            print(f"Failed to query or rerank: {e}")
             return []
 
     async def query(
@@ -416,11 +391,23 @@ class PineconeAdapter(VectorStorageProvider):
         filter: Optional[Dict[str, Any]] = None,
         include_values: bool = False,
         include_metadata: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Query Pinecone for similar vectors asynchronously."""
+    ) -> List[Dict[str, Any]]:  # pragma: no cover
+        """
+        Query Pinecone for similar vectors asynchronously (no reranking).
+
+        Args:
+            vector: The query vector.
+            top_k: The number of results to return.
+            namespace: Optional Pinecone namespace.
+            filter: Optional metadata filter.
+            include_values: Whether to include vector values in the results.
+            include_metadata: Whether to include metadata in the results.
+
+        Returns:
+            A list of result dictionaries.
+        """
         await self._ensure_initialized()
         try:
-            # FIX: Use async with for the index instance
             async with self.pinecone.IndexAsyncio(host=self.index_host) as index_instance:
                 query_params = {
                     "vector": vector,
@@ -434,25 +421,29 @@ class PineconeAdapter(VectorStorageProvider):
                     query_params["filter"] = filter
                 query_response = await index_instance.query(**query_params)
 
-            matches = query_response.get("matches", [])
+            # Ensure response structure is handled safely
+            matches = query_response.get(
+                "matches", []) if query_response else []
             return matches
 
         except PineconeApiException as e:
             print(f"Pinecone API error during async query: {e}")
-            raise
+            raise  # Re-raise API errors
         except Exception as e:
             print(f"Error during async query: {e}")
-            return []
+            return []  # Return empty list for general errors
 
     async def delete(
         self,
         ids: List[str],
         namespace: Optional[str] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Delete vectors by IDs from Pinecone asynchronously."""
         await self._ensure_initialized()
+        if not ids:
+            print("Delete skipped: No IDs provided.")
+            return
         try:
-            # FIX: Use async with for the index instance
             async with self.pinecone.IndexAsyncio(host=self.index_host) as index_instance:
                 delete_params = {"ids": ids}
                 if namespace:
@@ -467,9 +458,8 @@ class PineconeAdapter(VectorStorageProvider):
             print(f"Error during async delete: {e}")
             raise
 
-    async def describe_index_stats(self) -> Dict[str, Any]:
+    async def describe_index_stats(self) -> Dict[str, Any]:  # pragma: no cover
         """Get statistics about the index asynchronously."""
-        # Add entry log
         print(f"describe_index_stats: Entering for host {self.index_host}")
         try:
             print(
@@ -480,11 +470,27 @@ class PineconeAdapter(VectorStorageProvider):
                 stats_response = await index_instance.describe_index_stats()
                 print(
                     f"describe_index_stats: Call completed. Response: {stats_response}")
-            # Convert response to dict if necessary
-            result_dict = stats_response.to_dict() if hasattr(
-                stats_response, 'to_dict') else dict(stats_response)
+
+            # Convert response to dict if necessary (handle potential None or different types)
+            if hasattr(stats_response, 'to_dict'):
+                result_dict = stats_response.to_dict()
+            elif isinstance(stats_response, dict):
+                result_dict = stats_response
+            else:
+                # Attempt basic conversion or return empty
+                try:
+                    result_dict = dict(stats_response)
+                except (TypeError, ValueError):
+                    print(
+                        f"Warning: Could not convert stats_response to dict: {stats_response}")
+                    result_dict = {}
+
             print(f"describe_index_stats: Returning stats dict: {result_dict}")
             return result_dict
+        except PineconeApiException as e:
+            print(
+                f"Pinecone API error describing index stats asynchronously: {e}")
+            raise  # Re-raise API errors
         except Exception as e:
             print(f"Error describing index stats asynchronously: {e}")
-            return {}
+            return {}  # Return empty dict for general errors

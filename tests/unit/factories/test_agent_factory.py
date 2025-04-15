@@ -711,21 +711,16 @@ class TestSolanaAgentFactory:
         mock_pinecone_adapter.assert_called_once_with(
             api_key="test-pinecone-key",
             index_name="test-index",
-            llm_provider=mock_openai_instance,
-            embedding_dimensions=768,
+            embedding_dimensions=3072,
             create_index_if_not_exists=True,
-            use_pinecone_embeddings=True,
-            pinecone_embedding_model=None,  # Actual value was None
             use_reranking=True,
-            rerank_model="cohere-rerank-3.5"
-            # Removed arguments not present in the actual call:
-            # cloud_provider="aws",
-            # region="us-east-1",
-            # metric="cosine",
-            # pinecone_embedding_dimension_override=512,
-            # rerank_top_k=3,
-            # initial_query_top_k_multiplier=5,
-            # rerank_text_field="content"
+            rerank_model="cohere-rerank-3.5",
+            cloud_provider='aws',
+            region='us-east-1',
+            metric='cosine',
+            rerank_top_k=3,
+            initial_query_top_k_multiplier=5,
+            rerank_text_field='content'
         )
 
         # The KnowledgeBaseService assertion might also need adjustment depending on
@@ -734,9 +729,14 @@ class TestSolanaAgentFactory:
         mock_knowledge_base.assert_called_once_with(
             pinecone_adapter=mock_pinecone_instance,
             mongodb_adapter=mock_mongo_instance,
-            collection_name="test_kb",
-            rerank_results=True,  # Corresponds to use_reranking in pinecone config
-            rerank_top_k=5  # This comes from results_count in the config
+            openai_api_key='test-openai-key',  # From config
+            # Default? Or from config if specified
+            openai_model_name='text-embedding-3-large',
+            collection_name='knowledge_documents',  # From config
+            rerank_results=True,  # From config (pinecone.use_reranking)
+            rerank_top_k=3,  # From config (knowledge_base.results_count)
+            splitter_buffer_size=1,  # Default
+            splitter_breakpoint_percentile=95  # Default
         )
 
         # Verify MemoryRepository was called

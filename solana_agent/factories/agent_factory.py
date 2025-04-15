@@ -195,52 +195,93 @@ class SolanaAgentFactory:
 
         # Initialize Knowledge Base if configured
         knowledge_base = None
-        if "knowledge_base" in config and "mongo" in config:
+        kb_config = config.get("knowledge_base")
+        # Requires both KB config section and MongoDB adapter
+        if kb_config and db_adapter:
             try:
-                pinecone_config = config["knowledge_base"].get("pinecone", {})
+                pinecone_config = kb_config.get("pinecone", {})
+                splitter_config = kb_config.get("splitter", {})
+                # Get OpenAI embedding config (used by KBService)
+                openai_embed_config = kb_config.get("openai_embeddings", {})
+
+                # Determine OpenAI model and dimensions for KBService
+                openai_model_name = openai_embed_config.get(
+                    "model_name", "text-embedding-3-large")
+                if openai_model_name == "text-embedding-3-large":
+                    openai_dimensions = 3072
+                elif openai_model_name == "text-embedding-3-small":
+                    openai_dimensions = 1536
+                else:
+                    # Fallback or raise error for unknown models - use Pinecone config if specified, else error
+                    openai_dimensions = pinecone_config.get(
+                        "embedding_dimensions")
+                    if not openai_dimensions:
+                        raise ValueError(
+                            f"Cannot determine dimension for unknown OpenAI model '{openai_model_name}' and 'embedding_dimensions' not set in Pinecone config.")
+                    print(
+                        f"Warning: Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct.")
 
                 # Create Pinecone adapter for KB
+                # It now relies on external embeddings, so dimension MUST match OpenAI model
                 pinecone_adapter = PineconeAdapter(
                     api_key=pinecone_config.get("api_key"),
                     index_name=pinecone_config.get("index_name"),
-                    llm_provider=llm_adapter,  # Reuse the LLM adapter
-                    embedding_dimensions=pinecone_config.get(
-                        "embedding_dimensions", 3072),
+                    # This dimension MUST match the OpenAI model used by KBService
+                    embedding_dimensions=openai_dimensions,
+                    cloud_provider=pinecone_config.get(
+                        "cloud_provider", "aws"),
+                    region=pinecone_config.get("region", "us-east-1"),
+                    metric=pinecone_config.get("metric", "cosine"),
                     create_index_if_not_exists=pinecone_config.get(
                         "create_index", True),
-                    use_pinecone_embeddings=pinecone_config.get(
-                        "use_pinecone_embeddings", False),
-                    pinecone_embedding_model=pinecone_config.get(
-                        "embedding_model"),
+                    # Reranking config
                     use_reranking=pinecone_config.get("use_reranking", False),
-                    rerank_model=pinecone_config.get("rerank_model")
+                    rerank_model=pinecone_config.get("rerank_model"),
+                    rerank_top_k=pinecone_config.get("rerank_top_k", 3),
+                    initial_query_top_k_multiplier=pinecone_config.get(
+                        "initial_query_top_k_multiplier", 5),
+                    rerank_text_field=pinecone_config.get(
+                        "rerank_text_field", "text"),
                 )
 
-                # Create the KB service
+                # Create the KB service using OpenAI embeddings
                 knowledge_base = KnowledgeBaseService(
                     pinecone_adapter=pinecone_adapter,
                     mongodb_adapter=db_adapter,
-                    llm_provider=llm_adapter,
-                    collection_name=config["knowledge_base"].get(
-                        "collection", "knowledge_documents"),
+                    # Pass OpenAI config directly
+                    openai_api_key=openai_embed_config.get("api_key") or config.get("openai", {}).get(
+                        "api_key"),
+                    openai_model_name=openai_model_name,
+                    collection_name=kb_config.get(
+                        "collection_name", "knowledge_documents"),
+                    # Pass rerank config (though PineconeAdapter handles the logic)
                     rerank_results=pinecone_config.get("use_reranking", False),
-                    rerank_top_k=config["knowledge_base"].get(
-                        "results_count", 3)
+                    rerank_top_k=pinecone_config.get("rerank_top_k", 3),
+                    # Pass splitter config
+                    splitter_buffer_size=splitter_config.get("buffer_size", 1),
+                    splitter_breakpoint_percentile=splitter_config.get(
+                        "breakpoint_percentile", 95)
                 )
+                print("Knowledge Base Service initialized successfully.")
 
             except Exception as e:
                 print(f"Failed to initialize Knowledge Base: {e}")
                 import traceback
                 print(traceback.format_exc())
+                knowledge_base = None  # Ensure KB is None if init fails
+
+        elif kb_config and kb_config.get("enabled", False) and not db_adapter:
+            print(
+                "Warning: Knowledge Base configured but MongoDB adapter is not available. KB disabled.")
 
         # Create and return the query service
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,
             memory_provider=memory_provider,
-            knowledge_base=knowledge_base,
-            kb_results_count=config.get(
-                "knowledge_base", {}).get("results_count", 3)
+            knowledge_base=knowledge_base,  # Pass the potentially created KB
+            kb_results_count=kb_config.get(
+                "results_count", 3) if kb_config else 3
         )
 
         return query_service
