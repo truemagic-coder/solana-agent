@@ -57,3 +57,23 @@ class LLMProvider(ABC):
     ) -> AsyncGenerator[str, None]:
         """Transcribe audio from the language model."""
         pass
+
+    @abstractmethod
+    async def embed_text(
+        self,
+        text: str,
+        model: Optional[str] = None,
+        dimensions: Optional[int] = None
+    ) -> List[float]:
+        """
+        Generate an embedding for the given text.
+
+        Args:
+            text: The text to embed.
+            model: The embedding model to use.
+            dimensions: Optional desired output dimensions for the embedding.
+
+        Returns:
+            A list of floats representing the embedding vector.
+        """
+        pass

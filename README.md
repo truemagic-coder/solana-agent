@@ -26,6 +26,7 @@ Build your AI business in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Simple Business Definition
+* Knowledge Base with PDF support
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
@@ -45,6 +46,7 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
+* Integrated Knowledge Base with semantic search and automatic PDF chunking
 
 ## Stack
 
@@ -54,15 +56,17 @@ Build your AI business in three lines of code!
 * [OpenAI](https://openai.com), [Google](https://ai.google.dev), [xAI](https://x.ai) - LLM Providers
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
+* [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 
 ### LLMs
 
 * [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
-* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
-* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
+* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
+* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
+* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 
 ## Installation
 
@@ -171,7 +175,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-audio_content = audio_file.read()
+audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
     print(response, end="")
@@ -231,7 +235,7 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-audio_content = audio_file.read()
+audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
     print(response, end="")
@@ -300,6 +304,112 @@ config = {
         "api_key": "your-grok-api-key",
     },
 }
+```
+
+### Knowledge Base
+
+```python
+config = {
+    "knowledge_base": {
+        "pinecone": {
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
+        }
+    },
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+}
+```
+
+#### Example for KB (text)
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "knowledge_base": {
+        "pinecone": {
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
+        }
+    },
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+    "agents": [
+        {
+            "name": "kb_expert",
+            "instructions": "You answer questions based on the provided knowledge base documents.",
+            "specialization": "Company Knowledge",
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+doc_text = "Solana Agent is a Python framework for building multi-agent AI systems."
+doc_metadata = {
+    "source": "internal_docs",
+    "version": "1.0",
+    "tags": ["framework", "python", "ai"]
+}
+await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
+
+async for response in solana_agent.process("user123", "What is Solana Agent?"):
+    print(response, end="")
+```
+
+#### Example for KB (pdf)
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "knowledge_base": {
+        "pinecone": {
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
+        }
+    },
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+    "agents": [
+        {
+            "name": "kb_expert",
+            "instructions": "You answer questions based on the provided knowledge base documents.",
+            "specialization": "Company Knowledge",
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+pdf_bytes = await pdf_file.read()
+
+pdf_metadata = {
+    "source": "annual_report_2024.pdf",
+    "year": 2024,
+    "tags": ["finance", "report"]
+}
+
+await solana_agent.kb_add_pdf_document(
+    pdf_data=pdf_bytes,
+    metadata=pdf_metadata,
+)
+
+async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
+    print(response, end="")
 ```
 
 ## Tools
@@ -428,11 +538,11 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Agent Training
+## Runtime Prompt Injection
 
 Many use cases for Solana Agent require training your agents on your company data.
 
-This can be accomplished via runtime prompt injection. Integrations that work well with this method are vector stores like Pinecone and FAQs.
+This can be accomplished via runtime prompt injection. Integrations that work well with FAQs.
 
 This knowledge is accessible to all your AI agents.
 

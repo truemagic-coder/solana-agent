@@ -11,6 +11,7 @@ from solana_agent.interfaces.services.query import QueryService as QueryServiceI
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
+from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
@@ -22,6 +23,8 @@ class QueryService(QueryServiceInterface):
         agent_service: AgentService,
         routing_service: RoutingService,
         memory_provider: Optional[MemoryProvider] = None,
+        knowledge_base: Optional[KnowledgeBaseService] = None,
+        kb_results_count: int = 3,
     ):
         """Initialize the query service.
 
@@ -33,6 +36,8 @@ class QueryService(QueryServiceInterface):
         self.agent_service = agent_service
         self.routing_service = routing_service
         self.memory_provider = memory_provider
+        self.knowledge_base = knowledge_base
+        self.kb_results_count = kb_results_count
 
     async def process(
         self,
@@ -99,11 +104,37 @@ class QueryService(QueryServiceInterface):
             if self.memory_provider:
                 memory_context = await self.memory_provider.retrieve(user_id)
 
+            # Retrieve relevant knowledge from the KB
+            kb_context = ""
+            if self.knowledge_base:
+                try:
+                    kb_results = await self.knowledge_base.query(
+                        query_text=user_text,
+                        top_k=self.kb_results_count,
+                        include_content=True,
+                        include_metadata=False
+                    )
+
+                    if kb_results:
+                        kb_context = "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**\n"
+                        for i, result in enumerate(kb_results, 1):
+                            content = result.get("content", "").strip()
+                            kb_context += f"[{i}] {content}\n\n"
+                except Exception as e:
+                    print(f"Error retrieving knowledge: {e}")
+
             # Route query to appropriate agent
             if router:
                 agent_name = await router.route_query(user_text)
             else:
                 agent_name = await self.routing_service.route_query(user_text)
+
+           # Combine context from memory and knowledge base
+            combined_context = ""
+            if memory_context:
+                combined_context += f"CONVERSATION HISTORY:\n{memory_context}\n\n"
+            if kb_context:
+                combined_context += f"{kb_context}\n"
 
             print(f"Routed to agent: {agent_name}")
 
@@ -113,7 +144,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
-                    memory_context=memory_context,
+                    memory_context=combined_context,
                     output_format="audio",
                     audio_voice=audio_voice,
                     audio_output_format=audio_output_format,
@@ -134,7 +165,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
-                    memory_context=memory_context,
+                    memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
                 ):
