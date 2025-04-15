@@ -11,6 +11,7 @@ from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
+from solana_agent.services.knowledge_base import KnowledgeBaseService
 
 # Repository imports
 from solana_agent.repositories.memory import MemoryRepository
@@ -216,7 +217,7 @@ class SolanaAgentFactory:
                 )
 
                 # Create the KB service
-                knowledge_base = KnowledgeBase(
+                knowledge_base = KnowledgeBaseService(
                     pinecone_adapter=pinecone_adapter,
                     mongodb_adapter=db_adapter,
                     collection_name=config["knowledge_base"].get(
@@ -225,7 +226,6 @@ class SolanaAgentFactory:
                     rerank_top_k=config["knowledge_base"].get(
                         "results_count", 3)
                 )
-                print("Knowledge Base initialized successfully")
 
             except Exception as e:
                 print(f"Failed to initialize Knowledge Base: {e}")

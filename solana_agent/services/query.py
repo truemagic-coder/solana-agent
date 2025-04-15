@@ -11,7 +11,7 @@ from solana_agent.interfaces.services.query import QueryService as QueryServiceI
 from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.services.knowledge_base import KnowledgeBase
+from solana_agent.interfaces.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.providers.memory import MemoryProvider
 
 
@@ -23,7 +23,7 @@ class QueryService(QueryServiceInterface):
         agent_service: AgentService,
         routing_service: RoutingService,
         memory_provider: Optional[MemoryProvider] = None,
-        knowledge_base: Optional[KnowledgeBase] = None,
+        knowledge_base: Optional[KnowledgeBaseService] = None,
         kb_results_count: int = 3,
     ):
         """Initialize the query service.

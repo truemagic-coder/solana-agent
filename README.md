@@ -26,6 +26,7 @@ Build your AI business in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Simple Business Definition
+* Knowledge Base with PDF support
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
@@ -45,6 +46,7 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
+* 
 
 ## Stack
 
@@ -60,7 +62,7 @@ Build your AI business in three lines of code!
 
 * [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
-* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embeddings)
+* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 * [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
@@ -279,35 +281,46 @@ config = {
     },
 }
 ```
+
+### Gemini
+
+This allows Gemini to replace OpenAI for agent and router.
+
+```python
+config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
+    },
+}
+```
+
+### Grok
+
+This allows Grok to replace OpenAI (or Gemini) for agent.
+
+```python
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+}
+```
+
 ### Knowledge Base
 
 ```python
 config = {
     "knowledge_base": {
-        "collection": "knowledge_documents", # Optional: Name for the KB MongoDB collection (default: "knowledge_documents")
-        "results_count": 5, # Optional: Number of results to retrieve (default: 5)
-        "pinecone": { # Required: Pinecone configuration
-            "api_key": "your-pinecone-api-key", # Required
-            "index_name": "your-pinecone-index-name", # Required
-            "embedding_dimensions": 3072, # Optional: Dimensions for embeddings (default: 3072)
-            "create_index_if_not_exists": True, # Optional: Create index if it doesn't exist (default: True)
-            "cloud_provider": "aws", # Optional: Pinecone cloud provider (default: 'aws')
-            "region": "us-east-1", # Optional: Pinecone region (default: 'us-east-1')
-            "metric": "cosine", # Optional: Distance metric for similarity search (default: 'cosine')
-            "use_pinecone_embeddings": False, # Optional: Use Pinecone's embedding model (default: False)
-            "pinecone_embedding_model": None, # Optional: Specific Pinecone embedding model (default: None)
-            "pinecone_embedding_dimension_override": None, # Optional: Override dimension for Pinecone model (default: None)
-            "use_reranking": False, # Optional: Enable result reranking (default: False)
-            "rerank_model": None, # Optional: Reranking model (default: None, 'cohere-rerank-3.5' if use_reranking=True)
-            "rerank_top_k": 3, # Optional: Number of results to rerank (default: 3)
-            "initial_query_top_k_multiplier": 5, # Optional: Multiplier for initial query results before reranking (default: 5)
-            "rerank_text_field": "text" # Optional: Field in metadata to use for reranking (default: 'text')
+        "pinecone": {
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
         }
     },
-    # Requires mongo config as well for metadata storage
     "mongo": {
         "connection_string": "your-mongo-connection-string",
         "database": "your-database-name"
+    },
+}
 ```
 
 #### Example for KB (text)
@@ -320,16 +333,14 @@ config = {
         "api_key": "your-openai-api-key",
     },
     "knowledge_base": {
-        "collection": "my_company_docs",
-        "results_count": 3,
         "pinecone": {
-            "api_key": "YOUR_PINECONE_API_KEY",
-            "index_name": "solana-agent-kb-index",
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
         }
     },
     "mongo": {
-        "connection_string": "YOUR_MONGO_CONNECTION_STRING",
-        "database": "solana_agent_db"
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
     },
     "agents": [
         {
@@ -364,16 +375,14 @@ config = {
         "api_key": "your-openai-api-key",
     },
     "knowledge_base": {
-        "collection": "my_company_docs",
-        "results_count": 3,
         "pinecone": {
-            "api_key": "YOUR_PINECONE_API_KEY",
-            "index_name": "solana-agent-kb-index",
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
         }
     },
     "mongo": {
-        "connection_string": "YOUR_MONGO_CONNECTION_STRING",
-        "database": "solana_agent_db"
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
     },
     "agents": [
         {
@@ -386,37 +395,21 @@ config = {
 
 solana_agent = SolanaAgent(config=config)
 
-pdf = pdf_file.read()
+pdf_bytes = await pdf_file.read()
 
-await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
+pdf_metadata = {
+    "source": "annual_report_2024.pdf",
+    "year": 2024,
+    "tags": ["finance", "report"]
+}
 
-async for response in solana_agent.process("user123", "What is Solana Agent?"):
+await solana_agent.kb_add_pdf_document(
+    pdf_data=pdf_bytes,
+    metadata=pdf_metadata,
+)
+
+async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
     print(response, end="")
-```
-
-
-### Gemini
-
-This allows Gemini to replace OpenAI for agent and router.
-
-```python
-config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
-}
-```
-
-### Grok
-
-This allows Grok to replace OpenAI (or Gemini) for agent.
-
-```python
-config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-}
 ```
 
 ## Tools

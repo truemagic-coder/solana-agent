@@ -8,7 +8,7 @@ import io
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 from solana_agent.interfaces.providers.llm import LLMProvider
-from solana_agent.services.knowledge_base import KnowledgeBase
+from solana_agent.services.knowledge_base import KnowledgeBaseService
 
 # Mock LlamaIndex classes if they are complex or have external dependencies
 # For simplicity, using MagicMock for now. Replace with more specific mocks if needed.
@@ -109,8 +109,8 @@ def mock_pdf_reader(mock_semantic_splitter_nodes):
 
 @pytest.fixture
 def knowledge_base(mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider):
-    """Fixture to provide a KnowledgeBase instance with mocked dependencies."""
-    # Patch the SemanticSplitterNodeParser constructor within the KnowledgeBase init
+    """Fixture to provide a KnowledgeBaseService instance with mocked dependencies."""
+    # Patch the SemanticSplitterNodeParser constructor within the KnowledgeBaseService init
     with patch('solana_agent.services.knowledge_base.SemanticSplitterNodeParser') as MockSplitterClass:
         # Configure the mock splitter instance returned by the patched class
         mock_splitter_instance = MagicMock(spec=SemanticSplitterNodeParser)
@@ -119,8 +119,8 @@ def knowledge_base(mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider)
             return_value=[])  # Default empty list
         MockSplitterClass.return_value = mock_splitter_instance
 
-        kb = KnowledgeBase(mock_pinecone_adapter, mock_mongo_adapter,
-                           mock_llm_provider, collection_name="test_kb")
+        kb = KnowledgeBaseService(mock_pinecone_adapter, mock_mongo_adapter,
+                                  mock_llm_provider, collection_name="test_kb")
         # Attach the mock splitter instance to the kb instance for assertion purposes if needed
         kb.mock_splitter_instance = mock_splitter_instance
         yield kb
@@ -208,7 +208,7 @@ def sample_mongo_docs_map(sample_pinecone_results):
 class TestKnowledgeBase:
 
     # --- Initialization Tests ---
-    def test_init_success(self, knowledge_base: KnowledgeBase, mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider):
+    def test_init_success(self, knowledge_base: KnowledgeBaseService, mock_pinecone_adapter, mock_mongo_adapter, mock_llm_provider):
         """Test successful initialization."""
         assert knowledge_base.pinecone == mock_pinecone_adapter
         assert knowledge_base.mongo == mock_mongo_adapter
@@ -236,8 +236,8 @@ class TestKnowledgeBase:
         with patch('solana_agent.services.knowledge_base.SemanticSplitterNodeParser') as MockSplitterClass:
             MockSplitterClass.return_value = MagicMock(
                 spec=SemanticSplitterNodeParser)
-            KnowledgeBase(mock_pinecone_adapter, mock_mongo_adapter,
-                          mock_llm_provider, collection_name="new_kb")
+            KnowledgeBaseService(mock_pinecone_adapter, mock_mongo_adapter,
+                                 mock_llm_provider, collection_name="new_kb")
 
         mock_mongo_adapter.collection_exists.assert_called_once_with("new_kb")
         mock_mongo_adapter.create_collection.assert_called_once_with("new_kb")
@@ -255,8 +255,8 @@ class TestKnowledgeBase:
             # We don't need the return value for this test, just prevent the original init
             MockSplitterClass.return_value = MagicMock(
                 spec=SemanticSplitterNodeParser)
-            kb = KnowledgeBase(mock_pinecone_adapter, mock_mongo_adapter,
-                               mock_llm_provider, collection_name="existing_kb")
+            kb = KnowledgeBaseService(mock_pinecone_adapter, mock_mongo_adapter,
+                                      mock_llm_provider, collection_name="existing_kb")
 
         mock_mongo_adapter.collection_exists.assert_called_once_with(
             "existing_kb")
@@ -275,13 +275,13 @@ class TestKnowledgeBase:
         # FIX: Patch the SemanticSplitterNodeParser constructor directly
         with patch('solana_agent.services.knowledge_base.SemanticSplitterNodeParser'):
             with pytest.raises(ValueError, match="LLMProvider must have an 'embed_text' method"):
-                KnowledgeBase(mock_pinecone_adapter,
-                              mock_mongo_adapter, bad_llm_provider)
+                KnowledgeBaseService(mock_pinecone_adapter,
+                                     mock_mongo_adapter, bad_llm_provider)
 
     # --- Add Text Document Tests ---
 
     @pytest.mark.asyncio
-    async def test_add_document_success(self, knowledge_base: KnowledgeBase):
+    async def test_add_document_success(self, knowledge_base: KnowledgeBaseService):
         """Test adding a simple text document."""
         doc_id = "test-doc-1"
         text = "This is the document content."
@@ -320,7 +320,7 @@ class TestKnowledgeBase:
         assert knowledge_base.pinecone.rerank_text_field not in pinecone_meta
 
     @pytest.mark.asyncio
-    async def test_add_document_with_rerank(self, knowledge_base: KnowledgeBase):
+    async def test_add_document_with_rerank(self, knowledge_base: KnowledgeBaseService):
         """Test adding a text document when reranking is enabled."""
         knowledge_base.pinecone.use_reranking = True  # Enable reranking for this test
         doc_id = "test-doc-rerank"
@@ -337,7 +337,7 @@ class TestKnowledgeBase:
         assert pinecone_meta[knowledge_base.pinecone.rerank_text_field] == text
 
     @pytest.mark.asyncio
-    async def test_add_document_generate_id(self, knowledge_base: KnowledgeBase):
+    async def test_add_document_generate_id(self, knowledge_base: KnowledgeBaseService):
         """Test document ID generation when not provided."""
         text = "Auto generated ID content."
         metadata = {"source": "auto_id"}
@@ -357,7 +357,7 @@ class TestKnowledgeBase:
             str(test_uuid)]
 
     @pytest.mark.asyncio
-    async def test_add_document_mongo_error(self, knowledge_base: KnowledgeBase):
+    async def test_add_document_mongo_error(self, knowledge_base: KnowledgeBaseService):
         """Test error handling when MongoDB insert fails."""
         knowledge_base.mongo.insert_one.side_effect = Exception(
             "Mongo insert error")
@@ -371,7 +371,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_document_pinecone_error(self, knowledge_base: KnowledgeBase):
+    async def test_add_document_pinecone_error(self, knowledge_base: KnowledgeBaseService):
         """Test error handling when Pinecone upsert fails (should still insert to Mongo)."""
         knowledge_base.pinecone.upsert_text.side_effect = Exception(
             "Pinecone upsert error")
@@ -392,7 +392,7 @@ class TestKnowledgeBase:
 
     @pytest.mark.asyncio
     async def test_add_pdf_document_from_bytes(
-        self, knowledge_base: KnowledgeBase, mock_pdf_reader, mock_semantic_splitter_nodes,
+        self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, mock_semantic_splitter_nodes,
         sample_pdf_data, sample_pdf_metadata
     ):
         """Test adding a PDF document from bytes with chunking."""
@@ -473,7 +473,7 @@ class TestKnowledgeBase:
         assert meta2[0]["is_chunk"] is True
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_from_path(self, knowledge_base: KnowledgeBase, mock_pdf_reader, mock_semantic_splitter_nodes, sample_pdf_metadata):
+    async def test_add_pdf_document_from_path(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, mock_semantic_splitter_nodes, sample_pdf_metadata):
         """Test adding a PDF document from a file path."""
         parent_doc_id = "pdf-path-test"
         pdf_path = "/fake/path/to/document.pdf"
@@ -513,7 +513,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_called()  # Called at least once
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_no_extracted_text(self, knowledge_base: KnowledgeBase, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
+    async def test_add_pdf_document_no_extracted_text(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
         """Test adding a PDF where no text could be extracted."""
         parent_doc_id = "pdf-no-text"
         # Configure mock reader to return no text
@@ -539,13 +539,13 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_invalid_input(self, knowledge_base: KnowledgeBase, sample_pdf_metadata):
+    async def test_add_pdf_document_invalid_input(self, knowledge_base: KnowledgeBaseService, sample_pdf_metadata):
         """Test error handling for invalid pdf_data type."""
         with pytest.raises(ValueError, match="pdf_data must be bytes or a file path string"):
             await knowledge_base.add_pdf_document(pdf_data=12345, metadata=sample_pdf_metadata)
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_pdf_read_error(self, knowledge_base: KnowledgeBase, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
+    async def test_add_pdf_document_pdf_read_error(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
         """Test error handling when pypdf fails to read the PDF."""
         # Configure mock reader to raise an error
         mock_pdf_reader.side_effect = pypdf.errors.PdfReadError(
@@ -560,7 +560,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_mongo_insert_error(self, knowledge_base: KnowledgeBase, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
+    async def test_add_pdf_document_mongo_insert_error(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
         """Test error handling when MongoDB insert of parent doc fails."""
         knowledge_base.mongo.insert_one.side_effect = Exception(
             "Mongo insert parent error")
@@ -574,7 +574,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_splitter_error(self, knowledge_base: KnowledgeBase, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
+    async def test_add_pdf_document_splitter_error(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, sample_pdf_data, sample_pdf_metadata):
         """Test error handling when semantic splitter fails."""
         knowledge_base.mock_splitter_instance.get_nodes_from_documents.side_effect = Exception(
             "Splitter error")
@@ -589,7 +589,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_add_pdf_document_pinecone_chunk_error(self, knowledge_base: KnowledgeBase, mock_pdf_reader, mock_semantic_splitter_nodes, sample_pdf_data, sample_pdf_metadata):
+    async def test_add_pdf_document_pinecone_chunk_error(self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, mock_semantic_splitter_nodes, sample_pdf_data, sample_pdf_metadata):
         """Test error handling when Pinecone upsert fails during chunking."""
         knowledge_base.mock_splitter_instance.get_nodes_from_documents.return_value = mock_semantic_splitter_nodes
         # Simulate error on the first Pinecone upsert call
@@ -616,7 +616,7 @@ class TestKnowledgeBase:
     # --- Query Tests ---
 
     @pytest.mark.asyncio
-    async def test_query_no_results(self, knowledge_base: KnowledgeBase):
+    async def test_query_no_results(self, knowledge_base: KnowledgeBaseService):
         """Test querying when no results are returned from Pinecone."""
         knowledge_base.pinecone.query_text.return_value = []
 
@@ -634,7 +634,7 @@ class TestKnowledgeBase:
         knowledge_base.mongo.find.assert_not_called()  # No IDs to fetch from Mongo
 
     @pytest.mark.asyncio
-    async def test_query_with_filter_and_namespace(self, knowledge_base: KnowledgeBase):
+    async def test_query_with_filter_and_namespace(self, knowledge_base: KnowledgeBaseService):
         """Test querying with a filter and namespace."""
         knowledge_base.pinecone.query_text.return_value = [
         ]  # No results needed for this check
@@ -658,7 +658,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_query_with_results_mixed(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_with_results_mixed(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test querying with mixed results (docs and chunks) from Pinecone and MongoDB."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         # Mock mongo.find to return docs based on IDs from Pinecone results
@@ -761,7 +761,7 @@ class TestKnowledgeBase:
         assert results[3]["metadata"]["is_chunk"] is True  # From Pinecone meta
 
     @pytest.mark.asyncio
-    async def test_query_content_exclusion(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_content_exclusion(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test querying with content excluded from results."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         # Simplified mock find/find_one for this test
@@ -784,7 +784,7 @@ class TestKnowledgeBase:
         assert "metadata" in results[1]
 
     @pytest.mark.asyncio
-    async def test_query_metadata_exclusion(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_metadata_exclusion(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test querying with metadata excluded from results."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         knowledge_base.mongo.find.return_value = [
@@ -806,7 +806,7 @@ class TestKnowledgeBase:
         assert "metadata" not in results[1]
 
     @pytest.mark.asyncio
-    async def test_query_with_reranking_enabled(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_with_reranking_enabled(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test querying uses rerank_top_k when reranking is enabled in constructor."""
         # Enable reranking on the fixture instance
         knowledge_base.rerank_results = True
@@ -836,7 +836,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_query_pinecone_error(self, knowledge_base: KnowledgeBase):
+    async def test_query_pinecone_error(self, knowledge_base: KnowledgeBaseService):
         """Test error handling when Pinecone query fails."""
         knowledge_base.pinecone.query_text.side_effect = Exception(
             "Pinecone query error")
@@ -848,7 +848,7 @@ class TestKnowledgeBase:
 
     @pytest.mark.asyncio
     # FIX: Add sample_mongo_docs_map fixture
-    async def test_query_mongo_find_error(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_mongo_find_error(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test error handling when MongoDB find fails."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         knowledge_base.mongo.find.side_effect = Exception("Mongo find error")
@@ -892,7 +892,7 @@ class TestKnowledgeBase:
         assert knowledge_base.mongo.find_one.call_count > 0
 
     @pytest.mark.asyncio
-    async def test_query_mongo_find_one_error(self, knowledge_base: KnowledgeBase, sample_pinecone_results, sample_mongo_docs_map):
+    async def test_query_mongo_find_one_error(self, knowledge_base: KnowledgeBaseService, sample_pinecone_results, sample_mongo_docs_map):
         """Test error handling when MongoDB find_one fails for parent metadata/content."""
         knowledge_base.pinecone.query_text.return_value = sample_pinecone_results
         # Mock find to return relevant docs (non-chunks)
@@ -938,7 +938,7 @@ class TestKnowledgeBase:
 
     # --- Delete Document Tests ---
     @pytest.mark.asyncio
-    async def test_delete_document_plain_text_success(self, knowledge_base: KnowledgeBase):
+    async def test_delete_document_plain_text_success(self, knowledge_base: KnowledgeBaseService):
         """Test successful deletion of a plain text document."""
         doc_id = "doc-to-delete"
         # Mock mongo.find to return only the single document
@@ -967,7 +967,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_document_pdf_with_chunks_success(self, knowledge_base: KnowledgeBase):
+    async def test_delete_document_pdf_with_chunks_success(self, knowledge_base: KnowledgeBaseService):
         """Test successful deletion of a PDF document and its associated vectors."""
         parent_id = "pdf-to-delete"
         # Assume chunks aren't stored in Mongo, only parent
@@ -1006,7 +1006,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_document_not_found(self, knowledge_base: KnowledgeBase):
+    async def test_delete_document_not_found(self, knowledge_base: KnowledgeBaseService):
         """Test deleting a document that doesn't exist."""
         doc_id = "doc-not-found"
         knowledge_base.mongo.find.return_value = []  # Simulate not found in Mongo
@@ -1029,7 +1029,7 @@ class TestKnowledgeBase:
         knowledge_base.mongo.delete_many.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_delete_document_pinecone_error(self, knowledge_base: KnowledgeBase):
+    async def test_delete_document_pinecone_error(self, knowledge_base: KnowledgeBaseService):
         """Test document deletion continues with Mongo if Pinecone fails."""
         doc_id = "doc-delete-pinecone-fail"
         knowledge_base.mongo.find.return_value = [
@@ -1053,7 +1053,7 @@ class TestKnowledgeBase:
         # FIX: Removed incorrect 'assert result is False'
 
     @pytest.mark.asyncio
-    async def test_delete_document_mongo_error(self, knowledge_base: KnowledgeBase):
+    async def test_delete_document_mongo_error(self, knowledge_base: KnowledgeBaseService):
         """Test document deletion handles Mongo delete error."""
         doc_id = "doc-delete-mongo-fail"
         knowledge_base.mongo.find.return_value = [
@@ -1077,7 +1077,7 @@ class TestKnowledgeBase:
     # --- Update Document Tests ---
 
     @pytest.mark.asyncio
-    async def test_update_document_metadata_only(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_metadata_only(self, knowledge_base: KnowledgeBaseService):
         """Test updating only document metadata for a plain text document."""
         doc_id = "doc-update-meta"
         original_doc = {
@@ -1114,7 +1114,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_document_content_and_metadata(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_content_and_metadata(self, knowledge_base: KnowledgeBaseService):
         """Test updating both content and metadata for a plain text document."""
         doc_id = "doc-update-all"
         original_doc = {
@@ -1163,7 +1163,7 @@ class TestKnowledgeBase:
         assert pinecone_meta["tags"] == ["original"]
 
     @pytest.mark.asyncio
-    async def test_update_document_not_found(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_not_found(self, knowledge_base: KnowledgeBaseService):
         """Test updating a document that doesn't exist in MongoDB."""
         knowledge_base.mongo.find_one.return_value = None  # Simulate not found
 
@@ -1176,7 +1176,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_document_cannot_update_chunk(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_cannot_update_chunk(self, knowledge_base: KnowledgeBaseService):
         """Test that updating a chunk directly is disallowed."""
         chunk_id = "pdf1_chunk_0"
         original_chunk_doc = {  # Simulate finding a chunk doc (though not stored)
@@ -1195,7 +1195,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_document_cannot_update_pdf_content(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_cannot_update_pdf_content(self, knowledge_base: KnowledgeBaseService):
         """Test that updating PDF content via update_document is disallowed."""
         pdf_doc_id = "pdf-to-update"
         original_pdf_doc = {
@@ -1214,7 +1214,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_document_mongo_update_error(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_mongo_update_error(self, knowledge_base: KnowledgeBaseService):
         """Test error handling when MongoDB update fails."""
         doc_id = "doc-update-mongo-fail"
         original_doc = {
@@ -1235,7 +1235,7 @@ class TestKnowledgeBase:
         knowledge_base.pinecone.upsert_text.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_update_document_pinecone_update_error(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_pinecone_update_error(self, knowledge_base: KnowledgeBaseService):
         """Test handling when Pinecone update fails after successful Mongo update."""
         doc_id = "doc-update-pinecone-fail"
         original_doc = {
@@ -1264,7 +1264,7 @@ class TestKnowledgeBase:
 
     # --- Batch Add Document Tests ---
     @pytest.mark.asyncio
-    async def test_add_documents_batch_success(self, knowledge_base: KnowledgeBase):
+    async def test_add_documents_batch_success(self, knowledge_base: KnowledgeBaseService):
         """Test adding multiple documents in a batch."""
         docs_to_add = [
             {"text": "Batch doc 1", "metadata": {
@@ -1313,7 +1313,7 @@ class TestKnowledgeBase:
         assert len(kwargs2["metadatas"]) == 1
 
     @pytest.mark.asyncio
-    async def test_add_documents_batch_generate_ids(self, knowledge_base: KnowledgeBase):
+    async def test_add_documents_batch_generate_ids(self, knowledge_base: KnowledgeBaseService):
         """Test batch adding generates IDs if not provided."""
         docs_to_add = [
             {"text": "Batch gen id 1", "metadata": {"source": "gen_batch"}},
@@ -1337,7 +1337,7 @@ class TestKnowledgeBase:
             str(uuid1), str(uuid2)]
 
     @pytest.mark.asyncio
-    async def test_add_documents_batch_pinecone_error(self, knowledge_base: KnowledgeBase):
+    async def test_add_documents_batch_pinecone_error(self, knowledge_base: KnowledgeBaseService):
         """Test batch add continues if one Pinecone batch fails."""
         docs_to_add = [
             {"text": "Batch ok 1", "metadata": {"document_id": "pok1"}},
@@ -1365,7 +1365,7 @@ class TestKnowledgeBase:
 
     # --- Get Full Document Test ---
     @pytest.mark.asyncio
-    async def test_get_full_document_success(self, knowledge_base: KnowledgeBase):
+    async def test_get_full_document_success(self, knowledge_base: KnowledgeBaseService):
         """Test retrieving a full document from MongoDB."""
         doc_id = "doc-to-get"
         expected_doc = {
@@ -1382,7 +1382,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_get_full_document_not_found(self, knowledge_base: KnowledgeBase):
+    async def test_get_full_document_not_found(self, knowledge_base: KnowledgeBaseService):
         """Test retrieving a document that doesn't exist."""
         doc_id = "doc-get-not-found"
         knowledge_base.mongo.find_one.return_value = None  # Simulate not found
@@ -1395,7 +1395,7 @@ class TestKnowledgeBase:
         )
 
     @pytest.mark.asyncio
-    async def test_update_document_content_with_rerank(self, knowledge_base: KnowledgeBase):
+    async def test_update_document_content_with_rerank(self, knowledge_base: KnowledgeBaseService):
         """Test updating document content adds rerank field to Pinecone meta when enabled."""
         doc_id = "doc-update-rerank"
         original_doc = {
@@ -1442,7 +1442,7 @@ class TestKnowledgeBase:
         assert pinecone_meta["source"] == "rerank"
 
     @pytest.mark.asyncio
-    async def test_query_uses_rerank_field_for_content(self, knowledge_base: KnowledgeBase, sample_mongo_docs_map):
+    async def test_query_uses_rerank_field_for_content(self, knowledge_base: KnowledgeBaseService, sample_mongo_docs_map):
         """Test query uses content from Pinecone rerank field when enabled."""
         # Enable reranking on the KB's pinecone adapter for this test
         knowledge_base.pinecone.use_reranking = True
@@ -1519,7 +1519,7 @@ class TestKnowledgeBase:
         assert result_no_rerank["metadata"]["source"] == "website"
 
     @pytest.mark.asyncio
-    async def test_add_documents_batch_with_rerank(self, knowledge_base: KnowledgeBase):
+    async def test_add_documents_batch_with_rerank(self, knowledge_base: KnowledgeBaseService):
         """Test batch adding includes rerank field in Pinecone meta when enabled."""
         docs_to_add = [
             {"text": "Batch rerank doc 1", "metadata": {
@@ -1572,7 +1572,7 @@ class TestKnowledgeBase:
 
     @pytest.mark.asyncio
     async def test_add_pdf_document_with_rerank(
-        self, knowledge_base: KnowledgeBase, mock_pdf_reader, mock_semantic_splitter_nodes,
+        self, knowledge_base: KnowledgeBaseService, mock_pdf_reader, mock_semantic_splitter_nodes,
         sample_pdf_data, sample_pdf_metadata
     ):
         """Test adding PDF includes rerank field in chunk metadata when enabled."""
@@ -1614,7 +1614,7 @@ class TestKnowledgeBase:
 
     @pytest.mark.asyncio
     async def test_add_pdf_document_no_chunks_generated(
-        self, knowledge_base: KnowledgeBase, mock_pdf_reader,
+        self, knowledge_base: KnowledgeBaseService, mock_pdf_reader,
         sample_pdf_data, sample_pdf_metadata
     ):
         """Test adding PDF returns early if semantic splitter generates no nodes."""

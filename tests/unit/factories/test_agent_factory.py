@@ -663,7 +663,7 @@ class TestSolanaAgentFactory:
     @patch('solana_agent.factories.agent_factory.RoutingService')
     @patch('solana_agent.factories.agent_factory.PineconeAdapter')
     # Added create=True
-    @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+    @patch('solana_agent.factories.agent_factory.KnowledgeBaseServiceService', create=True)
     # Added MemoryRepository mock
     @patch('solana_agent.factories.agent_factory.MemoryRepository')
     @patch('solana_agent.factories.agent_factory.QueryService')
@@ -728,7 +728,7 @@ class TestSolanaAgentFactory:
             # rerank_text_field="content"
         )
 
-        # The KnowledgeBase assertion might also need adjustment depending on
+        # The KnowledgeBaseService assertion might also need adjustment depending on
         # whether it relies on the missing PineconeAdapter arguments.
         # Assuming it only needs the adapter instance and basic config for now.
         mock_knowledge_base.assert_called_once_with(
@@ -759,7 +759,7 @@ class TestSolanaAgentFactory:
     @patch('solana_agent.factories.agent_factory.RoutingService')
     @patch('solana_agent.factories.agent_factory.PineconeAdapter')
     # Added create=True
-    @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+    @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
     # Added MemoryRepository mock
     @patch('solana_agent.factories.agent_factory.MemoryRepository')
     @patch('solana_agent.factories.agent_factory.QueryService')
@@ -807,7 +807,7 @@ class TestSolanaAgentFactory:
 
         # Verify PineconeAdapter was called (attempted)
         mock_pinecone_adapter.assert_called_once()
-        # Verify KnowledgeBase constructor was NOT called because Pinecone failed first
+        # Verify KnowledgeBaseService constructor was NOT called because Pinecone failed first
         mock_knowledge_base.assert_not_called()
 
         # Verify QueryService call includes the memory provider even if KB failed
@@ -1101,7 +1101,7 @@ class TestSolanaAgentFactory:
             @patch('solana_agent.factories.agent_factory.RoutingService')
             @patch('solana_agent.factories.agent_factory.PineconeAdapter')
             # Added create=True
-            @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+            @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
             @patch('solana_agent.factories.agent_factory.QueryService')
             def test_create_from_config_with_knowledge_base_fixed(
                 self, mock_query_service, mock_knowledge_base, mock_pinecone_adapter,
@@ -1206,7 +1206,7 @@ class TestSolanaAgentFactory:
             @patch('solana_agent.factories.agent_factory.RoutingService')
             @patch('solana_agent.factories.agent_factory.PineconeAdapter')
             # Added create=True to handle the AttributeError
-            @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+            @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
             # Added MemoryRepository mock
             @patch('solana_agent.factories.agent_factory.MemoryRepository')
             @patch('solana_agent.factories.agent_factory.QueryService')
@@ -1260,7 +1260,7 @@ class TestSolanaAgentFactory:
 
                 # Verify PineconeAdapter was called (attempted)
                 mock_pinecone_adapter.assert_called_once()
-                # Verify KnowledgeBase constructor was NOT called because Pinecone failed first
+                # Verify KnowledgeBaseService constructor was NOT called because Pinecone failed first
                 mock_knowledge_base.assert_not_called()
 
                 # Verify QueryService call includes the memory provider even if KB failed
@@ -1280,7 +1280,7 @@ class TestSolanaAgentFactory:
             @patch('solana_agent.factories.agent_factory.AgentService')
             @patch('solana_agent.factories.agent_factory.RoutingService')
             @patch('solana_agent.factories.agent_factory.PineconeAdapter')
-            @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+            @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
             @patch('solana_agent.factories.agent_factory.MemoryRepository')
             @patch('solana_agent.factories.agent_factory.QueryService')
             def test_kb_default_results_count(
@@ -1316,7 +1316,7 @@ class TestSolanaAgentFactory:
                 # Call the factory
                 result = SolanaAgentFactory.create_from_config(config)
 
-                # Verify KnowledgeBase was called with default rerank_top_k (which seems to be 3 based on factory code)
+                # Verify KnowledgeBaseService was called with default rerank_top_k (which seems to be 3 based on factory code)
                 # Note: The factory code uses results_count for rerank_top_k in KB init
                 # And uses results_count (default 3) for kb_results_count in QueryService init
                 mock_knowledge_base.assert_called_once()
@@ -1335,7 +1335,7 @@ class TestSolanaAgentFactory:
 
                 assert result == mock_query_instance
 
-                # Verify KnowledgeBase constructor was not called successfully due to the error
+                # Verify KnowledgeBaseService constructor was not called successfully due to the error
                 mock_knowledge_base.assert_not_called()
 
                 # Verify QueryService call includes the memory provider even if KB failed
@@ -1355,7 +1355,7 @@ class TestSolanaAgentFactory:
             @patch('solana_agent.factories.agent_factory.RoutingService')
             @patch('solana_agent.factories.agent_factory.PineconeAdapter')
             # Patch KB anyway
-            @patch('solana_agent.factories.agent_factory.KnowledgeBase', create=True)
+            @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
             @patch('solana_agent.factories.agent_factory.MemoryRepository')
             @patch('solana_agent.factories.agent_factory.QueryService')
             def test_create_from_config_kb_requires_mongo(
@@ -1390,7 +1390,7 @@ class TestSolanaAgentFactory:
                 # Call the factory
                 result = SolanaAgentFactory.create_from_config(config)
 
-                # Verify PineconeAdapter and KnowledgeBase were NOT called due to missing mongo
+                # Verify PineconeAdapter and KnowledgeBaseService were NOT called due to missing mongo
                 mock_pinecone_adapter.assert_not_called()
                 mock_knowledge_base.assert_not_called()
 

@@ -11,11 +11,11 @@ from llama_index.core.node_parser import SemanticSplitterNodeParser
 
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.interfaces.services.knowledge_base import KnowledgeService as KnowledgeBaseInterface
+from solana_agent.interfaces.services.knowledge_base import KnowledgeBaseService as KnowledgeBaseInterface
 from solana_agent.interfaces.providers.llm import LLMProvider  # Needed for embeddings
 
 
-class KnowledgeBase(KnowledgeBaseInterface):
+class KnowledgeBaseService(KnowledgeBaseInterface):
     """
     Knowledge Base service using Pinecone for vector search and MongoDB for metadata/full document storage.
     Supports text documents and PDF semantic chunking.

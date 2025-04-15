@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Union
 
 
-class KnowledgeService(ABC):
+class KnowledgeBaseService(ABC):
     """
     Interface for a Knowledge Base service.
     """
