@@ -46,7 +46,7 @@ Build your AI business in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Simple business definition using JSON
-* 
+* Integrated Knowledge Base with semantic search and automatic PDF chunking
 
 ## Stack
 

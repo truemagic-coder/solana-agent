@@ -663,7 +663,7 @@ class TestSolanaAgentFactory:
     @patch('solana_agent.factories.agent_factory.RoutingService')
     @patch('solana_agent.factories.agent_factory.PineconeAdapter')
     # Added create=True
-    @patch('solana_agent.factories.agent_factory.KnowledgeBaseServiceService', create=True)
+    @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
     # Added MemoryRepository mock
     @patch('solana_agent.factories.agent_factory.MemoryRepository')
     @patch('solana_agent.factories.agent_factory.QueryService')
