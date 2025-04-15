@@ -62,7 +62,7 @@ Build your AI business in three lines of code!
 
 * [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
-* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
+* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) or [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 * [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
@@ -308,6 +308,8 @@ config = {
 
 ### Knowledge Base
 
+The Knowledge Base (KB) is meant to store text values and/or small PDFs.
+
 ```python
 config = {
     "knowledge_base": {
@@ -538,13 +540,9 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
-## Runtime Prompt Injection
+## Advanced Customization
 
-Many use cases for Solana Agent require training your agents on your company data.
-
-This can be accomplished via runtime prompt injection. Integrations that work well with FAQs.
-
-This knowledge is accessible to all your AI agents.
+### Runtime Prompt Injection
 
 ```python
 from solana_agent import SolanaAgent
@@ -568,7 +566,7 @@ async for response in solana_agent.process("user123", "How do replace the latch 
     print(response, end="")
 ```
 
-## Custom Routing
+### Custom Routing
 
 In advanced cases like implementing a ticketing system on-top of Solana Agent - you can use your own router.
 
