@@ -58,7 +58,7 @@ Build your AI business in three lines of code!
 ### LLMs
 
 * [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
-* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-mini) (router)
+* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
 * [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
 * [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
