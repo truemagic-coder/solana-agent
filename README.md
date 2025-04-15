@@ -61,8 +61,8 @@ Build your AI business in three lines of code!
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-mini) (router)
 * [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
 * [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
-* [tts-1](https://platform.openai.com/docs/models/tts-1)
-* [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe)
+* [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
+* [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
 ## Installation
 
