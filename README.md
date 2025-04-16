@@ -489,6 +489,10 @@ async for response in solana_agent.process("user123", "What is the latest news o
 
 [Zapier](https://zapier.com) MCP has been tested, works, and is supported.
 
+Other MCP servers may work but are not supported.
+
+`pip install sakit`
+
 ```python
 
 from solana_agent import SolanaAgent
