@@ -194,24 +194,40 @@ class AgentService(AgentServiceInterface):
             return
 
         try:
-            # Get system prompt
-            system_prompt = self.get_agent_system_prompt(agent_name)
+            # --- 1. Get Base System Prompt ---
+            system_prompt_parts = [self.get_agent_system_prompt(agent_name)]
 
-            # Add User ID and memory context
-            system_prompt += f"\n\nUser ID: {user_id}"
-            if memory_context:
-                system_prompt += f"\n\nMEMORY CONTEXT: {memory_context}"
-            if prompt:
-                system_prompt += f"\n\nADDITIONAL PROMPT: {prompt}"
-
-            # Add tool usage prompt if tools are available
-            tool_calling_system_prompt = deepcopy(system_prompt)
+            # --- 2. Add Tool Usage Instructions EARLY ---
+            tool_usage_prompt_text = ""
             if self.tool_registry:
-                tool_usage_prompt = self._get_tool_usage_prompt(agent_name)
-                if tool_usage_prompt:
-                    tool_calling_system_prompt += f"\n\nTOOL CALLING PROMPT: {tool_usage_prompt}"
+                tool_usage_prompt_text = self._get_tool_usage_prompt(
+                    agent_name)
+                if tool_usage_prompt_text:
+                    system_prompt_parts.append(
+                        f"\n\n--- TOOL USAGE INSTRUCTIONS ---{tool_usage_prompt_text}")
                     print(
                         f"Tools available to agent {agent_name}: {[t.get('name') for t in self.get_agent_tools(agent_name)]}")
+
+            # --- 3. Add User ID ---
+            system_prompt_parts.append(f"\n\n--- USER & SESSION INFO ---")
+            system_prompt_parts.append(f"User ID: {user_id}")
+
+            # --- 4. Add Memory Context ---
+            if memory_context:
+                # Make the header clearly separate it
+                system_prompt_parts.append(
+                    f"\n\n--- CONVERSATION HISTORY (Memory Context) ---")
+                system_prompt_parts.append(memory_context)
+
+            # --- 5. Add Additional Prompt (if provided) ---
+            if prompt:
+                # Make the header clearly separate it
+                system_prompt_parts.append(
+                    f"\n\n--- ADDITIONAL INSTRUCTIONS FOR THIS TURN ---")
+                system_prompt_parts.append(prompt)
+
+            # --- Assemble the final system prompt ---
+            final_system_prompt = "\n".join(system_prompt_parts)
 
             # Variables for tracking the complete response
             complete_text_response = ""
@@ -232,7 +248,7 @@ class AgentService(AgentServiceInterface):
                 f"Generating response with {len(query)} characters of query text")
             async for chunk in self.llm_provider.generate_text(
                 prompt=query,
-                system_prompt=tool_calling_system_prompt,
+                system_prompt=final_system_prompt,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
@@ -285,10 +301,36 @@ class AgentService(AgentServiceInterface):
                             f"Tool execution complete, result size: {len(response_text)}")
 
                         # Create new prompt with search/tool results
-                        # Using "Search Result" instead of "TOOL RESPONSE" to avoid model repeating "TOOL"
-                        user_prompt = f"{query}\n\nSearch Result: {response_text}"
-                        tool_system_prompt = system_prompt + \
-                            "\n DO NOT use the tool calling format again."
+                        # Ensure query is string
+                        user_prompt = f"{str(query)}\n\nTOOL RESULT: {response_text}"
+
+                        # --- REBUILD the system prompt for the follow-up call ---
+                        # Start with base prompt again
+                        follow_up_system_prompt_parts = [
+                            self.get_agent_system_prompt(agent_name)]
+                        # Add the instruction NOT to use tools again
+                        follow_up_system_prompt_parts.append(
+                            "\n\nCRITICAL: You have received the results from a tool. Base your response on the 'Search Result' provided in the user prompt. DO NOT use the tool calling format again for this turn.")
+                        follow_up_system_prompt_parts.append(
+                            f"\n\n--- USER & SESSION INFO ---")
+                        follow_up_system_prompt_parts.append(
+                            f"User ID: {user_id}")
+                        if memory_context:
+                            # Make the header clearly separate it
+                            follow_up_system_prompt_parts.append(
+                                f"\n\n--- CONVERSATION HISTORY (Memory Context) ---")
+                            follow_up_system_prompt_parts.append(
+                                memory_context)
+                        if prompt:
+                            # Make the header clearly separate it
+                            follow_up_system_prompt_parts.append(
+                                f"\n\n--- ADDITIONAL INSTRUCTIONS FOR THIS TURN ---")
+                            follow_up_system_prompt_parts.append(prompt)
+
+                        # --- Assemble the final follow_up prompt ---
+                        final_follow_up_system_prompt = "\n".join(
+                            follow_up_system_prompt_parts)
+                        # --- End Rebuild ---"
 
                         # Generate a new response with the tool results
                         print("Generating new response with tool results")
@@ -296,7 +338,7 @@ class AgentService(AgentServiceInterface):
                             # Stream the follow-up response for text output
                             async for processed_chunk in self.llm_provider.generate_text(
                                 prompt=user_prompt,
-                                system_prompt=tool_system_prompt,
+                                system_prompt=final_follow_up_system_prompt,
                                 api_key=self.api_key,
                                 base_url=self.base_url,
                                 model=self.model,
@@ -308,7 +350,7 @@ class AgentService(AgentServiceInterface):
                             tool_response = ""
                             async for processed_chunk in self.llm_provider.generate_text(
                                 prompt=user_prompt,
-                                system_prompt=tool_system_prompt,
+                                system_prompt=final_follow_up_system_prompt,
                             ):
                                 tool_response += processed_chunk
 
@@ -489,18 +531,18 @@ class AgentService(AgentServiceInterface):
         return f"""
         AVAILABLE TOOLS:
         {tools_json}
-        
+
         ⚠️ CRITICAL INSTRUCTION: When using a tool, NEVER include explanatory text.
         Only output the exact tool call format shown below with NO other text.
-        
+        Always call the necessary tool to give the latest information.
+
         TOOL USAGE FORMAT:
         [TOOL]
         name: tool_name
         parameters: key1=value1, key2=value2
         [/TOOL]
-        
+
         EXAMPLES:
-        
         ✅ CORRECT - ONLY the tool call with NOTHING else:
         [TOOL]
         name: search_internet
@@ -513,11 +555,12 @@ class AgentService(AgentServiceInterface):
         name: search_internet
         parameters: query=latest news on Solana
         [/TOOL]
-        
+
         REMEMBER:
         1. Output ONLY the exact tool call format with NO additional text
-        2. After seeing your tool call, I will execute it automatically
-        3. You will receive the tool results and can then respond to the user
+        2. If the query is time-sensitive (latest news, current status, etc.), ALWAYS use the tool.
+        3. After seeing your tool call, I will execute it automatically
+        4. You will receive the tool results and can then respond to the user
         """
 
     def _clean_for_audio(self, text: str) -> str:
