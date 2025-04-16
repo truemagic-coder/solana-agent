@@ -465,29 +465,8 @@ config = {
 config = {
     "tools": {
         "solana": {
-            # Core Solana Settings
-            "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required (unless generate_wallet=True): Your wallet's private key (base58 encoded string).
+            "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required: Your wallet's private key (base58 encoded string).
             "rpc_url": "https://api.mainnet-beta.solana.com",      # Optional: Defaults to Solana mainnet RPC.
-            "generate_wallet": False,                              # Optional: If True, ignores private_key and generates a new wallet. Defaults to False.
-
-            # Optional RPC/Service API Keys & URLs
-            "helius_api_key": "YOUR_HELIUS_API_KEY",               # Optional: Helius API key for enhanced data/RPC.
-            "helius_rpc_url": "YOUR_HELIUS_RPC_URL",               # Optional: Specific Helius RPC URL.
-            "quicknode_rpc_url": "YOUR_QUICKNODE_RPC_URL",         # Optional: QuickNode RPC URL.
-            "jito_block_engine_url": "YOUR_JITO_BLOCK_ENGINE_URL", # Optional: Jito block engine URL for bundles.
-            "jito_uuid": "YOUR_JITO_UUID",                         # Optional: Jito authentication UUID.
-
-            # Optional Integration API Keys
-            "openai_api_key": "YOUR_OPENAI_API_KEY",               # Optional: OpenAI API key (if needed by specific agentipy features).
-            "backpack_api_key": "YOUR_BACKPACK_API_KEY",           # Optional: Backpack Exchange API key.
-            "backpack_api_secret": "YOUR_BACKPACK_API_SECRET",     # Optional: Backpack Exchange API secret.
-            "stork_api_key": "YOUR_STORK_API_KEY",                 # Optional: Stork oracle API key.
-            "coingecko_api_key": "YOUR_COINGECKO_PRO_API_KEY",     # Optional: CoinGecko Pro API key.
-            "coingecko_demo_api_key": "YOUR_COINGECKO_DEMO_KEY",   # Optional: CoinGecko Demo API key.
-            "elfa_ai_api_key": "YOUR_ELFA_AI_API_KEY",             # Optional: Elfa AI API key.
-            "flexland_api_key": "YOUR_FLEXLAND_API_KEY",           # Optional: Flexlend API key.
-            "allora_api_key": "YOUR_ALLORA_API_KEY",               # Optional: Allora Network API key.
-            "solutiofi_api_key": "YOUR_SOLUTIOFI_API_KEY"          # Optional: Solutio Finance API key.
         },
     },
     "ai_agents": [
