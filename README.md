@@ -18,7 +18,7 @@ Build your AI business in three lines of code!
 ## Why?
 * Three lines of code setup
 * Fast Responses
-* Solana Integration
+* Solana Ecosystem Integration
 * Multi-Agent Swarm
 * Multi-Modal Streaming (Text & Audio)
 * Conversational Memory & History
@@ -36,7 +36,7 @@ Build your AI business in three lines of code!
 
 * Easy three lines of code setup
 * Fast AI responses
-* Solana Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
+* Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
@@ -483,7 +483,6 @@ solana_agent = SolanaAgent(config=config)
 
 async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?"):
     print(response, end="")
-
 ```
 
 ### Inline Tool Example
