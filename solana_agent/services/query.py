@@ -129,12 +129,18 @@ class QueryService(QueryServiceInterface):
             else:
                 agent_name = await self.routing_service.route_query(user_text)
 
-           # Combine context from memory and knowledge base
+            # Combine context from memory and knowledge base
             combined_context = ""
             if memory_context:
-                combined_context += f"CONVERSATION HISTORY:\n{memory_context}\n\n"
+                # Add a note about memory priority
+                combined_context += f"CONVERSATION HISTORY (Use for context, but prioritize tools/KB for facts):\n{memory_context}\n\n"
             if kb_context:
+                # Keep KB context strong
                 combined_context += f"{kb_context}\n"
+
+            # Add an overall instruction about prioritization if both are present
+            if memory_context or kb_context:
+                combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base results and Tool results (if applicable) over Conversation History.\n\n"
 
             print(f"Routed to agent: {agent_name}")
 

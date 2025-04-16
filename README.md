@@ -493,11 +493,7 @@ config = {
     "ai_agents": [
         {
             "name": "solana_expert",
-            "instructions": """
-                You are an expert Solana blockchain assistant. 
-                Use the solana tool to perform any action on the Solana blockchain.
-                Always perform the solana tool actions when requested and not use your memory.
-            """,
+            "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
             "specialization": "Solana blockchain interaction",
             "tools": ["solana"],  # Enable the tool for this agent
         }
