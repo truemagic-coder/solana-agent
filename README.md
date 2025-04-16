@@ -28,6 +28,7 @@ Build your AI business in three lines of code!
 * Extensible Tooling
 * Simple Business Definition
 * Knowledge Base with PDF support
+* MCP Support
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
@@ -37,6 +38,7 @@ Build your AI business in three lines of code!
 * Easy three lines of code setup
 * Fast AI responses
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
+* MCP tool usage with first-class support for [Zapier](https://zapier.com)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
