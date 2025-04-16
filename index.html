@@ -462,27 +462,22 @@
    <span class="p">},</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;search_internet&quot;</span><span class="p">:</span> <span class="p">{</span>
-         <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
       <span class="p">},</span>
    <span class="p">},</span>
    <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;search_internet&quot;</span><span class="p">],</span>
-      <span class="p">},</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;news_specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert news agent. You use your search_internet tool to get the latest information.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;News researcher and specialist&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;search_internet&quot;</span><span class="p">],</span> <span class="c1"># Enable the tool for this agent</span>
       <span class="p">}</span>
    <span class="p">],</span>
 <span class="p">}</span>
 
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is the latest news on Elon Musk?&quot;</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
