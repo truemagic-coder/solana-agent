@@ -425,6 +425,34 @@ Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools
 * Solana Agent doesn't use OpenAI function calling (tools) as they don't support async functions
 * Solana Agent tools are async functions
 
+### Solana
+
+`pip install sakit`
+
+```python
+config = {
+    "tools": {
+        "solana": {
+            "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required: Your wallet's private key (base58 encoded string).
+            "rpc_url": "https://api.mainnet-beta.solana.com",      # Optional: Defaults to Solana mainnet RPC.
+        },
+    },
+    "ai_agents": [
+        {
+            "name": "solana_expert",
+            "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
+            "specialization": "Solana blockchain interaction",
+            "tools": ["solana"],  # Enable the tool for this agent
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What is my SOL balance?"):
+    print(response, end="")
+```
+
 ### Internet Search
 
 `pip install sakit`
@@ -455,34 +483,6 @@ config = {
         }
     ],
 }
-```
-
-### Solana Actions
-
-`pip install sakit`
-
-```python
-config = {
-    "tools": {
-        "solana": {
-            "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required: Your wallet's private key (base58 encoded string).
-            "rpc_url": "https://api.mainnet-beta.solana.com",      # Optional: Defaults to Solana mainnet RPC.
-        },
-    },
-    "ai_agents": [
-        {
-            "name": "solana_expert",
-            "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
-            "specialization": "Solana blockchain interaction",
-            "tools": ["solana"],  # Enable the tool for this agent
-        }
-    ]
-}
-
-solana_agent = SolanaAgent(config=config)
-
-async for response in solana_agent.process("user123", "What is my SOL balance?"):
-    print(response, end="")
 ```
 
 ### Inline Tool Example

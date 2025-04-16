@@ -375,6 +375,39 @@ Example for KB (pdf)
    async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
       print(response, end="")
 
+Solana
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+   
+   pip install sakit
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "tools": {
+         "solana": {
+               "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required: Your wallet's private key (base58 encoded string).
+               "rpc_url": "https://api.mainnet-beta.solana.com",      # Optional: Defaults to Solana mainnet RPC.
+         },
+      },
+      "ai_agents": [
+         {
+               "name": "solana_expert",
+               "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
+               "specialization": "Solana blockchain interaction",
+               "tools": ["solana"],  # Enable the tool for this agent
+         }
+      ]
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   async for response in solana_agent.process("user123", "What is my SOL balance?"):
+      print(response, end="")
+
 Internet Search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -413,40 +446,6 @@ Internet Search
    solana_agent = SolanaAgent(config=config)
 
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-      print(response, end="")
-
-
-Solana Actions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-   
-   pip install sakit
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "tools": {
-         "solana": {
-               "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",       # Required: Your wallet's private key (base58 encoded string).
-               "rpc_url": "https://api.mainnet-beta.solana.com",      # Optional: Defaults to Solana mainnet RPC.
-         },
-      },
-      "ai_agents": [
-         {
-               "name": "solana_expert",
-               "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
-               "specialization": "Solana blockchain interaction",
-               "tools": ["solana"],  # Enable the tool for this agent
-         }
-      ]
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What is my SOL balance?"):
       print(response, end="")
 
 
