@@ -416,7 +416,7 @@ Internet Search
    pip install sakit
 
 .. code-block:: python
-
+   
    from solana_agent import SolanaAgent
 
    config = {
@@ -425,27 +425,22 @@ Internet Search
       },
       "tools": {
          "search_internet": {
-            "api_key": "your-openai-api-key",
+               "api_key": "your-openai-api-key",
          },
       },
       "agents": [
          {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly. You use your search_internet tool to get the latest information.",
-            "specialization": "Research and knowledge synthesis",
-            "tools": ["search_internet"],
-         },
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
+               "name": "news_specialist",
+               "instructions": "You are an expert news agent. You use your search_internet tool to get the latest information.",
+               "specialization": "News researcher and specialist",
+               "tools": ["search_internet"], # Enable the tool for this agent
          }
       ],
    }
 
    solana_agent = SolanaAgent(config=config)
 
-   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+   async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?"):
       print(response, end="")
 
 
