@@ -466,29 +466,8 @@
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;solana&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="c1"># Core Solana Settings</span>
-            <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_SOLANA_WALLET_PRIVATE_KEY&quot;</span><span class="p">,</span>       <span class="c1"># Required (unless generate_wallet=True): Your wallet&#39;s private key (base58 encoded string).</span>
+            <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_SOLANA_WALLET_PRIVATE_KEY&quot;</span><span class="p">,</span>       <span class="c1"># Required: Your wallet&#39;s private key (base58 encoded string).</span>
             <span class="s2">&quot;rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://api.mainnet-beta.solana.com&quot;</span><span class="p">,</span>      <span class="c1"># Optional: Defaults to Solana mainnet RPC.</span>
-            <span class="s2">&quot;generate_wallet&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>                              <span class="c1"># Optional: If True, ignores private_key and generates a new wallet. Defaults to False.</span>
-
-            <span class="c1"># Optional RPC/Service API Keys &amp; URLs</span>
-            <span class="s2">&quot;helius_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_HELIUS_API_KEY&quot;</span><span class="p">,</span>               <span class="c1"># Optional: Helius API key for enhanced data/RPC.</span>
-            <span class="s2">&quot;helius_rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_HELIUS_RPC_URL&quot;</span><span class="p">,</span>               <span class="c1"># Optional: Specific Helius RPC URL.</span>
-            <span class="s2">&quot;quicknode_rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_QUICKNODE_RPC_URL&quot;</span><span class="p">,</span>         <span class="c1"># Optional: QuickNode RPC URL.</span>
-            <span class="s2">&quot;jito_block_engine_url&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_JITO_BLOCK_ENGINE_URL&quot;</span><span class="p">,</span> <span class="c1"># Optional: Jito block engine URL for bundles.</span>
-            <span class="s2">&quot;jito_uuid&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_JITO_UUID&quot;</span><span class="p">,</span>                         <span class="c1"># Optional: Jito authentication UUID.</span>
-
-            <span class="c1"># Optional Integration API Keys</span>
-            <span class="s2">&quot;openai_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_OPENAI_API_KEY&quot;</span><span class="p">,</span>               <span class="c1"># Optional: OpenAI API key (if needed by specific agentipy features).</span>
-            <span class="s2">&quot;backpack_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_BACKPACK_API_KEY&quot;</span><span class="p">,</span>           <span class="c1"># Optional: Backpack Exchange API key.</span>
-            <span class="s2">&quot;backpack_api_secret&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_BACKPACK_API_SECRET&quot;</span><span class="p">,</span>     <span class="c1"># Optional: Backpack Exchange API secret.</span>
-            <span class="s2">&quot;stork_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_STORK_API_KEY&quot;</span><span class="p">,</span>                 <span class="c1"># Optional: Stork oracle API key.</span>
-            <span class="s2">&quot;coingecko_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_COINGECKO_PRO_API_KEY&quot;</span><span class="p">,</span>     <span class="c1"># Optional: CoinGecko Pro API key.</span>
-            <span class="s2">&quot;coingecko_demo_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_COINGECKO_DEMO_KEY&quot;</span><span class="p">,</span>   <span class="c1"># Optional: CoinGecko Demo API key.</span>
-            <span class="s2">&quot;elfa_ai_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_ELFA_AI_API_KEY&quot;</span><span class="p">,</span>             <span class="c1"># Optional: Elfa AI API key.</span>
-            <span class="s2">&quot;flexland_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_FLEXLAND_API_KEY&quot;</span><span class="p">,</span>           <span class="c1"># Optional: Flexlend API key.</span>
-            <span class="s2">&quot;allora_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_ALLORA_API_KEY&quot;</span><span class="p">,</span>               <span class="c1"># Optional: Allora Network API key.</span>
-            <span class="s2">&quot;solutiofi_api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_SOLUTIOFI_API_KEY&quot;</span>          <span class="c1"># Optional: Solutio Finance API key.</span>
       <span class="p">},</span>
    <span class="p">},</span>
    <span class="s2">&quot;ai_agents&quot;</span><span class="p">:</span> <span class="p">[</span>
