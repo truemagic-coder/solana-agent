@@ -459,6 +459,8 @@ config = {
 
 ### Solana Actions
 
+`pip install sakit`
+
 ```python
 config = {
     "tools": {
