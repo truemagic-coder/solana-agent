@@ -485,6 +485,40 @@ async for response in solana_agent.process("user123", "What is the latest news o
     print(response, end="")
 ```
 
+### MCP
+
+[Zapier](https://zapier.com) MCP has been tested, works, and is supported.
+
+Other MCP servers may work but are not supported.
+
+`pip install sakit`
+
+```python
+
+from solana_agent import SolanaAgent
+
+config = {
+    "tools": {
+        "mcp": {
+            "urls": ["my-zapier-mcp-url"],
+        }
+    },
+    "agents": [
+        {
+            "name": "zapier_expert",
+            "instructions": "You are an expert in using Zapier integrations using MCP. You always use the mcp tool to perform Zapier AI like actions.",
+            "specialization": "Zapier service integration expert",
+            "tools": ["mcp"],  # Enable the tool for this agent
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "Send an email to bob@bob.com to clean his room!"):
+    print(response, end="")
+```
+
 ### Inline Tool Example
 
 ```python

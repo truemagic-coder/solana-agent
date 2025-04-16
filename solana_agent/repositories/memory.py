@@ -127,20 +127,6 @@ class MemoryRepository(MemoryProvider):
                 memory = await self.zep.memory.get(session_id=user_id)
                 if memory and memory.context:
                     memories = memory.context
-            if self.mongo:
-                mongo_memory = self.mongo.find(
-                    self.collection,
-                    {"user_id": user_id},
-                    sort=[("timestamp", -1)],
-                    limit=3
-                )
-                if mongo_memory:
-                    # Concatenate MongoDB memory with Zep memory
-                    mongo_memory = [
-                        f"{msg['user_message']} {msg['assistant_message']}"
-                        for msg in mongo_memory
-                    ]
-                    memories += " ".join(mongo_memory)
             return memories
 
         except Exception as e:
