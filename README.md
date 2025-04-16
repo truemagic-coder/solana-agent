@@ -38,7 +38,7 @@ Build your AI business in three lines of code!
 * Easy three lines of code setup
 * Fast AI responses
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
-* MCP tool usage with first-class support for [Zapier](https://zapier.com)
+* MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Configurable audio voice characteristics via prompting
@@ -489,7 +489,9 @@ async for response in solana_agent.process("user123", "What is the latest news o
 
 ### MCP
 
-[Zapier](https://zapier.com) MCP has been tested, works, and is supported.
+[Zapier](https://zapier.com/mcp) MCP has been tested, works, and is supported.
+
+Zapier integrates over 7,000+ apps with 30,000+ actions that your Solana Agent can utilize.
 
 Other MCP servers may work but are not supported.
 
