@@ -389,8 +389,8 @@ Solana
    config = {
       "tools": {
          "solana": {
-               "private_key": "YOUR_SOLANA_WALLET_PRIVATE_KEY",   # Required: Your wallet's private key (base58 encoded string).
-               "rpc_url": "https://api.mainnet-beta.solana.com",  # Optional: Defaults to Solana mainnet RPC.
+               "private_key": "your-solana-wallet-private-key", # base58 encoded string
+               "rpc_url": "your-solana-rpc-url",
          },
       },
       "ai_agents": [
