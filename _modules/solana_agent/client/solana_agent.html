@@ -75,6 +75,7 @@
 <span class="sd">This module provides a clean API for end users to interact with</span>
 <span class="sd">the agent system without dealing with internal implementation details.</span>
 <span class="sd">&quot;&quot;&quot;</span>
+
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncGenerator</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
@@ -107,8 +108,7 @@
                     <span class="n">config</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
                 <span class="k">else</span><span class="p">:</span>
                     <span class="c1"># Assume it&#39;s a Python file</span>
-                    <span class="n">spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span>
-                        <span class="s2">&quot;config&quot;</span><span class="p">,</span> <span class="n">config_path</span><span class="p">)</span>
+                    <span class="n">spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="s2">&quot;config&quot;</span><span class="p">,</span> <span class="n">config_path</span><span class="p">)</span>
                     <span class="n">config_module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">module_from_spec</span><span class="p">(</span><span class="n">spec</span><span class="p">)</span>
                     <span class="n">spec</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">exec_module</span><span class="p">(</span><span class="n">config_module</span><span class="p">)</span>
                     <span class="n">config</span> <span class="o">=</span> <span class="n">config_module</span><span class="o">.</span><span class="n">config</span>
@@ -123,11 +123,22 @@
         <span class="n">message</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">],</span>
         <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;audio&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span>
-        <span class="n">audio_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;alloy&quot;</span><span class="p">,</span> <span class="s2">&quot;ash&quot;</span><span class="p">,</span> <span class="s2">&quot;ballad&quot;</span><span class="p">,</span> <span class="s2">&quot;coral&quot;</span><span class="p">,</span> <span class="s2">&quot;echo&quot;</span><span class="p">,</span>
-                             <span class="s2">&quot;fable&quot;</span><span class="p">,</span> <span class="s2">&quot;onyx&quot;</span><span class="p">,</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span> <span class="s2">&quot;sage&quot;</span><span class="p">,</span> <span class="s2">&quot;shimmer&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
+        <span class="n">audio_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
+            <span class="s2">&quot;alloy&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ash&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ballad&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;coral&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;echo&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;fable&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;onyx&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;sage&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;shimmer&quot;</span><span class="p">,</span>
+        <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
         <span class="n">audio_instructions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;You speak in a friendly and helpful manner.&quot;</span><span class="p">,</span>
-        <span class="n">audio_output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">&#39;mp3&#39;</span><span class="p">,</span> <span class="s1">&#39;opus&#39;</span><span class="p">,</span>
-                                     <span class="s1">&#39;aac&#39;</span><span class="p">,</span> <span class="s1">&#39;flac&#39;</span><span class="p">,</span> <span class="s1">&#39;wav&#39;</span><span class="p">,</span> <span class="s1">&#39;pcm&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
+        <span class="n">audio_output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
+            <span class="s2">&quot;mp3&quot;</span><span class="p">,</span> <span class="s2">&quot;opus&quot;</span><span class="p">,</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span> <span class="s2">&quot;flac&quot;</span><span class="p">,</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span> <span class="s2">&quot;pcm&quot;</span>
+        <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
         <span class="n">audio_input_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
             <span class="s2">&quot;flac&quot;</span><span class="p">,</span> <span class="s2">&quot;mp3&quot;</span><span class="p">,</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span> <span class="s2">&quot;mpeg&quot;</span><span class="p">,</span> <span class="s2">&quot;mpga&quot;</span><span class="p">,</span> <span class="s2">&quot;m4a&quot;</span><span class="p">,</span> <span class="s2">&quot;ogg&quot;</span><span class="p">,</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span> <span class="s2">&quot;webm&quot;</span>
         <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
@@ -182,7 +193,7 @@
         <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">page_num</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
         <span class="n">page_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span><span class="p">,</span>
-        <span class="n">sort_order</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;desc&quot;</span>  <span class="c1"># &quot;asc&quot; for oldest-first, &quot;desc&quot; for newest-first</span>
+        <span class="n">sort_order</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;desc&quot;</span><span class="p">,</span>  <span class="c1"># &quot;asc&quot; for oldest-first, &quot;desc&quot; for newest-first</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>  <span class="c1"># pragma: no cover</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get paginated message history for a user.</span>
@@ -214,21 +225,23 @@
 <span class="sd">        Returns:</span>
 <span class="sd">            True if successful, False</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">success</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">tool_registry</span><span class="o">.</span><span class="n">register_tool</span><span class="p">(</span>
-            <span class="n">tool</span><span class="p">)</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">tool_registry</span><span class="o">.</span><span class="n">register_tool</span><span class="p">(</span><span class="n">tool</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">agent_service</span><span class="o">.</span><span class="n">assign_tool_for_agent</span><span class="p">(</span>
-                <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span>
+            <span class="p">)</span>
         <span class="k">return</span> <span class="n">success</span></div>
 
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_ensure_kb</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">KnowledgeBaseService</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Checks if the knowledge base service is available and returns it.&quot;&quot;&quot;</span>
-        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="p">,</span> <span class="s1">&#39;knowledge_base&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">knowledge_base</span><span class="p">:</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="p">,</span> <span class="s2">&quot;knowledge_base&quot;</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">knowledge_base</span>
+        <span class="p">):</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">knowledge_base</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span>
-                <span class="s2">&quot;Knowledge base service not configured or available.&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="s2">&quot;Knowledge base service not configured or available.&quot;</span><span class="p">)</span>
 
 <div class="viewcode-block" id="SolanaAgent.kb_add_document">
 <a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_add_document">[docs]</a>
@@ -237,7 +250,7 @@
         <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
         <span class="n">document_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Add a document to the knowledge base.</span>
@@ -264,7 +277,7 @@
         <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
         <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">include_content</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-        <span class="n">include_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">include_metadata</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Query the knowledge base.</span>
@@ -281,15 +294,15 @@
 <span class="sd">            List of matching documents.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">kb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_kb</span><span class="p">()</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">query_text</span><span class="p">,</span> <span class="nb">filter</span><span class="p">,</span> <span class="n">top_k</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">include_content</span><span class="p">,</span> <span class="n">include_metadata</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">query</span><span class="p">(</span>
+            <span class="n">query_text</span><span class="p">,</span> <span class="nb">filter</span><span class="p">,</span> <span class="n">top_k</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">include_content</span><span class="p">,</span> <span class="n">include_metadata</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="SolanaAgent.kb_delete_document">
 <a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.kb_delete_document">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">kb_delete_document</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-        <span class="n">document_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">document_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Delete a document from the knowledge base.</span>
@@ -312,7 +325,7 @@
         <span class="n">document_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">text</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">metadata</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Update an existing document in the knowledge base.</span>
@@ -336,7 +349,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">documents</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
         <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+        <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Add multiple documents to the knowledge base in batches.</span>
@@ -361,7 +374,7 @@
         <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
         <span class="n">document_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">namespace</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">chunk_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+        <span class="n">chunk_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Add a PDF document to the knowledge base via the client.</span>
@@ -380,7 +393,9 @@
         <span class="c1"># Type check added for clarity, though handled in service</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pdf_data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">str</span><span class="p">)):</span>
             <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;pdf_data must be bytes or a file path string.&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">add_pdf_document</span><span class="p">(</span><span class="n">pdf_data</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">document_id</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">chunk_batch_size</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">kb</span><span class="o">.</span><span class="n">add_pdf_document</span><span class="p">(</span>
+            <span class="n">pdf_data</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">document_id</span><span class="p">,</span> <span class="n">namespace</span><span class="p">,</span> <span class="n">chunk_batch_size</span>
+        <span class="p">)</span></div>
 </div>
 
 </pre></div>

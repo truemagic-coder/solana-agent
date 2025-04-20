@@ -75,11 +75,14 @@
 <span class="sd">This module implements the concrete PluginManager that discovers,</span>
 <span class="sd">loads, and manages plugins.</span>
 <span class="sd">&quot;&quot;&quot;</span>
+
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.metadata</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">PluginManager</span> <span class="k">as</span> <span class="n">PluginManagerInterface</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">PluginManager</span> <span class="k">as</span> <span class="n">PluginManagerInterface</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Plugin</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.plugins.registry</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolRegistry</span>
 
@@ -92,7 +95,11 @@
     <span class="c1"># Class variable to track loaded entry points</span>
     <span class="n">_loaded_entry_points</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">tool_registry</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ToolRegistry</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">tool_registry</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ToolRegistry</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize with optional configuration and tool registry.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">config</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">tool_registry</span> <span class="o">=</span> <span class="n">tool_registry</span> <span class="ow">or</span> <span class="n">ToolRegistry</span><span class="p">()</span>
@@ -139,12 +146,13 @@
         <span class="n">loaded_plugins</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="c1"># Discover plugins through entry points</span>
-        <span class="k">for</span> <span class="n">entry_point</span> <span class="ow">in</span> <span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">entry_points</span><span class="p">(</span><span class="n">group</span><span class="o">=</span><span class="s1">&#39;solana_agent.plugins&#39;</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">entry_point</span> <span class="ow">in</span> <span class="n">importlib</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">entry_points</span><span class="p">(</span>
+            <span class="n">group</span><span class="o">=</span><span class="s2">&quot;solana_agent.plugins&quot;</span>
+        <span class="p">):</span>
             <span class="c1"># Skip if this entry point has already been loaded</span>
             <span class="n">entry_point_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="k">if</span> <span class="n">entry_point_id</span> <span class="ow">in</span> <span class="n">PluginManager</span><span class="o">.</span><span class="n">_loaded_entry_points</span><span class="p">:</span>
-                <span class="nb">print</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;Skipping already loaded plugin: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Skipping already loaded plugin: </span><span class="si">{</span><span class="n">entry_point</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="k">continue</span>
 
             <span class="k">try</span><span class="p">:</span>
@@ -187,10 +195,7 @@
 <span class="sd">            List of plugin details dictionaries</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="p">[</span>
-            <span class="p">{</span>
-                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
-                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">plugin</span><span class="o">.</span><span class="n">description</span>
-            <span class="p">}</span>
+            <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">plugin</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">plugin</span><span class="o">.</span><span class="n">description</span><span class="p">}</span>
             <span class="k">for</span> <span class="n">plugin</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_plugins</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
         <span class="p">]</span></div>
 
