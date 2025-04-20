@@ -3,9 +3,6 @@
     "python.testing.pytestEnabled": true,
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "charliermarsh.ruff",
-    "[python]": {
-        "editor.defaultFormatter": "ms-python.autopep8"
-    },
     "python.testing.pytestArgs": [
         "tests"
     ]

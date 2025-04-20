@@ -224,8 +224,7 @@ class AgentService(AgentServiceInterface):
             # --- 2. Add Tool Usage Instructions EARLY ---
             tool_usage_prompt_text = ""
             if self.tool_registry:
-                tool_usage_prompt_text = self._get_tool_usage_prompt(
-                    agent_name)
+                tool_usage_prompt_text = self._get_tool_usage_prompt(agent_name)
                 if tool_usage_prompt_text:
                     system_prompt_parts.append(
                         f"\n\n--- TOOL USAGE INSTRUCTIONS ---{tool_usage_prompt_text}"
@@ -271,8 +270,7 @@ class AgentService(AgentServiceInterface):
             end_marker = "[/TOOL]"
 
             # Generate and stream response (ALWAYS use non-realtime for text generation)
-            print(
-                f"Generating response with {len(query)} characters of query text")
+            print(f"Generating response with {len(query)} characters of query text")
             async for chunk in self.llm_provider.generate_text(
                 prompt=query,
                 system_prompt=final_system_prompt,
@@ -313,8 +311,7 @@ class AgentService(AgentServiceInterface):
 
                     # Check if the tool call is complete
                     if end_marker in tool_buffer:
-                        print(
-                            f"Tool call complete, buffer size: {len(tool_buffer)}")
+                        print(f"Tool call complete, buffer size: {len(tool_buffer)}")
 
                         # Process the tool call
                         response_text = await self._handle_tool_call(
@@ -322,8 +319,7 @@ class AgentService(AgentServiceInterface):
                         )
 
                         # Clean the response to remove any markers or formatting
-                        response_text = self._clean_tool_response(
-                            response_text)
+                        response_text = self._clean_tool_response(response_text)
                         print(
                             f"Tool execution complete, result size: {len(response_text)}"
                         )
@@ -344,15 +340,13 @@ class AgentService(AgentServiceInterface):
                         follow_up_system_prompt_parts.append(
                             "\n\n--- USER & SESSION INFO ---"
                         )
-                        follow_up_system_prompt_parts.append(
-                            f"User ID: {user_id}")
+                        follow_up_system_prompt_parts.append(f"User ID: {user_id}")
                         if memory_context:
                             # Make the header clearly separate it
                             follow_up_system_prompt_parts.append(
                                 "\n\n--- CONVERSATION HISTORY (Memory Context) ---"
                             )
-                            follow_up_system_prompt_parts.append(
-                                memory_context)
+                            follow_up_system_prompt_parts.append(memory_context)
                         if prompt:
                             # Make the header clearly separate it
                             follow_up_system_prompt_parts.append(
@@ -393,8 +387,7 @@ class AgentService(AgentServiceInterface):
                                 tool_response += processed_chunk
 
                             # Clean and add to our complete text record and audio buffer
-                            tool_response = self._clean_for_audio(
-                                tool_response)
+                            tool_response = self._clean_for_audio(tool_response)
                             complete_text_response += tool_response
                             full_response_buffer += tool_response
 
@@ -418,8 +411,7 @@ class AgentService(AgentServiceInterface):
                         # Everything except the partial marker
                         chunk_to_yield = combined_chunk[:-i]
                         potential_marker = True
-                        print(
-                            f"Potential partial marker detected: '{pending_chunk}'")
+                        print(f"Potential partial marker detected: '{pending_chunk}'")
                         break
 
                 if potential_marker:
@@ -458,8 +450,7 @@ class AgentService(AgentServiceInterface):
                 print(
                     f"Processing {len(full_response_buffer)} characters for audio output"
                 )
-                full_response_buffer = self._clean_for_audio(
-                    full_response_buffer)
+                full_response_buffer = self._clean_for_audio(full_response_buffer)
 
                 # Process the entire response with TTS
                 async for audio_chunk in self.llm_provider.tts(
@@ -472,8 +463,7 @@ class AgentService(AgentServiceInterface):
 
             # Store the complete text response
             self.last_text_response = complete_text_response
-            print(
-                f"Response generation complete: {len(complete_text_response)} chars")
+            print(f"Response generation complete: {len(complete_text_response)} chars")
 
         except Exception as e:
             error_msg = f"I apologize, but I encountered an error: {str(e)}"
@@ -506,7 +496,7 @@ class AgentService(AgentServiceInterface):
         chunk_size = 4096
 
         for i in range(0, len(data), chunk_size):
-            yield data[i: i + chunk_size]
+            yield data[i : i + chunk_size]
             # Small delay to simulate streaming
             await asyncio.sleep(0.01)
 

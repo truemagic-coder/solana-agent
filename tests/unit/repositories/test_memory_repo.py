@@ -80,8 +80,7 @@ class TestMemoryRepository:
 
     def test_init_mongo_error(self, mock_mongo_adapter):
         """Test handling MongoDB initialization errors."""
-        mock_mongo_adapter.create_collection.side_effect = Exception(
-            "DB Error")
+        mock_mongo_adapter.create_collection.side_effect = Exception("DB Error")
         repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
         assert repo.mongo == mock_mongo_adapter
 
@@ -201,8 +200,7 @@ class TestMemoryRepository:
         mock_zep.user.add.return_value = None
 
         # 3. Session creation raises exception (this is what we want to test)
-        mock_zep.memory.add_session.side_effect = Exception(
-            "Session creation failed")
+        mock_zep.memory.add_session.side_effect = Exception("Session creation failed")
 
         # Call the method
         await repo.store("user123", valid_messages)
@@ -327,8 +325,7 @@ class TestMemoryRepository:
 
         # Test at period
         assert (
-            repo._truncate("First sentence. Second sentence.",
-                           20) == "First sentence."
+            repo._truncate("First sentence. Second sentence.", 20) == "First sentence."
         )
 
         # Test with ellipsis

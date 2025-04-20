@@ -225,8 +225,7 @@ class TestSolanaAgentFactory:
         mock_mongo_adapter.assert_called_once_with(
             connection_string="mongodb://localhost:27017", database_name="test_db"
         )
-        mock_memory_repo.assert_called_once_with(
-            mongo_adapter=mock_mongo_instance)
+        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
 
         assert result == mock_query_instance
 
@@ -578,8 +577,7 @@ class TestSolanaAgentFactory:
 
         mock_plugin_instance = MagicMock()
         mock_plugin_manager.return_value = mock_plugin_instance
-        mock_plugin_instance.load_plugins.side_effect = Exception(
-            "Plugin error")
+        mock_plugin_instance.load_plugins.side_effect = Exception("Plugin error")
 
         mock_query_instance = MagicMock()
         mock_query_service.return_value = mock_query_instance
@@ -610,8 +608,7 @@ class TestSolanaAgentFactory:
 
         mock_agent_instance = MagicMock()
         mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = [
-            "test_tool"]
+        mock_agent_instance.tool_registry.list_all_tools.return_value = ["test_tool"]
 
         mock_routing_instance = MagicMock()
         mock_routing_service.return_value = mock_routing_instance
@@ -670,10 +667,8 @@ class TestSolanaAgentFactory:
 
         # Verify calls
         assert mock_agent_instance.assign_tool_for_agent.call_count == 2
-        mock_agent_instance.assign_tool_for_agent.assert_any_call(
-            "test_agent", "tool1")
-        mock_agent_instance.assign_tool_for_agent.assert_any_call(
-            "test_agent", "tool2")
+        mock_agent_instance.assign_tool_for_agent.assert_any_call("test_agent", "tool1")
+        mock_agent_instance.assign_tool_for_agent.assert_any_call("test_agent", "tool2")
 
         assert result == mock_query_instance
 
@@ -765,8 +760,7 @@ class TestSolanaAgentFactory:
         )
 
         # Verify MemoryRepository was called
-        mock_memory_repo.assert_called_once_with(
-            mongo_adapter=mock_mongo_instance)
+        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
 
         mock_query_service.assert_called_once_with(
             agent_service=mock_agent_instance,
@@ -778,23 +772,29 @@ class TestSolanaAgentFactory:
 
         assert result == mock_query_instance
 
-    @patch('solana_agent.factories.agent_factory.MongoDBAdapter')
-    @patch('solana_agent.factories.agent_factory.OpenAIAdapter')
-    @patch('solana_agent.factories.agent_factory.AgentService')
-    @patch('solana_agent.factories.agent_factory.RoutingService')
-    @patch('solana_agent.factories.agent_factory.PineconeAdapter')
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.PineconeAdapter")
     # Added create=True
-    @patch('solana_agent.factories.agent_factory.KnowledgeBaseService', create=True)
+    @patch("solana_agent.factories.agent_factory.KnowledgeBaseService", create=True)
     # Added MemoryRepository mock
-    @patch('solana_agent.factories.agent_factory.MemoryRepository')
-    @patch('solana_agent.factories.agent_factory.QueryService')
+    @patch("solana_agent.factories.agent_factory.MemoryRepository")
+    @patch("solana_agent.factories.agent_factory.QueryService")
     # Patches are applied bottom-up, arguments should match this order
     def test_create_from_config_with_kb_error_case_1(
         # Corrected argument order
-        self, mock_query_service, mock_memory_repo, mock_knowledge_base, mock_pinecone_adapter,
-        mock_routing_service, mock_agent_service,
-        mock_openai_adapter, mock_mongo_adapter,
-        knowledge_base_config
+        self,
+        mock_query_service,
+        mock_memory_repo,
+        mock_knowledge_base,
+        mock_pinecone_adapter,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        knowledge_base_config,
     ):
         """Test creating services when knowledge base initialization fails."""
         # Setup mocks
@@ -823,12 +823,10 @@ class TestSolanaAgentFactory:
         mock_query_service.return_value = mock_query_instance
 
         # Call the factory - should handle knowledge base error gracefully
-        result = SolanaAgentFactory.create_from_config(
-            knowledge_base_config)
+        result = SolanaAgentFactory.create_from_config(knowledge_base_config)
 
         # Verify MemoryRepository was still called
-        mock_memory_repo.assert_called_once_with(
-            mongo_adapter=mock_mongo_instance)
+        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
 
         # Verify PineconeAdapter was called (attempted)
         mock_pinecone_adapter.assert_called_once()
@@ -841,7 +839,7 @@ class TestSolanaAgentFactory:
             routing_service=mock_routing_instance,
             memory_provider=mock_memory_instance,  # Expect the memory instance
             knowledge_base=None,
-            kb_results_count=5  # Comes from knowledge_base_config
+            kb_results_count=5,  # Comes from knowledge_base_config
         )
 
         assert result == mock_query_instance
@@ -914,8 +912,7 @@ class TestSolanaAgentFactory:
                 """Test factory creation with missing OpenAI API key."""
                 # This should raise ValueError since OpenAI API key is required
                 with pytest.raises(ValueError, match="OpenAI API key is required"):
-                    SolanaAgentFactory.create_from_config(
-                        invalid_openai_config)
+                    SolanaAgentFactory.create_from_config(invalid_openai_config)
 
             @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
             @patch("solana_agent.factories.agent_factory.AgentService")
@@ -945,8 +942,7 @@ class TestSolanaAgentFactory:
                 mock_query_service.return_value = mock_query_instance
 
                 # Call the factory
-                result = SolanaAgentFactory.create_from_config(
-                    empty_agents_config)
+                result = SolanaAgentFactory.create_from_config(empty_agents_config)
 
                 # Verify calls - no agent registration should occur
                 mock_agent_instance.register_ai_agent.assert_not_called()
@@ -984,8 +980,7 @@ class TestSolanaAgentFactory:
                 mock_query_service.return_value = mock_query_instance
 
                 # Call the factory
-                SolanaAgentFactory.create_from_config(
-                    multiple_agents_config)
+                SolanaAgentFactory.create_from_config(multiple_agents_config)
 
                 # Verify calls for first agent
                 mock_agent_instance.register_ai_agent.assert_any_call(
@@ -1074,8 +1069,7 @@ class TestSolanaAgentFactory:
                 # Verify Python module loading was used
                 mock_spec_from_file_location.assert_called_once()
                 mock_module_from_spec.assert_called_once()
-                mock_spec.loader.exec_module.assert_called_once_with(
-                    mock_module)
+                mock_spec.loader.exec_module.assert_called_once_with(mock_module)
 
                 # Verify agent was registered from Python config
                 mock_agent_instance.register_ai_agent.assert_called_once_with(
@@ -1187,8 +1181,7 @@ class TestSolanaAgentFactory:
                 mock_query_service.return_value = mock_query_instance
 
                 # Call the factory
-                result = SolanaAgentFactory.create_from_config(
-                    knowledge_base_config)
+                result = SolanaAgentFactory.create_from_config(knowledge_base_config)
 
                 # Verify calls
                 mock_pinecone_adapter.assert_called_once()
@@ -1241,8 +1234,7 @@ class TestSolanaAgentFactory:
                 mock_query_service.return_value = mock_query_instance
 
                 # Call the factory - should handle knowledge base error gracefully
-                result = SolanaAgentFactory.create_from_config(
-                    knowledge_base_config)
+                result = SolanaAgentFactory.create_from_config(knowledge_base_config)
 
                 # Verify that QueryService is called with memory provider but no knowledge base
                 mock_query_service.assert_called_once_with(
@@ -1317,8 +1309,7 @@ class TestSolanaAgentFactory:
                 mock_query_service.return_value = mock_query_instance
 
                 # Call the factory - should handle knowledge base error gracefully
-                result = SolanaAgentFactory.create_from_config(
-                    knowledge_base_config)
+                result = SolanaAgentFactory.create_from_config(knowledge_base_config)
 
                 # Verify MemoryRepository was still called
                 mock_memory_repo.assert_called_once_with(

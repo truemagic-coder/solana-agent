@@ -35,8 +35,7 @@ class SolanaAgent(SolanaAgentInterface):
                     config = json.load(f)
                 else:
                     # Assume it's a Python file
-                    spec = importlib.util.spec_from_file_location(
-                        "config", config_path)
+                    spec = importlib.util.spec_from_file_location("config", config_path)
                     config_module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(config_module)
                     config = config_module.config
@@ -142,8 +141,7 @@ class SolanaAgent(SolanaAgentInterface):
         Returns:
             True if successful, False
         """
-        success = self.query_service.agent_service.tool_registry.register_tool(
-            tool)
+        success = self.query_service.agent_service.tool_registry.register_tool(tool)
         if success:
             self.query_service.agent_service.assign_tool_for_agent(
                 agent_name, tool.name
@@ -158,8 +156,7 @@ class SolanaAgent(SolanaAgentInterface):
         ):
             return self.query_service.knowledge_base
         else:
-            raise AttributeError(
-                "Knowledge base service not configured or available.")
+            raise AttributeError("Knowledge base service not configured or available.")
 
     async def kb_add_document(
         self,
