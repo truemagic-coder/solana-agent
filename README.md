@@ -18,6 +18,7 @@ Build your AI agents in three lines of code!
 
 ## Why?
 * Three lines of code setup
+* Simple Agent Definition
 * Fast Responses
 * Solana Ecosystem Integration
 * Multi-Agent Swarm
@@ -27,7 +28,6 @@ Build your AI agents in three lines of code!
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
-* Simple Business Definition
 * Knowledge Base
 * MCP Support
 * Tested & Secure
@@ -37,12 +37,12 @@ Build your AI agents in three lines of code!
 ## Features
 
 * Easy three lines of code setup
+* Simple agent definition using JSON
 * Fast AI responses
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
-* Configurable audio voice characteristics via prompting
 * Persistent memory that preserves context across all agent interactions
 * Quick Internet search to answer users' queries
 * Streamlined message history for all agent interactions
@@ -50,7 +50,6 @@ Build your AI agents in three lines of code!
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
-* Simple business definition using JSON
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 
 ## Stack
