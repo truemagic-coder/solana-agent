@@ -14,7 +14,7 @@
 
 ## AI Agents for Solana
 
-Build your AI business in three lines of code!
+Build your AI agents in three lines of code!
 
 ## Why?
 * Three lines of code setup
