@@ -1,12 +1,15 @@
 """
 Tool registry for the Solana Agent system.
 
-This module implements the concrete ToolRegistry that manages tools 
+This module implements the concrete ToolRegistry that manages tools
 and their access permissions.
 """
+
 from typing import Dict, List, Any, Optional
 
-from solana_agent.interfaces.plugins.plugins import ToolRegistry as ToolRegistryInterface
+from solana_agent.interfaces.plugins.plugins import (
+    ToolRegistry as ToolRegistryInterface,
+)
 from solana_agent.interfaces.plugins.plugins import Tool
 
 
@@ -39,7 +42,8 @@ class ToolRegistry(ToolRegistryInterface):
         """Give an agent access to a specific tool."""
         if tool_name not in self._tools:
             print(
-                f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}")
+                f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}"
+            )
             return False
 
         # Initialize agent's tool list if not exists
@@ -47,12 +51,10 @@ class ToolRegistry(ToolRegistryInterface):
             self._agent_tools[agent_name] = [tool_name]
         elif tool_name not in self._agent_tools[agent_name]:
             # Add new tool to existing list
-            self._agent_tools[agent_name] = [
-                *self._agent_tools[agent_name], tool_name]
+            self._agent_tools[agent_name] = [*self._agent_tools[agent_name], tool_name]
 
         print(f"Successfully assigned tool {tool_name} to agent {agent_name}")
-        print(
-            f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
+        print(f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
 
         return True
 
@@ -63,12 +65,12 @@ class ToolRegistry(ToolRegistryInterface):
             {
                 "name": name,
                 "description": self._tools[name].description,
-                "parameters": self._tools[name].get_schema()
+                "parameters": self._tools[name].get_schema(),
             }
-            for name in tool_names if name in self._tools
+            for name in tool_names
+            if name in self._tools
         ]
-        print(
-            f"Tools available to agent {agent_name}: {[t['name'] for t in tools]}")
+        print(f"Tools available to agent {agent_name}: {[t['name'] for t in tools]}")
         return tools
 
     def list_all_tools(self) -> List[str]:

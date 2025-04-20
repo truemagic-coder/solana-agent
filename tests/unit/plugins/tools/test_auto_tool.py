@@ -4,6 +4,7 @@ Tests for the AutoTool base class.
 This module provides test coverage for the AutoTool implementation,
 including initialization, configuration, and execution.
 """
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -19,11 +20,8 @@ class TestTool(AutoTool):
         return {
             "type": "object",
             "properties": {
-                "test_param": {
-                    "type": "string",
-                    "description": "Test parameter"
-                }
-            }
+                "test_param": {"type": "string", "description": "Test parameter"}
+            },
         }
 
     async def execute(self, **params):
@@ -53,8 +51,7 @@ class TestAutoTool:
 
     def test_init_with_registry(self, mock_registry):
         """Test initialization with registry."""
-        tool = TestTool("test_tool", "Test description",
-                        registry=mock_registry)
+        tool = TestTool("test_tool", "Test description", registry=mock_registry)
 
         mock_registry.register_tool.assert_called_once_with(tool)
         assert tool.name == "test_tool"
@@ -123,8 +120,7 @@ class TestAutoTool:
     def test_registration_failure(self, mock_registry):
         """Test handling registration failure."""
         mock_registry.register_tool.return_value = False
-        tool = TestTool("test_tool", "Test description",
-                        registry=mock_registry)
+        tool = TestTool("test_tool", "Test description", registry=mock_registry)
 
         mock_registry.register_tool.assert_called_once_with(tool)
         assert tool.name == "test_tool"

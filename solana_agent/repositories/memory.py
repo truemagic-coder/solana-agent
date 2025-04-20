@@ -43,13 +43,18 @@ class MemoryRepository(MemoryProvider):
             raise ValueError("User ID cannot be None or empty")
         if not messages or not isinstance(messages, list):
             raise ValueError("Messages must be a non-empty list")
-        if not all(isinstance(msg, dict) and "role" in msg and "content" in msg for msg in messages):
+        if not all(
+            isinstance(msg, dict) and "role" in msg and "content" in msg
+            for msg in messages
+        ):
             raise ValueError(
-                "All messages must be dictionaries with 'role' and 'content' keys")
+                "All messages must be dictionaries with 'role' and 'content' keys"
+            )
         for msg in messages:
             if msg["role"] not in ["user", "assistant"]:
                 raise ValueError(
-                    f"Invalid role '{msg['role']}' in message. Only 'user' and 'assistant' roles are accepted.")
+                    f"Invalid role '{msg['role']}' in message. Only 'user' and 'assistant' roles are accepted."
+                )
 
         # Store in MongoDB
         if self.mongo and len(messages) >= 2:
@@ -71,7 +76,7 @@ class MemoryRepository(MemoryProvider):
                         "user_id": user_id,
                         "user_message": user_msg,
                         "assistant_message": assistant_msg,
-                        "timestamp": datetime.now(timezone.utc)
+                        "timestamp": datetime.now(timezone.utc),
                     }
                     self.mongo.insert_one(self.collection, doc)
             except Exception as e:
@@ -96,11 +101,8 @@ class MemoryRepository(MemoryProvider):
         # Add messages to Zep memory
         if zep_messages:
             try:
-                await self.zep.memory.add(
-                    session_id=user_id,
-                    messages=zep_messages
-                )
-            except Exception as e:
+                await self.zep.memory.add(session_id=user_id, messages=zep_messages)
+            except Exception:
                 try:
                     try:
                         await self.zep.user.add(user_id=user_id)
@@ -108,13 +110,12 @@ class MemoryRepository(MemoryProvider):
                         print(f"Zep user addition error: {e}")
 
                     try:
-                        await self.zep.memory.add_session(session_id=user_id, user_id=user_id)
+                        await self.zep.memory.add_session(
+                            session_id=user_id, user_id=user_id
+                        )
                     except Exception as e:
                         print(f"Zep session creation error: {e}")
-                    await self.zep.memory.add(
-                        session_id=user_id,
-                        messages=zep_messages
-                    )
+                    await self.zep.memory.add(session_id=user_id, messages=zep_messages)
                 except Exception as e:
                     print(f"Zep memory addition error: {e}")
                     return
@@ -137,10 +138,7 @@ class MemoryRepository(MemoryProvider):
         """Delete memory from both systems."""
         if self.mongo:
             try:
-                self.mongo.delete_all(
-                    self.collection,
-                    {"user_id": user_id}
-                )
+                self.mongo.delete_all(self.collection, {"user_id": user_id})
             except Exception as e:
                 print(f"MongoDB deletion error: {e}")
 
@@ -163,7 +161,7 @@ class MemoryRepository(MemoryProvider):
         query: Dict,
         sort: Optional[List[Tuple]] = None,
         limit: int = 0,
-        skip: int = 0
+        skip: int = 0,
     ) -> List[Dict]:  # pragma: no cover
         """Find documents in MongoDB."""
         if not self.mongo:
@@ -193,9 +191,9 @@ class MemoryRepository(MemoryProvider):
             return text
 
         # Try to truncate at last period before limit
-        last_period = text.rfind('.', 0, limit)
+        last_period = text.rfind(".", 0, limit)
         if last_period > 0:
-            return text[:last_period + 1]
+            return text[: last_period + 1]
 
         # If no period found, truncate at limit and add ellipsis
-        return text[:limit-3] + "..."
+        return text[: limit - 3] + "..."

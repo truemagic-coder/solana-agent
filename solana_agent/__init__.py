@@ -16,16 +16,14 @@ from solana_agent.factories.agent_factory import SolanaAgentFactory
 # Useful tools and utilities
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
-from solana_agent.plugins.tools import AutoTool
+from solana_agent.plugins.tools.auto_tool import AutoTool
 
 # Package metadata
 __all__ = [
     # Main client interfaces
     "SolanaAgent",
-
     # Factories
     "SolanaAgentFactory",
-
     # Tools
     "PluginManager",
     "ToolRegistry",

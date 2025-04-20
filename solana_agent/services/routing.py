@@ -4,8 +4,11 @@ Routing service implementation.
 This service manages query routing to appropriate agents based on
 specializations and query analysis.
 """
+
 from typing import Dict, List, Optional, Any
-from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
+from solana_agent.interfaces.services.routing import (
+    RoutingService as RoutingServiceInterface,
+)
 from solana_agent.interfaces.services.agent import AgentService
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.domains.routing import QueryAnalysis
@@ -48,15 +51,19 @@ class RoutingService(RoutingServiceInterface):
         available_specializations = []
 
         for agent_id, agent in agents.items():
-            available_specializations.append({
-                "agent_name": agent_id,
-                "specialization": agent.specialization,
-            })
+            available_specializations.append(
+                {
+                    "agent_name": agent_id,
+                    "specialization": agent.specialization,
+                }
+            )
 
-        specializations_text = "\n".join([
-            f"- {spec['agent_name']}: {spec['specialization']}"
-            for spec in available_specializations
-        ])
+        specializations_text = "\n".join(
+            [
+                f"- {spec['agent_name']}: {spec['specialization']}"
+                for spec in available_specializations
+            ]
+        )
 
         prompt = f"""
         Analyze this user query and determine which agent would be best suited to answer it.
@@ -91,17 +98,19 @@ class RoutingService(RoutingServiceInterface):
                 "secondary_specializations": analysis.secondary_specializations,
                 "complexity_level": analysis.complexity_level,
                 "topics": analysis.topics,
-                "confidence": analysis.confidence
+                "confidence": analysis.confidence,
             }
         except Exception as e:
             print(f"Error analyzing query: {e}")
             # Return default analysis on error
             return {
-                "primary_specialization": list(agents.keys())[0] if agents else "general",
+                "primary_specialization": list(agents.keys())[0]
+                if agents
+                else "general",
                 "secondary_specializations": [],
                 "complexity_level": 1,
                 "topics": [],
-                "confidence": 0.0
+                "confidence": 0.0,
             }
 
     async def route_query(self, query: str) -> str:  # pragma: no cover
@@ -124,8 +133,7 @@ class RoutingService(RoutingServiceInterface):
 
         # Find best agent based on analysis
         best_agent = await self._find_best_ai_agent(
-            analysis["primary_specialization"],
-            analysis["secondary_specializations"]
+            analysis["primary_specialization"], analysis["secondary_specializations"]
         )
 
         # Return best agent
@@ -161,8 +169,10 @@ class RoutingService(RoutingServiceInterface):
             score = 0
 
             # Check for specialization match
-            if agent.specialization.lower() in primary_specialization.lower() or \
-                    primary_specialization.lower() in agent.specialization.lower():
+            if (
+                agent.specialization.lower() in primary_specialization.lower()
+                or primary_specialization.lower() in agent.specialization.lower()
+            ):
                 score += 10
 
             # Check secondary specializations
@@ -170,8 +180,10 @@ class RoutingService(RoutingServiceInterface):
                 if sec_spec in ai_agents:  # Direct agent name match
                     if sec_spec == agent_id:
                         score += 5
-                elif agent.specialization.lower() in sec_spec.lower() or \
-                        sec_spec.lower() in agent.specialization.lower():
+                elif (
+                    agent.specialization.lower() in sec_spec.lower()
+                    or sec_spec.lower() in agent.specialization.lower()
+                ):
                     score += 3
 
             agent_scores.append((agent_id, score))

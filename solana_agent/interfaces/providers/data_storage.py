@@ -27,13 +27,20 @@ class DataStorageProvider(ABC):
 
     @abstractmethod
     def find(
-        self, collection: str, query: Dict, sort: Optional[List] = None, limit: int = 0, skip: int = 0
+        self,
+        collection: str,
+        query: Dict,
+        sort: Optional[List] = None,
+        limit: int = 0,
+        skip: int = 0,
     ) -> List[Dict]:
         """Find documents matching query."""
         pass
 
     @abstractmethod
-    def update_one(self, collection: str, query: Dict, update: Dict, upsert: bool = False) -> bool:
+    def update_one(
+        self, collection: str, query: Dict, update: Dict, upsert: bool = False
+    ) -> bool:
         """Update a document."""
         pass
 

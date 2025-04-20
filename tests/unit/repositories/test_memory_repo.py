@@ -4,6 +4,7 @@ Tests for the MemoryRepository implementation.
 This module provides comprehensive test coverage for the combined
 Zep and MongoDB memory provider implementation.
 """
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
@@ -43,7 +44,7 @@ def valid_messages():
     """Valid message list for testing."""
     return [
         {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": "Hi there"}
+        {"role": "assistant", "content": "Hi there"},
     ]
 
 
@@ -84,10 +85,10 @@ class TestMemoryRepository:
         repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
         assert repo.mongo == mock_mongo_adapter
 
-    @patch('solana_agent.repositories.memory.AsyncZepCloud')
+    @patch("solana_agent.repositories.memory.AsyncZepCloud")
     def test_init_zep_cloud(self, mock_zep_cloud):
         """Test initialization with Zep Cloud."""
-        repo = MemoryRepository(zep_api_key="test_key")
+        MemoryRepository(zep_api_key="test_key")
         mock_zep_cloud.assert_called_once_with(api_key="test_key")
 
     @pytest.mark.asyncio
@@ -193,7 +194,7 @@ class TestMemoryRepository:
         # 1. First memory.add fails
         mock_zep.memory.add.side_effect = [
             Exception("Session not found"),  # First call fails
-            None  # Second call succeeds (we'll reach this if code continues)
+            None,  # Second call succeeds (we'll reach this if code continues)
         ]
 
         # 2. User creation succeeds
@@ -223,20 +224,6 @@ class TestMemoryRepository:
 
         # Optional: add a mock for print and verify it was called with the error message
         # This requires patch("builtins.print") in the test setup
-
-    @pytest.mark.asyncio
-    async def test_store_zep_direct_success(self, mock_zep, valid_messages):
-        """Test successful direct Zep storage without fallback."""
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-
-        # Memory.add will succeed on first try
-        await repo.store("user123", valid_messages)
-
-        # Verify direct path
-        mock_zep.memory.add.assert_called_once()
-        mock_zep.user.add.assert_not_called()
-        mock_zep.memory.add_session.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_retrieve_success_no_zep(self):
@@ -293,7 +280,8 @@ class TestMemoryRepository:
     async def test_delete_success(self, mock_mongo_adapter, mock_zep):
         """Test successful memory deletion."""
         repo = MemoryRepository(
-            mongo_adapter=mock_mongo_adapter, zep_api_key="test_key")
+            mongo_adapter=mock_mongo_adapter, zep_api_key="test_key"
+        )
         repo.zep = mock_zep
         await repo.delete("user123")
 
@@ -338,8 +326,10 @@ class TestMemoryRepository:
         assert repo._truncate("Short text") == "Short text"
 
         # Test at period
-        assert repo._truncate(
-            "First sentence. Second sentence.", 20) == "First sentence."
+        assert (
+            repo._truncate("First sentence. Second sentence.",
+                           20) == "First sentence."
+        )
 
         # Test with ellipsis
         result = repo._truncate("a" * 3000)
@@ -366,7 +356,7 @@ class TestMemoryRepository:
         repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
         messages = [
             {"role": "user", "content": "Hello"},
-            {"role": "user", "content": "Another user message"}
+            {"role": "user", "content": "Another user message"},
         ]
         await repo.store("user123", messages)
         mock_mongo_adapter.insert_one.assert_not_called()

@@ -4,25 +4,20 @@ Domain models for AI and human agents.
 This module defines the core domain models for representing
 AI agents, human agents, and business mission/values.
 """
-from typing import List, Dict, Any
+
+from typing import List, Dict
 from pydantic import BaseModel, Field, field_validator
 
 
 class BusinessMission(BaseModel):
     """Business mission and values to guide agent behavior."""
 
-    mission: str = Field(...,
-                         description="Business mission statement")
+    mission: str = Field(..., description="Business mission statement")
     values: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Business values as name-description pairs"
+        default_factory=list, description="Business values as name-description pairs"
     )
-    goals: List[str] = Field(
-        default_factory=list,
-        description="Business goals"
-    )
-    voice: str = Field(
-        None, description="Business voice or tone")
+    goals: List[str] = Field(default_factory=list, description="Business goals")
+    voice: str = Field(None, description="Business voice or tone")
 
     @field_validator("mission")
     @classmethod
@@ -56,8 +51,7 @@ class AIAgent(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     name: str = Field(..., description="Unique agent identifier name")
-    instructions: str = Field(...,
-                              description="Base instructions for the agent")
+    instructions: str = Field(..., description="Base instructions for the agent")
     specialization: str = Field(..., description="Agent's specialized domain")
 
     @field_validator("name", "specialization")

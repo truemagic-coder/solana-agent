@@ -3,6 +3,7 @@ LLM provider adapters for the Solana Agent system.
 
 These adapters implement the LLMProvider interface for different LLM services.
 """
+
 from typing import AsyncGenerator, List, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
@@ -12,7 +13,7 @@ from instructor import Mode
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_CHAT_MODEL = "gpt-4.1-mini"
 DEFAULT_PARSE_MODEL = "gpt-4.1-nano"
@@ -38,10 +39,19 @@ class OpenAIAdapter(LLMProvider):
         self,
         text: str,
         instructions: str = "You speak in a friendly and helpful manner.",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ] = "nova",
+        response_format: Literal["mp3", "opus", "aac", "flac", "wav", "pcm"] = "aac",
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         """Stream text-to-speech audio from OpenAI models.
 
@@ -59,7 +69,7 @@ class OpenAIAdapter(LLMProvider):
                 model=self.tts_model,
                 voice=voice,
                 input=text,
-                response_format=response_format
+                response_format=response_format,
             ) as stream:
                 # Stream the bytes in 16KB chunks
                 async for chunk in stream.iter_bytes(chunk_size=1024 * 16):
@@ -68,12 +78,14 @@ class OpenAIAdapter(LLMProvider):
         except Exception as e:
             print(f"Error in text_to_speech: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             yield b""  # Return empty bytes on error
 
         except Exception as e:
             print(f"Error in text_to_speech: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             yield b""  # Return empty bytes on error
 
@@ -106,6 +118,7 @@ class OpenAIAdapter(LLMProvider):
         except Exception as e:
             print(f"Error in transcribe_audio: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             yield f"I apologize, but I encountered an error transcribing the audio: {str(e)}"
 
@@ -152,6 +165,7 @@ class OpenAIAdapter(LLMProvider):
         except Exception as e:
             print(f"Error in generate_text: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             yield f"I apologize, but I encountered an error: {str(e)}"
 
@@ -179,20 +193,18 @@ class OpenAIAdapter(LLMProvider):
             if model:
                 self.parse_model = model
 
-            patched_client = instructor.from_openai(
-                client, mode=Mode.TOOLS_STRICT)
+            patched_client = instructor.from_openai(client, mode=Mode.TOOLS_STRICT)
 
             # Use instructor's structured generation with function calling
             response = await patched_client.chat.completions.create(
                 model=self.parse_model,
                 messages=messages,
                 response_model=model_class,
-                max_retries=2  # Automatically retry on validation errors
+                max_retries=2,  # Automatically retry on validation errors
             )
             return response
         except Exception as e:
-            print(
-                f"Error with instructor parsing (TOOLS_STRICT mode): {e}")
+            print(f"Error with instructor parsing (TOOLS_STRICT mode): {e}")
 
             try:
                 if api_key and base_url:
@@ -204,13 +216,12 @@ class OpenAIAdapter(LLMProvider):
                     self.parse_model = model
 
                 # First fallback: Try regular JSON mode
-                patched_client = instructor.from_openai(
-                    client, mode=Mode.JSON)
+                patched_client = instructor.from_openai(client, mode=Mode.JSON)
                 response = await patched_client.chat.completions.create(
                     model=self.parse_model,
                     messages=messages,
                     response_model=model_class,
-                    max_retries=1
+                    max_retries=1,
                 )
                 return response
             except Exception as json_error:
@@ -218,8 +229,7 @@ class OpenAIAdapter(LLMProvider):
 
                 try:
                     if api_key and base_url:
-                        client = AsyncOpenAI(
-                            api_key=api_key, base_url=base_url)
+                        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
                     else:
                         client = self.client
 
@@ -241,9 +251,9 @@ class OpenAIAdapter(LLMProvider):
                         model=self.parse_model,
                         messages=[
                             {"role": "system", "content": fallback_system_prompt},
-                            {"role": "user", "content": prompt}
+                            {"role": "user", "content": prompt},
                         ],
-                        response_format={"type": "json_object"}
+                        response_format={"type": "json_object"},
                     )
 
                     # Extract and parse the JSON response
@@ -259,10 +269,7 @@ class OpenAIAdapter(LLMProvider):
                     ) from e
 
     async def embed_text(
-        self,
-        text: str,
-        model: Optional[str] = None,
-        dimensions: Optional[int] = None
+        self, text: str, model: Optional[str] = None, dimensions: Optional[int] = None
     ) -> List[float]:  # pragma: no cover
         """Generate an embedding for the given text using OpenAI.
 
@@ -286,19 +293,17 @@ class OpenAIAdapter(LLMProvider):
             text = text.replace("\n", " ")
 
             response = await self.client.embeddings.create(
-                input=[text],
-                model=embedding_model,
-                dimensions=embedding_dimensions
+                input=[text], model=embedding_model, dimensions=embedding_dimensions
             )
 
             if response.data and response.data[0].embedding:
                 return response.data[0].embedding
             else:
-                raise ValueError(
-                    "Failed to retrieve embedding from OpenAI response")
+                raise ValueError("Failed to retrieve embedding from OpenAI response")
 
         except Exception as e:
             print(f"Error generating embedding: {e}")
             import traceback
+
             print(traceback.format_exc())
             raise

@@ -4,11 +4,14 @@ Plugin manager for the Solana Agent system.
 This module implements the concrete PluginManager that discovers,
 loads, and manages plugins.
 """
+
 import importlib
 from typing import Dict, List, Any, Optional
 import importlib.metadata
 
-from solana_agent.interfaces.plugins.plugins import PluginManager as PluginManagerInterface
+from solana_agent.interfaces.plugins.plugins import (
+    PluginManager as PluginManagerInterface,
+)
 from solana_agent.interfaces.plugins.plugins import Plugin
 from solana_agent.plugins.registry import ToolRegistry
 
@@ -19,7 +22,11 @@ class PluginManager(PluginManagerInterface):
     # Class variable to track loaded entry points
     _loaded_entry_points = set()
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, tool_registry: Optional[ToolRegistry] = None):
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+    ):
         """Initialize with optional configuration and tool registry."""
         self.config = config or {}
         self.tool_registry = tool_registry or ToolRegistry()
@@ -61,12 +68,13 @@ class PluginManager(PluginManagerInterface):
         loaded_plugins = []
 
         # Discover plugins through entry points
-        for entry_point in importlib.metadata.entry_points(group='solana_agent.plugins'):
+        for entry_point in importlib.metadata.entry_points(
+            group="solana_agent.plugins"
+        ):
             # Skip if this entry point has already been loaded
             entry_point_id = f"{entry_point.name}:{entry_point.value}"
             if entry_point_id in PluginManager._loaded_entry_points:
-                print(
-                    f"Skipping already loaded plugin: {entry_point.name}")
+                print(f"Skipping already loaded plugin: {entry_point.name}")
                 continue
 
             try:
@@ -103,10 +111,7 @@ class PluginManager(PluginManagerInterface):
             List of plugin details dictionaries
         """
         return [
-            {
-                "name": plugin.name,
-                "description": plugin.description
-            }
+            {"name": plugin.name, "description": plugin.description}
             for plugin in self._plugins.values()
         ]
 

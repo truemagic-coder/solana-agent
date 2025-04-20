@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "27.3.6"
+version = "27.3.7"
 description = "Agentic IQ"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -44,6 +44,7 @@ sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
 sphinx-autobuild = "^2024.10.3"
 mongomock = "^4.3.0"
+ruff = "^0.11.6"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

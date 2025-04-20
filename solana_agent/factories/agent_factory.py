@@ -4,6 +4,7 @@ Factory for creating and wiring components of the Solana Agent system.
 This module handles the creation and dependency injection for all
 services and components used in the system.
 """
+
 from typing import Dict, Any
 
 # Service imports
@@ -58,10 +59,12 @@ class SolanaAgentFactory:
             org_config = config["business"]
             business_mission = BusinessMission(
                 mission=org_config.get("mission", ""),
-                values=[{"name": k, "description": v}
-                        for k, v in org_config.get("values", {}).items()],
+                values=[
+                    {"name": k, "description": v}
+                    for k, v in org_config.get("values", {}).items()
+                ],
                 goals=org_config.get("goals", []),
-                voice=org_config.get("voice", "")
+                voice=org_config.get("voice", ""),
             )
 
         # Create repositories
@@ -69,19 +72,22 @@ class SolanaAgentFactory:
 
         if "zep" in config and "mongo" in config:
             memory_provider = MemoryRepository(
-                mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key"))
-
-        if "mongo" in config and not "zep" in config:
-            memory_provider = MemoryRepository(mongo_adapter=db_adapter)
-
-        if "zep" in config and not "mongo" in config:
-            if "api_key" not in config["zep"]:
-                raise ValueError("Zep API key is required.")
-            memory_provider = MemoryRepository(
-                zep_api_key=config["zep"].get("api_key")
+                mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key")
             )
 
-        if "gemini" in config and "api_key" in config["gemini"] and not "grok" in config:
+        if "mongo" in config and "zep" not in config:
+            memory_provider = MemoryRepository(mongo_adapter=db_adapter)
+
+        if "zep" in config and "mongo" not in config:
+            if "api_key" not in config["zep"]:
+                raise ValueError("Zep API key is required.")
+            memory_provider = MemoryRepository(zep_api_key=config["zep"].get("api_key"))
+
+        if (
+            "gemini" in config
+            and "api_key" in config["gemini"]
+            and "grok" not in config
+        ):
             # Create primary services
             agent_service = AgentService(
                 llm_provider=llm_adapter,
@@ -101,7 +107,12 @@ class SolanaAgentFactory:
                 model="gemini-2.0-flash",
             )
 
-        elif "gemini" in config and "api_key" in config["gemini"] and "grok" in config and "api_key" in config["grok"]:
+        elif (
+            "gemini" in config
+            and "api_key" in config["gemini"]
+            and "grok" in config
+            and "api_key" in config["grok"]
+        ):
             # Create primary services
             agent_service = AgentService(
                 llm_provider=llm_adapter,
@@ -120,7 +131,9 @@ class SolanaAgentFactory:
                 model="gemini-2.0-flash",
             )
 
-        elif "grok" in config and "api_key" in config["grok"] and not "gemini" in config:
+        elif (
+            "grok" in config and "api_key" in config["grok"] and "gemini" not in config
+        ):
             # Create primary services
             agent_service = AgentService(
                 llm_provider=llm_adapter,
@@ -153,12 +166,12 @@ class SolanaAgentFactory:
 
         # Debug the agent service tool registry
         print(
-            f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}")
+            f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}"
+        )
 
         # Initialize plugin system
         agent_service.plugin_manager = PluginManager(
-            config=config,
-            tool_registry=agent_service.tool_registry
+            config=config, tool_registry=agent_service.tool_registry
         )
         try:
             loaded_plugins = agent_service.plugin_manager.load_plugins()
@@ -179,19 +192,18 @@ class SolanaAgentFactory:
             if "tools" in agent_config:
                 for tool_name in agent_config["tools"]:
                     print(
-                        f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}")
-                    agent_service.assign_tool_for_agent(
-                        agent_config["name"], tool_name
+                        f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}"
                     )
+                    agent_service.assign_tool_for_agent(agent_config["name"], tool_name)
                     print(
-                        f"Successfully registered {tool_name} for agent {agent_config['name']}")
+                        f"Successfully registered {tool_name} for agent {agent_config['name']}"
+                    )
 
         # Global tool registrations
         if "agent_tools" in config:
             for agent_name, tools in config["agent_tools"].items():
                 for tool_name in tools:
-                    agent_service.assign_tool_for_agent(
-                        agent_name, tool_name)
+                    agent_service.assign_tool_for_agent(agent_name, tool_name)
 
         # Initialize Knowledge Base if configured
         knowledge_base = None
@@ -206,7 +218,8 @@ class SolanaAgentFactory:
 
                 # Determine OpenAI model and dimensions for KBService
                 openai_model_name = openai_embed_config.get(
-                    "model_name", "text-embedding-3-large")
+                    "model_name", "text-embedding-3-large"
+                )
                 if openai_model_name == "text-embedding-3-large":
                     openai_dimensions = 3072
                 elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
@@ -219,20 +232,20 @@ class SolanaAgentFactory:
                     index_name=pinecone_config.get("index_name"),
                     # This dimension MUST match the OpenAI model used by KBService
                     embedding_dimensions=openai_dimensions,
-                    cloud_provider=pinecone_config.get(
-                        "cloud_provider", "aws"),
+                    cloud_provider=pinecone_config.get("cloud_provider", "aws"),
                     region=pinecone_config.get("region", "us-east-1"),
                     metric=pinecone_config.get("metric", "cosine"),
                     create_index_if_not_exists=pinecone_config.get(
-                        "create_index", True),
+                        "create_index", True
+                    ),
                     # Reranking config
                     use_reranking=pinecone_config.get("use_reranking", False),
                     rerank_model=pinecone_config.get("rerank_model"),
                     rerank_top_k=pinecone_config.get("rerank_top_k", 3),
                     initial_query_top_k_multiplier=pinecone_config.get(
-                        "initial_query_top_k_multiplier", 5),
-                    rerank_text_field=pinecone_config.get(
-                        "rerank_text_field", "text"),
+                        "initial_query_top_k_multiplier", 5
+                    ),
+                    rerank_text_field=pinecone_config.get("rerank_text_field", "text"),
                 )
 
                 # Create the KB service using OpenAI embeddings
@@ -240,24 +253,27 @@ class SolanaAgentFactory:
                     pinecone_adapter=pinecone_adapter,
                     mongodb_adapter=db_adapter,
                     # Pass OpenAI config directly
-                    openai_api_key=openai_embed_config.get("api_key") or config.get("openai", {}).get(
-                        "api_key"),
+                    openai_api_key=openai_embed_config.get("api_key")
+                    or config.get("openai", {}).get("api_key"),
                     openai_model_name=openai_model_name,
                     collection_name=kb_config.get(
-                        "collection_name", "knowledge_documents"),
+                        "collection_name", "knowledge_documents"
+                    ),
                     # Pass rerank config (though PineconeAdapter handles the logic)
                     rerank_results=pinecone_config.get("use_reranking", False),
                     rerank_top_k=pinecone_config.get("rerank_top_k", 3),
                     # Pass splitter config
                     splitter_buffer_size=splitter_config.get("buffer_size", 1),
                     splitter_breakpoint_percentile=splitter_config.get(
-                        "breakpoint_percentile", 95)
+                        "breakpoint_percentile", 95
+                    ),
                 )
                 print("Knowledge Base Service initialized successfully.")
 
             except Exception as e:
                 print(f"Failed to initialize Knowledge Base: {e}")
                 import traceback
+
                 print(traceback.format_exc())
                 knowledge_base = None  # Ensure KB is None if init fails
 
@@ -267,8 +283,7 @@ class SolanaAgentFactory:
             routing_service=routing_service,
             memory_provider=memory_provider,
             knowledge_base=knowledge_base,  # Pass the potentially created KB
-            kb_results_count=kb_config.get(
-                "results_count", 3) if kb_config else 3
+            kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
         )
 
         return query_service
