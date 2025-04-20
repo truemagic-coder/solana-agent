@@ -12,7 +12,7 @@
 
 ![Solana Agent Logo](https://dl.walletbubbles.com/solana-agent-logo.png?width=200)
 
-## Agentic IQ
+## AI Agents for Solana
 
 Build your AI business in three lines of code!
 
