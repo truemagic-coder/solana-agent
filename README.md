@@ -28,7 +28,7 @@ Build your AI agents in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Simple Business Definition
-* Knowledge Base with PDF support
+* Knowledge Base
 * MCP Support
 * Tested & Secure
 * Built in Python
