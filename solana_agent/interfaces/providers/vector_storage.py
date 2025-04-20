@@ -5,9 +5,7 @@ class VectorStorageProvider:
     """Interface for Vector Storage Providers."""
 
     async def upsert(
-        self,
-        vectors: List[Dict[str, Any]],
-        namespace: Optional[str] = None
+        self, vectors: List[Dict[str, Any]], namespace: Optional[str] = None
     ) -> None:
         """Upsert vectors into the storage."""
         pass
@@ -17,7 +15,7 @@ class VectorStorageProvider:
         texts: List[str],
         ids: List[str],
         metadatas: Optional[List[Dict[str, Any]]] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
     ) -> None:
         """Embeds texts and upserts them into the storage."""
         pass
@@ -46,11 +44,7 @@ class VectorStorageProvider:
         """Embeds query text and queries the storage."""
         pass
 
-    async def delete(
-        self,
-        ids: List[str],
-        namespace: Optional[str] = None
-    ) -> None:
+    async def delete(self, ids: List[str], namespace: Optional[str] = None) -> None:
         """Delete vectors by IDs."""
         pass
 

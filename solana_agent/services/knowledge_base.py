@@ -12,7 +12,9 @@ from llama_index.embeddings.openai import OpenAIEmbedding
 
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-from solana_agent.interfaces.services.knowledge_base import KnowledgeBaseService as KnowledgeBaseInterface
+from solana_agent.interfaces.services.knowledge_base import (
+    KnowledgeBaseService as KnowledgeBaseInterface,
+)
 
 
 class KnowledgeBaseService(KnowledgeBaseInterface):
@@ -59,7 +61,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         api_key = openai_api_key
         if not api_key:
             raise ValueError(
-                "OpenAI API key not provided via argument or OPENAI_API_KEY environment variable.")
+                "OpenAI API key not provided via argument or OPENAI_API_KEY environment variable."
+            )
 
         # Determine expected embedding dimensions based on model name
         if openai_model_name == "text-embedding-3-large":
@@ -68,13 +71,14 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             openai_dimensions = 1536
         else:
             # Attempt to get dimension from Pinecone config if available, otherwise raise error
-            openai_dimensions = getattr(
-                self.pinecone, 'embedding_dimensions', 0)
+            openai_dimensions = getattr(self.pinecone, "embedding_dimensions", 0)
             if openai_dimensions <= 0:
                 raise ValueError(
-                    f"Cannot determine dimension for unknown OpenAI model '{openai_model_name}' and Pinecone dimension not configured.")
+                    f"Cannot determine dimension for unknown OpenAI model '{openai_model_name}' and Pinecone dimension not configured."
+                )
             print(
-                f"Warning: Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct.")
+                f"Warning: Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct."
+            )
 
         # Instantiate OpenAIEmbedding
         # Note: LlamaIndex OpenAIEmbedding doesn't directly support reducing dimensions via 'dimensions' param during init
@@ -92,7 +96,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         self.semantic_splitter = SemanticSplitterNodeParser(
             buffer_size=splitter_buffer_size,
             breakpoint_percentile_threshold=splitter_breakpoint_percentile,
-            embed_model=llama_embed_model  # Use the OpenAIEmbedding instance
+            embed_model=llama_embed_model,  # Use the OpenAIEmbedding instance
         )
         # Store model name for logging/reference
         self.openai_model_name = openai_model_name
@@ -107,22 +111,20 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             print(f"Created MongoDB collection: {self.collection}")
 
         # Indexes for retrieval and filtering
-        self.mongo.create_index(
-            self.collection, [("document_id", 1)], unique=True)
+        self.mongo.create_index(self.collection, [("document_id", 1)], unique=True)
         self.mongo.create_index(self.collection, [("parent_document_id", 1)])
         self.mongo.create_index(self.collection, [("source", 1)])
         self.mongo.create_index(self.collection, [("created_at", -1)])
         self.mongo.create_index(self.collection, [("tags", 1)])
         self.mongo.create_index(self.collection, [("is_chunk", 1)])
-        print(
-            f"Ensured indexes exist for MongoDB collection: {self.collection}")
+        print(f"Ensured indexes exist for MongoDB collection: {self.collection}")
 
     async def add_document(
         self,
         text: str,
         metadata: Dict[str, Any],
         document_id: Optional[str] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
     ) -> str:
         """
         Add a plain text document to the knowledge base. Embeds using OpenAI.
@@ -146,8 +148,10 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             "parent_document_id": None,
             **metadata,
             # Use timezone aware datetime
-            "created_at": metadata.get("created_at", dt.now(tz=dt.now().astimezone().tzinfo)),
-            "updated_at": dt.now(tz=dt.now().astimezone().tzinfo)
+            "created_at": metadata.get(
+                "created_at", dt.now(tz=dt.now().astimezone().tzinfo)
+            ),
+            "updated_at": dt.now(tz=dt.now().astimezone().tzinfo),
         }
         try:
             self.mongo.insert_one(self.collection, mongo_doc)
@@ -161,7 +165,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             embedding = await embed_model.aget_text_embedding(text)
         except Exception as e:
             print(
-                f"Error embedding document {doc_id} using {self.openai_model_name}: {e}")
+                f"Error embedding document {doc_id} using {self.openai_model_name}: {e}"
+            )
             # Decide how to handle - Mongo insert succeeded, embedding failed
             raise  # Re-raise for now
 
@@ -170,7 +175,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             "document_id": doc_id,
             "is_chunk": False,
             "source": metadata.get("source", "unknown"),
-            "tags": metadata.get("tags", [])
+            "tags": metadata.get("tags", []),
         }
         # Add text itself if Pinecone adapter reranking is used
         if self.pinecone.use_reranking:
@@ -179,9 +184,10 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         # Upsert vector to Pinecone using the generic upsert method
         try:
             await self.pinecone.upsert(
-                vectors=[{"id": doc_id, "values": embedding,
-                          "metadata": pinecone_metadata}],
-                namespace=namespace
+                vectors=[
+                    {"id": doc_id, "values": embedding, "metadata": pinecone_metadata}
+                ],
+                namespace=namespace,
             )
         except Exception as e:
             print(f"Error upserting vector for {doc_id} to Pinecone: {e}")
@@ -196,7 +202,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         metadata: Dict[str, Any],
         document_id: Optional[str] = None,
         namespace: Optional[str] = None,
-        chunk_batch_size: int = 50
+        chunk_batch_size: int = 50,
     ) -> str:
         """
         Add a PDF document, performs semantic chunking using OpenAI embeddings,
@@ -223,17 +229,14 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             elif isinstance(pdf_data, bytes):
                 pdf_bytes = pdf_data
             else:
-                raise ValueError(
-                    "pdf_data must be bytes or a file path string.")
+                raise ValueError("pdf_data must be bytes or a file path string.")
 
             reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-            extracted_text = "".join(
-                page.extract_text() or "" for page in reader.pages)
+            extracted_text = "".join(page.extract_text() or "" for page in reader.pages)
             if not extracted_text.strip():
                 print(f"Warning: No text extracted from PDF {parent_doc_id}.")
         except Exception as e:
-            print(
-                f"Error reading or extracting text from PDF {parent_doc_id}: {e}")
+            print(f"Error reading or extracting text from PDF {parent_doc_id}: {e}")
             raise
 
         # --- 2. Store Full PDF and Metadata in MongoDB ---
@@ -244,43 +247,43 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             "is_chunk": False,
             "parent_document_id": None,
             **metadata,
-            "created_at": metadata.get("created_at", dt.now(tz=dt.now().astimezone().tzinfo)),
-            "updated_at": dt.now(tz=dt.now().astimezone().tzinfo)
+            "created_at": metadata.get(
+                "created_at", dt.now(tz=dt.now().astimezone().tzinfo)
+            ),
+            "updated_at": dt.now(tz=dt.now().astimezone().tzinfo),
         }
         try:
             self.mongo.insert_one(self.collection, mongo_parent_doc)
             print(f"Stored full PDF {parent_doc_id} in MongoDB.")
         except Exception as e:  # pragma: no cover
             print(
-                f"Error inserting parent PDF {parent_doc_id} into MongoDB: {e}")  # pragma: no cover
+                f"Error inserting parent PDF {parent_doc_id} into MongoDB: {e}"
+            )  # pragma: no cover
             raise  # pragma: no cover
 
         # --- 3. Semantic Chunking ---
         if not extracted_text.strip():
             print(
-                f"Skipping chunking for PDF {parent_doc_id} due to no extracted text.")
+                f"Skipping chunking for PDF {parent_doc_id} due to no extracted text."
+            )
             return parent_doc_id
 
         try:
             llama_doc = LlamaDocument(text=extracted_text)
             # Run synchronous splitter in thread pool
             nodes = await asyncio.to_thread(
-                self.semantic_splitter.get_nodes_from_documents,
-                [llama_doc]
+                self.semantic_splitter.get_nodes_from_documents, [llama_doc]
             )
-            print(
-                f"Generated {len(nodes)} semantic chunks for PDF {parent_doc_id}.")
+            print(f"Generated {len(nodes)} semantic chunks for PDF {parent_doc_id}.")
         except Exception as e:
-            print(
-                f"Error during semantic chunking for PDF {parent_doc_id}: {e}")
+            print(f"Error during semantic chunking for PDF {parent_doc_id}: {e}")
             raise
 
         # --- 4. Embed Chunks and Batch Upsert to Pinecone ---
         if not nodes:
             return parent_doc_id  # No chunks generated
 
-        print(
-            f"Embedding {len(nodes)} chunks using {self.openai_model_name}...")
+        print(f"Embedding {len(nodes)} chunks using {self.openai_model_name}...")
         chunk_texts = [node.get_content() for node in nodes]
         embed_model: OpenAIEmbedding = self.semantic_splitter.embed_model
         all_chunk_embeddings = []
@@ -307,30 +310,30 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 "chunk_index": i,
                 "is_chunk": True,
                 "source": metadata.get("source", "unknown"),
-                "tags": metadata.get("tags", [])
+                "tags": metadata.get("tags", []),
             }
             # Add chunk text itself if Pinecone adapter reranking is used
             if self.pinecone.use_reranking:
                 chunk_metadata[self.pinecone.rerank_text_field] = chunk_texts[i]
 
-            pinecone_vectors.append({
-                "id": chunk_id,
-                "values": all_chunk_embeddings[i],
-                "metadata": chunk_metadata
-            })
+            pinecone_vectors.append(
+                {
+                    "id": chunk_id,
+                    "values": all_chunk_embeddings[i],
+                    "metadata": chunk_metadata,
+                }
+            )
 
         # Upsert vectors in batches using the generic upsert method
         print(
-            f"Upserting {len(pinecone_vectors)} vectors to Pinecone in batches of {chunk_batch_size}...")
+            f"Upserting {len(pinecone_vectors)} vectors to Pinecone in batches of {chunk_batch_size}..."
+        )
         upsert_tasks = []
         for i in range(0, len(pinecone_vectors), chunk_batch_size):
-            batch_vectors = pinecone_vectors[i:i+chunk_batch_size]
+            batch_vectors = pinecone_vectors[i : i + chunk_batch_size]
             # Create task for each batch upsert
             upsert_tasks.append(
-                self.pinecone.upsert(
-                    vectors=batch_vectors,
-                    namespace=namespace
-                )
+                self.pinecone.upsert(vectors=batch_vectors, namespace=namespace)
             )
             # Optional: Add a small delay between initiating tasks if rate limiting is a concern
             # await asyncio.sleep(0.05)
@@ -341,8 +344,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         # Check for errors during upsert
         for idx, result in enumerate(results):
             if isinstance(result, Exception):
-                print(
-                    f"Error upserting vector batch {idx + 1} to Pinecone: {result}")
+                print(f"Error upserting vector batch {idx + 1} to Pinecone: {result}")
                 # Decide on error handling: log, raise, etc.
 
         print(f"Finished processing PDF {parent_doc_id}.")
@@ -355,7 +357,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         top_k: int = 5,
         namespace: Optional[str] = None,
         include_content: bool = True,
-        include_metadata: bool = True
+        include_metadata: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Query the knowledge base using semantic search with OpenAI embeddings.
@@ -394,7 +396,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 top_k=initial_k,  # Fetch more initially if reranking
                 namespace=namespace,
                 include_values=False,  # Don't need embeddings back
-                include_metadata=True  # Need metadata for linking
+                include_metadata=True,  # Need metadata for linking
             )
         except Exception as e:
             print(f"Error querying Pinecone: {e}")
@@ -405,10 +407,11 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
 
         # Extract IDs, scores, and metadata from Pinecone results
         # PineconeAdapter might have already reranked and truncated to final top_k
-        result_ids = [res['id'] for res in pinecone_results]
-        scores = {res['id']: res['score'] for res in pinecone_results}
-        pinecone_metadatas = {res['id']: res.get(
-            'metadata', {}) for res in pinecone_results}
+        result_ids = [res["id"] for res in pinecone_results]
+        scores = {res["id"]: res["score"] for res in pinecone_results}
+        pinecone_metadatas = {
+            res["id"]: res.get("metadata", {}) for res in pinecone_results
+        }
 
         # --- Fetch corresponding data from MongoDB ---
         mongo_docs_map = {}
@@ -426,11 +429,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         if parent_ids_to_fetch:
             try:
                 mongo_docs = self.mongo.find(
-                    self.collection,
-                    {"document_id": {"$in": list(parent_ids_to_fetch)}}
+                    self.collection, {"document_id": {"$in": list(parent_ids_to_fetch)}}
                 )
-                mongo_docs_map = {doc["document_id"]
-                    : doc for doc in mongo_docs}
+                mongo_docs_map = {doc["document_id"]: doc for doc in mongo_docs}
             except Exception as e:
                 print(f"Error fetching documents from MongoDB: {e}")
                 # Proceed with potentially missing Mongo data
@@ -462,7 +463,10 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             if include_content:
                 content = None
                 # Priority 1: Reranking field in Pinecone metadata (holds chunk text)
-                if self.pinecone.use_reranking and self.pinecone.rerank_text_field in pinecone_meta:
+                if (
+                    self.pinecone.use_reranking
+                    and self.pinecone.rerank_text_field in pinecone_meta
+                ):
                     content = pinecone_meta[self.pinecone.rerank_text_field]
                 # Priority 2: Get content from the relevant Mongo doc
                 elif mongo_doc_for_content:
@@ -474,15 +478,29 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 # Merge metadata from the relevant Mongo doc (parent or self)
                 if mongo_doc_for_meta:
                     combined_meta = {
-                        k: v for k, v in mongo_doc_for_meta.items()
-                        if k not in ["_id", "document_id", "content", "pdf_data", "is_chunk", "parent_document_id", "created_at", "updated_at"]
+                        k: v
+                        for k, v in mongo_doc_for_meta.items()
+                        if k
+                        not in [
+                            "_id",
+                            "document_id",
+                            "content",
+                            "pdf_data",
+                            "is_chunk",
+                            "parent_document_id",
+                            "created_at",
+                            "updated_at",
+                        ]
                     }
                 # Add/overwrite with chunk-specific info from Pinecone meta
-                combined_meta.update({
-                    k: v for k, v in pinecone_meta.items()
-                    # Avoid redundancy
-                    if k not in ["document_id", self.pinecone.rerank_text_field]
-                })
+                combined_meta.update(
+                    {
+                        k: v
+                        for k, v in pinecone_meta.items()
+                        # Avoid redundancy
+                        if k not in ["document_id", self.pinecone.rerank_text_field]
+                    }
+                )
                 result["metadata"] = combined_meta
 
             results.append(result)
@@ -490,9 +508,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         return results
 
     async def delete_document(
-        self,
-        document_id: str,
-        namespace: Optional[str] = None
+        self, document_id: str, namespace: Optional[str] = None
     ) -> bool:
         """
         Delete a document (plain text or PDF) and all its associated chunks.
@@ -505,7 +521,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             True if deletion was successful (or partially successful).
         """
         print(
-            f"Attempting to delete document and associated data for ID: {document_id}")
+            f"Attempting to delete document and associated data for ID: {document_id}"
+        )
         mongo_deleted_count = 0
         pinecone_deleted = False
 
@@ -517,46 +534,53 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         docs_to_delete_mongo = []
         mongo_ids_to_delete = set([document_id])  # Start with the main ID
         try:
-            docs_to_delete_mongo = list(self.mongo.find(
-                self.collection,
-                {"$or": [{"document_id": document_id}, {
-                    "parent_document_id": document_id}]}
-            ))
+            docs_to_delete_mongo = list(
+                self.mongo.find(
+                    self.collection,
+                    {
+                        "$or": [
+                            {"document_id": document_id},
+                            {"parent_document_id": document_id},
+                        ]
+                    },
+                )
+            )
             for doc in docs_to_delete_mongo:
                 mongo_ids_to_delete.add(doc["document_id"])
         except Exception as e:
             print(
-                f"Warning: Error finding documents in MongoDB for deletion ({document_id}): {e}. Proceeding with main ID only.")
+                f"Warning: Error finding documents in MongoDB for deletion ({document_id}): {e}. Proceeding with main ID only."
+            )
 
         pinecone_ids_to_delete = list(mongo_ids_to_delete)
 
         # --- 2. Delete from Pinecone ---
         if pinecone_ids_to_delete:
             try:
-                await self.pinecone.delete(ids=pinecone_ids_to_delete, namespace=namespace)
+                await self.pinecone.delete(
+                    ids=pinecone_ids_to_delete, namespace=namespace
+                )
                 print(
-                    f"Deleted {len(pinecone_ids_to_delete)} vectors from Pinecone for parent {document_id}.")
+                    f"Deleted {len(pinecone_ids_to_delete)} vectors from Pinecone for parent {document_id}."
+                )
                 pinecone_deleted = True
             except Exception as e:
-                print(
-                    f"Error deleting vectors from Pinecone for {document_id}: {e}")
+                print(f"Error deleting vectors from Pinecone for {document_id}: {e}")
 
         # --- 3. Delete from MongoDB ---
         # Use the IDs confirmed to be in Mongo
-        mongo_ids_found_in_db = [doc["document_id"]
-                                 for doc in docs_to_delete_mongo]
+        mongo_ids_found_in_db = [doc["document_id"] for doc in docs_to_delete_mongo]
         if mongo_ids_found_in_db:
             try:
                 delete_result = self.mongo.delete_many(
-                    self.collection,
-                    {"document_id": {"$in": mongo_ids_found_in_db}}
+                    self.collection, {"document_id": {"$in": mongo_ids_found_in_db}}
                 )
                 mongo_deleted_count = delete_result.deleted_count
                 print(
-                    f"Deleted {mongo_deleted_count} documents from MongoDB for parent {document_id}.")
+                    f"Deleted {mongo_deleted_count} documents from MongoDB for parent {document_id}."
+                )
             except Exception as e:
-                print(
-                    f"Error deleting documents from MongoDB for {document_id}: {e}")
+                print(f"Error deleting documents from MongoDB for {document_id}: {e}")
 
         return pinecone_deleted or mongo_deleted_count > 0
 
@@ -565,7 +589,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         document_id: str,
         text: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
     ) -> bool:
         """
         Update an existing plain text document or metadata. Embeds using OpenAI.
@@ -580,8 +604,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         Returns:
             True if successful.
         """
-        current_doc = self.mongo.find_one(
-            self.collection, {"document_id": document_id})
+        current_doc = self.mongo.find_one(self.collection, {"document_id": document_id})
         if not current_doc:
             print(f"Document {document_id} not found for update.")
             return False
@@ -590,7 +613,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             print(f"Cannot update chunk {document_id} directly.")
             return False
         if current_doc.get("pdf_data") and text is not None:
-            print(f"Cannot update PDF content via this method. Delete and re-add.")
+            print("Cannot update PDF content via this method. Delete and re-add.")
             return False
 
         update_text = text is not None and not current_doc.get("pdf_data")
@@ -608,8 +631,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         if mongo_update:  # Only update if there are changes
             try:
                 update_result = self.mongo.update_one(
-                    self.collection, {"document_id": document_id}, {
-                        "$set": mongo_update}
+                    self.collection,
+                    {"document_id": document_id},
+                    {"$set": mongo_update},
                 )
                 mongo_updated = update_result.modified_count > 0
             except Exception as e:
@@ -630,11 +654,19 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 return mongo_updated  # Return based on Mongo success
 
             # Prepare Pinecone metadata
-            final_metadata = {**current_doc, **
-                              mongo_update}  # Use updated data
+            final_metadata = {**current_doc, **mongo_update}  # Use updated data
             pinecone_metadata = {"document_id": document_id, "is_chunk": False}
             for key, value in final_metadata.items():
-                if key not in ["_id", "content", "pdf_data", "created_at", "updated_at", "document_id", "is_chunk", "parent_document_id"]:
+                if key not in [
+                    "_id",
+                    "content",
+                    "pdf_data",
+                    "created_at",
+                    "updated_at",
+                    "document_id",
+                    "is_chunk",
+                    "parent_document_id",
+                ]:
                     pinecone_metadata[key] = value
             if self.pinecone.use_reranking:
                 pinecone_metadata[self.pinecone.rerank_text_field] = text_content
@@ -642,14 +674,20 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             # Upsert vector to Pinecone
             try:
                 await self.pinecone.upsert(
-                    vectors=[{"id": document_id, "values": embedding,
-                              "metadata": pinecone_metadata}],
-                    namespace=namespace
+                    vectors=[
+                        {
+                            "id": document_id,
+                            "values": embedding,
+                            "metadata": pinecone_metadata,
+                        }
+                    ],
+                    namespace=namespace,
                 )
                 pinecone_updated = True
             except Exception as e:
                 print(
-                    f"Error upserting updated vector in Pinecone for {document_id}: {e}")
+                    f"Error upserting updated vector in Pinecone for {document_id}: {e}"
+                )
                 # Mongo update succeeded, Pinecone failed
 
         return mongo_updated or pinecone_updated
@@ -659,7 +697,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         # Expects {'text': ..., 'metadata': ...}
         documents: List[Dict[str, Any]],
         namespace: Optional[str] = None,
-        batch_size: int = 50
+        batch_size: int = 50,
     ) -> List[str]:
         """
         Add multiple plain text documents in batches using OpenAI embeddings.
@@ -676,12 +714,14 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         embed_model: OpenAIEmbedding = self.semantic_splitter.embed_model
 
         for i in range(0, len(documents), batch_size):
-            batch_docs_input = documents[i:i+batch_size]
-            batch_texts = [doc['text'] for doc in batch_docs_input]
-            batch_metadatas = [doc['metadata'] for doc in batch_docs_input]
+            batch_docs_input = documents[i : i + batch_size]
+            batch_texts = [doc["text"] for doc in batch_docs_input]
+            batch_metadatas = [doc["metadata"] for doc in batch_docs_input]
             # Generate IDs if not provided in metadata
-            batch_doc_ids = [doc['metadata'].get('document_id') or str(
-                uuid.uuid4()) for doc in batch_docs_input]
+            batch_doc_ids = [
+                doc["metadata"].get("document_id") or str(uuid.uuid4())
+                for doc in batch_docs_input
+            ]
             all_doc_ids.extend(batch_doc_ids)
 
             # Prepare MongoDB docs
@@ -690,14 +730,19 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 doc_id = batch_doc_ids[idx]
                 metadata = batch_metadatas[idx]
                 mongo_doc = {
-                    "document_id": doc_id, "content": text, "is_chunk": False,
-                    "parent_document_id": None, **metadata,
-                    "created_at": metadata.get("created_at", dt.now(tz=dt.now().astimezone().tzinfo)),
-                    "updated_at": dt.now(tz=dt.now().astimezone().tzinfo)
+                    "document_id": doc_id,
+                    "content": text,
+                    "is_chunk": False,
+                    "parent_document_id": None,
+                    **metadata,
+                    "created_at": metadata.get(
+                        "created_at", dt.now(tz=dt.now().astimezone().tzinfo)
+                    ),
+                    "updated_at": dt.now(tz=dt.now().astimezone().tzinfo),
                 }
                 # Ensure generated ID is in the doc for Mongo
-                if 'document_id' not in metadata:
-                    mongo_doc['document_id'] = doc_id
+                if "document_id" not in metadata:
+                    mongo_doc["document_id"] = doc_id
                 mongo_batch.append(mongo_doc)
 
             # Insert into MongoDB
@@ -706,16 +751,20 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                     self.mongo.insert_many(self.collection, mongo_batch)
                 except Exception as e:
                     print(
-                        f"Error inserting batch {i//batch_size + 1} into MongoDB: {e}")
+                        f"Error inserting batch {i // batch_size + 1} into MongoDB: {e}"
+                    )
                     # Decide if we should skip Pinecone for this batch
                     continue  # Skip to next batch
 
             # Embed batch using OpenAIEmbedding
             try:
-                batch_embeddings = await embed_model.aget_text_embedding_batch(batch_texts, show_progress=True)
+                batch_embeddings = await embed_model.aget_text_embedding_batch(
+                    batch_texts, show_progress=True
+                )
             except Exception as e:
                 print(
-                    f"Error embedding batch {i//batch_size + 1} using {self.openai_model_name}: {e}")
+                    f"Error embedding batch {i // batch_size + 1} using {self.openai_model_name}: {e}"
+                )
                 continue  # Skip Pinecone upsert for this batch
 
             # Prepare Pinecone vectors
@@ -723,29 +772,32 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             for idx, doc_id in enumerate(batch_doc_ids):
                 metadata = batch_metadatas[idx]
                 pinecone_meta = {
-                    "document_id": doc_id, "is_chunk": False,
+                    "document_id": doc_id,
+                    "is_chunk": False,
                     "source": metadata.get("source", "unknown"),
-                    "tags": metadata.get("tags", [])
+                    "tags": metadata.get("tags", []),
                 }
                 if self.pinecone.use_reranking:
                     pinecone_meta[self.pinecone.rerank_text_field] = batch_texts[idx]
 
-                pinecone_vectors.append({
-                    "id": doc_id,
-                    "values": batch_embeddings[idx],
-                    "metadata": pinecone_meta
-                })
+                pinecone_vectors.append(
+                    {
+                        "id": doc_id,
+                        "values": batch_embeddings[idx],
+                        "metadata": pinecone_meta,
+                    }
+                )
 
             # Upsert vectors to Pinecone
             if pinecone_vectors:
                 try:
                     await self.pinecone.upsert(
-                        vectors=pinecone_vectors,
-                        namespace=namespace
+                        vectors=pinecone_vectors, namespace=namespace
                     )
                 except Exception as e:
                     print(
-                        f"Error upserting vector batch {i//batch_size + 1} to Pinecone: {e}")
+                        f"Error upserting vector batch {i // batch_size + 1} to Pinecone: {e}"
+                    )
 
             # Optional delay
             if i + batch_size < len(documents):
@@ -766,6 +818,5 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             return self.mongo.find_one(self.collection, {"document_id": document_id})
         except Exception as e:
-            print(
-                f"Error retrieving full document {document_id} from MongoDB: {e}")
+            print(f"Error retrieving full document {document_id} from MongoDB: {e}")
             return None

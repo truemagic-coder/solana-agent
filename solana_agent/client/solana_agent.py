@@ -4,6 +4,7 @@ Simplified client interface for interacting with the Solana Agent system.
 This module provides a clean API for end users to interact with
 the agent system without dealing with internal implementation details.
 """
+
 import json
 import importlib.util
 from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Union
@@ -34,8 +35,7 @@ class SolanaAgent(SolanaAgentInterface):
                     config = json.load(f)
                 else:
                     # Assume it's a Python file
-                    spec = importlib.util.spec_from_file_location(
-                        "config", config_path)
+                    spec = importlib.util.spec_from_file_location("config", config_path)
                     config_module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(config_module)
                     config = config_module.config
@@ -48,11 +48,22 @@ class SolanaAgent(SolanaAgentInterface):
         message: Union[str, bytes],
         prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
-        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ] = "nova",
         audio_instructions: str = "You speak in a friendly and helpful manner.",
-        audio_output_format: Literal['mp3', 'opus',
-                                     'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "aac",
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
@@ -101,7 +112,7 @@ class SolanaAgent(SolanaAgentInterface):
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc",  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:  # pragma: no cover
         """
         Get paginated message history for a user.
@@ -130,27 +141,29 @@ class SolanaAgent(SolanaAgentInterface):
         Returns:
             True if successful, False
         """
-        success = self.query_service.agent_service.tool_registry.register_tool(
-            tool)
+        success = self.query_service.agent_service.tool_registry.register_tool(tool)
         if success:
             self.query_service.agent_service.assign_tool_for_agent(
-                agent_name, tool.name)
+                agent_name, tool.name
+            )
         return success
 
     def _ensure_kb(self) -> KnowledgeBaseService:
         """Checks if the knowledge base service is available and returns it."""
-        if hasattr(self.query_service, 'knowledge_base') and self.query_service.knowledge_base:
+        if (
+            hasattr(self.query_service, "knowledge_base")
+            and self.query_service.knowledge_base
+        ):
             return self.query_service.knowledge_base
         else:
-            raise AttributeError(
-                "Knowledge base service not configured or available.")
+            raise AttributeError("Knowledge base service not configured or available.")
 
     async def kb_add_document(
         self,
         text: str,
         metadata: Dict[str, Any],
         document_id: Optional[str] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
     ) -> str:
         """
         Add a document to the knowledge base.
@@ -174,7 +187,7 @@ class SolanaAgent(SolanaAgentInterface):
         top_k: int = 5,
         namespace: Optional[str] = None,
         include_content: bool = True,
-        include_metadata: bool = True
+        include_metadata: bool = True,
     ) -> List[Dict[str, Any]]:
         """
         Query the knowledge base.
@@ -191,12 +204,12 @@ class SolanaAgent(SolanaAgentInterface):
             List of matching documents.
         """
         kb = self._ensure_kb()
-        return await kb.query(query_text, filter, top_k, namespace, include_content, include_metadata)
+        return await kb.query(
+            query_text, filter, top_k, namespace, include_content, include_metadata
+        )
 
     async def kb_delete_document(
-        self,
-        document_id: str,
-        namespace: Optional[str] = None
+        self, document_id: str, namespace: Optional[str] = None
     ) -> bool:
         """
         Delete a document from the knowledge base.
@@ -216,7 +229,7 @@ class SolanaAgent(SolanaAgentInterface):
         document_id: str,
         text: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
     ) -> bool:
         """
         Update an existing document in the knowledge base.
@@ -237,7 +250,7 @@ class SolanaAgent(SolanaAgentInterface):
         self,
         documents: List[Dict[str, Any]],
         namespace: Optional[str] = None,
-        batch_size: int = 50
+        batch_size: int = 50,
     ) -> List[str]:
         """
         Add multiple documents to the knowledge base in batches.
@@ -259,7 +272,7 @@ class SolanaAgent(SolanaAgentInterface):
         metadata: Dict[str, Any],
         document_id: Optional[str] = None,
         namespace: Optional[str] = None,
-        chunk_batch_size: int = 50
+        chunk_batch_size: int = 50,
     ) -> str:
         """
         Add a PDF document to the knowledge base via the client.
@@ -278,4 +291,6 @@ class SolanaAgent(SolanaAgentInterface):
         # Type check added for clarity, though handled in service
         if not isinstance(pdf_data, (bytes, str)):
             raise TypeError("pdf_data must be bytes or a file path string.")
-        return await kb.add_pdf_document(pdf_data, metadata, document_id, namespace, chunk_batch_size)
+        return await kb.add_pdf_document(
+            pdf_data, metadata, document_id, namespace, chunk_batch_size
+        )

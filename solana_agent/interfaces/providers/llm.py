@@ -1,10 +1,17 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Callable, Dict, List, Literal, Optional, Type, TypeVar, Union
+from typing import (
+    AsyncGenerator,
+    List,
+    Literal,
+    Optional,
+    Type,
+    TypeVar,
+)
 
 from pydantic import BaseModel
 
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 
 class LLMProvider(ABC):
@@ -24,12 +31,13 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def parse_structured_output(
-        self, prompt: str,
+        self,
+        prompt: str,
         system_prompt: str,
         model_class: Type[T],
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
     ) -> T:
         """Generate structured output using a specific model class."""
         pass
@@ -39,10 +47,19 @@ class LLMProvider(ABC):
         self,
         text: str,
         instructions: str = "You speak in a friendly and helpful manner.",
-        voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                       "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
-        response_format: Literal['mp3', 'opus',
-                                 'aac', 'flac', 'wav', 'pcm'] = "aac",
+        voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ] = "nova",
+        response_format: Literal["mp3", "opus", "aac", "flac", "wav", "pcm"] = "aac",
     ) -> AsyncGenerator[bytes, None]:
         """Stream text-to-speech audio from the language model."""
         pass
@@ -60,10 +77,7 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def embed_text(
-        self,
-        text: str,
-        model: Optional[str] = None,
-        dimensions: Optional[int] = None
+        self, text: str, model: Optional[str] = None, dimensions: Optional[int] = None
     ) -> List[float]:
         """
         Generate an embedding for the given text.

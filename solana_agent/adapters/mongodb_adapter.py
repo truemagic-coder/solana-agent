@@ -3,6 +3,7 @@ MongoDB adapter for the Solana Agent system.
 
 This adapter implements the DataStorageProvider interface for MongoDB.
 """
+
 import uuid
 from typing import Dict, List, Tuple, Optional
 
@@ -40,7 +41,7 @@ class MongoDBAdapter(DataStorageProvider):
         query: Dict,
         sort: Optional[List[Tuple]] = None,
         limit: int = 0,
-        skip: int = 0
+        skip: int = 0,
     ) -> List[Dict]:
         cursor = self.db[collection].find(query)
         if sort:
@@ -51,7 +52,9 @@ class MongoDBAdapter(DataStorageProvider):
             cursor = cursor.skip(skip)
         return list(cursor)
 
-    def update_one(self, collection: str, query: Dict, update: Dict, upsert: bool = False) -> bool:
+    def update_one(
+        self, collection: str, query: Dict, update: Dict, upsert: bool = False
+    ) -> bool:
         result = self.db[collection].update_one(query, update, upsert=upsert)
         return result.modified_count > 0 or (upsert and result.upserted_id is not None)
 

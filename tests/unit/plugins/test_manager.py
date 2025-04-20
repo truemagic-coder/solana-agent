@@ -4,9 +4,9 @@ Tests for the PluginManager implementation.
 This module provides comprehensive test coverage for plugin management,
 including plugin loading, registration, configuration, and tool execution.
 """
+
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
-from typing import Dict, Any
 
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.interfaces.plugins.plugins import Plugin
@@ -37,11 +37,7 @@ def mock_tool_registry():
 @pytest.fixture
 def config():
     """Sample configuration for testing."""
-    return {
-        "plugin_config": {
-            "key": "value"
-        }
-    }
+    return {"plugin_config": {"key": "value"}}
 
 
 class TestPluginManager:
@@ -56,8 +52,7 @@ class TestPluginManager:
 
     def test_init_with_config_and_registry(self, config, mock_tool_registry):
         """Test initialization with config and registry."""
-        manager = PluginManager(
-            config=config, tool_registry=mock_tool_registry)
+        manager = PluginManager(config=config, tool_registry=mock_tool_registry)
         assert manager.config == config
         assert manager.tool_registry == mock_tool_registry
 
@@ -89,7 +84,7 @@ class TestPluginManager:
         assert success is False
         assert mock_plugin.name not in manager._plugins
 
-    @patch('importlib.metadata.entry_points')
+    @patch("importlib.metadata.entry_points")
     def test_load_plugins_success(self, mock_entry_points, mock_plugin):
         """Test successful plugin loading from entry points."""
         mock_entry_point = MagicMock()
@@ -105,7 +100,7 @@ class TestPluginManager:
         assert loaded == ["test_plugin"]
         assert manager._plugins[mock_plugin.name] == mock_plugin
 
-    @patch('importlib.metadata.entry_points')
+    @patch("importlib.metadata.entry_points")
     def test_load_plugins_skip_duplicate(self, mock_entry_points, mock_plugin):
         """Test skipping already loaded plugins."""
         mock_entry_point = MagicMock()
@@ -121,7 +116,7 @@ class TestPluginManager:
 
         assert loaded == []  # Second load should skip
 
-    @patch('importlib.metadata.entry_points')
+    @patch("importlib.metadata.entry_points")
     def test_load_plugins_entry_point_error(self, mock_entry_points):
         """Test handling entry point loading errors."""
         mock_entry_point = MagicMock()
@@ -172,8 +167,7 @@ class TestPluginManager:
     async def test_execute_tool_success(self, mock_tool_registry):
         """Test successful tool execution."""
         mock_tool = AsyncMock()
-        mock_tool.execute.return_value = {
-            "status": "success", "result": "test"}
+        mock_tool.execute.return_value = {"status": "success", "result": "test"}
         mock_tool_registry.get_tool.return_value = mock_tool
 
         manager = PluginManager(tool_registry=mock_tool_registry)

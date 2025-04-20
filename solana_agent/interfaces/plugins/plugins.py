@@ -4,8 +4,9 @@ Plugin system interfaces.
 These interfaces define the contracts for the plugin system,
 enabling extensibility through tools and plugins.
 """
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional
 
 
 class Tool(ABC):

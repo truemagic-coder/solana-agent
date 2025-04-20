@@ -8,7 +8,9 @@ class AgentService(ABC):
     """Interface for agent management and response generation."""
 
     @abstractmethod
-    def register_ai_agent(self, name: str, instructions: str, specialization: str) -> None:
+    def register_ai_agent(
+        self, name: str, instructions: str, specialization: str
+    ) -> None:
         """Register an AI agent with its specialization."""
         pass
 
@@ -25,11 +27,22 @@ class AgentService(ABC):
         query: Union[str, bytes],
         memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
-        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ] = "nova",
         audio_instructions: str = "You speak in a friendly and helpful manner.",
-        audio_output_format: Literal['mp3', 'opus',
-                                     'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "aac",
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
@@ -46,7 +59,9 @@ class AgentService(ABC):
         pass
 
     @abstractmethod
-    async def execute_tool(self, agent_name: str, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute_tool(
+        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
         pass
 

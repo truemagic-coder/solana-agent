@@ -5,10 +5,13 @@ This service orchestrates the processing of user queries, coordinating
 other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
+
 from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
 
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
-from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
+from solana_agent.interfaces.services.routing import (
+    RoutingService as RoutingServiceInterface,
+)
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.services.knowledge_base import KnowledgeBaseService
@@ -44,11 +47,22 @@ class QueryService(QueryServiceInterface):
         user_id: str,
         query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
-        audio_voice: Literal["alloy", "ash", "ballad", "coral", "echo",
-                             "fable", "onyx", "nova", "sage", "shimmer"] = "nova",
+        audio_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ] = "nova",
         audio_instructions: str = "You speak in a friendly and helpful manner.",
-        audio_output_format: Literal['mp3', 'opus',
-                                     'aac', 'flac', 'wav', 'pcm'] = "aac",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "aac",
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
@@ -75,7 +89,11 @@ class QueryService(QueryServiceInterface):
             # Handle audio input if provided
             user_text = ""
             if not isinstance(query, str):
-                async for transcript in self.agent_service.llm_provider.transcribe_audio(query, audio_input_format):
+                async for (
+                    transcript
+                ) in self.agent_service.llm_provider.transcribe_audio(
+                    query, audio_input_format
+                ):
                     user_text += transcript
             else:
                 user_text = query
@@ -112,7 +130,7 @@ class QueryService(QueryServiceInterface):
                         query_text=user_text,
                         top_k=self.kb_results_count,
                         include_content=True,
-                        include_metadata=False
+                        include_metadata=False,
                     )
 
                     if kb_results:
@@ -182,7 +200,7 @@ class QueryService(QueryServiceInterface):
                     await self._store_conversation(
                         user_id=user_id,
                         user_message=user_text,
-                        assistant_message=full_text_response
+                        assistant_message=full_text_response,
                     )
 
         except Exception as e:
@@ -191,7 +209,7 @@ class QueryService(QueryServiceInterface):
                 async for chunk in self.agent_service.llm_provider.tts(
                     text=error_msg,
                     voice=audio_voice,
-                    response_format=audio_output_format
+                    response_format=audio_output_format,
                 ):
                     yield chunk
             else:
@@ -199,6 +217,7 @@ class QueryService(QueryServiceInterface):
 
             print(f"Error in query processing: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
 
     async def delete_user_history(self, user_id: str) -> None:
@@ -218,7 +237,7 @@ class QueryService(QueryServiceInterface):
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "desc"  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc",  # "asc" for oldest-first, "desc" for newest-first
     ) -> Dict[str, Any]:
         """Get paginated message history for a user.
 
@@ -246,7 +265,7 @@ class QueryService(QueryServiceInterface):
                 "page": page_num,
                 "page_size": page_size,
                 "total_pages": 0,
-                "error": "Memory provider not available"
+                "error": "Memory provider not available",
             }
 
         try:
@@ -255,8 +274,7 @@ class QueryService(QueryServiceInterface):
 
             # Get total count of documents
             total = self.memory_provider.count_documents(
-                collection="conversations",
-                query={"user_id": user_id}
+                collection="conversations", query={"user_id": user_id}
             )
 
             # Calculate total pages
@@ -268,22 +286,27 @@ class QueryService(QueryServiceInterface):
                 query={"user_id": user_id},
                 sort=[("timestamp", 1 if sort_order == "asc" else -1)],
                 skip=skip,
-                limit=page_size
+                limit=page_size,
             )
 
             # Format the results
             formatted_conversations = []
             for conv in conversations:
                 # Convert datetime to Unix timestamp (seconds since epoch)
-                timestamp = int(conv.get("timestamp").timestamp()
-                                ) if conv.get("timestamp") else None
+                timestamp = (
+                    int(conv.get("timestamp").timestamp())
+                    if conv.get("timestamp")
+                    else None
+                )
 
-                formatted_conversations.append({
-                    "id": str(conv.get("_id")),
-                    "user_message": conv.get("user_message"),
-                    "assistant_message": conv.get("assistant_message"),
-                    "timestamp": timestamp,
-                })
+                formatted_conversations.append(
+                    {
+                        "id": str(conv.get("_id")),
+                        "user_message": conv.get("user_message"),
+                        "assistant_message": conv.get("assistant_message"),
+                        "timestamp": timestamp,
+                    }
+                )
 
             return {
                 "data": formatted_conversations,
@@ -291,12 +314,13 @@ class QueryService(QueryServiceInterface):
                 "page": page_num,
                 "page_size": page_size,
                 "total_pages": total_pages,
-                "error": None
+                "error": None,
             }
 
         except Exception as e:
             print(f"Error retrieving user history: {str(e)}")
             import traceback
+
             print(traceback.format_exc())
             return {
                 "data": [],
@@ -304,7 +328,7 @@ class QueryService(QueryServiceInterface):
                 "page": page_num,
                 "page_size": page_size,
                 "total_pages": 0,
-                "error": f"Error retrieving history: {str(e)}"
+                "error": f"Error retrieving history: {str(e)}",
             }
 
     async def _store_conversation(

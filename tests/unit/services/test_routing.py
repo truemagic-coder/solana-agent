@@ -1,6 +1,7 @@
 """
 Tests for the QueryService implementation.
 """
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -50,7 +51,7 @@ def mock_memory_provider():
             "_id": "123",
             "user_message": "hello",
             "assistant_message": "hi",
-            "timestamp": MagicMock()
+            "timestamp": MagicMock(),
         }
     ]
     provider.count_documents.return_value = 1
@@ -61,10 +62,13 @@ class TestQueryService:
     """Test suite for QueryService."""
 
     @pytest.mark.asyncio
-    async def test_process_greeting(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_process_greeting(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test processing simple greetings."""
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
 
         greetings = ["hello", "hi", "hey", "test", "ping"]
         for greeting in greetings:
@@ -73,10 +77,11 @@ class TestQueryService:
             mock_memory_provider.store.assert_called()
 
     @pytest.mark.asyncio
-    async def test_process_error_handling(self, mock_agent_service, mock_routing_service):
+    async def test_process_error_handling(
+        self, mock_agent_service, mock_routing_service
+    ):
         """Test error handling during processing."""
-        mock_agent_service.generate_response.side_effect = Exception(
-            "Test error")
+        mock_agent_service.generate_response.side_effect = Exception("Test error")
         service = QueryService(mock_agent_service, mock_routing_service)
 
         async for response in service.process(user_id="user123", query="test query"):
@@ -84,25 +89,33 @@ class TestQueryService:
             assert "Test error" in response
 
     @pytest.mark.asyncio
-    async def test_delete_user_history(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_delete_user_history(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test deleting user history."""
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
         await service.delete_user_history("user123")
         mock_memory_provider.delete.assert_called_once_with("user123")
 
     @pytest.mark.asyncio
-    async def test_delete_user_history_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_delete_user_history_error(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test error handling in delete user history."""
         mock_memory_provider.delete.side_effect = Exception("Delete error")
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
         # Should not raise exception
         await service.delete_user_history("user123")
         mock_memory_provider.delete.assert_called_once_with("user123")
 
     @pytest.mark.asyncio
-    async def test_get_user_history_no_memory_provider(self, mock_agent_service, mock_routing_service):
+    async def test_get_user_history_no_memory_provider(
+        self, mock_agent_service, mock_routing_service
+    ):
         """Test getting user history without memory provider."""
         service = QueryService(mock_agent_service, mock_routing_service)
         result = await service.get_user_history("user123")
@@ -110,10 +123,13 @@ class TestQueryService:
         assert result["data"] == []
 
     @pytest.mark.asyncio
-    async def test_get_user_history_success(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_get_user_history_success(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test successful retrieval of user history."""
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
         result = await service.get_user_history("user123")
 
         assert result["total"] == 1
@@ -123,40 +139,44 @@ class TestQueryService:
         mock_memory_provider.count_documents.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_user_history_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_get_user_history_error(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test error handling in get user history."""
         mock_memory_provider.find.side_effect = Exception("Find error")
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
 
         result = await service.get_user_history("user123")
         assert result["error"] == "Error retrieving history: Find error"
         assert result["data"] == []
 
     @pytest.mark.asyncio
-    async def test_store_conversation_error(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_store_conversation_error(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test error handling in store conversation."""
         mock_memory_provider.store.side_effect = Exception("Store error")
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
 
         await service._store_conversation(
-            "user123",
-            "test message",
-            "test response"
+            "user123", "test message", "test response"
         )  # Should not raise exception
         mock_memory_provider.store.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_process_pagination(self, mock_agent_service, mock_routing_service, mock_memory_provider):
+    async def test_process_pagination(
+        self, mock_agent_service, mock_routing_service, mock_memory_provider
+    ):
         """Test pagination in get user history."""
         service = QueryService(
-            mock_agent_service, mock_routing_service, mock_memory_provider)
+            mock_agent_service, mock_routing_service, mock_memory_provider
+        )
         result = await service.get_user_history(
-            user_id="user123",
-            page_num=2,
-            page_size=10,
-            sort_order="asc"
+            user_id="user123", page_num=2, page_size=10, sort_order="asc"
         )
 
         assert result["page"] == 2
@@ -166,5 +186,5 @@ class TestQueryService:
             query={"user_id": "user123"},
             sort=[("timestamp", 1)],
             skip=10,
-            limit=10
+            limit=10,
         )

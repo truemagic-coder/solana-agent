@@ -4,6 +4,7 @@ AutoTool implementation for the Solana Agent system.
 This module provides the base AutoTool class that implements the Tool interface
 and can be extended to create custom tools.
 """
+
 from typing import Dict, Any
 
 from solana_agent.interfaces.plugins.plugins import Tool

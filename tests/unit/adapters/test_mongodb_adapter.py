@@ -28,10 +28,7 @@ def mongo_client():
 def mongodb_adapter(mongo_client):
     """Fixture for MongoDB adapter."""
     client, _ = mongo_client
-    adapter = MongoDBAdapter(
-        connection_string=client.HOST,
-        database_name="test_db"
-    )
+    adapter = MongoDBAdapter(connection_string=client.HOST, database_name="test_db")
     # Replace the real client with our fixture
     adapter.client = client
     adapter.db = client["test_db"]
@@ -56,10 +53,7 @@ class TestMongoDBAdapter:
     def test_init(self, mongo_client):
         """Test initializing the adapter."""
         client, _ = mongo_client
-        adapter = MongoDBAdapter(
-            connection_string=client.HOST,
-            database_name="test_db"
-        )
+        adapter = MongoDBAdapter(connection_string=client.HOST, database_name="test_db")
         assert adapter.db.name == "test_db"
 
     def test_create_collection(self, mongodb_adapter):
@@ -71,16 +65,14 @@ class TestMongoDBAdapter:
         """Test checking if a collection exists."""
         mongodb_adapter.create_collection("existing_collection")
         assert mongodb_adapter.collection_exists("existing_collection") is True
-        assert mongodb_adapter.collection_exists(
-            "non_existing_collection") is False
+        assert mongodb_adapter.collection_exists("non_existing_collection") is False
 
     def test_insert_one_with_id(self, mongodb_adapter):
         """Test inserting a document with existing ID."""
         document = {"_id": "test_id", "name": "Test"}
         result_id = mongodb_adapter.insert_one("test_collection", document)
         assert result_id == "test_id"
-        stored = mongodb_adapter.db["test_collection"].find_one(
-            {"_id": "test_id"})
+        stored = mongodb_adapter.db["test_collection"].find_one({"_id": "test_id"})
         assert stored["name"] == "Test"
 
     def test_insert_one_without_id(self, mongodb_adapter):
@@ -90,8 +82,7 @@ class TestMongoDBAdapter:
         assert result_id is not None
         # Verify UUID format
         uuid.UUID(result_id)  # Will raise ValueError if not a valid UUID
-        stored = mongodb_adapter.db["test_collection"].find_one(
-            {"_id": result_id})
+        stored = mongodb_adapter.db["test_collection"].find_one({"_id": result_id})
         assert stored["name"] == "Test"
 
     def test_find_one_existing(self, mongodb_adapter, sample_data):
@@ -106,8 +97,7 @@ class TestMongoDBAdapter:
 
     def test_find_one_not_existing(self, mongodb_adapter):
         """Test finding a non-existent document."""
-        result = mongodb_adapter.find_one(
-            "test_collection", {"name": "NonExistent"})
+        result = mongodb_adapter.find_one("test_collection", {"name": "NonExistent"})
         assert result is None
 
     def test_find_all(self, mongodb_adapter, sample_data):
@@ -132,20 +122,14 @@ class TestMongoDBAdapter:
         for doc in sample_data:
             mongodb_adapter.insert_one("test_collection", doc)
 
-        results = mongodb_adapter.find(
-            "test_collection",
-            {},
-            sort=[("age", ASCENDING)]
-        )
+        results = mongodb_adapter.find("test_collection", {}, sort=[("age", ASCENDING)])
         assert len(results) == len(sample_data)
         assert results[0]["age"] == 25  # Bob is youngest
         assert results[-1]["age"] == 35  # Charlie is oldest
 
         # Test descending sort
         results = mongodb_adapter.find(
-            "test_collection",
-            {},
-            sort=[("age", DESCENDING)]
+            "test_collection", {}, sort=[("age", DESCENDING)]
         )
         assert results[0]["age"] == 35  # Charlie is oldest
         assert results[-1]["age"] == 25  # Bob is youngest
@@ -180,37 +164,28 @@ class TestMongoDBAdapter:
             mongodb_adapter.insert_one("test_collection", doc)
 
         result = mongodb_adapter.update_one(
-            "test_collection",
-            {"name": "Alice"},
-            {"$set": {"age": 31}}
+            "test_collection", {"name": "Alice"}, {"$set": {"age": 31}}
         )
         assert result is True
 
-        updated = mongodb_adapter.find_one(
-            "test_collection", {"name": "Alice"})
+        updated = mongodb_adapter.find_one("test_collection", {"name": "Alice"})
         assert updated["age"] == 31
 
     def test_update_one_non_existing(self, mongodb_adapter):
         """Test updating a non-existent document."""
         result = mongodb_adapter.update_one(
-            "test_collection",
-            {"name": "NonExistent"},
-            {"$set": {"age": 50}}
+            "test_collection", {"name": "NonExistent"}, {"$set": {"age": 50}}
         )
         assert result is False
 
     def test_update_one_with_upsert(self, mongodb_adapter):
         """Test upserting a document."""
         result = mongodb_adapter.update_one(
-            "test_collection",
-            {"name": "Frank"},
-            {"$set": {"age": 40}},
-            upsert=True
+            "test_collection", {"name": "Frank"}, {"$set": {"age": 40}}, upsert=True
         )
         assert result is True
 
-        upserted = mongodb_adapter.find_one(
-            "test_collection", {"name": "Frank"})
+        upserted = mongodb_adapter.find_one("test_collection", {"name": "Frank"})
         assert upserted is not None
         assert upserted["age"] == 40
 
@@ -219,8 +194,7 @@ class TestMongoDBAdapter:
         for doc in sample_data:
             mongodb_adapter.insert_one("test_collection", doc)
 
-        result = mongodb_adapter.delete_one(
-            "test_collection", {"name": "Alice"})
+        result = mongodb_adapter.delete_one("test_collection", {"name": "Alice"})
         assert result is True
 
         remaining = mongodb_adapter.find("test_collection", {})
@@ -229,8 +203,7 @@ class TestMongoDBAdapter:
 
     def test_delete_one_non_existing(self, mongodb_adapter):
         """Test deleting a non-existent document."""
-        result = mongodb_adapter.delete_one(
-            "test_collection", {"name": "NonExistent"})
+        result = mongodb_adapter.delete_one("test_collection", {"name": "NonExistent"})
         assert result is False
 
     def test_delete_all(self, mongodb_adapter, sample_data):
@@ -239,10 +212,7 @@ class TestMongoDBAdapter:
             mongodb_adapter.insert_one("test_collection", doc)
 
         # Delete all developers
-        result = mongodb_adapter.delete_all(
-            "test_collection",
-            {"tags": "developer"}
-        )
+        result = mongodb_adapter.delete_all("test_collection", {"tags": "developer"})
         assert result is True
 
         remaining = mongodb_adapter.find("test_collection", {})
@@ -251,8 +221,7 @@ class TestMongoDBAdapter:
 
     def test_delete_all_empty_result(self, mongodb_adapter):
         """Test deleting with a query that matches no documents."""
-        result = mongodb_adapter.delete_all(
-            "test_collection", {"name": "NonExistent"})
+        result = mongodb_adapter.delete_all("test_collection", {"name": "NonExistent"})
         assert result is True  # Still returns True as 0 == 0
 
     def test_count_documents(self, mongodb_adapter, sample_data):
@@ -264,8 +233,7 @@ class TestMongoDBAdapter:
         assert count == len(sample_data)
 
         count_filtered = mongodb_adapter.count_documents(
-            "test_collection",
-            {"age": {"$lt": 30}}
+            "test_collection", {"age": {"$lt": 30}}
         )
         assert count_filtered == 2  # Bob and Diana
 
@@ -278,14 +246,8 @@ class TestMongoDBAdapter:
         pipeline = [
             {
                 "$group": {
-                    "_id": {
-                        "$cond": [
-                            {"$lt": ["$age", 30]},
-                            "under_30",
-                            "30_or_over"
-                        ]
-                    },
-                    "count": {"$sum": 1}
+                    "_id": {"$cond": [{"$lt": ["$age", 30]}, "under_30", "30_or_over"]},
+                    "count": {"$sum": 1},
                 }
             }
         ]
@@ -301,9 +263,7 @@ class TestMongoDBAdapter:
     def test_create_index(self, mongodb_adapter):
         """Test creating an index."""
         mongodb_adapter.create_index(
-            "test_collection",
-            [("name", ASCENDING)],
-            unique=True
+            "test_collection", [("name", ASCENDING)], unique=True
         )
 
         # Verify index was created

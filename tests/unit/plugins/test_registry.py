@@ -4,11 +4,10 @@ Tests for the ToolRegistry implementation.
 This module provides comprehensive test coverage for tool registration,
 agent permissions, and tool configuration management.
 """
-import pytest
-from unittest.mock import MagicMock, patch
-from typing import Dict, Any
 
-from solana_agent.plugins.manager import PluginManager
+import pytest
+from unittest.mock import MagicMock
+
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.interfaces.plugins.plugins import Tool
 
@@ -21,9 +20,7 @@ def mock_tool():
     tool.description = "Test tool description"
     tool.get_schema.return_value = {
         "type": "object",
-        "properties": {
-            "param1": {"type": "string"}
-        }
+        "properties": {"param1": {"type": "string"}},
     }
     return tool
 
@@ -31,10 +28,7 @@ def mock_tool():
 @pytest.fixture
 def config():
     """Sample configuration for testing."""
-    return {
-        "api_key": "test_key",
-        "endpoint": "https://api.test.com"
-    }
+    return {"api_key": "test_key", "endpoint": "https://api.test.com"}
 
 
 @pytest.fixture
@@ -112,7 +106,9 @@ class TestToolRegistry:
         success = registry.assign_tool_to_agent("test_agent", mock_tool.name)
         assert success is True
         assert set(registry._agent_tools["test_agent"]) == {
-            "existing_tool", mock_tool.name}
+            "existing_tool",
+            mock_tool.name,
+        }
 
     def test_assign_tool_already_assigned(self, mock_tool):
         """Test assigning already assigned tool."""
@@ -182,10 +178,7 @@ class TestToolRegistry:
         mock_tool2.name = "test_tool2"
         mock_tool2.configure.side_effect = Exception("Config failed")
 
-        registry._tools = {
-            mock_tool.name: mock_tool,
-            mock_tool2.name: mock_tool2
-        }
+        registry._tools = {mock_tool.name: mock_tool, mock_tool2.name: mock_tool2}
 
         # Should not raise exception
         registry.configure_all_tools(config)

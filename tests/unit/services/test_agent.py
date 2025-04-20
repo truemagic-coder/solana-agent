@@ -1,15 +1,16 @@
 """
 Tests for the AgentService class.
 
-This module provides comprehensive test coverage for agent management, 
+This module provides comprehensive test coverage for agent management,
 tool execution, and response generation.
 """
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.services.agent import AgentService
-from solana_agent.domains.agent import AIAgent, BusinessMission
+from solana_agent.domains.agent import BusinessMission
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.plugins.registry import ToolRegistry
 
@@ -51,17 +52,14 @@ def business_mission():
         mission="Test mission",
         voice="Professional",
         values=[{"name": "Quality", "description": "High standards"}],
-        goals=["Achieve excellence"]
+        goals=["Achieve excellence"],
     )
 
 
 @pytest.fixture
 def config():
     """Sample configuration."""
-    return {
-        "api_key": "test_key",
-        "model": "test_model"
-    }
+    return {"api_key": "test_key", "model": "test_model"}
 
 
 class TestAgentService:
@@ -80,7 +78,7 @@ class TestAgentService:
         service = AgentService(
             llm_provider=mock_llm_provider,
             business_mission=business_mission,
-            config=config
+            config=config,
         )
         assert service.business_mission == business_mission
         assert service.config == config
@@ -103,7 +101,7 @@ class TestAgentService:
         service.register_ai_agent(
             name="test_agent",
             instructions="Test instructions",
-            specialization="Testing"
+            specialization="Testing",
         )
         assert len(service.agents) == 1
         agent = service.agents[0]
@@ -125,8 +123,7 @@ class TestAgentService:
     ):
         """Test getting system prompt with business mission."""
         service = AgentService(
-            llm_provider=mock_llm_provider,
-            business_mission=business_mission
+            llm_provider=mock_llm_provider, business_mission=business_mission
         )
         service.register_ai_agent("test_agent", "Test instructions", "Testing")
         prompt = service.get_agent_system_prompt("test_agent")
@@ -158,8 +155,7 @@ class TestAgentService:
         # Verify the result and interaction
         assert result is True
         mock_tool_registry.assign_tool_to_agent.assert_called_once_with(
-            "test_agent",
-            "test_tool"
+            "test_agent", "test_tool"
         )
 
     def test_get_agent_tools(self, mock_llm_provider):
@@ -212,11 +208,9 @@ class TestAgentService:
     async def test_execute_tool_success(self, mock_llm_provider, mock_tool_registry):
         """Test successful tool execution."""
         mock_tool = AsyncMock()
-        mock_tool.execute.return_value = {
-            "status": "success", "result": "done"}
+        mock_tool.execute.return_value = {"status": "success", "result": "done"}
         mock_tool_registry.get_tool.return_value = mock_tool
-        mock_tool_registry.get_agent_tools.return_value = [
-            {"name": "test_tool"}]
+        mock_tool_registry.get_agent_tools.return_value = [{"name": "test_tool"}]
 
         service = AgentService(llm_provider=mock_llm_provider)
         service.tool_registry = mock_tool_registry
@@ -226,7 +220,9 @@ class TestAgentService:
         assert result["result"] == "done"
 
     @pytest.mark.asyncio
-    async def test_execute_tool_execution_error(self, mock_llm_provider, mock_tool_registry):
+    async def test_execute_tool_execution_error(
+        self, mock_llm_provider, mock_tool_registry
+    ):
         """Test handling of tool execution error."""
         # Create mock tool that raises an exception
         mock_tool = AsyncMock()
@@ -234,15 +230,16 @@ class TestAgentService:
 
         # Configure tool registry to return the mock tool
         mock_tool_registry.get_tool.return_value = mock_tool
-        mock_tool_registry.get_agent_tools.return_value = [
-            {"name": "failing_tool"}]
+        mock_tool_registry.get_agent_tools.return_value = [{"name": "failing_tool"}]
 
         # Create service and set mock registry
         service = AgentService(llm_provider=mock_llm_provider)
         service.tool_registry = mock_tool_registry
 
         # Execute tool and verify error handling
-        result = await service.execute_tool("test_agent", "failing_tool", {"param": "value"})
+        result = await service.execute_tool(
+            "test_agent", "failing_tool", {"param": "value"}
+        )
 
         # Verify error response
         assert result["status"] == "error"
@@ -251,5 +248,4 @@ class TestAgentService:
         # Verify mock interactions
         mock_tool.execute.assert_called_once_with(param="value")
         mock_tool_registry.get_tool.assert_called_once_with("failing_tool")
-        mock_tool_registry.get_agent_tools.assert_called_once_with(
-            "test_agent")
+        mock_tool_registry.get_agent_tools.assert_called_once_with("test_agent")

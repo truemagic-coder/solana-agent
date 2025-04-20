@@ -4,6 +4,7 @@ Tests for domain models in agent.py.
 These tests verify the behavior of the BusinessMission and AIAgent models,
 including all field validations and constraints.
 """
+
 import pytest
 from pydantic import ValidationError
 from solana_agent.domains.agent import BusinessMission, AIAgent
@@ -18,10 +19,10 @@ class TestBusinessMission:
             mission="To revolutionize the blockchain experience",
             values=[
                 {"name": "Innovation", "description": "Pushing boundaries"},
-                {"name": "Trust", "description": "Building reliable systems"}
+                {"name": "Trust", "description": "Building reliable systems"},
             ],
             goals=["Achieve 1M users", "Launch 5 new features"],
-            voice="Professional yet approachable"
+            voice="Professional yet approachable",
         )
 
         assert mission.mission == "To revolutionize the blockchain experience"
@@ -33,8 +34,7 @@ class TestBusinessMission:
     def test_valid_business_mission_minimal(self):
         """Test creating a valid BusinessMission with only required fields."""
         mission = BusinessMission(
-            mission="To revolutionize the blockchain experience",
-            voice="Professional"
+            mission="To revolutionize the blockchain experience", voice="Professional"
         )
 
         assert mission.mission == "To revolutionize the blockchain experience"
@@ -81,11 +81,10 @@ class TestBusinessMission:
             BusinessMission(
                 mission="Valid mission",
                 voice="Professional",
-                values=[{"description": "No name provided"}]
+                values=[{"description": "No name provided"}],
             )
 
-        assert "Each value must have a name and description" in str(
-            excinfo.value)
+        assert "Each value must have a name and description" in str(excinfo.value)
 
     def test_invalid_values_missing_description(self):
         """Test validation error when a value is missing a description."""
@@ -93,11 +92,10 @@ class TestBusinessMission:
             BusinessMission(
                 mission="Valid mission",
                 voice="Professional",
-                values=[{"name": "No description"}]
+                values=[{"name": "No description"}],
             )
 
-        assert "Each value must have a name and description" in str(
-            excinfo.value)
+        assert "Each value must have a name and description" in str(excinfo.value)
 
 
 class TestAIAgent:
@@ -108,11 +106,14 @@ class TestAIAgent:
         agent = AIAgent(
             name="financial_expert",
             instructions="Provide financial advice and answer questions about investments.",
-            specialization="Finance"
+            specialization="Finance",
         )
 
         assert agent.name == "financial_expert"
-        assert agent.instructions == "Provide financial advice and answer questions about investments."
+        assert (
+            agent.instructions
+            == "Provide financial advice and answer questions about investments."
+        )
         assert agent.specialization == "Finance"
 
     def test_invalid_empty_name(self):
@@ -121,7 +122,7 @@ class TestAIAgent:
             AIAgent(
                 name="",
                 instructions="Valid instructions that are definitely long enough.",
-                specialization="Finance"
+                specialization="Finance",
             )
 
         assert "Field cannot be empty" in str(excinfo.value)
@@ -132,7 +133,7 @@ class TestAIAgent:
             AIAgent(
                 name="   ",
                 instructions="Valid instructions that are definitely long enough.",
-                specialization="Finance"
+                specialization="Finance",
             )
 
         assert "Field cannot be empty" in str(excinfo.value)
@@ -140,11 +141,7 @@ class TestAIAgent:
     def test_invalid_empty_instructions(self):
         """Test validation error when instructions are empty."""
         with pytest.raises(ValidationError) as excinfo:
-            AIAgent(
-                name="financial_expert",
-                instructions="",
-                specialization="Finance"
-            )
+            AIAgent(name="financial_expert", instructions="", specialization="Finance")
 
         assert "Instructions cannot be empty" in str(excinfo.value)
 
@@ -152,9 +149,7 @@ class TestAIAgent:
         """Test validation error when instructions are only whitespace."""
         with pytest.raises(ValidationError) as excinfo:
             AIAgent(
-                name="financial_expert",
-                instructions="   ",
-                specialization="Finance"
+                name="financial_expert", instructions="   ", specialization="Finance"
             )
 
         assert "Instructions cannot be empty" in str(excinfo.value)
@@ -165,11 +160,10 @@ class TestAIAgent:
             AIAgent(
                 name="financial_expert",
                 instructions="Too short",
-                specialization="Finance"
+                specialization="Finance",
             )
 
-        assert "Instructions must be at least 10 characters" in str(
-            excinfo.value)
+        assert "Instructions must be at least 10 characters" in str(excinfo.value)
 
     def test_invalid_empty_specialization(self):
         """Test validation error when specialization is empty."""
@@ -177,7 +171,7 @@ class TestAIAgent:
             AIAgent(
                 name="financial_expert",
                 instructions="Valid instructions that are definitely long enough.",
-                specialization=""
+                specialization="",
             )
 
         assert "Field cannot be empty" in str(excinfo.value)
@@ -188,7 +182,7 @@ class TestAIAgent:
             AIAgent(
                 name="financial_expert",
                 instructions="Valid instructions that are definitely long enough.",
-                specialization="   "
+                specialization="   ",
             )
 
         assert "Field cannot be empty" in str(excinfo.value)

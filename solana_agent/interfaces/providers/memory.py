@@ -27,7 +27,7 @@ class MemoryProvider(ABC):
         query: Dict,
         sort: Optional[List[Tuple]] = None,
         limit: int = 0,
-        skip: int = 0
+        skip: int = 0,
     ) -> List[Dict]:
         """Find documents matching query."""
         pass
