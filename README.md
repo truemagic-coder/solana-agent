@@ -63,13 +63,13 @@ Build your AI agents in three lines of code!
 ### Tech
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com) - AI Provider
+* [OpenAI](https://openai.com) - AI Model Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 * [AgentiPy](https://agentipy.fun) - Solana Ecosystem (optional)
 * [Zapier](https://zapier.com) - App Integrations (optional)
-* [Pydantic Logfire](https://logfire.pydantic.dev) - Observability (optional)
+* [Pydantic Logfire](https://logfire.pydantic.dev) - Observability and Tracing (optional)
 
 ### AI Models Used
 
