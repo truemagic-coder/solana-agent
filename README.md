@@ -69,7 +69,7 @@ Build your AI agents in three lines of code!
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) or [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
-* [gemini-2.0-flash](https://ai.google.dev/gemini-api/docs/models#gemini-2.0-flash) (optional)
+* [gemini-2.5-flash-preview](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (optional)
 * [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 
 ## Installation

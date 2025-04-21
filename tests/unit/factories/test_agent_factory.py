@@ -440,7 +440,7 @@ class TestSolanaAgentFactory:
             config=gemini_config,
             api_key="test-gemini-key",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash-preview-04-17",
         )
 
         mock_routing_service.assert_called_once_with(
@@ -448,7 +448,7 @@ class TestSolanaAgentFactory:
             agent_service=mock_agent_instance,
             api_key="test-gemini-key",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash-preview-04-17",
         )
 
         assert result == mock_query_instance
@@ -544,7 +544,7 @@ class TestSolanaAgentFactory:
             agent_service=mock_agent_instance,
             api_key="test-gemini-key",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash-preview-04-17",
         )
 
         assert result == mock_query_instance
