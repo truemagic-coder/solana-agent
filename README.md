@@ -44,7 +44,7 @@ Build your AI agents in three lines of code!
 * Fast AI responses
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
-* Integrated observability and tracing via [Pydantic Logfire](https://logfire.pydantic.dev/)
+* Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
@@ -69,7 +69,7 @@ Build your AI agents in three lines of code!
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 * [AgentiPy](https://agentipy.fun) - Solana Ecosystem (optional)
 * [Zapier](https://zapier.com) - App Integrations (optional)
-* [Pydantic Logfire](https://logfire.pydantic.dev) - Observability and Tracing (optional)
+* [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
 
 ### AI Models Used
 
