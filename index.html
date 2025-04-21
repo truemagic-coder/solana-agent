@@ -130,6 +130,9 @@
 </pre></div>
 </div>
 </section>
+<section id="usage">
+<h3>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h3>
+</section>
 <section id="text-text-streaming">
 <h3>Text/Text Streaming<a class="headerlink" href="#text-text-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
@@ -190,8 +193,8 @@
 </pre></div>
 </div>
 </section>
-<section id="agent-audio-streaming">
-<h3>agent/Audio Streaming<a class="headerlink" href="#agent-audio-streaming" title="Link to this heading"></a></h3>
+<section id="text-audio-streaming">
+<h3>Text/Audio Streaming<a class="headerlink" href="#text-audio-streaming" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -249,6 +252,9 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="optional-configurations">
+<h3>Optional Configurations<a class="headerlink" href="#optional-configurations" title="Link to this heading"></a></h3>
 </section>
 <section id="business-alignment-config-optional">
 <h3>Business Alignment Config - Optional<a class="headerlink" href="#business-alignment-config-optional" title="Link to this heading"></a></h3>
@@ -329,8 +335,8 @@
 </pre></div>
 </div>
 </section>
-<section id="example-for-kb-text">
-<h3>Example for KB (text)<a class="headerlink" href="#example-for-kb-text" title="Link to this heading"></a></h3>
+<section id="example-for-kb-text-optional">
+<h3>Example for KB (text) - Optional<a class="headerlink" href="#example-for-kb-text-optional" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -371,8 +377,8 @@
 </pre></div>
 </div>
 </section>
-<section id="example-for-kb-pdf">
-<h3>Example for KB (pdf)<a class="headerlink" href="#example-for-kb-pdf" title="Link to this heading"></a></h3>
+<section id="example-for-kb-pdf-optional">
+<h3>Example for KB (pdf) - Optional<a class="headerlink" href="#example-for-kb-pdf-optional" title="Link to this heading"></a></h3>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -417,6 +423,85 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="guardrails-optional">
+<h3>Guardrails - Optional<a class="headerlink" href="#guardrails-optional" title="Link to this heading"></a></h3>
+<p>Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it’s sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.</p>
+<p>Solana Agent provides a built-in PII scrubber based on scrubadub.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;guardrails&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;input&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="c1"># Example using a custom input guardrail</span>
+            <span class="p">{</span>
+               <span class="s2">&quot;class&quot;</span><span class="p">:</span> <span class="s2">&quot;MyInputGuardrail&quot;</span><span class="p">,</span>
+               <span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;setting1&quot;</span><span class="p">:</span> <span class="s2">&quot;value1&quot;</span><span class="p">}</span>
+            <span class="p">},</span>
+            <span class="c1"># Example using the built-in PII guardrail for input</span>
+            <span class="p">{</span>
+               <span class="s2">&quot;class&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_agent.guardrails.pii.PII&quot;</span><span class="p">,</span>
+               <span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span>
+                  <span class="s2">&quot;locale&quot;</span><span class="p">:</span> <span class="s2">&quot;en_GB&quot;</span><span class="p">,</span> <span class="c1"># Optional: Specify locale (default: en_US)</span>
+                  <span class="s2">&quot;replacement&quot;</span><span class="p">:</span> <span class="s2">&quot;[REDACTED]&quot;</span> <span class="c1"># Optional: Custom replacement format</span>
+               <span class="p">}</span>
+            <span class="p">}</span>
+      <span class="p">],</span>
+      <span class="s2">&quot;output&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="c1"># Example using a custom output guardrail</span>
+            <span class="p">{</span>
+               <span class="s2">&quot;class&quot;</span><span class="p">:</span> <span class="s2">&quot;MyOutputGuardrail&quot;</span><span class="p">,</span>
+               <span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;filter_level&quot;</span><span class="p">:</span> <span class="s2">&quot;high&quot;</span><span class="p">}</span>
+            <span class="p">},</span>
+            <span class="c1"># Example using the built-in PII guardrail for output (with defaults)</span>
+            <span class="p">{</span>
+               <span class="s2">&quot;class&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_agent.guardrails.pii.PII&quot;</span>
+               <span class="c1"># No config needed to use defaults</span>
+            <span class="p">}</span>
+      <span class="p">]</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="example-custom-guardrails-optional">
+<h3>Example Custom Guardrails - Optional<a class="headerlink" href="#example-custom-guardrails-optional" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">InputGuardrail</span><span class="p">,</span> <span class="n">OutputGuardrail</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyInputGuardrail</span><span class="p">(</span><span class="n">InputGuardrail</span><span class="p">):</span>
+   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+      <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">setting1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;setting1&quot;</span><span class="p">,</span> <span class="s2">&quot;default_value&quot;</span><span class="p">)</span>
+      <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MyInputGuardrail initialized with setting1: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">setting1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+      <span class="c1"># Example: Convert input to lowercase</span>
+      <span class="n">processed_text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+      <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input Guardrail processed: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">processed_text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+      <span class="k">return</span> <span class="n">processed_text</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyOutputGuardrail</span><span class="p">(</span><span class="n">OutputGuardrail</span><span class="p">):</span>
+   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+      <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+      <span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filter_level&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">)</span>
+      <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MyOutputGuardrail initialized with filter_level: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+      <span class="c1"># Example: Basic profanity filtering (replace with a real library)</span>
+      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span> <span class="o">==</span> <span class="s2">&quot;high&quot;</span> <span class="ow">and</span> <span class="s2">&quot;badword&quot;</span> <span class="ow">in</span> <span class="n">text</span><span class="p">:</span>
+            <span class="n">processed_text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;badword&quot;</span><span class="p">,</span> <span class="s2">&quot;*******&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output Guardrail filtered content.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">processed_text</span>
+      <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Output Guardrail passed text through.&quot;</span><span class="p">)</span>
+      <span class="k">return</span> <span class="n">text</span>
+</pre></div>
+</div>
+</section>
+<section id="tools">
+<h3>Tools<a class="headerlink" href="#tools" title="Link to this heading"></a></h3>
 </section>
 <section id="solana">
 <h3>Solana<a class="headerlink" href="#solana" title="Link to this heading"></a></h3>
@@ -593,6 +678,9 @@
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="advanced-configuration">
+<h3>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading"></a></h3>
 </section>
 <section id="prompt-injection-at-runtime-example">
 <h3>Prompt Injection at Runtime Example<a class="headerlink" href="#prompt-injection-at-runtime-example" title="Link to this heading"></a></h3>
