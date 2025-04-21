@@ -128,7 +128,7 @@ class SolanaAgentFactory:
                 agent_service=agent_service,
                 api_key=config["gemini"]["api_key"],
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash-preview-04-17",
             )
 
         elif (
