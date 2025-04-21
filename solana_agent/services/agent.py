@@ -229,11 +229,17 @@ class AgentService(AgentServiceInterface):
         ] = "aac",
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Generate a response with support for text/audio input/output and guardrails."""
+        """Generate a response with support for text/audio input/output and guardrails.
+
+        If output_format is 'text' and output_guardrails are present, the response
+        will be buffered entirely before applying guardrails and yielding a single result.
+        Otherwise, text responses stream chunk-by-chunk. Audio responses always buffer.
+        """
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             logger.warning(error_msg)
+            # Handle error output (unchanged)
             if output_format == "audio":
                 async for chunk in self.llm_provider.tts(
                     error_msg,
@@ -246,66 +252,62 @@ class AgentService(AgentServiceInterface):
                 yield error_msg
             return
 
+        # --- Determine Buffering Strategy ---
+        # Buffer text ONLY if format is text AND guardrails are present
+        should_buffer_text = bool(self.output_guardrails) and output_format == "text"
+        logger.debug(
+            f"Text buffering strategy: {'Buffer full response' if should_buffer_text else 'Stream chunks'}"
+        )
+
         try:
-            # --- 1. Get Base System Prompt ---
+            # --- System Prompt Assembly ---
             system_prompt_parts = [self.get_agent_system_prompt(agent_name)]
 
-            # --- 2. Add Tool Usage Instructions EARLY ---
-            tool_usage_prompt_text = ""
-            if self.tool_registry:
-                tool_usage_prompt_text = self._get_tool_usage_prompt(agent_name)
-                if tool_usage_prompt_text:
-                    system_prompt_parts.append(
-                        f"\n\n--- TOOL USAGE INSTRUCTIONS ---{tool_usage_prompt_text}"
-                    )
-                    logger.debug(
-                        f"Tools available to agent {agent_name}: {[t.get('name') for t in self.get_agent_tools(agent_name)]}"
-                    )
+            # Add tool usage instructions if tools are available for the agent
+            tool_instructions = self._get_tool_usage_prompt(agent_name)
+            if tool_instructions:
+                system_prompt_parts.append(tool_instructions)
 
-            # --- 3. Add User ID ---
-            system_prompt_parts.append("\n\n--- USER & SESSION INFO ---")
-            system_prompt_parts.append(f"User ID: {user_id}")
+            # Add user ID context
+            system_prompt_parts.append(f"USER IDENTIFIER: {user_id}")
 
-            # --- 4. Add Memory Context ---
+            # Add memory context if provided
             if memory_context:
-                system_prompt_parts.append(
-                    "\n\n--- CONVERSATION HISTORY (Memory Context) ---"
-                )
-                system_prompt_parts.append(memory_context)
+                system_prompt_parts.append(f"\nCONVERSATION HISTORY:\n{memory_context}")
 
-            # --- 5. Add Additional Prompt (if provided) ---
+            # Add optional prompt if provided
             if prompt:
-                system_prompt_parts.append(
-                    "\n\n--- ADDITIONAL INSTRUCTIONS FOR THIS TURN ---"
-                )
-                system_prompt_parts.append(prompt)
+                system_prompt_parts.append(f"\nADDITIONAL PROMPT:\n{prompt}")
 
-            # --- Assemble the final system prompt ---
-            final_system_prompt = "\n".join(system_prompt_parts)
-            # logger.debug(f"Final System Prompt:\n{final_system_prompt}") # Uncomment for debugging
+            final_system_prompt = "\n\n".join(
+                filter(None, system_prompt_parts)
+            )  # Join non-empty parts
+            # --- End System Prompt Assembly ---
 
-            # Variables for tracking the complete response
-            complete_text_response = ""
-            full_response_buffer = ""
+            # --- Response Generation ---
+            complete_text_response = (
+                ""  # Always used for final storage and potentially for buffering
+            )
+            full_response_buffer = ""  # Used ONLY for audio buffering
 
-            # Variables for robust handling of tool call markers
+            # Tool call handling variables (unchanged)
             tool_buffer = ""
             pending_chunk = ""
             is_tool_call = False
             start_marker = "[TOOL]"
             end_marker = "[/TOOL]"
 
-            # Generate and stream response
             logger.info(
                 f"Generating response for agent '{agent_name}' with query length {len(str(query))}"
             )
             async for chunk in self.llm_provider.generate_text(
-                prompt=str(query),  # Ensure query is str
+                prompt=str(query),
                 system_prompt=final_system_prompt,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
             ):
+                # --- Chunk Processing & Tool Call Logic (Modified Yielding) ---
                 if pending_chunk:
                     combined_chunk = pending_chunk + chunk
                     pending_chunk = ""
@@ -314,30 +316,34 @@ class AgentService(AgentServiceInterface):
 
                 # STEP 1: Check for tool call start marker
                 if start_marker in combined_chunk and not is_tool_call:
-                    logger.debug(
-                        f"Found tool start marker in chunk of length {len(combined_chunk)}"
-                    )
                     is_tool_call = True
                     start_pos = combined_chunk.find(start_marker)
                     before_marker = combined_chunk[:start_pos]
                     after_marker = combined_chunk[start_pos:]
 
-                    # Yield text BEFORE the marker (apply guardrails)
                     if before_marker:
                         processed_before_marker = before_marker
-                        for guardrail in self.output_guardrails:
-                            try:
-                                processed_before_marker = await guardrail.process(
-                                    processed_before_marker
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Error applying output guardrail {guardrail.__class__.__name__} to pre-tool text: {e}"
-                                )
+                        # Apply guardrails ONLY if NOT buffering text
+                        if not should_buffer_text:
+                            for guardrail in self.output_guardrails:
+                                try:
+                                    processed_before_marker = await guardrail.process(
+                                        processed_before_marker
+                                    )
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error applying output guardrail {guardrail.__class__.__name__} to pre-tool text: {e}"
+                                    )
 
-                        if processed_before_marker and output_format == "text":
+                        # Yield ONLY if NOT buffering text
+                        if (
+                            processed_before_marker
+                            and not should_buffer_text
+                            and output_format == "text"
+                        ):
                             yield processed_before_marker
-                        # Accumulate processed text
+
+                        # Always accumulate for final response / audio buffer
                         if processed_before_marker:
                             complete_text_response += processed_before_marker
                             if output_format == "audio":
@@ -350,73 +356,78 @@ class AgentService(AgentServiceInterface):
                 if is_tool_call:
                     tool_buffer += combined_chunk
                     if end_marker in tool_buffer:
-                        logger.debug(
-                            f"Tool call complete, buffer size: {len(tool_buffer)}"
-                        )
                         response_text = await self._handle_tool_call(
                             agent_name=agent_name, tool_text=tool_buffer
                         )
                         response_text = self._clean_tool_response(response_text)
-                        logger.info(
-                            f"Tool execution complete, result size: {len(response_text)}"
-                        )
-
                         user_prompt = f"{str(query)}\n\nTOOL RESULT: {response_text}"
 
-                        # --- REBUILD the system prompt for the follow-up call ---
+                        # --- Rebuild system prompt for follow-up ---
                         follow_up_system_prompt_parts = [
                             self.get_agent_system_prompt(agent_name)
                         ]
+                        # Re-add tool instructions if needed for follow-up context
+                        if tool_instructions:
+                            follow_up_system_prompt_parts.append(tool_instructions)
                         follow_up_system_prompt_parts.append(
-                            "\n\nCRITICAL: You have received the results from a tool. Base your response on the 'TOOL RESULT' provided in the user prompt. DO NOT use the tool calling format again for this turn."
+                            f"USER IDENTIFIER: {user_id}"
                         )
-                        follow_up_system_prompt_parts.append(
-                            "\n\n--- USER & SESSION INFO ---"
-                        )
-                        follow_up_system_prompt_parts.append(f"User ID: {user_id}")
+                        # Include original memory + original query + tool result context
                         if memory_context:
                             follow_up_system_prompt_parts.append(
-                                "\n\n--- CONVERSATION HISTORY (Memory Context) ---"
+                                f"\nORIGINAL CONVERSATION HISTORY:\n{memory_context}"
                             )
-                            follow_up_system_prompt_parts.append(memory_context)
+                        # Add the original prompt if it was provided
                         if prompt:
                             follow_up_system_prompt_parts.append(
-                                "\n\n--- ADDITIONAL INSTRUCTIONS FOR THIS TURN ---"
+                                f"\nORIGINAL ADDITIONAL PROMPT:\n{prompt}"
                             )
-                            follow_up_system_prompt_parts.append(prompt)
-                        final_follow_up_system_prompt = "\n".join(
-                            follow_up_system_prompt_parts
+                        # Add context about the tool call that just happened
+                        follow_up_system_prompt_parts.append(
+                            f"\nPREVIOUS TOOL CALL CONTEXT:\nOriginal Query: {str(query)}\nTool Used: (Inferred from result)\nTool Result: {response_text}"
                         )
-                        # --- End Rebuild ---
+
+                        final_follow_up_system_prompt = "\n\n".join(
+                            filter(None, follow_up_system_prompt_parts)
+                        )
+                        # --- End Rebuild system prompt ---
 
                         logger.info("Generating follow-up response with tool results")
                         async for processed_chunk in self.llm_provider.generate_text(
-                            prompt=user_prompt,
+                            prompt=user_prompt,  # Use the prompt that includes the tool result
                             system_prompt=final_follow_up_system_prompt,
                             api_key=self.api_key,
                             base_url=self.base_url,
                             model=self.model,
                         ):
-                            # --- Apply Output Guardrails to follow-up response ---
                             chunk_to_yield_followup = processed_chunk
-                            for guardrail in self.output_guardrails:
-                                try:
-                                    chunk_to_yield_followup = await guardrail.process(
-                                        chunk_to_yield_followup
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        f"Error applying output guardrail {guardrail.__class__.__name__} to follow-up chunk: {e}"
-                                    )
+                            # Apply guardrails ONLY if NOT buffering text
+                            if not should_buffer_text:
+                                for guardrail in self.output_guardrails:
+                                    try:
+                                        chunk_to_yield_followup = (
+                                            await guardrail.process(
+                                                chunk_to_yield_followup
+                                            )
+                                        )
+                                    except Exception as e:
+                                        logger.error(
+                                            f"Error applying output guardrail {guardrail.__class__.__name__} to follow-up chunk: {e}"
+                                        )
 
-                            if chunk_to_yield_followup and output_format == "text":
+                            # Yield ONLY if NOT buffering text
+                            if (
+                                chunk_to_yield_followup
+                                and not should_buffer_text
+                                and output_format == "text"
+                            ):
                                 yield chunk_to_yield_followup
-                            # Accumulate processed chunk
+
+                            # Always accumulate
                             if chunk_to_yield_followup:
                                 complete_text_response += chunk_to_yield_followup
                                 if output_format == "audio":
                                     full_response_buffer += chunk_to_yield_followup
-                            # --- End Apply Output Guardrails ---
 
                         is_tool_call = False
                         tool_buffer = ""
@@ -427,88 +438,135 @@ class AgentService(AgentServiceInterface):
 
                 # STEP 3: Check for possible partial start markers
                 potential_marker = False
-                chunk_to_yield = combined_chunk  # Default to full chunk
+                chunk_to_yield = combined_chunk
                 for i in range(1, len(start_marker)):
                     if combined_chunk.endswith(start_marker[:i]):
                         pending_chunk = combined_chunk[-i:]
                         chunk_to_yield = combined_chunk[:-i]
                         potential_marker = True
-                        logger.debug(
-                            f"Potential partial marker detected: '{pending_chunk}'"
-                        )
                         break
 
                 if potential_marker:
-                    # Process the safe part of the chunk (apply guardrails)
                     chunk_to_yield_safe = chunk_to_yield
-                    for guardrail in self.output_guardrails:
-                        try:
-                            chunk_to_yield_safe = await guardrail.process(
-                                chunk_to_yield_safe
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"Error applying output guardrail {guardrail.__class__.__name__} to safe chunk: {e}"
-                            )
+                    # Apply guardrails ONLY if NOT buffering text
+                    if not should_buffer_text:
+                        for guardrail in self.output_guardrails:
+                            try:
+                                chunk_to_yield_safe = await guardrail.process(
+                                    chunk_to_yield_safe
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error applying output guardrail {guardrail.__class__.__name__} to safe chunk: {e}"
+                                )
 
-                    if chunk_to_yield_safe and output_format == "text":
+                    # Yield ONLY if NOT buffering text
+                    if (
+                        chunk_to_yield_safe
+                        and not should_buffer_text
+                        and output_format == "text"
+                    ):
                         yield chunk_to_yield_safe
-                    # Accumulate processed safe part
+
+                    # Always accumulate
                     if chunk_to_yield_safe:
                         complete_text_response += chunk_to_yield_safe
                         if output_format == "audio":
                             full_response_buffer += chunk_to_yield_safe
                     continue
 
-                # STEP 4: Normal text processing (apply guardrails)
+                # STEP 4: Normal text processing
                 chunk_to_yield_normal = combined_chunk
-                for guardrail in self.output_guardrails:
-                    try:
-                        chunk_to_yield_normal = await guardrail.process(
-                            chunk_to_yield_normal
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__} to normal chunk: {e}"
-                        )
+                # Apply guardrails ONLY if NOT buffering text
+                if not should_buffer_text:
+                    for guardrail in self.output_guardrails:
+                        try:
+                            chunk_to_yield_normal = await guardrail.process(
+                                chunk_to_yield_normal
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error applying output guardrail {guardrail.__class__.__name__} to normal chunk: {e}"
+                            )
 
-                if chunk_to_yield_normal and output_format == "text":
+                # Yield ONLY if NOT buffering text
+                if (
+                    chunk_to_yield_normal
+                    and not should_buffer_text
+                    and output_format == "text"
+                ):
                     yield chunk_to_yield_normal
-                # Accumulate processed normal chunk
+
+                # Always accumulate
                 if chunk_to_yield_normal:
                     complete_text_response += chunk_to_yield_normal
                     if output_format == "audio":
                         full_response_buffer += chunk_to_yield_normal
 
-            # Process any incomplete tool call (apply guardrails)
+            # --- Post-Loop Processing ---
+
+            # Process any incomplete tool call
             if is_tool_call and tool_buffer:
                 logger.warning(
                     f"Incomplete tool call detected, processing as regular text: {len(tool_buffer)} chars"
                 )
                 processed_tool_buffer = tool_buffer
-                for guardrail in self.output_guardrails:
-                    try:
-                        processed_tool_buffer = await guardrail.process(
-                            processed_tool_buffer
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__} to incomplete tool buffer: {e}"
-                        )
+                # Apply guardrails ONLY if NOT buffering text
+                if not should_buffer_text:
+                    for guardrail in self.output_guardrails:
+                        try:
+                            processed_tool_buffer = await guardrail.process(
+                                processed_tool_buffer
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error applying output guardrail {guardrail.__class__.__name__} to incomplete tool buffer: {e}"
+                            )
 
-                if processed_tool_buffer and output_format == "text":
+                # Yield ONLY if NOT buffering text
+                if (
+                    processed_tool_buffer
+                    and not should_buffer_text
+                    and output_format == "text"
+                ):
                     yield processed_tool_buffer
-                # Accumulate processed incomplete tool buffer
+
+                # Always accumulate
                 if processed_tool_buffer:
                     complete_text_response += processed_tool_buffer
                     if output_format == "audio":
                         full_response_buffer += processed_tool_buffer
 
-            # --- Apply Output Guardrails (Audio - Before TTS) ---
-            if output_format == "audio" and full_response_buffer:
+            # --- Final Output Generation ---
+
+            # Case 1: Text output WITH guardrails (apply to buffered response)
+            if should_buffer_text:
+                logger.info(
+                    f"Applying output guardrails to buffered text response (length: {len(complete_text_response)})"
+                )
+                processed_full_text = complete_text_response
+                for guardrail in self.output_guardrails:
+                    try:
+                        processed_full_text = await guardrail.process(
+                            processed_full_text
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error applying output guardrail {guardrail.__class__.__name__} to full text buffer: {e}"
+                        )
+
+                if processed_full_text:
+                    yield processed_full_text
+                # Update last_text_response with the final processed text
+                self.last_text_response = processed_full_text
+
+            # Case 2: Audio output (apply guardrails to buffer before TTS) - Unchanged Logic
+            elif output_format == "audio" and full_response_buffer:
                 original_buffer = full_response_buffer
                 processed_audio_buffer = full_response_buffer
-                for guardrail in self.output_guardrails:
+                for (
+                    guardrail
+                ) in self.output_guardrails:  # Apply even if empty, for consistency
                     try:
                         processed_audio_buffer = await guardrail.process(
                             processed_audio_buffer
@@ -522,13 +580,10 @@ class AgentService(AgentServiceInterface):
                         f"Output guardrails modified audio buffer. Original length: {len(original_buffer)}, New length: {len(processed_audio_buffer)}"
                     )
 
-                # Clean potentially modified text before TTS
-                logger.info(
-                    f"Processing {len(processed_audio_buffer)} characters for audio output"
-                )
                 cleaned_audio_buffer = self._clean_for_audio(processed_audio_buffer)
-
-                # Process the potentially modified and cleaned buffer with TTS
+                logger.info(
+                    f"Processing {len(cleaned_audio_buffer)} characters for audio output"
+                )
                 async for audio_chunk in self.llm_provider.tts(
                     text=cleaned_audio_buffer,
                     voice=audio_voice,
@@ -536,15 +591,25 @@ class AgentService(AgentServiceInterface):
                     instructions=audio_instructions,
                 ):
                     yield audio_chunk
-            # --- End Apply Output Guardrails (Audio) ---
+                # Update last_text_response with the text *before* TTS cleaning
+                self.last_text_response = (
+                    processed_audio_buffer  # Store the guardrail-processed text
+                )
 
-            # Store the complete text response (already accumulated with processed chunks)
-            self.last_text_response = complete_text_response
+            # Case 3: Text output WITHOUT guardrails (already streamed)
+            elif output_format == "text" and not should_buffer_text:
+                # Store the complete text response (accumulated from non-processed chunks)
+                self.last_text_response = complete_text_response
+                logger.info(
+                    "Text streaming complete (no guardrails applied post-stream)."
+                )
+
             logger.info(
-                f"Response generation complete for agent '{agent_name}': {len(complete_text_response)} chars"
+                f"Response generation complete for agent '{agent_name}': {len(self.last_text_response)} final chars"
             )
 
         except Exception as e:
+            # --- Error Handling (unchanged) ---
             import traceback
 
             error_msg = (
@@ -553,7 +618,6 @@ class AgentService(AgentServiceInterface):
             logger.error(
                 f"Error in generate_response for agent '{agent_name}': {e}\n{traceback.format_exc()}"
             )
-
             if output_format == "audio":
                 async for chunk in self.llm_provider.tts(
                     error_msg,

@@ -1,8 +1,10 @@
-# filepath: solana_agent/guardrails/scrubadub_pii_filter.py
 import logging
 from typing import Dict, Any, Optional, List
 import scrubadub
-from solana_agent.interfaces.guardrails import InputGuardrail, OutputGuardrail
+from solana_agent.interfaces.guardrails.guardrails import (
+    InputGuardrail,
+    OutputGuardrail,
+)
 
 logger = logging.getLogger(__name__)
 
