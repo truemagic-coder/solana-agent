@@ -66,6 +66,8 @@ Keep this in mind while designing your agentic systems using Solana Agent.
    │                                               │                       
    └───────────────────────────────────────────────┘                       
 
+Usage
+~~~~~~
 
 Text/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -130,7 +132,7 @@ Audio/Audio Streaming
       print(response, end="")
 
 
-agent/Audio Streaming
+Text/Audio Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -192,6 +194,10 @@ Audio/Text Streaming
 
    async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
       print(response, end="")
+
+
+Optional Configurations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Business Alignment Config - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -284,8 +290,8 @@ The Knowledge Base (KB) is meant to store text values and/or small PDFs.
    }
 
 
-Example for KB (text)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Example for KB (text) - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -327,8 +333,8 @@ Example for KB (text)
    async for response in solana_agent.process("user123", "What is Solana Agent?"):
       print(response, end="")
 
-Example for KB (pdf)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Example for KB (pdf) - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -374,6 +380,90 @@ Example for KB (pdf)
 
    async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
       print(response, end="")
+
+Guardrails - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.
+
+Solana Agent provides a built-in PII scrubber based on scrubadub.
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "guardrails": {
+         "input": [
+               # Example using a custom input guardrail
+               {
+                  "class": "MyInputGuardrail",
+                  "config": {"setting1": "value1"}
+               },
+               # Example using the built-in PII guardrail for input
+               {
+                  "class": "solana_agent.guardrails.pii.PII",
+                  "config": {
+                     "locale": "en_GB", # Optional: Specify locale (default: en_US)
+                     "replacement": "[REDACTED]" # Optional: Custom replacement format
+                  }
+               }
+         ],
+         "output": [
+               # Example using a custom output guardrail
+               {
+                  "class": "MyOutputGuardrail",
+                  "config": {"filter_level": "high"}
+               },
+               # Example using the built-in PII guardrail for output (with defaults)
+               {
+                  "class": "solana_agent.guardrails.pii.PII"
+                  # No config needed to use defaults
+               }
+         ]
+      },
+   }
+
+Example Custom Guardrails - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from solana_agent import InputGuardrail, OutputGuardrail
+   import logging
+
+   logger = logging.getLogger(__name__)
+
+   class MyInputGuardrail(InputGuardrail):
+      def __init__(self, config=None):
+         super().__init__(config)
+         self.setting1 = self.config.get("setting1", "default_value")
+         logger.info(f"MyInputGuardrail initialized with setting1: {self.setting1}")
+
+      async def process(self, text: str) -> str:
+         # Example: Convert input to lowercase
+         processed_text = text.lower()
+         logger.debug(f"Input Guardrail processed: {text} -> {processed_text}")
+         return processed_text
+
+   class MyOutputGuardrail(OutputGuardrail):
+      def __init__(self, config=None):
+         super().__init__(config)
+         self.filter_level = self.config.get("filter_level", "low")
+         logger.info(f"MyOutputGuardrail initialized with filter_level: {self.filter_level}")
+
+      async def process(self, text: str) -> str:
+         # Example: Basic profanity filtering (replace with a real library)
+         if self.filter_level == "high" and "badword" in text:
+               processed_text = text.replace("badword", "*******")
+               logger.warning(f"Output Guardrail filtered content.")
+               return processed_text
+         logger.debug("Output Guardrail passed text through.")
+         return text
+
+
+Tools
+~~~~~~
 
 Solana
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -560,6 +650,10 @@ Inline Tool Example
 
    async for response in solana_agent.process("user123", "What are the latest AI developments?"):
       print(response, end="")
+
+
+Advanced Configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Prompt Injection at Runtime Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

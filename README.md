@@ -427,11 +427,14 @@ Guardrails allow you to process and potentially modify user input before it reac
 Solana Agent provides a built-in PII scrubber based on [scrubadub](https://github.com/LeapBeyond/scrubadub).
 
 ```python
+from solana_agent import SolanaAgent
+
 config = {
     "guardrails": {
         "input": [
+            # Example using a custom input guardrail
             {
-                "class": "your_module.guardrails.MyInputGuardrail",
+                "class": "MyInputGuardrail",
                 "config": {"setting1": "value1"}
             },
             # Example using the built-in PII guardrail for input
@@ -444,8 +447,9 @@ config = {
             }
         ],
         "output": [
+            # Example using a custom output guardrail
             {
-                "class": "your_module.guardrails.MyOutputGuardrail",
+                "class": "MyOutputGuardrail",
                 "config": {"filter_level": "high"}
             },
             # Example using the built-in PII guardrail for output (with defaults)
@@ -458,7 +462,7 @@ config = {
 }
 ```
 
-#### Example Guardrail
+#### Example Custom Guardrails
 
 ```python
 from solana_agent import InputGuardrail, OutputGuardrail
@@ -574,7 +578,6 @@ Other MCP servers may work but are not supported.
 `pip install sakit`
 
 ```python
-
 from solana_agent import SolanaAgent
 
 config = {
