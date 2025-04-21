@@ -1,3 +1,4 @@
+import logging  # Import logging
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
@@ -5,6 +6,9 @@ from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_cloud.types import Message
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 
 class MemoryRepository(MemoryProvider):
@@ -30,7 +34,7 @@ class MemoryRepository(MemoryProvider):
                 self.mongo.create_index(self.collection, [("user_id", 1)])
                 self.mongo.create_index(self.collection, [("timestamp", 1)])
             except Exception as e:
-                print(f"Error initializing MongoDB: {e}")
+                logger.error(f"Error initializing MongoDB: {e}")  # Use logger.error
 
         self.zep = None
         # Initialize Zep
@@ -80,7 +84,7 @@ class MemoryRepository(MemoryProvider):
                     }
                     self.mongo.insert_one(self.collection, doc)
             except Exception as e:
-                print(f"MongoDB storage error: {e}")
+                logger.error(f"MongoDB storage error: {e}")  # Use logger.error
 
         # Store in Zep
         if not self.zep:
@@ -107,17 +111,21 @@ class MemoryRepository(MemoryProvider):
                     try:
                         await self.zep.user.add(user_id=user_id)
                     except Exception as e:
-                        print(f"Zep user addition error: {e}")
+                        logger.error(
+                            f"Zep user addition error: {e}"
+                        )  # Use logger.error
 
                     try:
                         await self.zep.memory.add_session(
                             session_id=user_id, user_id=user_id
                         )
                     except Exception as e:
-                        print(f"Zep session creation error: {e}")
+                        logger.error(
+                            f"Zep session creation error: {e}"
+                        )  # Use logger.error
                     await self.zep.memory.add(session_id=user_id, messages=zep_messages)
                 except Exception as e:
-                    print(f"Zep memory addition error: {e}")
+                    logger.error(f"Zep memory addition error: {e}")  # Use logger.error
                     return
 
     async def retrieve(self, user_id: str) -> str:
@@ -131,7 +139,7 @@ class MemoryRepository(MemoryProvider):
             return memories
 
         except Exception as e:
-            print(f"Error retrieving memories: {e}")
+            logger.error(f"Error retrieving memories: {e}")  # Use logger.error
             return ""
 
     async def delete(self, user_id: str) -> None:
@@ -140,7 +148,7 @@ class MemoryRepository(MemoryProvider):
             try:
                 self.mongo.delete_all(self.collection, {"user_id": user_id})
             except Exception as e:
-                print(f"MongoDB deletion error: {e}")
+                logger.error(f"MongoDB deletion error: {e}")  # Use logger.error
 
         if not self.zep:
             return
@@ -148,12 +156,12 @@ class MemoryRepository(MemoryProvider):
         try:
             await self.zep.memory.delete(session_id=user_id)
         except Exception as e:
-            print(f"Zep memory deletion error: {e}")
+            logger.error(f"Zep memory deletion error: {e}")  # Use logger.error
 
         try:
             await self.zep.user.delete(user_id=user_id)
         except Exception as e:
-            print(f"Zep user deletion error: {e}")
+            logger.error(f"Zep user deletion error: {e}")  # Use logger.error
 
     def find(
         self,
@@ -170,7 +178,7 @@ class MemoryRepository(MemoryProvider):
         try:
             return self.mongo.find(collection, query, sort=sort, limit=limit, skip=skip)
         except Exception as e:
-            print(f"MongoDB find error: {e}")
+            logger.error(f"MongoDB find error: {e}")  # Use logger.error
             return []
 
     def count_documents(self, collection: str, query: Dict) -> int:

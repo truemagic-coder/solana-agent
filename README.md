@@ -252,6 +252,47 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
+### Command Line Interface (CLI)
+
+Solana Agent includes a command-line interface (CLI) for text-based chat using a configuration file.
+
+Ensure you have a valid configuration file (e.g., `config.json`) containing at least your OpenAI API key and agent definitions.
+
+```json
+// config.json
+{
+    "openai": {
+        "api_key": "your-openai-api-key"
+    },
+    "agents": [
+        {
+            "name": "default_agent",
+            "instructions": "You are a helpful AI assistant.",
+            "specialization": "general"
+        }
+    ]
+}
+```
+
+Also ensure that you have `pip install uv` to call `uvx`.
+
+```bash
+uvx solana-agent [OPTIONS]
+
+Options:
+
+--user-id TEXT: The user ID for the conversation (default: cli_user).
+--config TEXT: Path to the configuration JSON file (default: config.json).
+--prompt TEXT: Optional system prompt override for the agent.
+--help: Show help message and exit.
+
+# Using default config.json and user_id
+uvx solana-agent
+
+# Specifying user ID and config path
+uvx solana-agent --user-id my_cli_session --config ./my_agent_config.json
+```
+
 ## Optional Feature Configs
 
 ### Business Alignment

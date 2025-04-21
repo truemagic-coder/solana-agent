@@ -5,6 +5,7 @@ This service manages query routing to appropriate agents based on
 specializations and query analysis.
 """
 
+import logging
 from typing import Dict, List, Optional, Any
 from solana_agent.interfaces.services.routing import (
     RoutingService as RoutingServiceInterface,
@@ -12,6 +13,9 @@ from solana_agent.interfaces.services.routing import (
 from solana_agent.interfaces.services.agent import AgentService
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.domains.routing import QueryAnalysis
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 
 class RoutingService(RoutingServiceInterface):
@@ -67,19 +71,19 @@ class RoutingService(RoutingServiceInterface):
 
         prompt = f"""
         Analyze this user query and determine which agent would be best suited to answer it.
-        
+
         AVAILABLE AGENTS AND THEIR SPECIALIZATIONS:
         {specializations_text}
-        
+
         USER QUERY: {query}
-        
+
         Please determine:
         1. Which agent is the primary best match for this query (must be one of the listed agents)
         2. Any secondary agents that might be helpful (must be from the listed agents)
         3. The complexity level (1-5, where 5 is most complex)
         4. Any key topics or technologies mentioned
-        
-        Think carefully about whether the query is more technical/development-focused or more 
+
+        Think carefully about whether the query is more technical/development-focused or more
         financial/market-focused to match with the appropriate agent.
         """
 
@@ -101,7 +105,7 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": analysis.confidence,
             }
         except Exception as e:
-            print(f"Error analyzing query: {e}")
+            logger.error(f"Error analyzing query: {e}")  # Use logger.error
             # Return default analysis on error
             return {
                 "primary_specialization": list(agents.keys())[0]
@@ -125,8 +129,9 @@ class RoutingService(RoutingServiceInterface):
         # If only one agent - use that agent
         agents = self.agent_service.get_all_ai_agents()
         if len(agents) == 1:
-            print(f"Only one agent available: {next(iter(agents.keys()))}")
-            return next(iter(agents.keys()))
+            agent_name = next(iter(agents.keys()))
+            logger.info(f"Only one agent available: {agent_name}")  # Use logger.info
+            return agent_name
 
         # Analyze query
         analysis = await self._analyze_query(query)
@@ -190,7 +195,7 @@ class RoutingService(RoutingServiceInterface):
 
         # Sort by score
         agent_scores.sort(key=lambda x: x[1], reverse=True)
-        print(f"Agent scores: {agent_scores}")
+        logger.debug(f"Agent scores: {agent_scores}")  # Use logger.debug
 
         # Return the highest scoring agent, if any
         if agent_scores and agent_scores[0][1] > 0:
