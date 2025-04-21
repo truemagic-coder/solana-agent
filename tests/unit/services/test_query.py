@@ -51,6 +51,7 @@ def query_service(mock_agent_service, mock_routing_service, mock_memory_provider
         agent_service=mock_agent_service,
         routing_service=mock_routing_service,
         memory_provider=mock_memory_provider,
+        input_guardrails=None,
     )
 
 
@@ -83,17 +84,25 @@ async def test_get_user_history(query_service, mock_memory_provider):
 @pytest.mark.asyncio
 async def test_process_error_handling(query_service, mock_agent_service):
     """Test error handling in query processing."""
-    mock_agent_service.generate_response.side_effect = Exception("Test error")
+    # Configure the mock agent service to raise an error during generation
+    mock_agent_service.generate_response = AsyncMock(
+        side_effect=Exception("Test generation error")
+    )
 
     response_chunks = []
+    # Use async for to iterate through the generator
     async for chunk in query_service.process(
         user_id=TEST_USER_ID, query=TEST_QUERY, output_format="text"
     ):
         response_chunks.append(chunk)
 
+    # Assert that only the generic error message was yielded
     assert len(response_chunks) == 1
-    assert "error" in response_chunks[0].lower()
-    assert "Test error" in response_chunks[0]
+    # Check for the specific user-facing error message
+    assert (
+        "I apologize for the technical difficulty. Please try again later."
+        in response_chunks[0]
+    )
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,61 @@ from unittest.mock import patch, MagicMock
 from copy import deepcopy
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
+from solana_agent.interfaces.guardrails.guardrails import (
+    InputGuardrail,
+    OutputGuardrail,
+)
 from unittest.mock import mock_open
+
+
+class MockInputGuardrail(InputGuardrail):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.config = config or {}
+        print(
+            f"MockInputGuardrail initialized with config: {self.config}"
+        )  # Debug print
+
+    async def process(self, text: str) -> str:
+        return f"input_processed_{text}"
+
+
+class MockOutputGuardrail(OutputGuardrail):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.config = config or {}
+        print(
+            f"MockOutputGuardrail initialized with config: {self.config}"
+        )  # Debug print
+
+    async def process(self, text: str) -> str:
+        return f"output_processed_{text}"
+
+
+class MockErrorGuardrail:  # Doesn't inherit, simulates init error
+    def __init__(self, config=None):
+        raise ValueError("Initialization failed")
+
+
+@pytest.fixture
+def guardrails_config(base_config):
+    """Config with guardrails section."""
+    config = deepcopy(base_config)
+    config["guardrails"] = {
+        "input": [
+            {
+                "class": "tests.unit.factories.test_agent_factory.MockInputGuardrail",
+                "config": {"input_setting": "value1"},
+            }
+        ],
+        "output": [
+            {
+                "class": "tests.unit.factories.test_agent_factory.MockOutputGuardrail",
+                "config": {"output_setting": "value2"},
+            }
+        ],
+    }
+    return config
 
 
 # Base configuration for testing
@@ -281,6 +335,7 @@ class TestSolanaAgentFactory:
             llm_provider=mock_openai_instance,
             business_mission=mock_business_instance,
             config=business_config,
+            output_guardrails=[],
         )
 
         assert result == mock_query_instance
@@ -441,6 +496,7 @@ class TestSolanaAgentFactory:
             api_key="test-gemini-key",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             model="gemini-2.5-flash-preview-04-17",
+            output_guardrails=[],
         )
 
         mock_routing_service.assert_called_once_with(
@@ -491,6 +547,7 @@ class TestSolanaAgentFactory:
             api_key="test-grok-key",
             base_url="https://api.x.ai/v1",
             model="grok-3-mini-fast-beta",
+            output_guardrails=[],
         )
 
         mock_routing_service.assert_called_once_with(
@@ -537,6 +594,7 @@ class TestSolanaAgentFactory:
             api_key="test-grok-key",
             base_url="https://api.x.ai/v1",
             model="grok-3-mini-fast-beta",
+            output_guardrails=[],
         )
 
         mock_routing_service.assert_called_once_with(
@@ -768,6 +826,7 @@ class TestSolanaAgentFactory:
             memory_provider=mock_memory_instance,  # Expect memory instance
             knowledge_base=mock_kb_instance,
             kb_results_count=5,
+            input_guardrails=[],
         )
 
         assert result == mock_query_instance
@@ -840,6 +899,7 @@ class TestSolanaAgentFactory:
             memory_provider=mock_memory_instance,  # Expect the memory instance
             knowledge_base=None,
             kb_results_count=5,  # Comes from knowledge_base_config
+            input_guardrails=[],
         )
 
         assert result == mock_query_instance
@@ -1484,3 +1544,87 @@ class TestSolanaAgentFactory:
                 assert result == mock_query_instance
 
                 assert result == mock_query_instance
+
+        # --- Tests for _create_guardrails ---
+
+        @patch("importlib.import_module")
+        def test_create_guardrails_success(self, mock_import_module):
+            """Test successful loading of guardrails."""
+            # Mock importlib to return modules containing mock guardrail classes
+            mock_module = MagicMock()
+            mock_module.MockInputGuardrail = MockInputGuardrail
+            mock_module.MockOutputGuardrail = MockOutputGuardrail
+            mock_import_module.return_value = mock_module
+
+            guardrail_configs = [
+                {"class": "path.to.MockInputGuardrail", "config": {"p1": "v1"}},
+                {"class": "path.to.MockOutputGuardrail", "config": {"p2": "v2"}},
+            ]
+
+            guardrails = SolanaAgentFactory._create_guardrails(guardrail_configs)
+
+            assert len(guardrails) == 2
+            assert isinstance(guardrails[0], MockInputGuardrail)
+            assert guardrails[0].config == {"p1": "v1"}
+            assert isinstance(guardrails[1], MockOutputGuardrail)
+            assert guardrails[1].config == {"p2": "v2"}
+            mock_import_module.assert_any_call("path.to")
+
+        def test_create_guardrails_empty_config(self):
+            """Test loading with empty guardrail configuration list."""
+            guardrails = SolanaAgentFactory._create_guardrails([])
+            assert len(guardrails) == 0
+
+        def test_create_guardrails_missing_class(self, caplog):
+            """Test loading when 'class' key is missing."""
+            guardrail_configs = [{"config": {"p1": "v1"}}]
+            guardrails = SolanaAgentFactory._create_guardrails(guardrail_configs)
+            assert len(guardrails) == 0
+            assert "Guardrail config missing 'class'" in caplog.text
+
+        @patch("importlib.import_module", side_effect=ImportError("Module not found"))
+        def test_create_guardrails_import_error(self, mock_import_module, caplog):
+            """Test loading when module import fails."""
+            guardrail_configs = [{"class": "invalid.path.NonExistentGuardrail"}]
+            guardrails = SolanaAgentFactory._create_guardrails(guardrail_configs)
+            assert len(guardrails) == 0
+            assert (
+                "Error loading guardrail class 'invalid.path.NonExistentGuardrail'"
+                in caplog.text
+            )
+            assert "Module not found" in caplog.text
+
+        @patch("importlib.import_module")
+        def test_create_guardrails_attribute_error(self, mock_import_module, caplog):
+            """Test loading when class is not found in the module."""
+            mock_module = MagicMock(spec=[])  # Module exists but class doesn't
+            mock_import_module.return_value = mock_module
+
+            guardrail_configs = [{"class": "path.to.MissingGuardrail"}]
+            guardrails = SolanaAgentFactory._create_guardrails(guardrail_configs)
+            assert len(guardrails) == 0
+            assert (
+                "Error loading guardrail class 'path.to.MissingGuardrail'"
+                in caplog.text
+            )
+            assert (
+                "object has no attribute 'MissingGuardrail'" in caplog.text
+            )  # Check specific error if possible
+
+        @patch("importlib.import_module")
+        def test_create_guardrails_init_error(self, mock_import_module, caplog):
+            """Test loading when guardrail initialization fails."""
+            mock_module = MagicMock()
+            mock_module.MockErrorGuardrail = (
+                MockErrorGuardrail  # Use the error-raising mock
+            )
+            mock_import_module.return_value = mock_module
+
+            guardrail_configs = [{"class": "path.to.MockErrorGuardrail"}]
+            guardrails = SolanaAgentFactory._create_guardrails(guardrail_configs)
+            assert len(guardrails) == 0
+            assert (
+                "Error initializing guardrail 'path.to.MockErrorGuardrail'"
+                in caplog.text
+            )
+            assert "Initialization failed" in caplog.text  # Check specific error

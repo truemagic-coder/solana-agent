@@ -30,9 +30,10 @@ Build your AI agents in three lines of code!
 * Extensible Tooling
 * Knowledge Base
 * MCP Support
+* Guardrails
 * Tested & Secure
 * Built in Python
-* Powers [CometHeart](https://cometheart.com) & [WalletBubbles](https://walletbubbles.com)
+* Powers [CometHeart](https://cometheart.com)
 
 ## Features
 
@@ -51,6 +52,7 @@ Build your AI agents in three lines of code!
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
+* Input and output guardrails for content filtering, safety, and data sanitization
 
 ## Stack
 
@@ -416,6 +418,80 @@ await solana_agent.kb_add_pdf_document(
 
 async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
     print(response, end="")
+```
+
+### Guardrails
+
+Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.
+
+Solana Agent provides a built-in PII scrubber based on [scrubadub](https://github.com/LeapBeyond/scrubadub).
+
+```python
+config = {
+    "guardrails": {
+        "input": [
+            {
+                "class": "your_module.guardrails.MyInputGuardrail",
+                "config": {"setting1": "value1"}
+            },
+            # Example using the built-in PII guardrail for input
+            {
+                "class": "solana_agent.guardrails.pii.PII",
+                "config": {
+                    "locale": "en_GB", # Optional: Specify locale (default: en_US)
+                    "replacement": "[REDACTED]" # Optional: Custom replacement format
+                }
+            }
+        ],
+        "output": [
+            {
+                "class": "your_module.guardrails.MyOutputGuardrail",
+                "config": {"filter_level": "high"}
+            },
+            # Example using the built-in PII guardrail for output (with defaults)
+            {
+                "class": "solana_agent.guardrails.pii.PII"
+                # No config needed to use defaults
+            }
+        ]
+    },
+}
+```
+
+#### Example Guardrail
+
+```python
+from solana_agent import InputGuardrail, OutputGuardrail
+import logging
+
+logger = logging.getLogger(__name__)
+
+class MyInputGuardrail(InputGuardrail):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.setting1 = self.config.get("setting1", "default_value")
+        logger.info(f"MyInputGuardrail initialized with setting1: {self.setting1}")
+
+    async def process(self, text: str) -> str:
+        # Example: Convert input to lowercase
+        processed_text = text.lower()
+        logger.debug(f"Input Guardrail processed: {text} -> {processed_text}")
+        return processed_text
+
+class MyOutputGuardrail(OutputGuardrail):
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.filter_level = self.config.get("filter_level", "low")
+        logger.info(f"MyOutputGuardrail initialized with filter_level: {self.filter_level}")
+
+    async def process(self, text: str) -> str:
+        # Example: Basic profanity filtering (replace with a real library)
+        if self.filter_level == "high" and "badword" in text:
+             processed_text = text.replace("badword", "*******")
+             logger.warning(f"Output Guardrail filtered content.")
+             return processed_text
+        logger.debug("Output Guardrail passed text through.")
+        return text
 ```
 
 ## Tools

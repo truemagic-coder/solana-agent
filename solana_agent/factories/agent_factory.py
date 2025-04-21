@@ -5,10 +5,15 @@ This module handles the creation and dependency injection for all
 services and components used in the system.
 """
 
-from typing import Dict, Any
+import importlib
+from typing import Dict, Any, List
 
 # Service imports
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
+from solana_agent.interfaces.guardrails.guardrails import (
+    InputGuardrail,
+    OutputGuardrail,
+)
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -28,6 +33,37 @@ from solana_agent.plugins.manager import PluginManager
 
 class SolanaAgentFactory:
     """Factory for creating and wiring components of the Solana Agent system."""
+
+    @staticmethod
+    def _create_guardrails(guardrail_configs: List[Dict[str, Any]]) -> List[Any]:
+        """Instantiates guardrails from configuration."""
+        guardrails = []
+        if not guardrail_configs:
+            return guardrails
+
+        for config in guardrail_configs:
+            class_path = config.get("class")
+            guardrail_config = config.get("config", {})
+            if not class_path:
+                print(f"Guardrail config missing 'class': {config}")
+                continue
+            try:
+                module_path, class_name = class_path.rsplit(".", 1)
+                module = importlib.import_module(module_path)
+                guardrail_class = getattr(module, class_name)
+                # Instantiate the guardrail, handling potential errors during init
+                try:
+                    guardrails.append(guardrail_class(config=guardrail_config))
+                    print(f"Successfully loaded guardrail: {class_path}")
+                except Exception as init_e:
+                    print(f"Error initializing guardrail '{class_path}': {init_e}")
+                    # Optionally re-raise or just skip this guardrail
+
+            except (ImportError, AttributeError, ValueError) as e:
+                print(f"Error loading guardrail class '{class_path}': {e}")
+            except Exception as e:  # Catch unexpected errors during import/getattr
+                print(f"Unexpected error loading guardrail '{class_path}': {e}")
+        return guardrails
 
     @staticmethod
     def create_from_config(config: Dict[str, Any]) -> QueryService:
@@ -83,6 +119,17 @@ class SolanaAgentFactory:
                 raise ValueError("Zep API key is required.")
             memory_provider = MemoryRepository(zep_api_key=config["zep"].get("api_key"))
 
+        guardrail_config = config.get("guardrails", {})
+        input_guardrails: List[InputGuardrail] = SolanaAgentFactory._create_guardrails(
+            guardrail_config.get("input", [])
+        )
+        output_guardrails: List[OutputGuardrail] = (
+            SolanaAgentFactory._create_guardrails(guardrail_config.get("output", []))
+        )
+        print(
+            f"Loaded {len(input_guardrails)} input guardrails and {len(output_guardrails)} output guardrails."
+        )
+
         if (
             "gemini" in config
             and "api_key" in config["gemini"]
@@ -96,6 +143,7 @@ class SolanaAgentFactory:
                 api_key=config["gemini"]["api_key"],
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                 model="gemini-2.5-flash-preview-04-17",
+                output_guardrails=output_guardrails,
             )
 
             # Create routing service
@@ -121,6 +169,7 @@ class SolanaAgentFactory:
                 api_key=config["grok"]["api_key"],
                 base_url="https://api.x.ai/v1",
                 model="grok-3-mini-fast-beta",
+                output_guardrails=output_guardrails,
             )
             # Create routing service
             routing_service = RoutingService(
@@ -142,6 +191,7 @@ class SolanaAgentFactory:
                 api_key=config["grok"]["api_key"],
                 base_url="https://api.x.ai/v1",
                 model="grok-3-mini-fast-beta",
+                output_guardrails=output_guardrails,
             )
 
             # Create routing service
@@ -156,6 +206,7 @@ class SolanaAgentFactory:
                 llm_provider=llm_adapter,
                 business_mission=business_mission,
                 config=config,
+                output_guardrails=output_guardrails,
             )
 
             # Create routing service
@@ -284,6 +335,7 @@ class SolanaAgentFactory:
             memory_provider=memory_provider,
             knowledge_base=knowledge_base,  # Pass the potentially created KB
             kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
+            input_guardrails=input_guardrails,
         )
 
         return query_service

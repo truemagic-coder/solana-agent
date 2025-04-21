@@ -6,7 +6,7 @@ tool execution, and response generation.
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, call
 
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.services.agent import AgentService
@@ -249,3 +249,188 @@ class TestAgentService:
         mock_tool.execute.assert_called_once_with(param="value")
         mock_tool_registry.get_tool.assert_called_once_with("failing_tool")
         mock_tool_registry.get_agent_tools.assert_called_once_with("test_agent")
+
+    def test_load_and_register_plugins_success(self, mock_llm_provider):
+        """Test successful loading of plugins."""
+        service = AgentService(llm_provider=mock_llm_provider)
+        # Mock the plugin manager directly on the instance
+        service.plugin_manager = MagicMock(spec=PluginManager)
+
+        service.load_and_register_plugins()
+
+        service.plugin_manager.load_plugins.assert_called_once()
+
+    def test_load_and_register_plugins_error(self, mock_llm_provider, caplog):
+        """Test error handling during plugin loading."""
+        service = AgentService(llm_provider=mock_llm_provider)
+        # Mock the plugin manager to raise an error
+        service.plugin_manager = MagicMock(spec=PluginManager)
+        service.plugin_manager.load_plugins.side_effect = Exception(
+            "Plugin load failed"
+        )
+
+        service.load_and_register_plugins()
+
+        service.plugin_manager.load_plugins.assert_called_once()
+        assert "Error loading plugins: Plugin load failed" in caplog.text
+
+    # --- Tests for register_agents_from_config ---
+
+    def test_register_agents_from_config_no_agents(self, mock_llm_provider, caplog):
+        """Test registering agents when none are defined in config."""
+        service = AgentService(
+            llm_provider=mock_llm_provider, config={}
+        )  # Empty config
+        # Mock the methods that would be called if agents existed
+        service.register_ai_agent = MagicMock()
+        service.assign_tool_for_agent = MagicMock()
+
+        service.register_agents_from_config()
+
+        assert "No agents defined in the configuration" in caplog.text
+        service.register_ai_agent.assert_not_called()
+        service.assign_tool_for_agent.assert_not_called()
+
+    def test_register_agents_from_config_valid_agents_no_tools(self, mock_llm_provider):
+        """Test registering valid agents without tools."""
+        config_with_agents = {
+            "agents": [
+                {"name": "agent1", "instructions": "instr1", "specialization": "spec1"},
+                {"name": "agent2", "instructions": "instr2", "specialization": "spec2"},
+            ]
+        }
+        service = AgentService(
+            llm_provider=mock_llm_provider, config=config_with_agents
+        )
+        service.register_ai_agent = MagicMock()
+        service.assign_tool_for_agent = MagicMock()
+
+        service.register_agents_from_config()
+
+        expected_calls = [
+            call("agent1", "instr1", "spec1"),
+            call("agent2", "instr2", "spec2"),
+        ]
+        service.register_ai_agent.assert_has_calls(expected_calls, any_order=True)
+        assert service.register_ai_agent.call_count == 2
+        service.assign_tool_for_agent.assert_not_called()  # No tools defined
+
+    def test_register_agents_from_config_valid_agents_with_tools(
+        self, mock_llm_provider
+    ):
+        """Test registering valid agents with tools."""
+        config_with_agents_tools = {
+            "agents": [
+                {
+                    "name": "agent1",
+                    "instructions": "instr1",
+                    "specialization": "spec1",
+                    "tools": ["toolA", "toolB"],
+                },
+                {
+                    "name": "agent2",
+                    "instructions": "instr2",
+                    "specialization": "spec2",
+                    "tools": ["toolC"],
+                },
+            ]
+        }
+        service = AgentService(
+            llm_provider=mock_llm_provider, config=config_with_agents_tools
+        )
+        service.register_ai_agent = MagicMock()
+        # Mock assign_tool_for_agent to return True for successful assignment
+        service.assign_tool_for_agent = MagicMock(return_value=True)
+
+        service.register_agents_from_config()
+
+        # Check agent registration calls
+        expected_agent_calls = [
+            call("agent1", "instr1", "spec1"),
+            call("agent2", "instr2", "spec2"),
+        ]
+        service.register_ai_agent.assert_has_calls(expected_agent_calls, any_order=True)
+        assert service.register_ai_agent.call_count == 2
+
+        # Check tool assignment calls
+        expected_tool_calls = [
+            call("agent1", "toolA"),
+            call("agent1", "toolB"),
+            call("agent2", "toolC"),
+        ]
+        service.assign_tool_for_agent.assert_has_calls(
+            expected_tool_calls, any_order=True
+        )
+        assert service.assign_tool_for_agent.call_count == 3
+
+    def test_register_agents_from_config_invalid_agent_data(
+        self, mock_llm_provider, caplog
+    ):
+        """Test skipping agents with missing required data."""
+        config_with_invalid = {
+            "agents": [
+                {"name": "agent1", "instructions": "instr1"},  # Missing specialization
+                {"name": "agent2", "specialization": "spec2"},  # Missing instructions
+                {"instructions": "instr3", "specialization": "spec3"},  # Missing name
+                {
+                    "name": "agent4",
+                    "instructions": "instr4",
+                    "specialization": "spec4",
+                },  # Valid
+            ]
+        }
+        service = AgentService(
+            llm_provider=mock_llm_provider, config=config_with_invalid
+        )
+        service.register_ai_agent = MagicMock()
+        service.assign_tool_for_agent = MagicMock()
+
+        service.register_agents_from_config()
+
+        # Check that only the valid agent was registered
+        service.register_ai_agent.assert_called_once_with("agent4", "instr4", "spec4")
+        service.assign_tool_for_agent.assert_not_called()  # No tools on valid agent
+
+        # Check warning logs for skipped agents
+        assert (
+            "Skipping agent due to missing name, instructions, or specialization"
+            in caplog.text
+        )
+        assert caplog.text.count("Skipping agent") == 3  # Three invalid agents
+
+    def test_register_agents_from_config_tool_assignment_failure(
+        self, mock_llm_provider, caplog
+    ):
+        """Test logging when tool assignment fails."""
+        config_with_tools = {
+            "agents": [
+                {
+                    "name": "agent1",
+                    "instructions": "instr1",
+                    "specialization": "spec1",
+                    "tools": ["toolA", "toolB"],
+                },
+            ]
+        }
+        service = AgentService(llm_provider=mock_llm_provider, config=config_with_tools)
+        service.register_ai_agent = MagicMock()
+        # Mock assign_tool_for_agent to return False for the second tool
+        service.assign_tool_for_agent = MagicMock(side_effect=[True, False])
+
+        service.register_agents_from_config()
+
+        service.register_ai_agent.assert_called_once_with("agent1", "instr1", "spec1")
+
+        # Check tool assignment calls
+        expected_tool_calls = [
+            call("agent1", "toolA"),
+            call("agent1", "toolB"),
+        ]
+        service.assign_tool_for_agent.assert_has_calls(
+            expected_tool_calls, any_order=False
+        )  # Order matters for side_effect
+        assert service.assign_tool_for_agent.call_count == 2
+
+        # Check warning log for the failed assignment
+        assert "Failed to assign tool 'toolB' to agent 'agent1'" in caplog.text
+        assert "Tool might not be registered" in caplog.text

@@ -6,16 +6,29 @@ other services to provide comprehensive responses while maintaining
 clean separation of concerns.
 """
 
-from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
+import logging
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
 
+# Interface imports
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
 from solana_agent.interfaces.services.routing import (
     RoutingService as RoutingServiceInterface,
 )
+from solana_agent.interfaces.providers.memory import (
+    MemoryProvider as MemoryProviderInterface,
+)
+from solana_agent.interfaces.services.knowledge_base import (
+    KnowledgeBaseService as KnowledgeBaseInterface,
+)
+from solana_agent.interfaces.guardrails.guardrails import (
+    InputGuardrail,
+)  # <-- Import InputGuardrail
+
+# Service imports (assuming AgentService is the concrete implementation)
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.services.knowledge_base import KnowledgeBaseService
-from solana_agent.interfaces.providers.memory import MemoryProvider
+
+logger = logging.getLogger(__name__)
 
 
 class QueryService(QueryServiceInterface):
@@ -25,9 +38,10 @@ class QueryService(QueryServiceInterface):
         self,
         agent_service: AgentService,
         routing_service: RoutingService,
-        memory_provider: Optional[MemoryProvider] = None,
-        knowledge_base: Optional[KnowledgeBaseService] = None,
+        memory_provider: Optional[MemoryProviderInterface] = None,
+        knowledge_base: Optional[KnowledgeBaseInterface] = None,
         kb_results_count: int = 3,
+        input_guardrails: List[InputGuardrail] = None,
     ):
         """Initialize the query service.
 
@@ -35,12 +49,16 @@ class QueryService(QueryServiceInterface):
             agent_service: Service for AI agent management
             routing_service: Service for routing queries to appropriate agents
             memory_provider: Optional provider for memory storage and retrieval
+            knowledge_base: Optional provider for knowledge base interactions
+            kb_results_count: Number of results to retrieve from knowledge base
+            input_guardrails: List of input guardrail instances
         """
         self.agent_service = agent_service
         self.routing_service = routing_service
         self.memory_provider = memory_provider
         self.knowledge_base = knowledge_base
         self.kb_results_count = kb_results_count
+        self.input_guardrails = input_guardrails or []  # <-- Store guardrails
 
     async def process(
         self,
@@ -69,7 +87,7 @@ class QueryService(QueryServiceInterface):
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Process the user request with appropriate agent.
+        """Process the user request with appropriate agent and apply input guardrails.
 
         Args:
             user_id: User ID
@@ -86,21 +104,48 @@ class QueryService(QueryServiceInterface):
             Response chunks (text strings or audio bytes)
         """
         try:
-            # Handle audio input if provided
+            # --- 1. Handle Audio Input & Extract Text ---
             user_text = ""
             if not isinstance(query, str):
+                logger.info(
+                    f"Received audio input, transcribing format: {audio_input_format}"
+                )
                 async for (
                     transcript
                 ) in self.agent_service.llm_provider.transcribe_audio(
                     query, audio_input_format
                 ):
                     user_text += transcript
+                logger.info(f"Transcription result length: {len(user_text)}")
             else:
                 user_text = query
+                logger.info(f"Received text input length: {len(user_text)}")
 
-            # Handle simple greetings
+            # --- 2. Apply Input Guardrails ---
+            original_text = user_text
+            processed_text = user_text
+            for guardrail in self.input_guardrails:
+                try:
+                    processed_text = await guardrail.process(processed_text)
+                    logger.debug(
+                        f"Applied input guardrail: {guardrail.__class__.__name__}"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error applying input guardrail {guardrail.__class__.__name__}: {e}",
+                        exc_info=True,
+                    )
+            if processed_text != original_text:
+                logger.info(
+                    f"Input guardrails modified user text. Original length: {len(original_text)}, New length: {len(processed_text)}"
+                )
+            user_text = processed_text  # Use the processed text going forward
+            # --- End Apply Input Guardrails ---
+
+            # --- 3. Handle Simple Greetings ---
             if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
                 response = "Hello! How can I help you today?"
+                logger.info("Handling simple greeting.")
                 if output_format == "audio":
                     async for chunk in self.agent_service.llm_provider.tts(
                         text=response,
@@ -112,25 +157,32 @@ class QueryService(QueryServiceInterface):
                 else:
                     yield response
 
-                # Store simple interaction in memory
+                # Store simple interaction in memory (using processed user_text)
                 if self.memory_provider:
                     await self._store_conversation(user_id, user_text, response)
                 return
 
-            # Get memory context if available
+            # --- 4. Get Memory Context ---
             memory_context = ""
             if self.memory_provider:
-                memory_context = await self.memory_provider.retrieve(user_id)
+                try:
+                    memory_context = await self.memory_provider.retrieve(user_id)
+                    logger.info(
+                        f"Retrieved memory context length: {len(memory_context)}"
+                    )
+                except Exception as e:
+                    logger.error(f"Error retrieving memory context: {e}", exc_info=True)
 
-            # Retrieve relevant knowledge from the KB
+            # --- 5. Retrieve Relevant Knowledge ---
             kb_context = ""
             if self.knowledge_base:
                 try:
+                    # Use processed user_text for KB query
                     kb_results = await self.knowledge_base.query(
                         query_text=user_text,
                         top_k=self.kb_results_count,
                         include_content=True,
-                        include_metadata=False,
+                        include_metadata=False,  # Keep metadata minimal for context
                     )
 
                     if kb_results:
@@ -138,36 +190,47 @@ class QueryService(QueryServiceInterface):
                         for i, result in enumerate(kb_results, 1):
                             content = result.get("content", "").strip()
                             kb_context += f"[{i}] {content}\n\n"
+                        logger.info(
+                            f"Retrieved {len(kb_results)} results from Knowledge Base."
+                        )
+                    else:
+                        logger.info("No relevant results found in Knowledge Base.")
                 except Exception as e:
-                    print(f"Error retrieving knowledge: {e}")
+                    logger.error(f"Error retrieving knowledge: {e}", exc_info=True)
 
-            # Route query to appropriate agent
-            if router:
-                agent_name = await router.route_query(user_text)
-            else:
-                agent_name = await self.routing_service.route_query(user_text)
+            # --- 6. Route Query ---
+            agent_name = "default"  # Fallback agent
+            try:
+                # Use processed user_text for routing
+                if router:
+                    agent_name = await router.route_query(user_text)
+                else:
+                    agent_name = await self.routing_service.route_query(user_text)
+                logger.info(f"Routed query to agent: {agent_name}")
+            except Exception as e:
+                logger.error(
+                    f"Error during routing, falling back to default agent: {e}",
+                    exc_info=True,
+                )
 
-            # Combine context from memory and knowledge base
+            # --- 7. Combine Context ---
             combined_context = ""
             if memory_context:
-                # Add a note about memory priority
                 combined_context += f"CONVERSATION HISTORY (Use for context, but prioritize tools/KB for facts):\n{memory_context}\n\n"
             if kb_context:
-                # Keep KB context strong
                 combined_context += f"{kb_context}\n"
 
-            # Add an overall instruction about prioritization if both are present
             if memory_context or kb_context:
                 combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base results and Tool results (if applicable) over Conversation History.\n\n"
+            logger.debug(f"Combined context length: {len(combined_context)}")
 
-            print(f"Routed to agent: {agent_name}")
-
-            # Generate response
+            # --- 8. Generate Response ---
+            # Pass the processed user_text to the agent service
             if output_format == "audio":
                 async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
-                    query=user_text,
+                    query=user_text,  # Pass processed text
                     memory_context=combined_context,
                     output_format="audio",
                     audio_voice=audio_voice,
@@ -177,6 +240,7 @@ class QueryService(QueryServiceInterface):
                 ):
                     yield audio_chunk
 
+                # Store conversation using processed user_text
                 if self.memory_provider:
                     await self._store_conversation(
                         user_id=user_id,
@@ -188,7 +252,7 @@ class QueryService(QueryServiceInterface):
                 async for chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
-                    query=user_text,
+                    query=user_text,  # Pass processed text
                     memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
@@ -196,6 +260,7 @@ class QueryService(QueryServiceInterface):
                     yield chunk
                     full_text_response += chunk
 
+                # Store conversation using processed user_text
                 if self.memory_provider and full_text_response:
                     await self._store_conversation(
                         user_id=user_id,
@@ -204,21 +269,27 @@ class QueryService(QueryServiceInterface):
                     )
 
         except Exception as e:
-            error_msg = f"I apologize for the technical difficulty. {str(e)}"
-            if output_format == "audio":
-                async for chunk in self.agent_service.llm_provider.tts(
-                    text=error_msg,
-                    voice=audio_voice,
-                    response_format=audio_output_format,
-                ):
-                    yield chunk
-            else:
-                yield error_msg
-
-            print(f"Error in query processing: {str(e)}")
             import traceback
 
-            print(traceback.format_exc())
+            error_msg = (
+                "I apologize for the technical difficulty. Please try again later."
+            )
+            logger.error(f"Error in query processing: {e}\n{traceback.format_exc()}")
+
+            if output_format == "audio":
+                try:
+                    async for chunk in self.agent_service.llm_provider.tts(
+                        text=error_msg,
+                        voice=audio_voice,
+                        response_format=audio_output_format,
+                    ):
+                        yield chunk
+                except Exception as tts_e:
+                    logger.error(f"Error during TTS for error message: {tts_e}")
+                    # Fallback to yielding text error if TTS fails
+                    yield error_msg + f" (TTS Error: {tts_e})"
+            else:
+                yield error_msg
 
     async def delete_user_history(self, user_id: str) -> None:
         """Delete all conversation history for a user.
@@ -229,8 +300,15 @@ class QueryService(QueryServiceInterface):
         if self.memory_provider:
             try:
                 await self.memory_provider.delete(user_id)
+                logger.info(f"Deleted conversation history for user: {user_id}")
             except Exception as e:
-                print(f"Error deleting user history: {str(e)}")
+                logger.error(
+                    f"Error deleting user history for {user_id}: {e}", exc_info=True
+                )
+        else:
+            logger.warning(
+                "Attempted to delete user history, but no memory provider is configured."
+            )
 
     async def get_user_history(
         self,
@@ -248,17 +326,12 @@ class QueryService(QueryServiceInterface):
             sort_order: Sort order ("asc" or "desc")
 
         Returns:
-            Dictionary with paginated results and metadata:
-            {
-                "data": List of conversation entries,
-                "total": Total number of entries,
-                "page": Current page number,
-                "page_size": Number of items per page,
-                "total_pages": Total number of pages,
-                "error": Error message if any
-            }
+            Dictionary with paginated results and metadata.
         """
         if not self.memory_provider:
+            logger.warning(
+                "Attempted to get user history, but no memory provider is configured."
+            )
             return {
                 "data": [],
                 "total": 0,
@@ -278,7 +351,7 @@ class QueryService(QueryServiceInterface):
             )
 
             # Calculate total pages
-            total_pages = (total + page_size - 1) // page_size
+            total_pages = (total + page_size - 1) // page_size if total > 0 else 0
 
             # Get paginated results
             conversations = self.memory_provider.find(
@@ -292,13 +365,11 @@ class QueryService(QueryServiceInterface):
             # Format the results
             formatted_conversations = []
             for conv in conversations:
-                # Convert datetime to Unix timestamp (seconds since epoch)
                 timestamp = (
                     int(conv.get("timestamp").timestamp())
                     if conv.get("timestamp")
                     else None
                 )
-
                 formatted_conversations.append(
                     {
                         "id": str(conv.get("_id")),
@@ -308,6 +379,9 @@ class QueryService(QueryServiceInterface):
                     }
                 )
 
+            logger.info(
+                f"Retrieved page {page_num}/{total_pages} of history for user {user_id}"
+            )
             return {
                 "data": formatted_conversations,
                 "total": total,
@@ -318,10 +392,11 @@ class QueryService(QueryServiceInterface):
             }
 
         except Exception as e:
-            print(f"Error retrieving user history: {str(e)}")
             import traceback
 
-            print(traceback.format_exc())
+            logger.error(
+                f"Error retrieving user history for {user_id}: {e}\n{traceback.format_exc()}"
+            )
             return {
                 "data": [],
                 "total": 0,
@@ -338,8 +413,8 @@ class QueryService(QueryServiceInterface):
 
         Args:
             user_id: User ID
-            user_message: User message
-            assistant_message: Assistant message
+            user_message: User message (potentially processed by input guardrails)
+            assistant_message: Assistant message (potentially processed by output guardrails)
         """
         if self.memory_provider:
             try:
@@ -350,5 +425,12 @@ class QueryService(QueryServiceInterface):
                         {"role": "assistant", "content": assistant_message},
                     ],
                 )
+                logger.info(f"Stored conversation for user {user_id}")
             except Exception as e:
-                print(f"Error storing conversation: {e}")
+                logger.error(
+                    f"Error storing conversation for user {user_id}: {e}", exc_info=True
+                )
+        else:
+            logger.debug(
+                "Memory provider not configured, skipping conversation storage."
+            )

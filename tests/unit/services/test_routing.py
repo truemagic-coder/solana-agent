@@ -78,15 +78,34 @@ class TestQueryService:
 
     @pytest.mark.asyncio
     async def test_process_error_handling(
-        self, mock_agent_service, mock_routing_service
+        self,
+        mock_agent_service,
+        mock_routing_service,
+        mock_memory_provider,  # Add mock_memory_provider if needed for init
     ):
         """Test error handling during processing."""
-        mock_agent_service.generate_response.side_effect = Exception("Test error")
-        service = QueryService(mock_agent_service, mock_routing_service)
+        # Ensure generate_response is an AsyncMock for async iteration
+        mock_agent_service.generate_response = AsyncMock(
+            side_effect=Exception("Test error")
+        )
 
+        # Instantiate QueryService with all required args, including input_guardrails
+        service = QueryService(
+            agent_service=mock_agent_service,
+            routing_service=mock_routing_service,
+            memory_provider=mock_memory_provider,  # Pass memory provider
+            input_guardrails=None,  # Add input_guardrails
+        )
+
+        response_chunks = []
         async for response in service.process(user_id="user123", query="test query"):
-            assert "I apologize for the technical difficulty" in response
-            assert "Test error" in response
+            response_chunks.append(response)
+
+        # Assert that only the generic error message was yielded
+        assert len(response_chunks) == 1
+        assert "I apologize for the technical difficulty" in response_chunks[0]
+        # Do NOT assert the internal error message ("Test error") is present
+        # assert "Test error" not in response_chunks[0] # Optional: Explicitly check it's not there
 
     @pytest.mark.asyncio
     async def test_delete_user_history(
