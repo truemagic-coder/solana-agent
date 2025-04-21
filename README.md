@@ -28,6 +28,7 @@ Build your AI agents in three lines of code!
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
+* Automatic Tool Workflows
 * Knowledge Base
 * MCP Support
 * Guardrails
@@ -53,6 +54,7 @@ Build your AI agents in three lines of code!
 * Assigned tools are utilized by agents automatically and effectively
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
+* Automatic sequential tool workflows allowing agents to chain multiple tools
 
 ## Stack
 
@@ -63,7 +65,7 @@ Build your AI agents in three lines of code!
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
-z
+
 ### AI Models Used
 
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent)
