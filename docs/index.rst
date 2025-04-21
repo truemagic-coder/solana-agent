@@ -199,7 +199,7 @@ Audio/Text Streaming
 Optional Configurations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Business Alignment Config - Optional
+Business Alignment - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -218,7 +218,7 @@ Business Alignment Config - Optional
       },
    }
 
-Conversational History Config - Optional
+Conversational History - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
@@ -230,7 +230,7 @@ Conversational History Config - Optional
       },
    }
 
-Conversational Memory Config - Optional
+Conversational Memory - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
