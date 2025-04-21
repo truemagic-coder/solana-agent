@@ -10,6 +10,7 @@ import datetime as main_datetime
 from datetime import datetime
 import json
 import logging  # Add logging
+import re
 from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
@@ -204,6 +205,137 @@ class AgentService(AgentServiceInterface):
             )
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
 
+    # --- Helper function to recursively substitute placeholders ---
+    def _substitute_placeholders(self, data: Any, results_map: Dict[str, str]) -> Any:
+        """Recursively substitutes placeholders like {{tool_name.result}} or {output_of_tool_name} in strings."""
+        if isinstance(data, str):
+            # Regex to find placeholders like {{tool_name.result}} or {output_of_tool_name}
+            placeholder_pattern = re.compile(
+                r"\{\{(?P<name1>[a-zA-Z0-9_]+)\.result\}\}|\{output_of_(?P<name2>[a-zA-Z0-9_]+)\}"
+            )
+
+            def replace_match(match):
+                tool_name = match.group("name1") or match.group("name2")
+                if tool_name and tool_name in results_map:
+                    logger.debug(f"Substituting placeholder for '{tool_name}'")
+                    return results_map[tool_name]
+                else:
+                    # If placeholder not found, leave it as is but log warning
+                    logger.warning(
+                        f"Could not find result for placeholder tool '{tool_name}'. Leaving placeholder."
+                    )
+                    return match.group(0)  # Return original placeholder
+
+            # Use re.sub with the replacement function
+            return placeholder_pattern.sub(replace_match, data)
+        elif isinstance(data, dict):
+            # Recursively process dictionary values
+            return {
+                k: self._substitute_placeholders(v, results_map)
+                for k, v in data.items()
+            }
+        elif isinstance(data, list):
+            # Recursively process list items
+            return [self._substitute_placeholders(item, results_map) for item in data]
+        else:
+            # Return non-string/dict/list types as is
+            return data
+
+    # --- Helper to parse tool calls ---
+    def _parse_tool_calls(self, text: str) -> List[Dict[str, Any]]:
+        """Parses all [TOOL]...[/TOOL] blocks in the text."""
+        tool_calls = []
+        # Regex to find all tool blocks, non-greedy match for content
+        pattern = re.compile(r"\[TOOL\](.*?)\[/TOOL\]", re.DOTALL | re.IGNORECASE)
+        matches = pattern.finditer(text)
+
+        for match in matches:
+            tool_content = match.group(1).strip()
+            tool_name = None
+            parameters = {}
+            try:
+                for line in tool_content.split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.lower().startswith("name:"):
+                        tool_name = line[5:].strip()
+                    elif line.lower().startswith("parameters:"):
+                        params_text = line[11:].strip()
+                        try:
+                            # Prefer JSON parsing
+                            parameters = json.loads(params_text)
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                f"Failed to parse parameters as JSON, falling back: {params_text}"
+                            )
+                            # Fallback: Treat as simple key=value (less robust)
+                            try:
+                                # Basic eval might work for {"key": "value"} but is risky
+                                # parameters = eval(params_text) # Avoid eval if possible
+                                # Safer fallback: Assume simple string if not JSON-like
+                                if not params_text.startswith("{"):
+                                    # Try splitting key=value pairs? Very brittle.
+                                    # For now, log warning and skip complex fallback parsing
+                                    logger.error(
+                                        f"Cannot parse non-JSON parameters reliably: {params_text}"
+                                    )
+                                    parameters = {
+                                        "_raw_params": params_text
+                                    }  # Store raw string
+                                else:
+                                    # If it looks like a dict but isn't valid JSON, log error
+                                    logger.error(
+                                        f"Invalid dictionary format for parameters: {params_text}"
+                                    )
+                                    parameters = {"_raw_params": params_text}
+
+                            except Exception as parse_err:
+                                logger.error(
+                                    f"Fallback parameter parsing failed: {parse_err}"
+                                )
+                                parameters = {
+                                    "_raw_params": params_text
+                                }  # Store raw string on error
+
+                if tool_name:
+                    tool_calls.append({"name": tool_name, "parameters": parameters})
+                else:
+                    logger.warning(f"Parsed tool block missing name: {tool_content}")
+            except Exception as e:
+                logger.error(f"Error parsing tool content: {tool_content} - {e}")
+
+        logger.info(f"Parsed {len(tool_calls)} tool calls from response.")
+        return tool_calls
+
+    # --- Helper to execute a single parsed tool call ---
+    async def _execute_single_tool(
+        self, agent_name: str, tool_call: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Executes a single tool call dictionary and returns its result."""
+        tool_name = tool_call.get("name")
+        parameters = tool_call.get("parameters", {})
+        if not tool_name:
+            return {
+                "tool_name": "unknown",
+                "status": "error",
+                "message": "Tool name missing in parsed call",
+            }
+        # Ensure parameters is a dict, even if parsing failed
+        if not isinstance(parameters, dict):
+            logger.warning(
+                f"Parameters for tool '{tool_name}' is not a dict: {parameters}. Attempting execution with empty params."
+            )
+            parameters = {}
+
+        logger.debug(
+            f"Preparing to execute tool '{tool_name}' with params: {parameters}"
+        )
+        result = await self.execute_tool(agent_name, tool_name, parameters)
+        # Add tool name to result for easier aggregation
+        result["tool_name"] = tool_name
+        return result
+
     async def generate_response(
         self,
         agent_name: str,
@@ -229,18 +361,17 @@ class AgentService(AgentServiceInterface):
         ] = "aac",
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Generate a response with support for text/audio input/output and guardrails.
+        """Generate a response, supporting multiple sequential tool calls with placeholder substitution.
 
-        If output_format is 'text' and output_guardrails are present, the response
-        will be buffered entirely before applying guardrails and yielding a single result.
-        Otherwise, text responses stream chunk-by-chunk. Audio responses always buffer.
+        Text responses are always generated as a single block.
+        Audio responses always buffer text before TTS.
         """
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             logger.warning(error_msg)
-            # Handle error output (unchanged)
             if output_format == "audio":
+                # Assuming tts returns an async generator
                 async for chunk in self.llm_provider.tts(
                     error_msg,
                     instructions=audio_instructions,
@@ -249,367 +380,307 @@ class AgentService(AgentServiceInterface):
                 ):
                     yield chunk
             else:
-                yield error_msg
+                yield error_msg  # Yield the single error string
             return
 
-        # --- Determine Buffering Strategy ---
-        # Buffer text ONLY if format is text AND guardrails are present
-        should_buffer_text = bool(self.output_guardrails) and output_format == "text"
         logger.debug(
-            f"Text buffering strategy: {'Buffer full response' if should_buffer_text else 'Stream chunks'}"
+            f"Generating response for agent '{agent_name}'. Output format: {output_format}."
         )
 
         try:
             # --- System Prompt Assembly ---
             system_prompt_parts = [self.get_agent_system_prompt(agent_name)]
-
-            # Add tool usage instructions if tools are available for the agent
             tool_instructions = self._get_tool_usage_prompt(agent_name)
             if tool_instructions:
                 system_prompt_parts.append(tool_instructions)
-
-            # Add user ID context
             system_prompt_parts.append(f"USER IDENTIFIER: {user_id}")
-
-            # Add memory context if provided
             if memory_context:
                 system_prompt_parts.append(f"\nCONVERSATION HISTORY:\n{memory_context}")
-
-            # Add optional prompt if provided
             if prompt:
                 system_prompt_parts.append(f"\nADDITIONAL PROMPT:\n{prompt}")
+            final_system_prompt = "\n\n".join(filter(None, system_prompt_parts))
 
-            final_system_prompt = "\n\n".join(
-                filter(None, system_prompt_parts)
-            )  # Join non-empty parts
-            # --- End System Prompt Assembly ---
-
-            # --- Response Generation ---
-            complete_text_response = (
-                ""  # Always used for final storage and potentially for buffering
-            )
-            full_response_buffer = ""  # Used ONLY for audio buffering
-
-            # Tool call handling variables (unchanged)
-            tool_buffer = ""
-            pending_chunk = ""
-            is_tool_call = False
+            # --- Initial Response Generation (No Streaming) ---
+            initial_llm_response_buffer = ""
+            tool_calls_detected = False
             start_marker = "[TOOL]"
-            end_marker = "[/TOOL]"
 
-            logger.info(
-                f"Generating response for agent '{agent_name}' with query length {len(str(query))}"
-            )
-            async for chunk in self.llm_provider.generate_text(
+            logger.info(f"Generating initial response for agent '{agent_name}'...")
+            # Call generate_text and await the string result
+            initial_llm_response_buffer = await self.llm_provider.generate_text(
                 prompt=str(query),
                 system_prompt=final_system_prompt,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
+            )
+
+            # Check for errors returned as string by the adapter
+            if isinstance(
+                initial_llm_response_buffer, str
+            ) and initial_llm_response_buffer.startswith(
+                "I apologize, but I encountered an error"
             ):
-                # --- Chunk Processing & Tool Call Logic (Modified Yielding) ---
-                if pending_chunk:
-                    combined_chunk = pending_chunk + chunk
-                    pending_chunk = ""
-                else:
-                    combined_chunk = chunk
-
-                # STEP 1: Check for tool call start marker
-                if start_marker in combined_chunk and not is_tool_call:
-                    is_tool_call = True
-                    start_pos = combined_chunk.find(start_marker)
-                    before_marker = combined_chunk[:start_pos]
-                    after_marker = combined_chunk[start_pos:]
-
-                    if before_marker:
-                        processed_before_marker = before_marker
-                        # Apply guardrails ONLY if NOT buffering text
-                        if not should_buffer_text:
-                            for guardrail in self.output_guardrails:
-                                try:
-                                    processed_before_marker = await guardrail.process(
-                                        processed_before_marker
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        f"Error applying output guardrail {guardrail.__class__.__name__} to pre-tool text: {e}"
-                                    )
-
-                        # Yield ONLY if NOT buffering text
-                        if (
-                            processed_before_marker
-                            and not should_buffer_text
-                            and output_format == "text"
-                        ):
-                            yield processed_before_marker
-
-                        # Always accumulate for final response / audio buffer
-                        if processed_before_marker:
-                            complete_text_response += processed_before_marker
-                            if output_format == "audio":
-                                full_response_buffer += processed_before_marker
-
-                    tool_buffer = after_marker
-                    continue
-
-                # STEP 2: Handle ongoing tool call collection
-                if is_tool_call:
-                    tool_buffer += combined_chunk
-                    if end_marker in tool_buffer:
-                        response_text = await self._handle_tool_call(
-                            agent_name=agent_name, tool_text=tool_buffer
-                        )
-                        response_text = self._clean_tool_response(response_text)
-                        user_prompt = f"{str(query)}\n\nTOOL RESULT: {response_text}"
-
-                        # --- Rebuild system prompt for follow-up ---
-                        follow_up_system_prompt_parts = [
-                            self.get_agent_system_prompt(agent_name)
-                        ]
-                        # Re-add tool instructions if needed for follow-up context
-                        if tool_instructions:
-                            follow_up_system_prompt_parts.append(tool_instructions)
-                        follow_up_system_prompt_parts.append(
-                            f"USER IDENTIFIER: {user_id}"
-                        )
-                        # Include original memory + original query + tool result context
-                        if memory_context:
-                            follow_up_system_prompt_parts.append(
-                                f"\nORIGINAL CONVERSATION HISTORY:\n{memory_context}"
-                            )
-                        # Add the original prompt if it was provided
-                        if prompt:
-                            follow_up_system_prompt_parts.append(
-                                f"\nORIGINAL ADDITIONAL PROMPT:\n{prompt}"
-                            )
-                        # Add context about the tool call that just happened
-                        follow_up_system_prompt_parts.append(
-                            f"\nPREVIOUS TOOL CALL CONTEXT:\nOriginal Query: {str(query)}\nTool Used: (Inferred from result)\nTool Result: {response_text}"
-                        )
-
-                        final_follow_up_system_prompt = "\n\n".join(
-                            filter(None, follow_up_system_prompt_parts)
-                        )
-                        # --- End Rebuild system prompt ---
-
-                        logger.info("Generating follow-up response with tool results")
-                        async for processed_chunk in self.llm_provider.generate_text(
-                            prompt=user_prompt,  # Use the prompt that includes the tool result
-                            system_prompt=final_follow_up_system_prompt,
-                            api_key=self.api_key,
-                            base_url=self.base_url,
-                            model=self.model,
-                        ):
-                            chunk_to_yield_followup = processed_chunk
-                            # Apply guardrails ONLY if NOT buffering text
-                            if not should_buffer_text:
-                                for guardrail in self.output_guardrails:
-                                    try:
-                                        chunk_to_yield_followup = (
-                                            await guardrail.process(
-                                                chunk_to_yield_followup
-                                            )
-                                        )
-                                    except Exception as e:
-                                        logger.error(
-                                            f"Error applying output guardrail {guardrail.__class__.__name__} to follow-up chunk: {e}"
-                                        )
-
-                            # Yield ONLY if NOT buffering text
-                            if (
-                                chunk_to_yield_followup
-                                and not should_buffer_text
-                                and output_format == "text"
-                            ):
-                                yield chunk_to_yield_followup
-
-                            # Always accumulate
-                            if chunk_to_yield_followup:
-                                complete_text_response += chunk_to_yield_followup
-                                if output_format == "audio":
-                                    full_response_buffer += chunk_to_yield_followup
-
-                        is_tool_call = False
-                        tool_buffer = ""
-                        pending_chunk = ""
-                        break  # Exit the original generation loop
-
-                    continue  # Continue collecting tool call
-
-                # STEP 3: Check for possible partial start markers
-                potential_marker = False
-                chunk_to_yield = combined_chunk
-                for i in range(1, len(start_marker)):
-                    if combined_chunk.endswith(start_marker[:i]):
-                        pending_chunk = combined_chunk[-i:]
-                        chunk_to_yield = combined_chunk[:-i]
-                        potential_marker = True
-                        break
-
-                if potential_marker:
-                    chunk_to_yield_safe = chunk_to_yield
-                    # Apply guardrails ONLY if NOT buffering text
-                    if not should_buffer_text:
-                        for guardrail in self.output_guardrails:
-                            try:
-                                chunk_to_yield_safe = await guardrail.process(
-                                    chunk_to_yield_safe
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Error applying output guardrail {guardrail.__class__.__name__} to safe chunk: {e}"
-                                )
-
-                    # Yield ONLY if NOT buffering text
-                    if (
-                        chunk_to_yield_safe
-                        and not should_buffer_text
-                        and output_format == "text"
+                logger.error(
+                    f"LLM provider failed during initial generation: {initial_llm_response_buffer}"
+                )
+                # Yield the error and exit
+                if output_format == "audio":
+                    async for chunk in self.llm_provider.tts(
+                        initial_llm_response_buffer,
+                        voice=audio_voice,
+                        response_format=audio_output_format,
+                        instructions=audio_instructions,
                     ):
-                        yield chunk_to_yield_safe
+                        yield chunk
+                else:
+                    yield initial_llm_response_buffer
+                return
 
-                    # Always accumulate
-                    if chunk_to_yield_safe:
-                        complete_text_response += chunk_to_yield_safe
-                        if output_format == "audio":
-                            full_response_buffer += chunk_to_yield_safe
-                    continue
+            # Check for tool markers in the complete response
+            if start_marker.lower() in initial_llm_response_buffer.lower():
+                tool_calls_detected = True
+                logger.info("Tool call marker detected in initial response.")
 
-                # STEP 4: Normal text processing
-                chunk_to_yield_normal = combined_chunk
-                # Apply guardrails ONLY if NOT buffering text
-                if not should_buffer_text:
-                    for guardrail in self.output_guardrails:
-                        try:
-                            chunk_to_yield_normal = await guardrail.process(
-                                chunk_to_yield_normal
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"Error applying output guardrail {guardrail.__class__.__name__} to normal chunk: {e}"
-                            )
+            logger.debug(
+                f"Full initial LLM response buffer:\n--- START ---\n{initial_llm_response_buffer}\n--- END ---"
+            )
+            logger.info(
+                f"Initial LLM response received (length: {len(initial_llm_response_buffer)}). Tools detected: {tool_calls_detected}"
+            )
 
-                # Yield ONLY if NOT buffering text
-                if (
-                    chunk_to_yield_normal
-                    and not should_buffer_text
-                    and output_format == "text"
-                ):
-                    yield chunk_to_yield_normal
+            # --- Tool Execution Phase (if tools were detected) ---
+            final_response_text = ""
+            if tool_calls_detected:
+                parsed_calls = self._parse_tool_calls(initial_llm_response_buffer)
 
-                # Always accumulate
-                if chunk_to_yield_normal:
-                    complete_text_response += chunk_to_yield_normal
-                    if output_format == "audio":
-                        full_response_buffer += chunk_to_yield_normal
+                if parsed_calls:
+                    # --- Execute tools SEQUENTIALLY with Placeholder Substitution ---
+                    executed_tool_results = []  # Store full result dicts
+                    # Map tool names to their string results for substitution
+                    tool_results_map: Dict[str, str] = {}
 
-            # --- Post-Loop Processing ---
-
-            # Process any incomplete tool call
-            if is_tool_call and tool_buffer:
-                logger.warning(
-                    f"Incomplete tool call detected, processing as regular text: {len(tool_buffer)} chars"
-                )
-                processed_tool_buffer = tool_buffer
-                # Apply guardrails ONLY if NOT buffering text
-                if not should_buffer_text:
-                    for guardrail in self.output_guardrails:
-                        try:
-                            processed_tool_buffer = await guardrail.process(
-                                processed_tool_buffer
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"Error applying output guardrail {guardrail.__class__.__name__} to incomplete tool buffer: {e}"
-                            )
-
-                # Yield ONLY if NOT buffering text
-                if (
-                    processed_tool_buffer
-                    and not should_buffer_text
-                    and output_format == "text"
-                ):
-                    yield processed_tool_buffer
-
-                # Always accumulate
-                if processed_tool_buffer:
-                    complete_text_response += processed_tool_buffer
-                    if output_format == "audio":
-                        full_response_buffer += processed_tool_buffer
-
-            # --- Final Output Generation ---
-
-            # Case 1: Text output WITH guardrails (apply to buffered response)
-            if should_buffer_text:
-                logger.info(
-                    f"Applying output guardrails to buffered text response (length: {len(complete_text_response)})"
-                )
-                processed_full_text = complete_text_response
-                for guardrail in self.output_guardrails:
-                    try:
-                        processed_full_text = await guardrail.process(
-                            processed_full_text
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__} to full text buffer: {e}"
-                        )
-
-                if processed_full_text:
-                    yield processed_full_text
-                # Update last_text_response with the final processed text
-                self.last_text_response = processed_full_text
-
-            # Case 2: Audio output (apply guardrails to buffer before TTS) - Unchanged Logic
-            elif output_format == "audio" and full_response_buffer:
-                original_buffer = full_response_buffer
-                processed_audio_buffer = full_response_buffer
-                for (
-                    guardrail
-                ) in self.output_guardrails:  # Apply even if empty, for consistency
-                    try:
-                        processed_audio_buffer = await guardrail.process(
-                            processed_audio_buffer
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__} to audio buffer: {e}"
-                        )
-                if processed_audio_buffer != original_buffer:
                     logger.info(
-                        f"Output guardrails modified audio buffer. Original length: {len(original_buffer)}, New length: {len(processed_audio_buffer)}"
+                        f"Executing {len(parsed_calls)} tools sequentially with substitution..."
+                    )
+                    for i, call in enumerate(parsed_calls):
+                        tool_name_to_exec = call.get("name", "unknown")
+                        logger.info(
+                            f"Executing tool {i + 1}/{len(parsed_calls)}: {tool_name_to_exec}"
+                        )
+
+                        # --- Substitute placeholders in parameters ---
+                        try:
+                            original_params = call.get("parameters", {})
+                            substituted_params = self._substitute_placeholders(
+                                original_params, tool_results_map
+                            )
+                            if substituted_params != original_params:
+                                logger.info(
+                                    f"Substituted parameters for tool '{tool_name_to_exec}': {substituted_params}"
+                                )
+                            call["parameters"] = substituted_params  # Update call dict
+                        except Exception as sub_err:
+                            logger.error(
+                                f"Error substituting placeholders for tool '{tool_name_to_exec}': {sub_err}",
+                                exc_info=True,
+                            )
+                            # Proceed with original params but log the error
+
+                        # --- Execute the tool ---
+                        try:
+                            result = await self._execute_single_tool(agent_name, call)
+                            executed_tool_results.append(result)
+
+                            # --- Store successful result string for future substitutions ---
+                            if result.get("status") == "success":
+                                tool_result_str = str(result.get("result", ""))
+                                tool_results_map[tool_name_to_exec] = tool_result_str
+                                logger.debug(
+                                    f"Stored result for '{tool_name_to_exec}' (length: {len(tool_result_str)})"
+                                )
+                            else:
+                                # Store error message as result
+                                error_message = result.get("message", "Unknown error")
+                                tool_results_map[tool_name_to_exec] = (
+                                    f"Error: {error_message}"
+                                )
+                                logger.warning(
+                                    f"Tool '{tool_name_to_exec}' failed, storing error message as result."
+                                )
+
+                        except Exception as tool_exec_err:
+                            logger.error(
+                                f"Exception during execution of tool {tool_name_to_exec}: {tool_exec_err}",
+                                exc_info=True,
+                            )
+                            error_result = {
+                                "tool_name": tool_name_to_exec,
+                                "status": "error",
+                                "message": f"Exception during execution: {str(tool_exec_err)}",
+                            }
+                            executed_tool_results.append(error_result)
+                            tool_results_map[tool_name_to_exec] = (
+                                f"Error: {str(tool_exec_err)}"  # Store error
+                            )
+
+                    logger.info("Sequential tool execution with substitution complete.")
+                    # --- End Sequential Execution ---
+
+                    # Format results for the follow-up prompt (use executed_tool_results)
+                    tool_results_text_parts = []
+                    for i, result in enumerate(
+                        executed_tool_results
+                    ):  # Use the collected results
+                        tool_name = result.get(
+                            "tool_name", "unknown"
+                        )  # Name should be in the result dict now
+                        if (
+                            isinstance(result, Exception)
+                            or result.get("status") == "error"
+                        ):
+                            error_msg = (
+                                result.get("message", str(result))
+                                if isinstance(result, dict)
+                                else str(result)
+                            )
+                            logger.error(f"Tool '{tool_name}' failed: {error_msg}")
+                            tool_results_text_parts.append(
+                                f"Tool {i + 1} ({tool_name}) Execution Failed:\n{error_msg}"
+                            )
+                        else:
+                            tool_output = str(result.get("result", ""))
+                            tool_results_text_parts.append(
+                                f"Tool {i + 1} ({tool_name}) Result:\n{tool_output}"
+                            )
+                    tool_results_context = "\n\n".join(tool_results_text_parts)
+
+                    # --- Generate Final Response using Tool Results (No Streaming) ---
+                    follow_up_prompt = f"Original Query: {str(query)}\n\nRESULTS FROM TOOL CALLS:\n{tool_results_context}\n\nBased on the original query and the tool results, please provide the final response to the user."
+                    # Rebuild system prompt
+                    follow_up_system_prompt_parts = [
+                        self.get_agent_system_prompt(agent_name)
+                    ]
+                    follow_up_system_prompt_parts.append(f"USER IDENTIFIER: {user_id}")
+                    if memory_context:
+                        follow_up_system_prompt_parts.append(
+                            f"\nORIGINAL CONVERSATION HISTORY:\n{memory_context}"
+                        )
+                    if prompt:
+                        follow_up_system_prompt_parts.append(
+                            f"\nORIGINAL ADDITIONAL PROMPT:\n{prompt}"
+                        )
+                    follow_up_system_prompt_parts.append(
+                        f"\nCONTEXT: You previously decided to run {len(parsed_calls)} tool(s) sequentially to answer the query. The results are provided above."
+                    )
+                    final_follow_up_system_prompt = "\n\n".join(
+                        filter(None, follow_up_system_prompt_parts)
                     )
 
-                cleaned_audio_buffer = self._clean_for_audio(processed_audio_buffer)
+                    logger.info(
+                        "Generating final response incorporating tool results..."
+                    )
+                    # Call generate_text and await the string result
+                    synthesized_response_buffer = await self.llm_provider.generate_text(
+                        prompt=follow_up_prompt,
+                        system_prompt=final_follow_up_system_prompt,
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        model=self.model,
+                    )
+
+                    # Check for errors returned as string by the adapter
+                    if isinstance(
+                        synthesized_response_buffer, str
+                    ) and synthesized_response_buffer.startswith(
+                        "I apologize, but I encountered an error"
+                    ):
+                        logger.error(
+                            f"LLM provider failed during final generation: {synthesized_response_buffer}"
+                        )
+                        # Yield the error and exit
+                        if output_format == "audio":
+                            async for chunk in self.llm_provider.tts(
+                                synthesized_response_buffer,
+                                voice=audio_voice,
+                                response_format=audio_output_format,
+                                instructions=audio_instructions,
+                            ):
+                                yield chunk
+                        else:
+                            yield synthesized_response_buffer
+                        return
+
+                    final_response_text = synthesized_response_buffer
+                    logger.info(
+                        f"Final synthesized response length: {len(final_response_text)}"
+                    )
+
+                else:
+                    # Tools detected but parsing failed
+                    logger.warning(
+                        "Tool markers detected, but no valid tool calls parsed. Treating initial response as final."
+                    )
+                    final_response_text = initial_llm_response_buffer
+            else:
+                # No tools detected
+                final_response_text = initial_llm_response_buffer
+                logger.info("No tools detected. Using initial response as final.")
+
+            # --- Final Output Processing (Guardrails, TTS, Yielding) ---
+            processed_final_text = final_response_text
+            if self.output_guardrails:
+                logger.info(
+                    f"Applying output guardrails to final text response (length: {len(processed_final_text)})"
+                )
+                original_len = len(processed_final_text)
+                for guardrail in self.output_guardrails:
+                    try:
+                        processed_final_text = await guardrail.process(
+                            processed_final_text
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error applying output guardrail {guardrail.__class__.__name__} to final text: {e}"
+                        )
+                if len(processed_final_text) != original_len:
+                    logger.info(
+                        f"Guardrails modified final text length from {original_len} to {len(processed_final_text)}"
+                    )
+
+            self.last_text_response = processed_final_text
+
+            if output_format == "text":
+                # Yield the single final string
+                if processed_final_text:
+                    yield processed_final_text
+                else:
+                    logger.warning("Final processed text was empty.")
+                    yield ""
+            elif output_format == "audio":
+                # TTS still needs a generator
+                text_for_tts = processed_final_text
+                cleaned_audio_buffer = self._clean_for_audio(text_for_tts)
                 logger.info(
                     f"Processing {len(cleaned_audio_buffer)} characters for audio output"
                 )
-                async for audio_chunk in self.llm_provider.tts(
-                    text=cleaned_audio_buffer,
-                    voice=audio_voice,
-                    response_format=audio_output_format,
-                    instructions=audio_instructions,
-                ):
-                    yield audio_chunk
-                # Update last_text_response with the text *before* TTS cleaning
-                self.last_text_response = (
-                    processed_audio_buffer  # Store the guardrail-processed text
-                )
-
-            # Case 3: Text output WITHOUT guardrails (already streamed)
-            elif output_format == "text" and not should_buffer_text:
-                # Store the complete text response (accumulated from non-processed chunks)
-                self.last_text_response = complete_text_response
-                logger.info(
-                    "Text streaming complete (no guardrails applied post-stream)."
-                )
+                if cleaned_audio_buffer:
+                    async for audio_chunk in self.llm_provider.tts(
+                        text=cleaned_audio_buffer,
+                        voice=audio_voice,
+                        response_format=audio_output_format,
+                        instructions=audio_instructions,
+                    ):
+                        yield audio_chunk
+                else:
+                    logger.warning("Final text for audio was empty after cleaning.")
 
             logger.info(
                 f"Response generation complete for agent '{agent_name}': {len(self.last_text_response)} final chars"
             )
 
         except Exception as e:
-            # --- Error Handling (unchanged) ---
+            # --- Error Handling ---
             import traceback
 
             error_msg = (
@@ -711,13 +782,18 @@ class AgentService(AgentServiceInterface):
 
         tools_json = json.dumps(simplified_tools, indent=2)
 
+        logger.info(
+            f"Generated tool usage prompt for agent '{agent_name}': {tools_json}"
+        )
+
         return f"""
         AVAILABLE TOOLS:
         {tools_json}
 
-        ⚠️ CRITICAL INSTRUCTION: When using a tool, NEVER include explanatory text.
-        Only output the exact tool call format shown below with NO other text.
-        Always call the necessary tool to give the latest information.
+        ⚠️ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
+        1. EXECUTION ORDER MATTERS: If multiple steps are needed (e.g., get information THEN use it), you MUST output the [TOOL] blocks in the exact sequence they need to run. Output the information-gathering tool call FIRST, then the tool call that uses the information.
+        2. ONLY TOOL CALLS: When using a tool, NEVER include explanatory text before or after the tool call block. Only output the exact tool call format shown below.
+        3. USE TOOLS WHEN NEEDED: Always call the necessary tool to give the latest information, especially for time-sensitive queries.
 
         TOOL USAGE FORMAT:
         [TOOL]
@@ -726,24 +802,62 @@ class AgentService(AgentServiceInterface):
         [/TOOL]
 
         EXAMPLES:
-        ✅ CORRECT - ONLY the tool call with NOTHING else:
+
+        ✅ CORRECT - Get news THEN email (Correct Order):
         [TOOL]
         name: search_internet
-        parameters: {{"query": "latest news on Solana"}}
+        parameters: {{"query": "latest news on Canada"}}
+        [/TOOL]
+        [TOOL]
+        name: mcp
+        parameters: {{"query": "Send an email to
+                             bob@bob.com with subject
+                             'Friendly Reminder to Clean Your Room'
+                             and body 'Hi Bob, just a friendly
+                             reminder to please clean your room
+                             when you get a chance.'"}}
+        [/TOOL]
+        (Note: The system will handle replacing placeholders like '{{output_of_search_internet}}' if possible, but the ORDER is crucial.)
+
+
+        ❌ INCORRECT - Wrong Order:
+        [TOOL]
+        name: mcp
+        parameters: {{"query": "Send an email to
+                             bob@bob.com with subject
+                             'Friendly Reminder to Clean Your Room'
+                             and body 'Hi Bob, just a friendly
+                             reminder to please clean your room
+                             when you get a chance.'"}}
+        [/TOOL]
+        [TOOL]
+        name: search_internet
+        parameters: {{"query": "latest news on Canada"}}
         [/TOOL]
 
-        ❌ INCORRECT - Never add explanatory text like this:
-        To get the latest news on Solana, I will search the internet.
+
+        ❌ INCORRECT - Explanatory Text:
+        To get the news, I'll search.
         [TOOL]
         name: search_internet
         parameters: {{"query": "latest news on Solana"}}
         [/TOOL]
+        Now I will email it.
+        [TOOL]
+        name: mcp
+        parameters: {{"query": "Send an email to
+                             bob@bob.com with subject
+                             'Friendly Reminder to Clean Your Room'
+                             and body 'Hi Bob, just a friendly
+                             reminder to please clean your room
+                             when you get a chance.'"}}
+        [/TOOL]
+
 
         REMEMBER:
-        1. Output ONLY the exact tool call format with NO additional text
-        2. If the query is time-sensitive (latest news, current status, etc.), ALWAYS use the tool.
-        3. After seeing your tool call, I will execute it automatically
-        4. You will receive the tool results and can then respond to the user
+        - Output ONLY the [TOOL] blocks in the correct execution order.
+        - I will execute the tools sequentially as you provide them.
+        - You will receive the results of ALL tool calls before formulating the final response.
         """
 
     def _clean_for_audio(self, text: str) -> str:

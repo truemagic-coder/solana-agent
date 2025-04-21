@@ -25,7 +25,7 @@ class LLMProvider(ABC):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:
+    ) -> str:
         """Generate text from the language model."""
         pass
 

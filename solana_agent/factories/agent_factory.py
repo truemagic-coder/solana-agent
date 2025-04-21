@@ -130,90 +130,19 @@ class SolanaAgentFactory:
             f"Loaded {len(input_guardrails)} input guardrails and {len(output_guardrails)} output guardrails."
         )
 
-        if (
-            "gemini" in config
-            and "api_key" in config["gemini"]
-            and "grok" not in config
-        ):
-            # Create primary services
-            agent_service = AgentService(
-                llm_provider=llm_adapter,
-                business_mission=business_mission,
-                config=config,
-                api_key=config["gemini"]["api_key"],
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                model="gemini-2.5-flash-preview-04-17",
-                output_guardrails=output_guardrails,
-            )
+        # Create primary services
+        agent_service = AgentService(
+            llm_provider=llm_adapter,
+            business_mission=business_mission,
+            config=config,
+            output_guardrails=output_guardrails,
+        )
 
-            # Create routing service
-            routing_service = RoutingService(
-                llm_provider=llm_adapter,
-                agent_service=agent_service,
-                api_key=config["gemini"]["api_key"],
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                model="gemini-2.5-flash-preview-04-17",
-            )
-
-        elif (
-            "gemini" in config
-            and "api_key" in config["gemini"]
-            and "grok" in config
-            and "api_key" in config["grok"]
-        ):
-            # Create primary services
-            agent_service = AgentService(
-                llm_provider=llm_adapter,
-                business_mission=business_mission,
-                config=config,
-                api_key=config["grok"]["api_key"],
-                base_url="https://api.x.ai/v1",
-                model="grok-3-mini-fast-beta",
-                output_guardrails=output_guardrails,
-            )
-            # Create routing service
-            routing_service = RoutingService(
-                llm_provider=llm_adapter,
-                agent_service=agent_service,
-                api_key=config["gemini"]["api_key"],
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                model="gemini-2.5-flash-preview-04-17",
-            )
-
-        elif (
-            "grok" in config and "api_key" in config["grok"] and "gemini" not in config
-        ):
-            # Create primary services
-            agent_service = AgentService(
-                llm_provider=llm_adapter,
-                business_mission=business_mission,
-                config=config,
-                api_key=config["grok"]["api_key"],
-                base_url="https://api.x.ai/v1",
-                model="grok-3-mini-fast-beta",
-                output_guardrails=output_guardrails,
-            )
-
-            # Create routing service
-            routing_service = RoutingService(
-                llm_provider=llm_adapter,
-                agent_service=agent_service,
-            )
-
-        else:
-            # Create primary services
-            agent_service = AgentService(
-                llm_provider=llm_adapter,
-                business_mission=business_mission,
-                config=config,
-                output_guardrails=output_guardrails,
-            )
-
-            # Create routing service
-            routing_service = RoutingService(
-                llm_provider=llm_adapter,
-                agent_service=agent_service,
-            )
+        # Create routing service
+        routing_service = RoutingService(
+            llm_provider=llm_adapter,
+            agent_service=agent_service,
+        )
 
         # Debug the agent service tool registry
         print(
