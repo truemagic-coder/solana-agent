@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "27.4.1"
+version = "27.4.2"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -49,3 +49,4 @@ ruff = "^0.11.6"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+icon = "https://dl.walletbubbles.com/solana-agent-logo.png?width=200"
