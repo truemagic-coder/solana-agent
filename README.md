@@ -267,7 +267,6 @@ Ensure you have a valid configuration file (e.g., `config.json`) containing at l
     "agents": [
         {
             "name": "default_agent",
-            "description": "A helpful assistant.",
             "instructions": "You are a helpful AI assistant.",
             "specialization": "general"
         }
