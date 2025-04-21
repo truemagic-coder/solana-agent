@@ -258,8 +258,8 @@ Solana Agent includes a command-line interface (CLI) for text-based chat using a
 
 Ensure you have a valid configuration file (e.g., `config.json`) containing at least your OpenAI API key and agent definitions.
 
+**./config.json**
 ```json
-// config.json
 {
     "openai": {
         "api_key": "your-openai-api-key"
