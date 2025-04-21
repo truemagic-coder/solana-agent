@@ -5,8 +5,6 @@ This package provides a modular framework for building AI agent systems with
 multiple specialized agents, memory management, and conversation routing.
 """
 
-__version__ = "14.0.0"  # Update with your actual version
-
 # Client interface (main entry point)
 from solana_agent.client.solana_agent import SolanaAgent
 
@@ -17,6 +15,10 @@ from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.plugins.tools.auto_tool import AutoTool
+from solana_agent.interfaces.guardrails.guardrails import (
+    InputGuardrail,
+    OutputGuardrail,
+)
 
 # Package metadata
 __all__ = [
@@ -28,4 +30,7 @@ __all__ = [
     "PluginManager",
     "ToolRegistry",
     "AutoTool",
+    # Guardrails
+    "InputGuardrail",
+    "OutputGuardrail",
 ]
