@@ -78,6 +78,10 @@ class SolanaAgentFactory:
         # Create adapters
 
         if "mongo" in config:
+            if "connection_string" not in config["mongo"]:
+                raise ValueError("MongoDB connection string is required.")
+            if "database" not in config["mongo"]:
+                raise ValueError("MongoDB database name is required.")
             db_adapter = MongoDBAdapter(
                 connection_string=config["mongo"]["connection_string"],
                 database_name=config["mongo"]["database"],
@@ -85,9 +89,21 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        llm_adapter = OpenAIAdapter(
-            api_key=config["openai"]["api_key"],
-        )
+        if "logfire" in config:
+            if "api_key" not in config["logfire"]:
+                raise ValueError("Pydantic Logfire API key is required.")
+            if "openai" not in config or "api_key" not in config["openai"]:
+                raise ValueError("OpenAI API key is required.")
+            llm_adapter = OpenAIAdapter(
+                api_key=config["openai"]["api_key"],
+                logfire_api_key=config["logfire"].get("api_key"),
+            )
+        else:
+            if "openai" not in config or "api_key" not in config["openai"]:
+                raise ValueError("OpenAI API key is required.")
+            llm_adapter = OpenAIAdapter(
+                api_key=config["openai"].get("api_key"),
+            )
 
         # Create business mission if specified in config
         business_mission = None

@@ -782,10 +782,6 @@ class AgentService(AgentServiceInterface):
 
         tools_json = json.dumps(simplified_tools, indent=2)
 
-        logger.info(
-            f"Generated tool usage prompt for agent '{agent_name}': {tools_json}"
-        )
-
         return f"""
         AVAILABLE TOOLS:
         {tools_json}

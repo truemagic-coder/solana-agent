@@ -168,25 +168,48 @@ def invalid_zep_config(base_config):
 
 
 @pytest.fixture
-def gemini_config(base_config):
+def invalid_mongo_config_missing_conn(base_config):
+    """Config with mongo section missing connection_string."""
     config = deepcopy(base_config)
-    config["gemini"] = {"api_key": "test-gemini-key"}
+    config["mongo"] = {"database": "test_db"}
     return config
 
 
 @pytest.fixture
-def grok_config(base_config):
+def invalid_mongo_config_missing_db(base_config):
+    """Config with mongo section missing database."""
     config = deepcopy(base_config)
-    config["grok"] = {"api_key": "test-grok-key"}
+    config["mongo"] = {"connection_string": "mongodb://localhost:27017"}
     return config
 
 
 @pytest.fixture
-def gemini_grok_config(base_config):
+def logfire_config(base_config):
+    """Config with valid logfire section."""
     config = deepcopy(base_config)
-    config["gemini"] = {"api_key": "test-gemini-key"}
-    config["grok"] = {"api_key": "test-grok-key"}
+    config["logfire"] = {"api_key": "test-logfire-key"}
     return config
+
+
+@pytest.fixture
+def invalid_logfire_config_missing_key(base_config):
+    """Config with logfire section missing api_key."""
+    config = deepcopy(base_config)
+    config["logfire"] = {}  # Empty logfire section
+    return config
+
+
+@pytest.fixture
+def logfire_config_missing_openai(base_config):
+    """Config with logfire but missing openai api_key."""
+    config = {"logfire": {"api_key": "test-logfire-key"}}  # No openai section
+    return config
+
+
+@pytest.fixture
+def config_missing_openai_section():
+    """Config completely missing the openai section."""
+    return {"some_other_key": "value"}  # No openai section at all
 
 
 class TestSolanaAgentFactory:
@@ -235,6 +258,12 @@ class TestSolanaAgentFactory:
 
         assert result == mock_query_instance
 
+    def test_missing_openai_section(self, config_missing_openai_section):
+        """Test factory creation when the entire openai section is missing."""
+        # This should raise ValueError since OpenAI API key is required
+        with pytest.raises(ValueError, match="OpenAI API key is required."):
+            SolanaAgentFactory.create_from_config(config_missing_openai_section)
+
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")
@@ -282,6 +311,20 @@ class TestSolanaAgentFactory:
         mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
 
         assert result == mock_query_instance
+
+    def test_invalid_mongo_config_missing_connection(
+        self, invalid_mongo_config_missing_conn
+    ):
+        """Test handling of invalid MongoDB config (missing connection string)."""
+        with pytest.raises(ValueError, match="MongoDB connection string is required."):
+            SolanaAgentFactory.create_from_config(invalid_mongo_config_missing_conn)
+
+    def test_invalid_mongo_config_missing_database(
+        self, invalid_mongo_config_missing_db
+    ):
+        """Test handling of invalid MongoDB config (missing database name)."""
+        with pytest.raises(ValueError, match="MongoDB database name is required."):
+            SolanaAgentFactory.create_from_config(invalid_mongo_config_missing_db)
 
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
@@ -1479,3 +1522,96 @@ class TestSolanaAgentFactory:
                 in caplog.text
             )
             assert "Initialization failed" in caplog.text  # Check specific error
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_with_logfire_success(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        logfire_config,  # Use the logfire fixture
+    ):
+        """Test creating services with valid Logfire configuration."""
+        # Setup mocks
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        # Call the factory
+        result = SolanaAgentFactory.create_from_config(logfire_config)
+
+        # Verify OpenAIAdapter was called with both keys
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-openai-key", logfire_api_key="test-logfire-key"
+        )
+        # Verify other services were called
+        mock_agent_service.assert_called_once()
+        mock_routing_service.assert_called_once()
+        mock_query_service.assert_called_once()
+        assert result == mock_query_instance
+
+    def test_invalid_logfire_config_missing_api_key(
+        self, invalid_logfire_config_missing_key
+    ):
+        """Test handling of invalid Logfire config (missing api_key)."""
+        # Based on the current factory code, this should raise a ValueError
+        with pytest.raises(ValueError, match="Pydantic Logfire API key is required."):
+            SolanaAgentFactory.create_from_config(invalid_logfire_config_missing_key)
+
+    def test_logfire_config_missing_openai_key(self, logfire_config_missing_openai):
+        """Test handling of Logfire config when OpenAI key is missing."""
+        # Based on the current factory code, this should raise a ValueError
+        with pytest.raises(ValueError, match="OpenAI API key is required."):
+            SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_without_logfire_section(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        base_config,  # Use base config (no logfire section)
+    ):
+        """Test creating services when logfire section is absent."""
+        # Setup mocks
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        # Call the factory
+        result = SolanaAgentFactory.create_from_config(base_config)
+
+        # Verify OpenAIAdapter was called only with OpenAI key
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-openai-key"
+            # logfire_api_key should not be present or be None
+        )
+        # Verify other services were called
+        mock_agent_service.assert_called_once()
+        mock_routing_service.assert_called_once()
+        mock_query_service.assert_called_once()
+        assert result == mock_query_instance

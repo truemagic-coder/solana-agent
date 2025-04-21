@@ -32,6 +32,7 @@ Build your AI agents in three lines of code!
 * Knowledge Base
 * MCP Support
 * Guardrails
+* Pydantic Logfire
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com)
@@ -43,6 +44,7 @@ Build your AI agents in three lines of code!
 * Fast AI responses
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
+* Integrated observability and tracing via [Pydantic Logfire](https://logfire.pydantic.dev/)
 * Designed for a multi-agent swarm 
 * Seamless text and audio streaming with real-time multi-modal processing
 * Persistent memory that preserves context across all agent interactions
@@ -65,6 +67,9 @@ Build your AI agents in three lines of code!
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
+* [AgentiPy](https://agentipy.fun) - Solana Ecosystem (optional)
+* [Zapier](https://zapier.com) - App Integrations (optional)
+* [Pydantic Logfire](https://logfire.pydantic.dev) - Observability (optional)
 
 ### AI Models Used
 
@@ -284,6 +289,16 @@ config = {
 config = {
     "zep": {
         "api_key": "your-zep-cloud-api-key",
+    },
+}
+```
+
+### Observability and Tracing
+
+```python
+config = {
+    "logfire": {
+        "api_key": "your-logfire-write-token",
     },
 }
 ```
