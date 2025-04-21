@@ -253,6 +253,43 @@
 </pre></div>
 </div>
 </section>
+<section id="command-line-interface-cli">
+<h3>Command Line Interface (CLI)<a class="headerlink" href="#command-line-interface-cli" title="Link to this heading"></a></h3>
+<p>Solana Agent includes a command-line interface (CLI) for text-based chat using a configuration file.</p>
+<p>Ensure you have a valid configuration file (e.g., <cite>config.json</cite>) containing at least your OpenAI API key and agent definitions.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="c1">// config.json</span>
+<span class="p">{</span>
+<span class="w">   </span><span class="nt">&quot;openai&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;api_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key&quot;</span>
+<span class="w">   </span><span class="p">},</span>
+<span class="w">   </span><span class="nt">&quot;agents&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;default_agent&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;instructions&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;You are a helpful AI assistant.&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;specialization&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;general&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">   </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Also ensure that you have <cite>pip install uv</cite> to call <cite>uvx</cite>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uvx<span class="w"> </span>solana-agent<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+
+Options:
+
+--user-id<span class="w"> </span>TEXT:<span class="w"> </span>The<span class="w"> </span>user<span class="w"> </span>ID<span class="w"> </span><span class="k">for</span><span class="w"> </span>the<span class="w"> </span>conversation<span class="w"> </span><span class="o">(</span>default:<span class="w"> </span>cli_user<span class="o">)</span>.
+--config<span class="w"> </span>TEXT:<span class="w"> </span>Path<span class="w"> </span>to<span class="w"> </span>the<span class="w"> </span>configuration<span class="w"> </span>JSON<span class="w"> </span>file<span class="w"> </span><span class="o">(</span>default:<span class="w"> </span>config.json<span class="o">)</span>.
+--prompt<span class="w"> </span>TEXT:<span class="w"> </span>Optional<span class="w"> </span>system<span class="w"> </span>prompt<span class="w"> </span>override<span class="w"> </span><span class="k">for</span><span class="w"> </span>the<span class="w"> </span>agent.
+--help:<span class="w"> </span>Show<span class="w"> </span><span class="nb">help</span><span class="w"> </span>message<span class="w"> </span>and<span class="w"> </span>exit.
+
+<span class="c1"># Using default config.json and user_id</span>
+uvx<span class="w"> </span>solana-agent
+
+<span class="c1"># Specifying user ID and config path</span>
+uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span class="w"> </span>my_cli_session<span class="w"> </span>--config<span class="w"> </span>./my_agent_config.json
+</pre></div>
+</div>
+</section>
 <section id="optional-configurations">
 <h3>Optional Configurations<a class="headerlink" href="#optional-configurations" title="Link to this heading"></a></h3>
 </section>
