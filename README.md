@@ -551,7 +551,7 @@ config = {
             "rpc_url": "your-solana-rpc-url",
         },
     },
-    "ai_agents": [
+    "agents": [
         {
             "name": "solana_expert",
             "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
