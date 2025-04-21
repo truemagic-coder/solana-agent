@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "solana-agent"
-version = "27.4.0"
+version = "27.4.1"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/truemagic-coder/solana-agent"
 documentation = "https://docs.solana-agent.com"
-keywords = ["ai", "openai", "ai agents", "agi"]
+keywords = ["solana", "solana ai", "solana agent", "ai", "ai agent", "ai agents"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
