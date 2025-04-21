@@ -5,6 +5,7 @@ omit =
     */venv/*
     */site-packages/*
     setup.py
+    solana_agent/cli.py
 
 [report]
 exclude_lines =

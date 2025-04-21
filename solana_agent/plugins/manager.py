@@ -6,6 +6,7 @@ loads, and manages plugins.
 """
 
 import importlib
+import logging
 from typing import Dict, List, Any, Optional
 import importlib.metadata
 
@@ -14,6 +15,9 @@ from solana_agent.interfaces.plugins.plugins import (
 )
 from solana_agent.interfaces.plugins.plugins import Plugin
 from solana_agent.plugins.registry import ToolRegistry
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 
 class PluginManager(PluginManagerInterface):
@@ -50,11 +54,15 @@ class PluginManager(PluginManagerInterface):
 
             # Only store plugin if both initialize and configure succeed
             self._plugins[plugin.name] = plugin
-            print(f"Successfully registered plugin {plugin.name}")
+            logger.info(
+                f"Successfully registered plugin {plugin.name}"
+            )  # Use logger.info
             return True
 
         except Exception as e:
-            print(f"Error registering plugin {plugin.name}: {e}")
+            logger.error(
+                f"Error registering plugin {plugin.name}: {e}"
+            )  # Use logger.error
             # Remove plugin from registry if it was added
             self._plugins.pop(plugin.name, None)
             return False
@@ -74,11 +82,15 @@ class PluginManager(PluginManagerInterface):
             # Skip if this entry point has already been loaded
             entry_point_id = f"{entry_point.name}:{entry_point.value}"
             if entry_point_id in PluginManager._loaded_entry_points:
-                print(f"Skipping already loaded plugin: {entry_point.name}")
+                logger.info(
+                    f"Skipping already loaded plugin: {entry_point.name}"
+                )  # Use logger.info
                 continue
 
             try:
-                print(f"Found plugin entry point: {entry_point.name}")
+                logger.info(
+                    f"Found plugin entry point: {entry_point.name}"
+                )  # Use logger.info
                 PluginManager._loaded_entry_points.add(entry_point_id)
                 plugin_factory = entry_point.load()
                 plugin = plugin_factory()
@@ -89,7 +101,9 @@ class PluginManager(PluginManagerInterface):
                     loaded_plugins.append(entry_point.name)
 
             except Exception as e:
-                print(f"Error loading plugin {entry_point.name}: {e}")
+                logger.error(
+                    f"Error loading plugin {entry_point.name}: {e}"
+                )  # Use logger.error
 
         return loaded_plugins
 
@@ -142,10 +156,12 @@ class PluginManager(PluginManagerInterface):
         """
         self.config.update(config)
         self.tool_registry.configure_all_tools(config)
-        print("Configuring all plugins with updated config")
+        logger.info("Configuring all plugins with updated config")  # Use logger.info
         for name, plugin in self._plugins.items():
             try:
-                print(f"Configuring plugin: {name}")
+                logger.info(f"Configuring plugin: {name}")  # Use logger.info
                 plugin.configure(self.config)
             except Exception as e:
-                print(f"Error configuring plugin {name}: {e}")
+                logger.error(
+                    f"Error configuring plugin {name}: {e}"
+                )  # Use logger.error

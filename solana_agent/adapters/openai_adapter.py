@@ -4,6 +4,7 @@ LLM provider adapters for the Solana Agent system.
 These adapters implement the LLMProvider interface for different LLM services.
 """
 
+import logging
 from typing import AsyncGenerator, List, Literal, Optional, Type, TypeVar
 
 from openai import AsyncOpenAI
@@ -13,6 +14,9 @@ from instructor import Mode
 import logfire
 
 from solana_agent.interfaces.providers.llm import LLMProvider
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -35,12 +39,10 @@ class OpenAIAdapter(LLMProvider):
             try:
                 logfire.configure(token=logfire_api_key)
                 self.logfire = True
-                print("Logfire configured successfully.")  # Optional: confirmation log
+                logger.info("Logfire configured successfully.")  # Use logger.info
             except Exception as e:
-                print(
-                    f"Failed to configure Logfire: {e}"
-                )  # Log error if configuration fails
-                self.logfire = False  # Ensure logfire is False if config fails
+                logger.error(f"Failed to configure Logfire: {e}")  # Use logger.error
+                self.logfire = False
 
         self.parse_model = DEFAULT_PARSE_MODEL
         self.text_model = DEFAULT_CHAT_MODEL
@@ -79,7 +81,8 @@ class OpenAIAdapter(LLMProvider):
             Audio bytes as they become available
         """
         try:
-            logfire.instrument_openai(self.client)
+            if self.logfire:  # Instrument only if logfire is enabled
+                logfire.instrument_openai(self.client)
             async with self.client.audio.speech.with_streaming_response.create(
                 model=self.tts_model,
                 voice=voice,
@@ -91,17 +94,8 @@ class OpenAIAdapter(LLMProvider):
                     yield chunk
 
         except Exception as e:
-            print(f"Error in text_to_speech: {str(e)}")
-            import traceback
-
-            print(traceback.format_exc())
-            yield b""  # Return empty bytes on error
-
-        except Exception as e:
-            print(f"Error in text_to_speech: {str(e)}")
-            import traceback
-
-            print(traceback.format_exc())
+            # Log the exception with traceback
+            logger.exception(f"Error in text_to_speech: {e}")
             yield b""  # Return empty bytes on error
 
     async def transcribe_audio(
@@ -121,7 +115,8 @@ class OpenAIAdapter(LLMProvider):
             Transcript text chunks as they become available
         """
         try:
-            logfire.instrument_openai(self.client)
+            if self.logfire:  # Instrument only if logfire is enabled
+                logfire.instrument_openai(self.client)
             async with self.client.audio.transcriptions.with_streaming_response.create(
                 model=self.transcription_model,
                 file=(f"file.{input_format}", audio_bytes),
@@ -132,10 +127,8 @@ class OpenAIAdapter(LLMProvider):
                     yield chunk
 
         except Exception as e:
-            print(f"Error in transcribe_audio: {str(e)}")
-            import traceback
-
-            print(traceback.format_exc())
+            # Log the exception with traceback
+            logger.exception(f"Error in transcribe_audio: {e}")
             yield f"I apologize, but I encountered an error transcribing the audio: {str(e)}"
 
     async def generate_text(
@@ -177,12 +170,16 @@ class OpenAIAdapter(LLMProvider):
                 full_text = response.choices[0].message.content
                 return full_text  # Return the complete string
             else:
-                print("Received non-streaming response with no content.")
+                logger.warning(
+                    "Received non-streaming response with no content."
+                )  # Use logger.warning
                 return ""  # Return empty string if no content
 
         except Exception as e:
-            # Log the error and return an error message string
-            print(f"Error in generate_text: {e}")
+            # Log the exception and return an error message string
+            logger.exception(f"Error in generate_text: {e}")
+            # Consider returning a more informative error string or raising
+            return f"Error generating text: {e}"
 
     async def parse_structured_output(
         self,
@@ -208,56 +205,67 @@ class OpenAIAdapter(LLMProvider):
             if self.logfire:
                 logfire.instrument_openai(client)
 
-            if model:
-                self.parse_model = model
+            # Use the provided model or the default parse model
+            current_parse_model = model or self.parse_model
 
             patched_client = instructor.from_openai(client, mode=Mode.TOOLS_STRICT)
 
             # Use instructor's structured generation with function calling
             response = await patched_client.chat.completions.create(
-                model=self.parse_model,
+                model=current_parse_model,  # Use the determined model
                 messages=messages,
                 response_model=model_class,
                 max_retries=2,  # Automatically retry on validation errors
             )
             return response
         except Exception as e:
-            print(f"Error with instructor parsing (TOOLS_STRICT mode): {e}")
+            logger.warning(
+                f"Instructor parsing (TOOLS_STRICT mode) failed: {e}"
+            )  # Log warning
 
             try:
+                # Determine client again for fallback
                 if api_key and base_url:
                     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
                 else:
                     client = self.client
 
-                if model:
-                    self.parse_model = model
+                if self.logfire:  # Instrument again if needed
+                    logfire.instrument_openai(client)
+
+                # Use the provided model or the default parse model
+                current_parse_model = model or self.parse_model
 
                 # First fallback: Try regular JSON mode
+                logger.info("Falling back to instructor JSON mode.")  # Log info
                 patched_client = instructor.from_openai(client, mode=Mode.JSON)
                 response = await patched_client.chat.completions.create(
-                    model=self.parse_model,
+                    model=current_parse_model,  # Use the determined model
                     messages=messages,
                     response_model=model_class,
                     max_retries=1,
                 )
                 return response
             except Exception as json_error:
-                print(f"JSON mode fallback also failed: {json_error}")
+                logger.warning(
+                    f"Instructor JSON mode fallback also failed: {json_error}"
+                )  # Log warning
 
                 try:
+                    # Determine client again for final fallback
                     if api_key and base_url:
                         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
                     else:
                         client = self.client
 
-                    if self.logfire:
+                    if self.logfire:  # Instrument again if needed
                         logfire.instrument_openai(client)
 
-                    if model:
-                        self.parse_model = model
+                    # Use the provided model or the default parse model
+                    current_parse_model = model or self.parse_model
 
                     # Final fallback: Manual extraction with a detailed prompt
+                    logger.info("Falling back to manual JSON extraction.")  # Log info
                     fallback_system_prompt = f"""
                     {system_prompt}
 
@@ -269,7 +277,7 @@ class OpenAIAdapter(LLMProvider):
 
                     # Regular completion without instructor
                     completion = await client.chat.completions.create(
-                        model=self.parse_model,
+                        model=current_parse_model,  # Use the determined model
                         messages=[
                             {"role": "system", "content": fallback_system_prompt},
                             {"role": "user", "content": prompt},
@@ -284,7 +292,10 @@ class OpenAIAdapter(LLMProvider):
                     return model_class.model_validate_json(json_str)
 
                 except Exception as fallback_error:
-                    print(f"All fallback methods failed: {fallback_error}")
+                    # Log the final exception with traceback
+                    logger.exception(
+                        f"All structured output fallback methods failed: {fallback_error}"
+                    )
                     raise ValueError(
                         f"Failed to generate structured output: {e}. All fallbacks failed."
                     ) from e
@@ -303,6 +314,8 @@ class OpenAIAdapter(LLMProvider):
             A list of floats representing the embedding vector.
         """
         if not text:
+            # Log error instead of raising immediately, let caller handle empty input if needed
+            logger.error("Attempted to embed empty text.")
             raise ValueError("Text cannot be empty")
 
         try:
@@ -313,7 +326,7 @@ class OpenAIAdapter(LLMProvider):
             # Replace newlines with spaces as recommended by OpenAI
             text = text.replace("\n", " ")
 
-            if self.logfire:
+            if self.logfire:  # Instrument only if logfire is enabled
                 logfire.instrument_openai(self.client)
 
             response = await self.client.embeddings.create(
@@ -323,11 +336,13 @@ class OpenAIAdapter(LLMProvider):
             if response.data and response.data[0].embedding:
                 return response.data[0].embedding
             else:
+                # Log warning about unexpected response structure
+                logger.warning(
+                    "Failed to retrieve embedding from OpenAI response structure."
+                )
                 raise ValueError("Failed to retrieve embedding from OpenAI response")
 
         except Exception as e:
-            print(f"Error generating embedding: {e}")
-            import traceback
-
-            print(traceback.format_exc())
-            raise
+            # Log the exception with traceback before raising
+            logger.exception(f"Error generating embedding: {e}")
+            raise  # Re-raise the original exception

@@ -1,3 +1,4 @@
+import logging  # Import logging
 from typing import List, Dict, Any, Optional, Literal
 from pinecone import PineconeAsyncio, ServerlessSpec
 from pinecone.exceptions import PineconeApiException
@@ -5,6 +6,9 @@ import asyncio
 
 from solana_agent.interfaces.providers.vector_storage import VectorStorageProvider
 # LLMProvider is no longer needed here
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 # Type definitions remain useful
 PineconeRerankModel = Literal[
@@ -95,11 +99,11 @@ class PineconeAdapter(VectorStorageProvider):
                 "rerank_model must be specified when use_reranking is True."
             )
 
-        print(
+        logger.info(
             f"PineconeAdapter configured for index '{self.index_name}' using external embeddings with dimension {self.embedding_dimensions}."
         )
         if self.use_reranking:
-            print(f"Reranking enabled using model '{self.rerank_model}'.")
+            logger.info(f"Reranking enabled using model '{self.rerank_model}'.")
 
         self._init_lock = asyncio.Lock()
         self._initialized = False
@@ -111,20 +115,22 @@ class PineconeAdapter(VectorStorageProvider):
                 return
 
             try:
-                print("Initializing PineconeAsyncio client...")
+                logger.info("Initializing PineconeAsyncio client...")
                 self.pinecone = PineconeAsyncio(api_key=self.api_key)
 
                 if self.create_index_if_not_exists:
                     await self._create_index_if_not_exists_async()
 
-                print(f"Describing Pinecone index '{self.index_name}' to get host...")
+                logger.info(
+                    f"Describing Pinecone index '{self.index_name}' to get host..."
+                )
                 index_description = await self.pinecone.describe_index(self.index_name)
                 self.index_host = index_description.host
                 if not self.index_host:
                     raise RuntimeError(
                         f"Could not obtain host for index '{self.index_name}'."
                     )
-                print(f"Obtained index host: {self.index_host}")
+                logger.info(f"Obtained index host: {self.index_host}")
 
                 # Validate index dimension matches configured dimension
                 index_dimension = index_description.dimension
@@ -139,29 +145,32 @@ class PineconeAdapter(VectorStorageProvider):
                         f"Ensure the index was created with the correct dimension or update the adapter configuration."
                     )
                 elif index_dimension == 0:
-                    print(
-                        f"Warning: Pinecone index dimension reported as 0. Cannot verify match with configured dimension ({self.embedding_dimensions})."
+                    logger.warning(
+                        f"Pinecone index dimension reported as 0. Cannot verify match with configured dimension ({self.embedding_dimensions})."
                     )
 
-                print("Attempting to get index stats...")
+                logger.info("Attempting to get index stats...")
                 stats = await self.describe_index_stats()
-                print(f"Successfully retrieved index stats: {stats}")
+                logger.info(f"Successfully retrieved index stats: {stats}")
 
                 total_vector_count = stats.get("total_vector_count", 0)
-                print(
+                logger.info(
                     f"Current index '{self.index_name}' contains {total_vector_count} vectors."
                 )
 
                 self._initialized = True
-                print("Pinecone adapter initialization complete.")
+                logger.info("Pinecone adapter initialization complete.")
 
             except PineconeApiException as e:
-                print(f"Pinecone API error during async initialization: {e}")
+                logger.error(
+                    f"Pinecone API error during async initialization: {e}",
+                    exc_info=True,
+                )
                 self.pinecone = None
                 self.index_host = None
                 raise
             except Exception as e:
-                print(
+                logger.exception(
                     f"Failed to initialize Pinecone async adapter for index '{self.index_name}': {e}"
                 )
                 self.pinecone = None
@@ -178,7 +187,7 @@ class PineconeAdapter(VectorStorageProvider):
             existing_names = [idx.get("name") for idx in existing_indexes]
 
             if self.index_name not in existing_names:
-                print(
+                logger.info(
                     f"Creating Pinecone index '{self.index_name}' with dimension {self.embedding_dimensions}..."
                 )
 
@@ -193,15 +202,17 @@ class PineconeAdapter(VectorStorageProvider):
                 }
 
                 await self.pinecone.create_index(**create_params)
-                print(
-                    f"✅ Successfully initiated creation of Pinecone index '{self.index_name}'. Waiting for it to be ready..."
+                logger.info(
+                    f"Successfully initiated creation of Pinecone index '{self.index_name}'. Waiting for it to be ready..."
                 )
                 # Wait time might need adjustment based on index size/type and cloud provider
                 await asyncio.sleep(30)  # Increased wait time
             else:
-                print(f"Using existing Pinecone index '{self.index_name}'")
+                logger.info(f"Using existing Pinecone index '{self.index_name}'")
         except Exception as e:
-            print(f"Error checking or creating Pinecone index asynchronously: {e}")
+            logger.exception(
+                f"Error checking or creating Pinecone index asynchronously: {e}"
+            )
             raise
 
     async def _ensure_initialized(self):
@@ -230,7 +241,7 @@ class PineconeAdapter(VectorStorageProvider):
         """Upsert pre-embedded vectors into Pinecone asynchronously."""
         await self._ensure_initialized()
         if not vectors:
-            print("Upsert skipped: No vectors provided.")
+            logger.info("Upsert skipped: No vectors provided.")
             return
         try:
             async with self.pinecone.IndexAsyncio(
@@ -240,14 +251,14 @@ class PineconeAdapter(VectorStorageProvider):
                 if namespace:
                     upsert_params["namespace"] = namespace
                 await index_instance.upsert(**upsert_params)
-            print(
+            logger.info(
                 f"Successfully upserted {len(vectors)} vectors into namespace '{namespace or 'default'}'."
             )
         except PineconeApiException as e:
-            print(f"Pinecone API error during async upsert: {e}")
+            logger.error(f"Pinecone API error during async upsert: {e}", exc_info=True)
             raise
         except Exception as e:
-            print(f"Error during async upsert: {e}")
+            logger.exception(f"Error during async upsert: {e}")
             raise
 
     async def query_text(self, *args, **kwargs):  # pragma: no cover
@@ -285,8 +296,8 @@ class PineconeAdapter(VectorStorageProvider):
         await self._ensure_initialized()
 
         if not self.use_reranking:
-            print(
-                "Warning: query_and_rerank called but use_reranking is False. Performing standard query."
+            logger.warning(
+                "query_and_rerank called but use_reranking is False. Performing standard query."
             )
             return await self.query(
                 vector, top_k, namespace, filter, include_values, include_metadata
@@ -327,17 +338,17 @@ class PineconeAdapter(VectorStorageProvider):
                         # Store original match keyed by the text for easy lookup after reranking
                         original_results_map[doc_text] = match
                     else:
-                        print(
-                            f"Warning: Skipping result ID {match.get('id')} for reranking - missing or invalid text in field '{self.rerank_text_field}'."
+                        logger.warning(
+                            f"Skipping result ID {match.get('id')} for reranking - missing or invalid text in field '{self.rerank_text_field}'."
                         )
                 else:
-                    print(
-                        f"Warning: Skipping result ID {match.get('id')} for reranking - metadata is missing or not a dictionary."
+                    logger.warning(
+                        f"Skipping result ID {match.get('id')} for reranking - metadata is missing or not a dictionary."
                     )
 
             if not documents_to_rerank:
-                print(
-                    f"⚠️ Reranking skipped: No documents found with text in the specified field ('{self.rerank_text_field}'). Returning top {top_k} initial results."
+                logger.warning(
+                    f"Reranking skipped: No documents found with text in the specified field ('{self.rerank_text_field}'). Returning top {top_k} initial results."
                 )
                 # Return the originally requested top_k
                 return initial_results[:top_k]
@@ -347,7 +358,7 @@ class PineconeAdapter(VectorStorageProvider):
                 raise RuntimeError("Pinecone client not initialized for reranking.")
 
             try:
-                print(
+                logger.info(
                     f"Reranking {len(documents_to_rerank)} results using {self.rerank_model} for query: '{query_text_for_rerank[:50]}...'"
                 )
                 rerank_params = {}  # Add model-specific params if needed
@@ -377,31 +388,32 @@ class PineconeAdapter(VectorStorageProvider):
                             updated_match["score"] = score
                             reranked_results.append(updated_match)
                         else:
-                            print(
-                                f"Warning: Reranked document text not found in original results map: '{doc_text[:50]}...'"
+                            logger.warning(
+                                f"Reranked document text not found in original results map: '{doc_text[:50]}...'"
                             )
 
                 if reranked_results:
-                    print(
+                    logger.info(
                         f"Reranking complete. Returning {len(reranked_results)} results."
                     )
                     return reranked_results
                 else:
                     # Should not happen if rerank_response.results existed, but handle defensively
-                    print(
-                        "Warning: No matches found after processing reranking response. Falling back to initial vector search results."
+                    logger.warning(
+                        "No matches found after processing reranking response. Falling back to initial vector search results."
                     )
                     return initial_results[:top_k]
 
             except Exception as rerank_error:
-                print(
-                    f"Error during reranking with {self.rerank_model}: {rerank_error}. Returning initial results."
+                logger.error(
+                    f"Error during reranking with {self.rerank_model}: {rerank_error}. Returning initial results.",
+                    exc_info=True,
                 )
                 # Fallback to top_k initial results
                 return initial_results[:top_k]
 
         except Exception as e:
-            print(f"Failed to query or rerank: {e}")
+            logger.exception(f"Failed to query or rerank: {e}")
             return []
 
     async def query(
@@ -449,10 +461,10 @@ class PineconeAdapter(VectorStorageProvider):
             return matches
 
         except PineconeApiException as e:
-            print(f"Pinecone API error during async query: {e}")
+            logger.error(f"Pinecone API error during async query: {e}", exc_info=True)
             raise  # Re-raise API errors
         except Exception as e:
-            print(f"Error during async query: {e}")
+            logger.exception(f"Error during async query: {e}")
             return []  # Return empty list for general errors
 
     async def delete(
@@ -461,7 +473,7 @@ class PineconeAdapter(VectorStorageProvider):
         """Delete vectors by IDs from Pinecone asynchronously."""
         await self._ensure_initialized()
         if not ids:
-            print("Delete skipped: No IDs provided.")
+            logger.info("Delete skipped: No IDs provided.")
             return
         try:
             async with self.pinecone.IndexAsyncio(
@@ -471,33 +483,35 @@ class PineconeAdapter(VectorStorageProvider):
                 if namespace:
                     delete_params["namespace"] = namespace
                 await index_instance.delete(**delete_params)
-            print(
+            logger.info(
                 f"Attempted to delete {len(ids)} vectors from namespace '{namespace or 'default'}'."
             )
         except PineconeApiException as e:
-            print(f"Pinecone API error during async delete: {e}")
+            logger.error(f"Pinecone API error during async delete: {e}", exc_info=True)
             raise
         except Exception as e:
-            print(f"Error during async delete: {e}")
+            logger.exception(f"Error during async delete: {e}")
             raise
 
     async def describe_index_stats(self) -> Dict[str, Any]:  # pragma: no cover
         """Get statistics about the index asynchronously."""
-        print(f"describe_index_stats: Entering for host {self.index_host}")
+        logger.debug(
+            f"describe_index_stats: Entering for host {self.index_host}"
+        )  # Changed to debug
         try:
-            print(
+            logger.debug(
                 f"describe_index_stats: Getting IndexAsyncio context for host {self.index_host}..."
-            )
+            )  # Changed to debug
             async with self.pinecone.IndexAsyncio(
                 host=self.index_host
             ) as index_instance:
-                print(
+                logger.debug(
                     "describe_index_stats: Context acquired. Calling describe_index_stats on index instance..."
-                )
+                )  # Changed to debug
                 stats_response = await index_instance.describe_index_stats()
-                print(
+                logger.debug(
                     f"describe_index_stats: Call completed. Response: {stats_response}"
-                )
+                )  # Changed to debug
 
             # Convert response to dict if necessary (handle potential None or different types)
             if hasattr(stats_response, "to_dict"):
@@ -509,16 +523,21 @@ class PineconeAdapter(VectorStorageProvider):
                 try:
                     result_dict = dict(stats_response)
                 except (TypeError, ValueError):
-                    print(
-                        f"Warning: Could not convert stats_response to dict: {stats_response}"
+                    logger.warning(
+                        f"Could not convert stats_response to dict: {stats_response}"
                     )
                     result_dict = {}
 
-            print(f"describe_index_stats: Returning stats dict: {result_dict}")
+            logger.debug(
+                f"describe_index_stats: Returning stats dict: {result_dict}"
+            )  # Changed to debug
             return result_dict
         except PineconeApiException as e:
-            print(f"Pinecone API error describing index stats asynchronously: {e}")
+            logger.error(
+                f"Pinecone API error describing index stats asynchronously: {e}",
+                exc_info=True,
+            )
             raise  # Re-raise API errors
         except Exception as e:
-            print(f"Error describing index stats asynchronously: {e}")
+            logger.exception(f"Error describing index stats asynchronously: {e}")
             return {}  # Return empty dict for general errors

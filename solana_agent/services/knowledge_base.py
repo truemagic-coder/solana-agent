@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime as dt
 from typing import Dict, List, Any, Optional, Union
 import uuid
@@ -15,6 +16,9 @@ from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 from solana_agent.interfaces.services.knowledge_base import (
     KnowledgeBaseService as KnowledgeBaseInterface,
 )
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseService(KnowledgeBaseInterface):
@@ -76,8 +80,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 raise ValueError(
                     f"Cannot determine dimension for unknown OpenAI model '{openai_model_name}' and Pinecone dimension not configured."
                 )
-            print(
-                f"Warning: Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct."
+            logger.warning(  # Use logger.warning
+                f"Unknown OpenAI model '{openai_model_name}'. Using dimension {openai_dimensions} from Pinecone config. Ensure this is correct."
             )
 
         # Instantiate OpenAIEmbedding
@@ -90,7 +94,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 # embed_batch_size=10 # Optional: Adjust batch size if needed
             )
         except Exception as e:
-            print(f"Error initializing OpenAIEmbedding: {e}")
+            logger.error(f"Error initializing OpenAIEmbedding: {e}")  # Use logger.error
             raise
 
         self.semantic_splitter = SemanticSplitterNodeParser(
@@ -108,7 +112,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         """Set up MongoDB collection with appropriate indexes."""
         if not self.mongo.collection_exists(self.collection):
             self.mongo.create_collection(self.collection)
-            print(f"Created MongoDB collection: {self.collection}")
+            logger.info(
+                f"Created MongoDB collection: {self.collection}"
+            )  # Use logger.info
 
         # Indexes for retrieval and filtering
         self.mongo.create_index(self.collection, [("document_id", 1)], unique=True)
@@ -117,7 +123,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         self.mongo.create_index(self.collection, [("created_at", -1)])
         self.mongo.create_index(self.collection, [("tags", 1)])
         self.mongo.create_index(self.collection, [("is_chunk", 1)])
-        print(f"Ensured indexes exist for MongoDB collection: {self.collection}")
+        logger.info(
+            f"Ensured indexes exist for MongoDB collection: {self.collection}"
+        )  # Use logger.info
 
     async def add_document(
         self,
@@ -156,7 +164,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             self.mongo.insert_one(self.collection, mongo_doc)
         except Exception as e:
-            print(f"Error inserting document {doc_id} into MongoDB: {e}")
+            logger.error(
+                f"Error inserting document {doc_id} into MongoDB: {e}"
+            )  # Use logger.error
             raise
 
         # Embed text using OpenAIEmbedding
@@ -164,7 +174,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             embedding = await embed_model.aget_text_embedding(text)
         except Exception as e:
-            print(
+            logger.error(  # Use logger.error
                 f"Error embedding document {doc_id} using {self.openai_model_name}: {e}"
             )
             # Decide how to handle - Mongo insert succeeded, embedding failed
@@ -190,7 +200,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 namespace=namespace,
             )
         except Exception as e:
-            print(f"Error upserting vector for {doc_id} to Pinecone: {e}")
+            logger.error(
+                f"Error upserting vector for {doc_id} to Pinecone: {e}"
+            )  # Use logger.error
             # Decide how to handle - Mongo insert succeeded, Pinecone failed
             raise  # Re-raise for now
 
@@ -234,9 +246,13 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
             extracted_text = "".join(page.extract_text() or "" for page in reader.pages)
             if not extracted_text.strip():
-                print(f"Warning: No text extracted from PDF {parent_doc_id}.")
+                logger.warning(
+                    f"No text extracted from PDF {parent_doc_id}."
+                )  # Use logger.warning
         except Exception as e:
-            print(f"Error reading or extracting text from PDF {parent_doc_id}: {e}")
+            logger.error(
+                f"Error reading or extracting text from PDF {parent_doc_id}: {e}"
+            )  # Use logger.error
             raise
 
         # --- 2. Store Full PDF and Metadata in MongoDB ---
@@ -254,16 +270,18 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         }
         try:
             self.mongo.insert_one(self.collection, mongo_parent_doc)
-            print(f"Stored full PDF {parent_doc_id} in MongoDB.")
+            logger.info(
+                f"Stored full PDF {parent_doc_id} in MongoDB."
+            )  # Use logger.info
         except Exception as e:  # pragma: no cover
-            print(
+            logger.error(  # Use logger.error
                 f"Error inserting parent PDF {parent_doc_id} into MongoDB: {e}"
             )  # pragma: no cover
             raise  # pragma: no cover
 
         # --- 3. Semantic Chunking ---
         if not extracted_text.strip():
-            print(
+            logger.info(  # Use logger.info
                 f"Skipping chunking for PDF {parent_doc_id} due to no extracted text."
             )
             return parent_doc_id
@@ -274,16 +292,22 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             nodes = await asyncio.to_thread(
                 self.semantic_splitter.get_nodes_from_documents, [llama_doc]
             )
-            print(f"Generated {len(nodes)} semantic chunks for PDF {parent_doc_id}.")
+            logger.info(
+                f"Generated {len(nodes)} semantic chunks for PDF {parent_doc_id}."
+            )  # Use logger.info
         except Exception as e:
-            print(f"Error during semantic chunking for PDF {parent_doc_id}: {e}")
+            logger.error(
+                f"Error during semantic chunking for PDF {parent_doc_id}: {e}"
+            )  # Use logger.error
             raise
 
         # --- 4. Embed Chunks and Batch Upsert to Pinecone ---
         if not nodes:
             return parent_doc_id  # No chunks generated
 
-        print(f"Embedding {len(nodes)} chunks using {self.openai_model_name}...")
+        logger.info(
+            f"Embedding {len(nodes)} chunks using {self.openai_model_name}..."
+        )  # Use logger.info
         chunk_texts = [node.get_content() for node in nodes]
         embed_model: OpenAIEmbedding = self.semantic_splitter.embed_model
         all_chunk_embeddings = []
@@ -297,10 +321,14 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 chunk_texts, show_progress=True
             )
         except Exception as e:
-            print(f"Error embedding chunks for PDF {parent_doc_id}: {e}")
+            logger.error(
+                f"Error embedding chunks for PDF {parent_doc_id}: {e}"
+            )  # Use logger.error
             raise  # Stop if embedding fails
 
-        print("Embedding complete. Preparing vectors for Pinecone.")
+        logger.info(
+            "Embedding complete. Preparing vectors for Pinecone."
+        )  # Use logger.info
         pinecone_vectors = []
         for i, node in enumerate(nodes):
             chunk_id = f"{parent_doc_id}_chunk_{i}"
@@ -325,7 +353,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             )
 
         # Upsert vectors in batches using the generic upsert method
-        print(
+        logger.info(  # Use logger.info
             f"Upserting {len(pinecone_vectors)} vectors to Pinecone in batches of {chunk_batch_size}..."
         )
         upsert_tasks = []
@@ -344,10 +372,12 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         # Check for errors during upsert
         for idx, result in enumerate(results):
             if isinstance(result, Exception):
-                print(f"Error upserting vector batch {idx + 1} to Pinecone: {result}")
+                logger.error(
+                    f"Error upserting vector batch {idx + 1} to Pinecone: {result}"
+                )  # Use logger.error
                 # Decide on error handling: log, raise, etc.
 
-        print(f"Finished processing PDF {parent_doc_id}.")
+        logger.info(f"Finished processing PDF {parent_doc_id}.")  # Use logger.info
         return parent_doc_id
 
     async def query(
@@ -383,7 +413,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             query_vector = await embed_model.aget_query_embedding(query_text)
         except Exception as e:
-            print(f"Error embedding query text '{query_text}': {e}")
+            logger.error(
+                f"Error embedding query text '{query_text}': {e}"
+            )  # Use logger.error
             return []
 
         # --- Query Pinecone using the vector ---
@@ -399,7 +431,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 include_metadata=True,  # Need metadata for linking
             )
         except Exception as e:
-            print(f"Error querying Pinecone: {e}")
+            logger.error(f"Error querying Pinecone: {e}")  # Use logger.error
             return []
 
         if not pinecone_results:
@@ -433,7 +465,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 )
                 mongo_docs_map = {doc["document_id"]: doc for doc in mongo_docs}
             except Exception as e:
-                print(f"Error fetching documents from MongoDB: {e}")
+                logger.error(
+                    f"Error fetching documents from MongoDB: {e}"
+                )  # Use logger.error
                 # Proceed with potentially missing Mongo data
 
         # --- Combine Results ---
@@ -520,7 +554,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         Returns:
             True if deletion was successful (or partially successful).
         """
-        print(
+        logger.info(  # Use logger.info
             f"Attempting to delete document and associated data for ID: {document_id}"
         )
         mongo_deleted_count = 0
@@ -548,8 +582,8 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             for doc in docs_to_delete_mongo:
                 mongo_ids_to_delete.add(doc["document_id"])
         except Exception as e:
-            print(
-                f"Warning: Error finding documents in MongoDB for deletion ({document_id}): {e}. Proceeding with main ID only."
+            logger.warning(  # Use logger.warning
+                f"Error finding documents in MongoDB for deletion ({document_id}): {e}. Proceeding with main ID only."
             )
 
         pinecone_ids_to_delete = list(mongo_ids_to_delete)
@@ -560,12 +594,14 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 await self.pinecone.delete(
                     ids=pinecone_ids_to_delete, namespace=namespace
                 )
-                print(
+                logger.info(  # Use logger.info
                     f"Deleted {len(pinecone_ids_to_delete)} vectors from Pinecone for parent {document_id}."
                 )
                 pinecone_deleted = True
             except Exception as e:
-                print(f"Error deleting vectors from Pinecone for {document_id}: {e}")
+                logger.error(
+                    f"Error deleting vectors from Pinecone for {document_id}: {e}"
+                )  # Use logger.error
 
         # --- 3. Delete from MongoDB ---
         # Use the IDs confirmed to be in Mongo
@@ -576,11 +612,13 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                     self.collection, {"document_id": {"$in": mongo_ids_found_in_db}}
                 )
                 mongo_deleted_count = delete_result.deleted_count
-                print(
+                logger.info(  # Use logger.info
                     f"Deleted {mongo_deleted_count} documents from MongoDB for parent {document_id}."
                 )
             except Exception as e:
-                print(f"Error deleting documents from MongoDB for {document_id}: {e}")
+                logger.error(
+                    f"Error deleting documents from MongoDB for {document_id}: {e}"
+                )  # Use logger.error
 
         return pinecone_deleted or mongo_deleted_count > 0
 
@@ -606,14 +644,20 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         """
         current_doc = self.mongo.find_one(self.collection, {"document_id": document_id})
         if not current_doc:
-            print(f"Document {document_id} not found for update.")
+            logger.warning(
+                f"Document {document_id} not found for update."
+            )  # Use logger.warning
             return False
 
         if current_doc.get("is_chunk"):
-            print(f"Cannot update chunk {document_id} directly.")
+            logger.warning(
+                f"Cannot update chunk {document_id} directly."
+            )  # Use logger.warning
             return False
         if current_doc.get("pdf_data") and text is not None:
-            print("Cannot update PDF content via this method. Delete and re-add.")
+            logger.warning(
+                "Cannot update PDF content via this method. Delete and re-add."
+            )  # Use logger.warning
             return False
 
         update_text = text is not None and not current_doc.get("pdf_data")
@@ -637,7 +681,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 )
                 mongo_updated = update_result.modified_count > 0
             except Exception as e:
-                print(f"Error updating document {document_id} in MongoDB: {e}")
+                logger.error(
+                    f"Error updating document {document_id} in MongoDB: {e}"
+                )  # Use logger.error
                 # Decide if we should proceed to Pinecone update if Mongo failed
                 return False  # Return False if Mongo update fails
 
@@ -649,7 +695,9 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             try:
                 embedding = await embed_model.aget_text_embedding(text_content)
             except Exception as e:
-                print(f"Error embedding updated text for {document_id}: {e}")
+                logger.error(
+                    f"Error embedding updated text for {document_id}: {e}"
+                )  # Use logger.error
                 # Mongo update might have succeeded, but embedding failed
                 return mongo_updated  # Return based on Mongo success
 
@@ -685,7 +733,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 )
                 pinecone_updated = True
             except Exception as e:
-                print(
+                logger.error(  # Use logger.error
                     f"Error upserting updated vector in Pinecone for {document_id}: {e}"
                 )
                 # Mongo update succeeded, Pinecone failed
@@ -750,7 +798,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 try:
                     self.mongo.insert_many(self.collection, mongo_batch)
                 except Exception as e:
-                    print(
+                    logger.error(  # Use logger.error
                         f"Error inserting batch {i // batch_size + 1} into MongoDB: {e}"
                     )
                     # Decide if we should skip Pinecone for this batch
@@ -762,7 +810,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                     batch_texts, show_progress=True
                 )
             except Exception as e:
-                print(
+                logger.error(  # Use logger.error
                     f"Error embedding batch {i // batch_size + 1} using {self.openai_model_name}: {e}"
                 )
                 continue  # Skip Pinecone upsert for this batch
@@ -795,7 +843,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                         vectors=pinecone_vectors, namespace=namespace
                     )
                 except Exception as e:
-                    print(
+                    logger.error(  # Use logger.error
                         f"Error upserting vector batch {i // batch_size + 1} to Pinecone: {e}"
                     )
 
@@ -818,5 +866,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         try:
             return self.mongo.find_one(self.collection, {"document_id": document_id})
         except Exception as e:
-            print(f"Error retrieving full document {document_id} from MongoDB: {e}")
+            logger.error(
+                f"Error retrieving full document {document_id} from MongoDB: {e}"
+            )  # Use logger.error
             return None

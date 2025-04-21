@@ -1,0 +1,13 @@
+{
+    "openai": {
+        "api_key": "your-openai-api-key"
+    },
+    "agents": [
+        {
+            "name": "default_agent",
+            "description": "A helpful assistant.",
+            "instructions": "You are a helpful AI assistant.",
+            "specialization": "general"
+        }
+    ]
+}

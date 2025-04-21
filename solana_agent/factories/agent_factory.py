@@ -6,6 +6,7 @@ services and components used in the system.
 """
 
 import importlib
+import logging
 from typing import Dict, Any, List
 
 # Service imports
@@ -30,6 +31,9 @@ from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 from solana_agent.domains.agent import BusinessMission
 from solana_agent.plugins.manager import PluginManager
 
+# Setup logger for this module
+logger = logging.getLogger(__name__)
+
 
 class SolanaAgentFactory:
     """Factory for creating and wiring components of the Solana Agent system."""
@@ -45,7 +49,9 @@ class SolanaAgentFactory:
             class_path = config.get("class")
             guardrail_config = config.get("config", {})
             if not class_path:
-                print(f"Guardrail config missing 'class': {config}")
+                logger.warning(
+                    f"Guardrail config missing 'class': {config}"
+                )  # Use logger.warning
                 continue
             try:
                 module_path, class_name = class_path.rsplit(".", 1)
@@ -54,15 +60,23 @@ class SolanaAgentFactory:
                 # Instantiate the guardrail, handling potential errors during init
                 try:
                     guardrails.append(guardrail_class(config=guardrail_config))
-                    print(f"Successfully loaded guardrail: {class_path}")
+                    logger.info(
+                        f"Successfully loaded guardrail: {class_path}"
+                    )  # Use logger.info
                 except Exception as init_e:
-                    print(f"Error initializing guardrail '{class_path}': {init_e}")
+                    logger.error(
+                        f"Error initializing guardrail '{class_path}': {init_e}"
+                    )  # Use logger.error
                     # Optionally re-raise or just skip this guardrail
 
             except (ImportError, AttributeError, ValueError) as e:
-                print(f"Error loading guardrail class '{class_path}': {e}")
+                logger.error(
+                    f"Error loading guardrail class '{class_path}': {e}"
+                )  # Use logger.error
             except Exception as e:  # Catch unexpected errors during import/getattr
-                print(f"Unexpected error loading guardrail '{class_path}': {e}")
+                logger.exception(
+                    f"Unexpected error loading guardrail '{class_path}': {e}"
+                )  # Use logger.exception
         return guardrails
 
     @staticmethod
@@ -142,7 +156,7 @@ class SolanaAgentFactory:
         output_guardrails: List[OutputGuardrail] = (
             SolanaAgentFactory._create_guardrails(guardrail_config.get("output", []))
         )
-        print(
+        logger.info(  # Use logger.info
             f"Loaded {len(input_guardrails)} input guardrails and {len(output_guardrails)} output guardrails."
         )
 
@@ -161,7 +175,7 @@ class SolanaAgentFactory:
         )
 
         # Debug the agent service tool registry
-        print(
+        logger.debug(  # Use logger.debug
             f"Agent service tools after initialization: {agent_service.tool_registry.list_all_tools()}"
         )
 
@@ -171,9 +185,9 @@ class SolanaAgentFactory:
         )
         try:
             loaded_plugins = agent_service.plugin_manager.load_plugins()
-            print(f"Loaded {loaded_plugins} plugins")
+            logger.info(f"Loaded {loaded_plugins} plugins")  # Use logger.info
         except Exception as e:
-            print(f"Error loading plugins: {e}")
+            logger.error(f"Error loading plugins: {e}")  # Use logger.error
             loaded_plugins = 0
 
         # Register predefined agents
@@ -187,11 +201,11 @@ class SolanaAgentFactory:
             # Register tools for this agent
             if "tools" in agent_config:
                 for tool_name in agent_config["tools"]:
-                    print(
+                    logger.debug(  # Use logger.debug
                         f"Available tools before registering {tool_name}: {agent_service.tool_registry.list_all_tools()}"
                     )
                     agent_service.assign_tool_for_agent(agent_config["name"], tool_name)
-                    print(
+                    logger.info(  # Use logger.info
                         f"Successfully registered {tool_name} for agent {agent_config['name']}"
                     )
 
@@ -220,6 +234,11 @@ class SolanaAgentFactory:
                     openai_dimensions = 3072
                 elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
                     openai_dimensions = 1536  # pragma: no cover
+                else:  # pragma: no cover
+                    logger.warning(
+                        f"Unknown OpenAI embedding model '{openai_model_name}' specified for KB. Defaulting dimensions to 3072."
+                    )  # pragma: no cover
+                    openai_dimensions = 3072  # pragma: no cover
 
                 # Create Pinecone adapter for KB
                 # It now relies on external embeddings, so dimension MUST match OpenAI model
@@ -264,13 +283,13 @@ class SolanaAgentFactory:
                         "breakpoint_percentile", 95
                     ),
                 )
-                print("Knowledge Base Service initialized successfully.")
+                logger.info(
+                    "Knowledge Base Service initialized successfully."
+                )  # Use logger.info
 
             except Exception as e:
-                print(f"Failed to initialize Knowledge Base: {e}")
-                import traceback
-
-                print(traceback.format_exc())
+                # Use logger.exception to include traceback automatically
+                logger.exception(f"Failed to initialize Knowledge Base: {e}")
                 knowledge_base = None  # Ensure KB is None if init fails
 
         # Create and return the query service

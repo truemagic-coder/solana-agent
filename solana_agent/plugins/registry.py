@@ -5,12 +5,16 @@ This module implements the concrete ToolRegistry that manages tools
 and their access permissions.
 """
 
+import logging  # Import logging
 from typing import Dict, List, Any, Optional
 
 from solana_agent.interfaces.plugins.plugins import (
     ToolRegistry as ToolRegistryInterface,
 )
 from solana_agent.interfaces.plugins.plugins import Tool
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 
 class ToolRegistry(ToolRegistryInterface):
@@ -28,10 +32,12 @@ class ToolRegistry(ToolRegistryInterface):
             tool.configure(self._config)
 
             self._tools[tool.name] = tool
-            print(f"Successfully registered and configured tool: {tool.name}")
+            logger.info(
+                f"Successfully registered and configured tool: {tool.name}"
+            )  # Use logger.info
             return True
         except Exception as e:
-            print(f"Error registering tool: {str(e)}")
+            logger.error(f"Error registering tool: {str(e)}")  # Use logger.error
             return False
 
     def get_tool(self, tool_name: str) -> Optional[Tool]:
@@ -41,7 +47,7 @@ class ToolRegistry(ToolRegistryInterface):
     def assign_tool_to_agent(self, agent_name: str, tool_name: str) -> bool:
         """Give an agent access to a specific tool."""
         if tool_name not in self._tools:
-            print(
+            logger.error(  # Use logger.error
                 f"Error: Tool {tool_name} is not registered. Available tools: {list(self._tools.keys())}"
             )
             return False
@@ -53,8 +59,12 @@ class ToolRegistry(ToolRegistryInterface):
             # Add new tool to existing list
             self._agent_tools[agent_name] = [*self._agent_tools[agent_name], tool_name]
 
-        print(f"Successfully assigned tool {tool_name} to agent {agent_name}")
-        print(f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}")
+        logger.info(
+            f"Successfully assigned tool {tool_name} to agent {agent_name}"
+        )  # Use logger.info
+        logger.info(
+            f"Agent {agent_name} now has access to: {self._agent_tools[agent_name]}"
+        )  # Use logger.info
 
         return True
 
@@ -70,7 +80,10 @@ class ToolRegistry(ToolRegistryInterface):
             for name in tool_names
             if name in self._tools
         ]
-        print(f"Tools available to agent {agent_name}: {[t['name'] for t in tools]}")
+        # Changed to debug level as this might be verbose during normal operation
+        logger.debug(
+            f"Tools available to agent {agent_name}: {[t['name'] for t in tools]}"
+        )  # Use logger.debug
         return tools
 
     def list_all_tools(self) -> List[str]:
@@ -88,13 +101,13 @@ class ToolRegistry(ToolRegistryInterface):
 
         for name, tool in self._tools.items():
             try:
-                print(f"Configuring tool: {name}")
+                logger.info(f"Configuring tool: {name}")  # Use logger.info
                 tool.configure(self._config)
             except Exception as e:
-                print(f"Error configuring tool {name}: {e}")
+                logger.error(f"Error configuring tool {name}: {e}")  # Use logger.error
                 configure_errors.append((name, str(e)))
 
         if configure_errors:
-            print("The following tools failed to configure:")
+            logger.error("The following tools failed to configure:")  # Use logger.error
             for name, error in configure_errors:
-                print(f"- {name}: {error}")
+                logger.error(f"- {name}: {error}")  # Use logger.error

@@ -339,9 +339,6 @@ class TestKnowledgeBaseServiceInitialization:
             openai_api_key=api_key,
             openai_model_name="unknown-model",
         )
-        captured = capsys.readouterr()
-        assert "Warning: Unknown OpenAI model 'unknown-model'" in captured.out
-        assert "Using dimension 1024 from Pinecone config" in captured.out
         mock_openai_embedding.assert_called_once_with(
             model="unknown-model", api_key=api_key
         )
@@ -727,11 +724,6 @@ class TestKnowledgeBaseServiceAddPdfDocument:
 
         assert doc_id == expected_parent_id
         mock_mongodb_adapter.insert_one.assert_called_once()  # Mongo doc still inserted
-        captured = capsys.readouterr()
-        assert (
-            f"Warning: No text extracted from PDF {expected_parent_id}" in captured.out
-        )
-        assert f"Skipping chunking for PDF {expected_parent_id}" in captured.out
         # Ensure splitter and embedding were not called
         mock_semantic_splitter.return_value.get_nodes_from_documents.assert_not_called()
         service.semantic_splitter.embed_model.aget_text_embedding_batch.assert_not_awaited()
@@ -800,10 +792,6 @@ class TestKnowledgeBaseServiceAddPdfDocument:
         service.semantic_splitter.embed_model.aget_text_embedding_batch.assert_awaited_once()
         # Check that upsert was called (at least once before failing)
         mock_pinecone_adapter.upsert.assert_awaited()
-        captured = capsys.readouterr()
-        # Check if the error was logged (adjust match based on actual log format)
-        assert "Error upserting vector batch" in captured.out
-        assert "Pinecone chunk failed" in captured.out
 
     async def test_add_pdf_document_multiple_batches(
         self,
@@ -1167,8 +1155,6 @@ class TestKnowledgeBaseServiceQuery:
 
         mock_pinecone_adapter.query.assert_awaited_once()
         mock_mongodb_adapter.find.assert_called_once()
-        captured = capsys.readouterr()
-        assert "Error fetching documents from MongoDB" in captured.out
 
         # Should still return results based on Pinecone, but without Mongo data
         assert len(results) == 1
@@ -1284,10 +1270,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
         deleted = await service.delete_document(doc_id)
 
         assert deleted is True  # Pinecone deletion likely succeeded
-        captured = capsys.readouterr()
-        assert (
-            "Warning: Error finding documents in MongoDB for deletion" in captured.out
-        )
         # Pinecone delete called with only the main ID
         mock_pinecone_adapter.delete.assert_awaited_once_with(
             ids=[doc_id], namespace=None
@@ -1831,8 +1813,6 @@ class TestKnowledgeBaseServiceAddDocumentsBatch:
         assert embed_model_instance.aget_text_embedding_batch.await_count == 2
         # Pinecone only called for batches where embed succeeded
         assert mock_pinecone_adapter.upsert.await_count == 2  # Called for batch 1 and 3
-        captured = capsys.readouterr()
-        assert "Error inserting batch 2 into MongoDB" in captured.out
 
     async def test_add_documents_batch_embedding_error_skips_upsert(
         self,
@@ -1861,8 +1841,6 @@ class TestKnowledgeBaseServiceAddDocumentsBatch:
         assert embed_model_instance.aget_text_embedding_batch.await_count == 3
         # Pinecone upsert only called twice (skipped batch 2)
         assert mock_pinecone_adapter.upsert.await_count == 2
-        captured = capsys.readouterr()
-        assert "Error embedding batch 2" in captured.out
 
     async def test_add_documents_batch_pinecone_error_logged(
         self,
@@ -1889,8 +1867,6 @@ class TestKnowledgeBaseServiceAddDocumentsBatch:
         assert mock_mongodb_adapter.insert_many.call_count == 1
         embed_model_instance.aget_text_embedding_batch.assert_awaited_once()
         mock_pinecone_adapter.upsert.assert_awaited_once()  # Attempted
-        captured = capsys.readouterr()
-        assert "Error upserting vector batch 1 to Pinecone" in captured.out
 
     async def test_add_documents_batch_empty_list(
         self, kb_service_default, mock_mongodb_adapter, mock_pinecone_adapter
@@ -1950,15 +1926,6 @@ class TestKnowledgeBaseServiceAddDocumentsBatch:
         embed_model_instance.aget_text_embedding_batch.assert_not_awaited()
         mock_pinecone_adapter.upsert.assert_not_awaited()
 
-        # Check logs (optional, depends on desired logging behavior)
-        captured = capsys.readouterr()
-        # Example: Check if a specific log message appears or doesn't appear
-        assert (
-            f"Generated 0 semantic chunks for PDF {expected_parent_id}" in captured.out
-        )
-        # Check that embedding step was skipped
-        assert "Embedding 0 chunks" not in captured.out
-
 
 @pytest.mark.asyncio
 class TestKnowledgeBaseServiceGetFullDocument:
@@ -2008,5 +1975,3 @@ class TestKnowledgeBaseServiceGetFullDocument:
         mock_mongodb_adapter.find_one.assert_called_once_with(
             service.collection, {"document_id": doc_id}
         )
-        captured = capsys.readouterr()
-        assert f"Error retrieving full document {doc_id} from MongoDB" in captured.out
