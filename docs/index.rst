@@ -199,8 +199,8 @@ Audio/Text Streaming
 Optional Configurations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Business Alignment Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Business Alignment - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -218,8 +218,8 @@ Business Alignment Config - Optional
       },
    }
 
-Conversational History Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Conversational History - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -230,8 +230,8 @@ Conversational History Config - Optional
       },
    }
 
-Conversational Memory Config - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Conversational Memory - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
    
@@ -241,9 +241,19 @@ Conversational Memory Config - Optional
       },
    }
 
+Observability and Tracing - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   config = {
+      "logfire": {
+         "api_key": "your-logfire-write-token",
+      },
+   }
 
 Knowledge Base - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The Knowledge Base (KB) is meant to store text values and/or small PDFs.
 

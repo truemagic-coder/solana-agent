@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 import instructor
 from instructor import Mode
+import logfire
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 
@@ -26,8 +27,21 @@ DEFAULT_TTS_MODEL = "tts-1"
 class OpenAIAdapter(LLMProvider):
     """OpenAI implementation of LLMProvider with web search capabilities."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, logfire_api_key: Optional[str] = None):
         self.client = AsyncOpenAI(api_key=api_key)
+
+        self.logfire = False
+        if logfire_api_key:
+            try:
+                logfire.configure(token=logfire_api_key)
+                self.logfire = True
+                print("Logfire configured successfully.")  # Optional: confirmation log
+            except Exception as e:
+                print(
+                    f"Failed to configure Logfire: {e}"
+                )  # Log error if configuration fails
+                self.logfire = False  # Ensure logfire is False if config fails
+
         self.parse_model = DEFAULT_PARSE_MODEL
         self.text_model = DEFAULT_CHAT_MODEL
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
@@ -65,6 +79,7 @@ class OpenAIAdapter(LLMProvider):
             Audio bytes as they become available
         """
         try:
+            logfire.instrument_openai(self.client)
             async with self.client.audio.speech.with_streaming_response.create(
                 model=self.tts_model,
                 voice=voice,
@@ -106,6 +121,7 @@ class OpenAIAdapter(LLMProvider):
             Transcript text chunks as they become available
         """
         try:
+            logfire.instrument_openai(self.client)
             async with self.client.audio.transcriptions.with_streaming_response.create(
                 model=self.transcription_model,
                 file=(f"file.{input_format}", audio_bytes),
@@ -149,6 +165,9 @@ class OpenAIAdapter(LLMProvider):
         else:
             client = self.client
 
+        if self.logfire:
+            logfire.instrument_openai(client)
+
         try:
             # Make the non-streaming API call
             response = await client.chat.completions.create(**request_params)
@@ -185,6 +204,9 @@ class OpenAIAdapter(LLMProvider):
                 client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             else:
                 client = self.client
+
+            if self.logfire:
+                logfire.instrument_openai(client)
 
             if model:
                 self.parse_model = model
@@ -228,6 +250,9 @@ class OpenAIAdapter(LLMProvider):
                         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
                     else:
                         client = self.client
+
+                    if self.logfire:
+                        logfire.instrument_openai(client)
 
                     if model:
                         self.parse_model = model
@@ -287,6 +312,9 @@ class OpenAIAdapter(LLMProvider):
 
             # Replace newlines with spaces as recommended by OpenAI
             text = text.replace("\n", " ")
+
+            if self.logfire:
+                logfire.instrument_openai(self.client)
 
             response = await self.client.embeddings.create(
                 input=[text], model=embedding_model, dimensions=embedding_dimensions
