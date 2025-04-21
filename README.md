@@ -59,20 +59,18 @@ Build your AI agents in three lines of code!
 ### Tech
 
 * [Python](https://python.org) - Programming Language
-* [OpenAI](https://openai.com), [Google](https://ai.google.dev), [xAI](https://x.ai) - LLM Providers
+* [OpenAI](https://openai.com) - AI Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
+z
+### AI Models Used
 
-### LLMs
-
-* [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent)
+* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) or [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
-* [gemini-2.5-flash-preview](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (optional)
-* [grok-3-mini-fast-beta](https://docs.x.ai/docs/models#models-and-pricing) (optional)
 
 ## Installation
 
@@ -82,13 +80,13 @@ You can install Solana Agent using pip:
 
 ## Flows
 
-In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).
+In both flows of single and multiple agents - it is one user query to one agent using one or many tools (if needed).
 
-An agent can have multiple tools and will choose the best one to answer the user query.
+An agent can have multiple tools and will choose the best ones to fulfill the user's query.
 
-Routing is determined by optimal domain expertise of the agent for the user query.
+Routing is determined by optimal domain expertise of the agent for the user's query.
 
-When the agent uses a tool it feeds the tool output back to itself to generate the final response.
+When the agent uses tools it feeds the tools output back to itself to generate the final response.
 
 This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
 
@@ -97,13 +95,13 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 ```ascii
                        Single Agent                                     
                                                                         
-     ┌────────┐        ┌─────────┐        ┌────────┐                    
-     │        │        │         │        │        │                    
-     │        │        │         │        │        │                    
-     │  User  │◄──────►│  Agent  │◄──────►│  Tool  │                    
-     │        │        │         │        │        │                    
-     │        │        │         │        │        │                    
-     └────────┘        └─────────┘        └────────┘                    
+     ┌────────┐        ┌─────────┐        ┌────────-┐                    
+     │        │        │         │        │         │                    
+     │        │        │         │        │         │                    
+     │  User  │◄──────►│  Agent  │◄──────►│  Tools  │                    
+     │        │        │         │        │         │                    
+     │        │        │         │        │         │                    
+     └────────┘        └─────────┘        └────────-┘                    
                                                                         
                                                                         
                                                                         
@@ -111,13 +109,13 @@ Keep this in mind while designing your agentic systems using Solana Agent.
                                                                         
                       Multiple Agents                                   
                                                                         
-     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
-     │        │        │          │        │         │        │        │
-     │        │        │          │        │         │        │        │
-┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
-│    │        │        │          │        │         │        │        │
-│    │        │        │          │        │         │        │        │
-│    └────────┘        └──────────┘        └────┬────┘        └────────┘
+     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────-┐
+     │        │        │          │        │         │        │         │
+     │        │        │          │        │         │        │         │
+┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tools  │
+│    │        │        │          │        │         │        │         │
+│    │        │        │          │        │         │        │         │
+│    └────────┘        └──────────┘        └────┬────┘        └────────-┘
 │                                               │                       
 │                                               │                       
 │                                               │                       
@@ -284,30 +282,6 @@ config = {
 config = {
     "zep": {
         "api_key": "your-zep-cloud-api-key",
-    },
-}
-```
-
-### Gemini
-
-This allows Gemini to replace OpenAI for agent and router.
-
-```python
-config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
-}
-```
-
-### Grok
-
-This allows Grok to replace OpenAI (or Gemini) for agent.
-
-```python
-config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
     },
 }
 ```
@@ -502,8 +476,8 @@ class MyOutputGuardrail(OutputGuardrail):
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
 
-* Agents can only call one tool per response
-* Agents choose the best tool for the job
+* Agents can use multiple tools per response and should apply the right sequential order (like send an email to bob@bob.com with the latest news on Solana)
+* Agents choose the best tools for the job
 * Solana Agent doesn't use OpenAI function calling (tools) as they don't support async functions
 * Solana Agent tools are async functions
 

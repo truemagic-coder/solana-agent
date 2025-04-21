@@ -222,9 +222,6 @@ def kb_service_custom(
 
 
 # --- Test Classes ---
-
-
-@pytest.mark.asyncio
 class TestKnowledgeBaseServiceInitialization:
     def test_init_successful_defaults(
         self,

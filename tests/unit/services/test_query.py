@@ -1,37 +1,77 @@
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock  # Import Mock as well
 from datetime import datetime, timezone
+import asyncio
 
 from solana_agent.services.query import QueryService
+from solana_agent.services.agent import (
+    AgentService,
+)  # Import concrete types if needed for isinstance checks or type hints
+from solana_agent.services.routing import RoutingService
+from solana_agent.interfaces.providers.memory import MemoryProvider
 
 # Test Data
 TEST_USER_ID = "test_user"
 TEST_QUERY = "What is Solana?"
+TEST_RESPONSE = "Solana is a blockchain."
+HARDCODED_GREETING = "Hello! How can I help you today?"  # Define constant
+
+
+# Helper async generator function for mocking
+async def mock_async_generator(*args):
+    for item in args:
+        yield item
+        await asyncio.sleep(0)  # Yield control briefly
 
 
 @pytest.fixture
 def mock_agent_service():
-    service = Mock()
+    # Use AsyncMock for the service object itself
+    service = AsyncMock(spec=AgentService)  # Use spec for better mocking
 
-    # Mock LLM provider
-    service.llm_provider = Mock()
+    # Mock generate_response: return_value should be the generator *object*
+    # Create the generator object first
+    generator_instance = mock_async_generator(TEST_RESPONSE)
+    service.generate_response = AsyncMock(return_value=generator_instance)
+
+    # Mock the attribute accessed after generate_response finishes
+    service.last_text_response = TEST_RESPONSE
+
+    # Mock the llm_provider attribute if it's accessed directly (e.g., for TTS in error paths)
+    service.llm_provider = AsyncMock()
+    # Mock the tts method on the llm_provider
+    tts_generator_instance = mock_async_generator(b"audio_chunk_1", b"audio_chunk_2")
+    service.llm_provider.tts = AsyncMock(return_value=tts_generator_instance)
+    # Mock transcribe_audio if needed
+    service.llm_provider.transcribe_audio = AsyncMock(
+        return_value=mock_async_generator("transcribed text")
+    )
 
     return service
 
 
 @pytest.fixture
 def mock_routing_service():
-    service = Mock()
+    # Use AsyncMock for the service object
+    service = AsyncMock(spec=RoutingService)
     service.route_query = AsyncMock(return_value="test_agent")
     return service
 
 
 @pytest.fixture
 def mock_memory_provider():
-    provider = Mock()
-    provider.store = AsyncMock()
+    # Use AsyncMock for the provider object
+    provider = AsyncMock(spec=MemoryProvider)  # Use spec
+    provider.store = AsyncMock(return_value=None)
     provider.retrieve = AsyncMock(return_value="Previous context")
-    provider.find = Mock(
+
+    # --- Corrections for get_user_history ---
+    # count_documents mock should return an int directly
+    provider.count_documents = Mock(
+        return_value=1
+    )  # Use synchronous Mock if called synchronously in query.py
+    # find mock should return the list directly
+    provider.find = Mock(  # Use synchronous Mock if called synchronously in query.py
         return_value=[
             {
                 "_id": "conv1",
@@ -41,75 +81,130 @@ def mock_memory_provider():
             }
         ]
     )
-    provider.count_documents = Mock(return_value=1)
+    # --- End Corrections ---
+
+    provider.delete = AsyncMock(return_value=None)
     return provider
 
 
 @pytest.fixture
 def query_service(mock_agent_service, mock_routing_service, mock_memory_provider):
+    # Ensure all dependencies are correctly passed and match __init__
+    # Assuming QueryService expects knowledge_base, not kb_provider
     return QueryService(
         agent_service=mock_agent_service,
         routing_service=mock_routing_service,
         memory_provider=mock_memory_provider,
-        input_guardrails=None,
+        knowledge_base=None,  # Corrected parameter name based on query.py
+        input_guardrails=[],  # Ensure default is list if None not allowed
+        kb_results_count=3,  # Add if missing default
     )
 
 
 @pytest.mark.asyncio
-async def test_process_greeting(query_service):
-    """Test processing simple greeting."""
+async def test_process_greeting_simple(
+    query_service, mock_agent_service, mock_memory_provider
+):
+    """Test processing simple greeting bypasses agent and stores correctly."""
+    greeting_query = "hello"
     response_chunks = []
+
+    # Reset mocks before the test run
+    mock_agent_service.generate_response.reset_mock()
+    mock_memory_provider.store.reset_mock()
+
     async for chunk in query_service.process(
-        user_id=TEST_USER_ID, query="hello", output_format="text"
+        user_id=TEST_USER_ID, query=greeting_query, output_format="text"
     ):
         response_chunks.append(chunk)
 
-    assert len(response_chunks) == 1
-    assert "hello" in response_chunks[0].lower()
+    # Assert the hardcoded greeting response is yielded
+    assert response_chunks == [HARDCODED_GREETING]
+
+    # Assert generate_response was NOT called
+    mock_agent_service.generate_response.assert_not_called()
+
+    # --- FIX: Adjust assertion to match the actual call signature ---
+    # Assert memory store WAS called with the correct greeting interaction
+    # based on the error message, it seems store is called positionally
+    # with user_id and a list of message dicts.
+    expected_messages_list = [
+        {"role": "user", "content": greeting_query},
+        {"role": "assistant", "content": HARDCODED_GREETING},
+    ]
+    mock_memory_provider.store.assert_awaited_once_with(
+        TEST_USER_ID, expected_messages_list
+    )
+    # If it's actually called with keyword arguments matching the structure:
+    # mock_memory_provider.store.assert_awaited_once_with(
+    #     user_id=TEST_USER_ID,
+    #     messages=expected_messages_list # Assuming the arg name is 'messages'
+    # )
+    # Choose the assertion that matches how _store_conversation actually calls provider
 
 
 @pytest.mark.asyncio
 async def test_get_user_history(query_service, mock_memory_provider):
-    """Test retrieving user conversation history."""
+    """Test retrieving user conversation history (assuming sync calls in query.py)."""
+
     result = await query_service.get_user_history(
         user_id=TEST_USER_ID, page_num=1, page_size=20
     )
 
+    # Assert based on synchronous mock calls
+    mock_memory_provider.find.assert_called_once()
+    mock_memory_provider.count_documents.assert_called_once()
+
+    # Assertions on the result structure
     assert result["total"] == 1
     assert len(result["data"]) == 1
     assert "timestamp" in result["data"][0]
     assert isinstance(result["data"][0]["timestamp"], int)
+    assert result["error"] is None
 
 
 @pytest.mark.asyncio
 async def test_process_error_handling(query_service, mock_agent_service):
-    """Test error handling in query processing."""
-    # Configure the mock agent service to raise an error during generation
-    mock_agent_service.generate_response = AsyncMock(
-        side_effect=Exception("Test generation error")
+    """Test error handling in query processing yields correct message."""
+    # Configure generate_response to raise an error
+    mock_agent_service.generate_response.side_effect = Exception(
+        "Test generation error"
     )
+    # Reset the return_value when using side_effect
+    mock_agent_service.generate_response.return_value = None
 
     response_chunks = []
-    # Use async for to iterate through the generator
     async for chunk in query_service.process(
-        user_id=TEST_USER_ID, query=TEST_QUERY, output_format="text"
+        user_id=TEST_USER_ID, query="some query", output_format="text"
     ):
         response_chunks.append(chunk)
 
-    # Assert that only the generic error message was yielded
     assert len(response_chunks) == 1
-    # Check for the specific user-facing error message
+    # Check against the specific error message from query.py's except block
     assert (
-        "I apologize for the technical difficulty. Please try again later."
-        in response_chunks[0]
+        response_chunks[0]
+        == "I apologize for the technical difficulty. Please try again later."
     )
 
 
 @pytest.mark.asyncio
 async def test_get_user_history_no_memory_provider():
     """Test getting history when no memory provider is available."""
+    mock_agent_svc = AsyncMock(spec=AgentService)
+    # Mock llm_provider and tts on the agent service mock if needed for error paths
+    mock_agent_svc.llm_provider = AsyncMock()
+    mock_agent_svc.llm_provider.tts = AsyncMock(
+        return_value=mock_async_generator(b"audio")
+    )
+
+    mock_routing_svc = AsyncMock(spec=RoutingService)
     service = QueryService(
-        agent_service=Mock(), routing_service=Mock(), memory_provider=None
+        agent_service=mock_agent_svc,
+        routing_service=mock_routing_svc,
+        memory_provider=None,  # Explicitly None
+        knowledge_base=None,
+        input_guardrails=[],
+        kb_results_count=3,
     )
 
     result = await service.get_user_history(TEST_USER_ID)
@@ -122,36 +217,33 @@ async def test_get_user_history_no_memory_provider():
 @pytest.mark.asyncio
 async def test_delete_user_history_success(query_service, mock_memory_provider):
     """Test successful deletion of user conversation history."""
-    # Set up mock
-    mock_memory_provider.delete = AsyncMock()
-
-    # Call method
     await query_service.delete_user_history(TEST_USER_ID)
-
-    # Verify memory provider was called correctly
-    mock_memory_provider.delete.assert_called_once_with(TEST_USER_ID)
+    mock_memory_provider.delete.assert_awaited_once_with(TEST_USER_ID)
 
 
 @pytest.mark.asyncio
-async def test_delete_user_history_no_provider(query_service):
+async def test_delete_user_history_no_provider():
     """Test deletion attempt when no memory provider is available."""
-    # Create service instance without memory provider
+    mock_agent_svc = AsyncMock(spec=AgentService)
+    mock_routing_svc = AsyncMock(spec=RoutingService)
     service = QueryService(
-        agent_service=Mock(), routing_service=Mock(), memory_provider=None
+        agent_service=mock_agent_svc,
+        routing_service=mock_routing_svc,
+        memory_provider=None,  # Explicitly None
+        knowledge_base=None,
+        input_guardrails=[],
+        kb_results_count=3,
     )
-
-    # Call should not raise an error
     await service.delete_user_history(TEST_USER_ID)
+    # No assertion needed on mocks as none should be called
 
 
 @pytest.mark.asyncio
 async def test_delete_user_history_error(query_service, mock_memory_provider):
     """Test error handling during history deletion."""
-    # Configure mock to raise an exception
-    mock_memory_provider.delete = AsyncMock(side_effect=Exception("Database error"))
+    mock_memory_provider.delete.side_effect = Exception("Database error")
+    mock_memory_provider.delete.return_value = None  # Reset return_value
 
-    # Call should not raise an error
+    # Call should not raise an error (error is logged internally)
     await query_service.delete_user_history(TEST_USER_ID)
-
-    # Verify memory provider was called
-    mock_memory_provider.delete.assert_called_once_with(TEST_USER_ID)
+    mock_memory_provider.delete.assert_awaited_once_with(TEST_USER_ID)

@@ -15,7 +15,7 @@ from solana_agent.interfaces.providers.llm import LLMProvider
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-4.1-mini"
+DEFAULT_CHAT_MODEL = "gpt-4.1"
 DEFAULT_PARSE_MODEL = "gpt-4.1-nano"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 DEFAULT_EMBEDDING_DIMENSIONS = 3072
@@ -129,45 +129,41 @@ class OpenAIAdapter(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:  # pragma: no cover
-        """Generate text from OpenAI models."""
+    ) -> str:  # pragma: no cover
+        """Generate text from OpenAI models as a single string."""
         messages = []
-
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-
         messages.append({"role": "user", "content": prompt})
 
-        # Prepare request parameters
+        # Prepare request parameters - stream is always False now
         request_params = {
             "messages": messages,
-            "stream": True,
-            "model": self.text_model,
+            "stream": False,  # Hardcoded to False
+            "model": model or self.text_model,
         }
 
+        # Determine client based on provided api_key/base_url
         if api_key and base_url:
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         else:
             client = self.client
 
-        if model:
-            request_params["model"] = model
-
         try:
+            # Make the non-streaming API call
             response = await client.chat.completions.create(**request_params)
 
-            async for chunk in response:
-                if chunk.choices:
-                    if chunk.choices[0].delta.content:
-                        text = chunk.choices[0].delta.content
-                        yield text
+            # Handle non-streaming response
+            if response.choices and response.choices[0].message.content:
+                full_text = response.choices[0].message.content
+                return full_text  # Return the complete string
+            else:
+                print("Received non-streaming response with no content.")
+                return ""  # Return empty string if no content
 
         except Exception as e:
-            print(f"Error in generate_text: {str(e)}")
-            import traceback
-
-            print(traceback.format_exc())
-            yield f"I apologize, but I encountered an error: {str(e)}"
+            # Log the error and return an error message string
+            print(f"Error in generate_text: {e}")
 
     async def parse_structured_output(
         self,

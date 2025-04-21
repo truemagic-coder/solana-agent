@@ -242,33 +242,6 @@ Conversational Memory Config - Optional
    }
 
 
-Gemini - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This allows Gemini to replace OpenAI for agent and router.
-
-.. code-block:: python
-
-   config = {
-      "gemini": {
-         "api_key": "your-gemini-api-key",
-      },
-   }
-
-Grok - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-This allows Grok to replace OpenAI (or Gemini) for agent.
-
-.. code-block:: python
-
-   config = {
-      "grok": {
-         "api_key": "your-grok-api-key",
-      },
-   }
-
-
 Knowledge Base - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

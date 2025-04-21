@@ -15,6 +15,8 @@ from solana_agent.interfaces.plugins.plugins import Tool
 class TestTool(AutoTool):
     """Concrete implementation of AutoTool for testing."""
 
+    __test__ = False  # Prevent pytest from collecting this helper class
+
     def get_schema(self):
         """Test schema implementation."""
         return {
