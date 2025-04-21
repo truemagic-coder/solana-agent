@@ -46,7 +46,9 @@ sphinx-autobuild = "^2024.10.3"
 mongomock = "^4.3.0"
 ruff = "^0.11.6"
 
+[tool.setuptools.package-data]
+"solana-agent" = ["https://dl.walletbubbles.com/solana-agent-logo.png?width=50"]
+
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
-icon = "https://dl.walletbubbles.com/solana-agent-logo.png?width=200"
