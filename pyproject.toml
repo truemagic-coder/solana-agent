@@ -1,10 +1,11 @@
 [tool.poetry]
 name = "solana-agent"
-version = "27.4.2"
+version = "27.4.3"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
 readme = "README.md"
+homepage = "https://solana-agent.com"
 repository = "https://github.com/truemagic-coder/solana-agent"
 documentation = "https://docs.solana-agent.com"
 keywords = ["solana", "solana ai", "solana agent", "ai", "ai agent", "ai agents"]
@@ -45,9 +46,6 @@ myst-parser = "^4.0.1"
 sphinx-autobuild = "^2024.10.3"
 mongomock = "^4.3.0"
 ruff = "^0.11.6"
-
-[tool.setuptools.package-data]
-"solana-agent" = ["https://dl.walletbubbles.com/solana-agent-logo.png?width=50"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
