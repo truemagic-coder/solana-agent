@@ -29,6 +29,7 @@ Build your AI agents in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Automatic Tool Workflows
+* Autonomous Operation
 * Knowledge Base
 * MCP Support
 * Guardrails
@@ -57,6 +58,7 @@ Build your AI agents in three lines of code!
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Automatic sequential tool workflows allowing agents to chain multiple tools
+* Combine with event-driven systems to create autonomous agents
 
 ## Stack
 
@@ -568,6 +570,8 @@ class MyOutputGuardrail(OutputGuardrail):
 
 ## Tools
 
+Tools empower agents to interact with external systems, fetch data, or perform actions. They can be used reactively within a user conversation or proactively when an agent is triggered autonomously.
+
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
 
 * Agents can use multiple tools per response and should apply the right sequential order (like send an email to bob@bob.com with the latest news on Solana)
@@ -749,6 +753,19 @@ solana_agent.register_tool("customer_support", test_tool)
 async for response in solana_agent.process("user123", "What are the latest AI developments?"):
     print(response, end="")
 ```
+
+## Autonomous Operation & Event-Driven Agents
+
+While Solana Agent facilitates request-response interactions, the underlying architecture supports building autonomous agents. You can achieve autonomy by orchestrating calls based on external triggers rather than direct user input.
+
+**Key Concepts:**
+
+*   **External Triggers:** Use schedulers like cron, message queues (RabbitMQ, Kafka), monitoring systems, webhooks, or other event sources to initiate agent actions.
+*   **Programmatic Calls:** Instead of a user typing a message, your triggering system calls with a specific message (acting as instructions or data for the task) and potentially a dedicated user representing the autonomous process.
+*   **Tool-Centric Tasks:** Autonomous agents often focus on executing specific tools. The prompt can instruct the agent to use a particular tool with given parameters derived from the triggering event.
+*   **Example Scenario:** An agent could be triggered hourly by a scheduler. The `message` could be "Check the SOL balance for wallet X using the `solana` tool." The agent executes the tool, and the result could be logged or trigger another tool (e.g., using `mcp` to send an alert if the balance is low).
+
+By combining Solana Agent's agent definitions, tool integration, and routing with external orchestration, you can create sophisticated autonomous systems.
 
 ## Advanced Customization
 
