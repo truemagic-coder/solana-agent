@@ -22,7 +22,7 @@ Build your AI agents in three lines of code!
 * Fast Responses
 * Solana Ecosystem Integration
 * Multi-Agent Swarm
-* Multi-Modal Streaming (Image & Audio & Text)
+* Multi-Modal (Images & Audio & Text)
 * Conversational Memory & History
 * Internet Search
 * Intelligent Routing
