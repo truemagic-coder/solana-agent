@@ -44,6 +44,7 @@ class AgentService(ABC):
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
         prompt: Optional[str] = None,
+        images: Optional[List[Union[str, bytes]]] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Generate a response from an agent."""
         pass

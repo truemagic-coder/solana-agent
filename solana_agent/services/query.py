@@ -22,9 +22,8 @@ from solana_agent.interfaces.services.knowledge_base import (
 )
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
-)  # <-- Import InputGuardrail
+)
 
-# Service imports (assuming AgentService is the concrete implementation)
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 
@@ -58,12 +57,13 @@ class QueryService(QueryServiceInterface):
         self.memory_provider = memory_provider
         self.knowledge_base = knowledge_base
         self.kb_results_count = kb_results_count
-        self.input_guardrails = input_guardrails or []  # <-- Store guardrails
+        self.input_guardrails = input_guardrails or []
 
     async def process(
         self,
         user_id: str,
         query: Union[str, bytes],
+        images: Optional[List[Union[str, bytes]]] = None,
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
             "alloy",
@@ -92,6 +92,7 @@ class QueryService(QueryServiceInterface):
         Args:
             user_id: User ID
             query: Text query or audio bytes
+            images: Optional list of image URLs (str) or image bytes.
             output_format: Response format ("text" or "audio")
             audio_voice: Voice for TTS (text-to-speech)
             audio_instructions: Audio voice instructions
@@ -143,7 +144,14 @@ class QueryService(QueryServiceInterface):
             # --- End Apply Input Guardrails ---
 
             # --- 3. Handle Simple Greetings ---
-            if user_text.strip().lower() in ["test", "hello", "hi", "hey", "ping"]:
+            # Simple greetings typically don't involve images
+            if not images and user_text.strip().lower() in [
+                "test",
+                "hello",
+                "hi",
+                "hey",
+                "ping",
+            ]:
                 response = "Hello! How can I help you today?"
                 logger.info("Handling simple greeting.")
                 if output_format == "audio":
@@ -201,7 +209,7 @@ class QueryService(QueryServiceInterface):
             # --- 6. Route Query ---
             agent_name = "default"  # Fallback agent
             try:
-                # Use processed user_text for routing
+                # Use processed user_text for routing (images generally don't affect routing logic here)
                 if router:
                     agent_name = await router.route_query(user_text)
                 else:
@@ -225,12 +233,13 @@ class QueryService(QueryServiceInterface):
             logger.debug(f"Combined context length: {len(combined_context)}")
 
             # --- 8. Generate Response ---
-            # Pass the processed user_text to the agent service
+            # Pass the processed user_text and images to the agent service
             if output_format == "audio":
                 async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,  # Pass processed text
+                    images=images,
                     memory_context=combined_context,
                     output_format="audio",
                     audio_voice=audio_voice,
@@ -241,10 +250,11 @@ class QueryService(QueryServiceInterface):
                     yield audio_chunk
 
                 # Store conversation using processed user_text
+                # Note: Storing images in history is not directly supported by current memory provider interface
                 if self.memory_provider:
                     await self._store_conversation(
                         user_id=user_id,
-                        user_message=user_text,
+                        user_message=user_text,  # Store only text part of user query
                         assistant_message=self.agent_service.last_text_response,
                     )
             else:
@@ -253,6 +263,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,  # Pass processed text
+                    images=images,  # <-- Pass images
                     memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
@@ -261,10 +272,11 @@ class QueryService(QueryServiceInterface):
                     full_text_response += chunk
 
                 # Store conversation using processed user_text
+                # Note: Storing images in history is not directly supported by current memory provider interface
                 if self.memory_provider and full_text_response:
                     await self._store_conversation(
                         user_id=user_id,
-                        user_message=user_text,
+                        user_message=user_text,  # Store only text part of user query
                         assistant_message=full_text_response,
                     )
 
@@ -370,11 +382,15 @@ class QueryService(QueryServiceInterface):
                     if conv.get("timestamp")
                     else None
                 )
+                # Assuming the stored format matches what _store_conversation saves
+                # (which currently only stores text messages)
                 formatted_conversations.append(
                     {
                         "id": str(conv.get("_id")),
-                        "user_message": conv.get("user_message"),
-                        "assistant_message": conv.get("assistant_message"),
+                        "user_message": conv.get("user_message"),  # Or how it's stored
+                        "assistant_message": conv.get(
+                            "assistant_message"
+                        ),  # Or how it's stored
                         "timestamp": timestamp,
                     }
                 )
@@ -413,11 +429,13 @@ class QueryService(QueryServiceInterface):
 
         Args:
             user_id: User ID
-            user_message: User message (potentially processed by input guardrails)
+            user_message: User message (text part, potentially processed by input guardrails)
             assistant_message: Assistant message (potentially processed by output guardrails)
         """
         if self.memory_provider:
             try:
+                # Store only the text parts for now, as memory provider interface
+                # doesn't explicitly handle image data storage in history.
                 await self.memory_provider.store(
                     user_id,
                     [

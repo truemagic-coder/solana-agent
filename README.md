@@ -22,7 +22,7 @@ Build your AI agents in three lines of code!
 * Fast Responses
 * Solana Ecosystem Integration
 * Multi-Agent Swarm
-* Multi-Modal Streaming (Text & Audio)
+* Multi-Modal Streaming (Image & Audio & Text)
 * Conversational Memory & History
 * Internet Search
 * Intelligent Routing
@@ -46,7 +46,7 @@ Build your AI agents in three lines of code!
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
 * Designed for a multi-agent swarm 
-* Seamless text and audio streaming with real-time multi-modal processing
+* Seamless streaming with real-time multi-modal processing of text, audio, and images
 * Persistent memory that preserves context across all agent interactions
 * Quick Internet search to answer users' queries
 * Streamlined message history for all agent interactions
@@ -249,6 +249,42 @@ solana_agent = SolanaAgent(config=config)
 audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
+    print(response, end="")
+```
+
+### Image/Text Streaming
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "vision_expert",
+            "instructions": "You are an expert at analyzing images and answering questions about them.",
+            "specialization": "Image analysis",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+# Example with an image URL
+image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+# Example reading image bytes from a file
+image_bytes = await image_file.read()
+
+# You can mix URLs and bytes in the list
+images_to_process = [
+    image_url,
+    image_bytes,
+]
+
+async for response in solana_agent.process("user123", "What is in this image? Describe the scene.", images=images_to_process):
     print(response, end="")
 ```
 
