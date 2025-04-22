@@ -68,8 +68,9 @@ class SolanaAgent(SolanaAgentInterface):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         router: Optional[RoutingInterface] = None,
+        images: Optional[List[Union[str, bytes]]] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Process a user message and return the response stream.
+        """Process a user message (text or audio) and optional images, returning the response stream.
 
         Args:
             user_id: User ID
@@ -81,6 +82,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             router: Optional routing service for processing
+            images: Optional list of image URLs (str) or image bytes.
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
@@ -88,6 +90,7 @@ class SolanaAgent(SolanaAgentInterface):
         async for chunk in self.query_service.process(
             user_id=user_id,
             query=message,
+            images=images,
             output_format=output_format,
             audio_voice=audio_voice,
             audio_instructions=audio_instructions,

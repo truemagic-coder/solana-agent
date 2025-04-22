@@ -1167,14 +1167,14 @@ files = [
 
 [[package]]
 name = "llama-index-core"
-version = "0.12.31"
+version = "0.12.32"
 description = "Interface between LLMs and your data"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "llama_index_core-0.12.31-py3-none-any.whl", hash = "sha256:ac1482d1fd111611394c3f86dc0cad5e925f96f5db76eb1f7c2120dd133e8770"},
-    {file = "llama_index_core-0.12.31.tar.gz", hash = "sha256:2ad2b6000277ca2c45ea0fa358ffefb4350cffb6630e3498f9501352e7529526"},
+    {file = "llama_index_core-0.12.32-py3-none-any.whl", hash = "sha256:4cad0be8c31cc8a0250d68205b3c193e5f97f3a33b3ecc2d81df365aa23d120e"},
+    {file = "llama_index_core-0.12.32.tar.gz", hash = "sha256:7fae277ae88e0fd9507ee06b6ddb96b72ad2f57e4695047dd5e6d68014a0b6b9"},
 ]
 
 [package.dependencies]
@@ -3932,14 +3932,14 @@ propcache = ">=0.2.1"
 
 [[package]]
 name = "zep-cloud"
-version = "2.10.1"
+version = "2.10.2"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.9.0"
 groups = ["main"]
 files = [
-    {file = "zep_cloud-2.10.1-py3-none-any.whl", hash = "sha256:22961354566dd1fc38ed62c9d30e3a88a713120fac37568ff371989c8702eb15"},
-    {file = "zep_cloud-2.10.1.tar.gz", hash = "sha256:72a4fab6c741c44b66f0331f3a956b4fa19517fc8d1bbdd6f63902c62ab68245"},
+    {file = "zep_cloud-2.10.2-py3-none-any.whl", hash = "sha256:45ff0e23541d44feca17d582c7c4b8399aa7df67836325a1933aaad849dde2d1"},
+    {file = "zep_cloud-2.10.2.tar.gz", hash = "sha256:418f59fe01ae0600f5368f3a6da3ac4f70e3a8c937df0e86c04b8b15febaf409"},
 ]
 
 [package.dependencies]
@@ -3970,4 +3970,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "367e66121b3ed4b6b287c99b251509dffcd942c46d17fec2fb370d161e3c3f4e"
+content-hash = "76d3e4facb880c644a0fd6c0f05e3028e23398bf78941f815f53beb05412412e"

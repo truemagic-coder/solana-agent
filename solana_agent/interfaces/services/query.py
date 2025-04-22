@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
 
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
@@ -34,6 +34,7 @@ class QueryService(ABC):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingInterface] = None,
+        images: Optional[List[Union[str, bytes]]] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:
         """Process the user request and generate a response."""
         pass

@@ -196,6 +196,44 @@ Audio/Text Streaming
       print(response, end="")
 
 
+Image/Text Streaming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "openai": {
+         "api_key": "your-openai-api-key",
+      },
+      "agents": [
+         {
+               "name": "vision_expert",
+               "instructions": "You are an expert at analyzing images and answering questions about them.",
+               "specialization": "Image analysis",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   # Example with an image URL
+   image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+   # Example reading image bytes from a file
+   image_bytes = await image_file.read()
+
+   # You can mix URLs and bytes in the list
+   images_to_process = [
+      image_url,
+      image_bytes,
+   ]
+
+   async for response in solana_agent.process("user123", "What is in this image? Describe the scene.", images=images_to_process):
+      print(response, end="")
+
+
 Command Line Interface (CLI)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

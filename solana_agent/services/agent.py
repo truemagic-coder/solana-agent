@@ -341,6 +341,7 @@ class AgentService(AgentServiceInterface):
         agent_name: str,
         user_id: str,
         query: Union[str, bytes],
+        images: Optional[List[Union[str, bytes]]] = None,
         memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
@@ -362,16 +363,13 @@ class AgentService(AgentServiceInterface):
         prompt: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
         """Generate a response, supporting multiple sequential tool calls with placeholder substitution.
-
-        Text responses are always generated as a single block.
-        Audio responses always buffer text before TTS.
+        Optionally accepts images for vision-capable models.
         """
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
             error_msg = f"Agent '{agent_name}' not found."
             logger.warning(error_msg)
             if output_format == "audio":
-                # Assuming tts returns an async generator
                 async for chunk in self.llm_provider.tts(
                     error_msg,
                     instructions=audio_instructions,
@@ -380,11 +378,11 @@ class AgentService(AgentServiceInterface):
                 ):
                     yield chunk
             else:
-                yield error_msg  # Yield the single error string
+                yield error_msg
             return
 
         logger.debug(
-            f"Generating response for agent '{agent_name}'. Output format: {output_format}."
+            f"Generating response for agent '{agent_name}'. Output format: {output_format}. Images provided: {bool(images)}."
         )
 
         try:
@@ -406,20 +404,40 @@ class AgentService(AgentServiceInterface):
             start_marker = "[TOOL]"
 
             logger.info(f"Generating initial response for agent '{agent_name}'...")
-            # Call generate_text and await the string result
-            initial_llm_response_buffer = await self.llm_provider.generate_text(
-                prompt=str(query),
-                system_prompt=final_system_prompt,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                model=self.model,
-            )
+
+            # --- CHOOSE LLM METHOD BASED ON IMAGE PRESENCE ---
+            if images:
+                # Use the new vision method if images are present
+                logger.info(
+                    f"Using generate_text_with_images for {len(images)} images."
+                )
+                # Ensure query is string for the text part
+                text_query = str(query) if isinstance(query, bytes) else query
+                initial_llm_response_buffer = (
+                    await self.llm_provider.generate_text_with_images(
+                        prompt=text_query,
+                        images=images,
+                        system_prompt=final_system_prompt,
+                    )
+                )
+            else:
+                # Use the standard text generation method
+                logger.info("Using generate_text (no images provided).")
+                initial_llm_response_buffer = await self.llm_provider.generate_text(
+                    prompt=str(query),
+                    system_prompt=final_system_prompt,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    model=self.model,
+                )
+            # --- END LLM METHOD CHOICE ---
 
             # Check for errors returned as string by the adapter
-            if isinstance(
-                initial_llm_response_buffer, str
-            ) and initial_llm_response_buffer.startswith(
-                "I apologize, but I encountered an error"
+            if isinstance(initial_llm_response_buffer, str) and (
+                initial_llm_response_buffer.startswith(
+                    "I apologize, but I encountered an"
+                )
+                or initial_llm_response_buffer.startswith("Error:")
             ):
                 logger.error(
                     f"LLM provider failed during initial generation: {initial_llm_response_buffer}"
@@ -452,24 +470,23 @@ class AgentService(AgentServiceInterface):
             # --- Tool Execution Phase (if tools were detected) ---
             final_response_text = ""
             if tool_calls_detected:
+                # NOTE: If tools need to operate on image content, this logic needs significant changes.
+                # Assuming for now tools operate based on the text query or the LLM's understanding derived from images.
                 parsed_calls = self._parse_tool_calls(initial_llm_response_buffer)
 
                 if parsed_calls:
-                    # --- Execute tools SEQUENTIALLY with Placeholder Substitution ---
-                    executed_tool_results = []  # Store full result dicts
-                    # Map tool names to their string results for substitution
+                    # ... (existing sequential tool execution with substitution) ...
+                    executed_tool_results = []
                     tool_results_map: Dict[str, str] = {}
-
                     logger.info(
                         f"Executing {len(parsed_calls)} tools sequentially with substitution..."
                     )
                     for i, call in enumerate(parsed_calls):
+                        # ... (existing substitution logic) ...
                         tool_name_to_exec = call.get("name", "unknown")
                         logger.info(
                             f"Executing tool {i + 1}/{len(parsed_calls)}: {tool_name_to_exec}"
                         )
-
-                        # --- Substitute placeholders in parameters ---
                         try:
                             original_params = call.get("parameters", {})
                             substituted_params = self._substitute_placeholders(
@@ -479,20 +496,17 @@ class AgentService(AgentServiceInterface):
                                 logger.info(
                                     f"Substituted parameters for tool '{tool_name_to_exec}': {substituted_params}"
                                 )
-                            call["parameters"] = substituted_params  # Update call dict
+                            call["parameters"] = substituted_params
                         except Exception as sub_err:
                             logger.error(
                                 f"Error substituting placeholders for tool '{tool_name_to_exec}': {sub_err}",
                                 exc_info=True,
                             )
-                            # Proceed with original params but log the error
 
-                        # --- Execute the tool ---
+                        # ... (existing tool execution call) ...
                         try:
                             result = await self._execute_single_tool(agent_name, call)
                             executed_tool_results.append(result)
-
-                            # --- Store successful result string for future substitutions ---
                             if result.get("status") == "success":
                                 tool_result_str = str(result.get("result", ""))
                                 tool_results_map[tool_name_to_exec] = tool_result_str
@@ -500,15 +514,13 @@ class AgentService(AgentServiceInterface):
                                     f"Stored result for '{tool_name_to_exec}' (length: {len(tool_result_str)})"
                                 )
                             else:
-                                # Store error message as result
                                 error_message = result.get("message", "Unknown error")
                                 tool_results_map[tool_name_to_exec] = (
                                     f"Error: {error_message}"
                                 )
                                 logger.warning(
-                                    f"Tool '{tool_name_to_exec}' failed, storing error message as result."
+                                    f"Tool '{tool_name_to_exec}' failed, storing error message."
                                 )
-
                         except Exception as tool_exec_err:
                             logger.error(
                                 f"Exception during execution of tool {tool_name_to_exec}: {tool_exec_err}",
@@ -521,20 +533,15 @@ class AgentService(AgentServiceInterface):
                             }
                             executed_tool_results.append(error_result)
                             tool_results_map[tool_name_to_exec] = (
-                                f"Error: {str(tool_exec_err)}"  # Store error
+                                f"Error: {str(tool_exec_err)}"
                             )
 
                     logger.info("Sequential tool execution with substitution complete.")
-                    # --- End Sequential Execution ---
 
-                    # Format results for the follow-up prompt (use executed_tool_results)
+                    # ... (existing formatting of tool results) ...
                     tool_results_text_parts = []
-                    for i, result in enumerate(
-                        executed_tool_results
-                    ):  # Use the collected results
-                        tool_name = result.get(
-                            "tool_name", "unknown"
-                        )  # Name should be in the result dict now
+                    for i, result in enumerate(executed_tool_results):
+                        tool_name = result.get("tool_name", "unknown")
                         if (
                             isinstance(result, Exception)
                             or result.get("status") == "error"
@@ -556,8 +563,12 @@ class AgentService(AgentServiceInterface):
                     tool_results_context = "\n\n".join(tool_results_text_parts)
 
                     # --- Generate Final Response using Tool Results (No Streaming) ---
-                    follow_up_prompt = f"Original Query: {str(query)}\n\nRESULTS FROM TOOL CALLS:\n{tool_results_context}\n\nBased on the original query and the tool results, please provide the final response to the user."
-                    # Rebuild system prompt
+                    # Include original query (text part) and mention images were provided if applicable
+                    original_query_context = f"Original Query: {str(query)}"
+                    if images:
+                        original_query_context += f" (with {len(images)} image(s))"
+
+                    follow_up_prompt = f"{original_query_context}\n\nRESULTS FROM TOOL CALLS:\n{tool_results_context}\n\nBased on the original query, any provided images, and the tool results, please provide the final response to the user."
                     follow_up_system_prompt_parts = [
                         self.get_agent_system_prompt(agent_name)
                     ]
@@ -571,7 +582,7 @@ class AgentService(AgentServiceInterface):
                             f"\nORIGINAL ADDITIONAL PROMPT:\n{prompt}"
                         )
                     follow_up_system_prompt_parts.append(
-                        f"\nCONTEXT: You previously decided to run {len(parsed_calls)} tool(s) sequentially to answer the query. The results are provided above."
+                        f"\nCONTEXT: You previously decided to run {len(parsed_calls)} tool(s) sequentially. The results are provided above."
                     )
                     final_follow_up_system_prompt = "\n\n".join(
                         filter(None, follow_up_system_prompt_parts)
@@ -580,25 +591,25 @@ class AgentService(AgentServiceInterface):
                     logger.info(
                         "Generating final response incorporating tool results..."
                     )
-                    # Call generate_text and await the string result
+                    # Use standard text generation for the final synthesis
                     synthesized_response_buffer = await self.llm_provider.generate_text(
                         prompt=follow_up_prompt,
                         system_prompt=final_follow_up_system_prompt,
                         api_key=self.api_key,
                         base_url=self.base_url,
-                        model=self.model,
+                        model=self.model
+                        or self.llm_provider.text_model,  # Use text model for synthesis
                     )
 
-                    # Check for errors returned as string by the adapter
-                    if isinstance(
-                        synthesized_response_buffer, str
-                    ) and synthesized_response_buffer.startswith(
-                        "I apologize, but I encountered an error"
+                    if isinstance(synthesized_response_buffer, str) and (
+                        synthesized_response_buffer.startswith(
+                            "I apologize, but I encountered an"
+                        )
+                        or synthesized_response_buffer.startswith("Error:")
                     ):
                         logger.error(
                             f"LLM provider failed during final generation: {synthesized_response_buffer}"
                         )
-                        # Yield the error and exit
                         if output_format == "audio":
                             async for chunk in self.llm_provider.tts(
                                 synthesized_response_buffer,
@@ -617,13 +628,11 @@ class AgentService(AgentServiceInterface):
                     )
 
                 else:
-                    # Tools detected but parsing failed
                     logger.warning(
                         "Tool markers detected, but no valid tool calls parsed. Treating initial response as final."
                     )
                     final_response_text = initial_llm_response_buffer
             else:
-                # No tools detected
                 final_response_text = initial_llm_response_buffer
                 logger.info("No tools detected. Using initial response as final.")
 
@@ -641,7 +650,7 @@ class AgentService(AgentServiceInterface):
                         )
                     except Exception as e:
                         logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__} to final text: {e}"
+                            f"Error applying output guardrail {guardrail.__class__.__name__}: {e}"
                         )
                 if len(processed_final_text) != original_len:
                     logger.info(
@@ -651,14 +660,12 @@ class AgentService(AgentServiceInterface):
             self.last_text_response = processed_final_text
 
             if output_format == "text":
-                # Yield the single final string
                 if processed_final_text:
                     yield processed_final_text
                 else:
                     logger.warning("Final processed text was empty.")
                     yield ""
             elif output_format == "audio":
-                # TTS still needs a generator
                 text_for_tts = processed_final_text
                 cleaned_audio_buffer = self._clean_for_audio(text_for_tts)
                 logger.info(

@@ -6,6 +6,7 @@ from typing import (
     Optional,
     Type,
     TypeVar,
+    Union,
 )
 
 from pydantic import BaseModel
@@ -90,4 +91,15 @@ class LLMProvider(ABC):
         Returns:
             A list of floats representing the embedding vector.
         """
+        pass
+
+    @abstractmethod
+    async def generate_text_with_images(
+        self,
+        prompt: str,
+        images: List[Union[str, bytes]],
+        system_prompt: str = "",
+        detail: Literal["low", "high", "auto"] = "auto",
+    ) -> str:
+        """Generate text from the language model using images."""
         pass
