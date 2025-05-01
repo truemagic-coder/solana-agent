@@ -33,6 +33,7 @@ Build your AI agents in three lines of code!
 * Knowledge Base
 * MCP Support
 * Guardrails
+* Image Generation
 * Pydantic Logfire
 * Tested & Secure
 * Built in Python
@@ -57,6 +58,7 @@ Build your AI agents in three lines of code!
 * Assigned tools are utilized by agents automatically and effectively
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
+* Generate custom images based on text prompts with storage on S3 compatible services
 * Automatic sequential tool workflows allowing agents to chain multiple tools
 * Combine with event-driven systems to create autonomous agents
 
