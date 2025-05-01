@@ -79,10 +79,11 @@ Build your AI agents in three lines of code!
 
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
-* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) or [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
+* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 * [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation)
+* [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview) (Internet search)
 
 ## Installation
 
