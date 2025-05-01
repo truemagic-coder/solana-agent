@@ -677,7 +677,7 @@ async for response in solana_agent.process("user123", "Send an email to bob@bob.
 
 ### Image Generation
 
-This plugin allows the agent to generate images using OpenAI's image models and upload them to S3-compatible storage. It returns the public URL of the uploaded image.
+Generate images using OpenAI's `gpt-image-1` and upload them to S3-compatible storage.
 
 `pip install sakit`
 
