@@ -80,6 +80,7 @@ Build your AI agents in three lines of code!
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) or [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
+* [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation)
 
 ## Installation
 
@@ -671,6 +672,45 @@ config = {
 solana_agent = SolanaAgent(config=config)
 
 async for response in solana_agent.process("user123", "Send an email to bob@bob.com to clean his room!"):
+    print(response, end="")
+```
+
+### Image Generation
+
+This plugin allows the agent to generate images using OpenAI's image models and upload them to S3-compatible storage. It returns the public URL of the uploaded image.
+
+`pip install sakit`
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key" # Required: Your OpenAI API key
+    },
+    "tools": {
+        "image_gen": {
+            "s3_endpoint_url": "https://your-s3-endpoint.com",           # Required: e.g., https://nyc3.digitaloceanspaces.com
+            "s3_access_key_id": "YOUR_S3_ACCESS_KEY",                    # Required: Your S3 access key ID
+            "s3_secret_access_key": "YOUR_S3_SECRET_KEY",                # Required: Your S3 secret access key
+            "s3_bucket_name": "your-bucket-name",                        # Required: The name of your S3 bucket
+            "s3_region_name": "your-region",                             # Optional: e.g., "nyc3", needed by some providers
+            "s3_public_url_base": "https://your-cdn-or-bucket-url.com/", # Optional: Custom base URL for public links (include trailing slash). If omitted, a standard URL is constructed.
+        }
+    },
+    "agents": [
+        {
+            "name": "image_creator",
+            "instructions": "You are a creative assistant that generates images based on user descriptions. Use the image_gen tool to create and store the image.",
+            "specialization": "Image generation and storage",
+            "tools": ["image_gen"],  # Enable the tool for this agent
+        }
+    ]
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "Generate an image of a smiling unicorn!"):
     print(response, end="")
 ```
 
