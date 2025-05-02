@@ -45,31 +45,6 @@ class KnowledgeBaseService(ABC):
         pass
 
     @abstractmethod
-    async def update_document(
-        self,
-        document_id: str,
-        text: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        namespace: Optional[str] = None,
-    ) -> bool:
-        """
-        Update an existing document in the knowledge base.
-        """
-        pass
-
-    @abstractmethod
-    async def add_documents_batch(
-        self,
-        documents: List[Dict[str, Any]],
-        namespace: Optional[str] = None,
-        batch_size: int = 50,
-    ) -> List[str]:
-        """
-        Add multiple documents in batches.
-        """
-        pass
-
-    @abstractmethod
     async def add_pdf_document(
         self,
         pdf_data: Union[bytes, str],  # PDF bytes or file path
