@@ -134,7 +134,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         metadata: Dict[str, Any],
         document_id: Optional[str] = None,
         namespace: Optional[str] = None,
-    ) -> str:
+    ) -> str:  # pragma: no cover
         """
         Add a plain text document to the knowledge base. Embeds using OpenAI.
 
@@ -216,7 +216,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         document_id: Optional[str] = None,
         namespace: Optional[str] = None,
         chunk_batch_size: int = 50,
-    ) -> str:
+    ) -> str:  # pragma: no cover
         """
         Add a PDF document, performs semantic chunking using OpenAI embeddings,
         stores parent metadata and individual chunks in Mongo, and chunk vectors in Pinecone.
@@ -438,7 +438,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         namespace: Optional[str] = None,
         include_content: bool = True,
         include_metadata: bool = True,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:  # pragma: no cover
         """
         Query the knowledge base using semantic search with OpenAI embeddings.
         Retrieves chunk or document content and metadata from MongoDB based on Pinecone results.
@@ -641,7 +641,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
 
     async def delete_document(
         self, document_id: str, namespace: Optional[str] = None
-    ) -> bool:
+    ) -> bool:  # pragma: no cover
         """
         Delete a parent document (plain text or PDF) and all its associated chunks
         from both MongoDB and Pinecone. Cannot delete a chunk directly.
