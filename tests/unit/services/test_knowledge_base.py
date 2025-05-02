@@ -24,6 +24,7 @@ def mock_pinecone_adapter():
     adapter.query = AsyncMock(return_value=[])
     adapter.upsert = AsyncMock()
     adapter.delete = AsyncMock()
+    adapter.rerank = AsyncMock()  # Add mock for rerank method
     # Set default attributes expected by the service
     adapter.embedding_dimensions = 3072  # Default for large model
     adapter.use_reranking = False
@@ -56,7 +57,6 @@ def mock_openai_embedding():
     ) as mock_embed_class:
         instance = mock_embed_class.return_value
         instance.model = "mock-embedding-model"
-        # Configure async methods with default dimensions matching large model
         instance.aget_text_embedding = AsyncMock(return_value=[0.1] * 3072)
         instance.aget_query_embedding = AsyncMock(return_value=[0.2] * 3072)
         instance.aget_text_embedding_batch = AsyncMock(
@@ -64,9 +64,8 @@ def mock_openai_embedding():
                 [0.1 + i * 0.01] * 3072 for i in range(len(texts))
             ]
         )
-        # Store dimensions on the mock instance if needed by init logic
         instance.dimensions = 3072
-        yield mock_embed_class
+        yield mock_embed_class  # Yield the mock class
 
 
 @pytest.fixture
@@ -75,9 +74,9 @@ def mock_semantic_splitter():
         "solana_agent.services.knowledge_base.SemanticSplitterNodeParser", autospec=True
     ) as mock_splitter_class:
         instance = mock_splitter_class.return_value
-        # Mock the method used for chunking
         instance.get_nodes_from_documents = MagicMock(return_value=[])
-        yield mock_splitter_class
+        # We will check the call_args later, no need to mock embed_model here
+        yield mock_splitter_class  # Yield the mock class
 
 
 @pytest.fixture
@@ -141,7 +140,11 @@ def mock_asyncio_to_thread():
     with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
         # Default behavior: return the result of the function passed to it
         async def side_effect_func(func, *args, **kwargs):
-            return func(*args, **kwargs)
+            # If the function is the splitter's method, return its configured return_value
+            # This might be needed if the splitter mock setup changes
+            # if func == mock_semantic_splitter.return_value.get_nodes_from_documents:
+            #      return mock_semantic_splitter.return_value.get_nodes_from_documents.return_value
+            return func(*args, **kwargs)  # Execute other functions normally
 
         mock_to_thread.side_effect = side_effect_func
         yield mock_to_thread
@@ -154,12 +157,15 @@ def mock_asyncio_to_thread():
 def kb_service_default(
     mock_pinecone_adapter,
     mock_mongodb_adapter,
-    mock_openai_embedding,
-    mock_semantic_splitter,  # Ensure splitter mock is included
+    mock_openai_embedding,  # Mock class
+    mock_semantic_splitter,  # Mock class
     mock_uuid,
     mock_datetime,
 ):
-    # Default service with text-embedding-3-large, rerank off
+    # Get the mock instances that will be passed
+    mock_embedding_instance = mock_openai_embedding.return_value
+
+    # Initialize service - relies on patches applied by other fixtures
     service = KnowledgeBaseService(
         pinecone_adapter=mock_pinecone_adapter,
         mongodb_adapter=mock_mongodb_adapter,
@@ -168,9 +174,26 @@ def kb_service_default(
         collection_name="test_kb_default",
         rerank_results=False,
     )
-    # Ensure mocks are attached correctly after init if needed
-    service.semantic_splitter = mock_semantic_splitter.return_value
-    service.semantic_splitter.embed_model = mock_openai_embedding.return_value
+
+    # --- Verification ---
+    # Verify the service holds the main mock instances
+    assert service.pinecone is mock_pinecone_adapter
+    assert service.mongo is mock_mongodb_adapter
+    # Verify the service holds the instance created by the mocked splitter class
+    assert service.semantic_splitter is mock_semantic_splitter.return_value
+
+    # Verify the mock splitter CLASS was called correctly during service init
+    mock_semantic_splitter.assert_called_once()
+    call_args, call_kwargs = mock_semantic_splitter.call_args
+    assert "embed_model" in call_kwargs
+    assert (
+        call_kwargs["embed_model"] is mock_embedding_instance
+    )  # Check instance passed to constructor
+
+    # --- Explicitly set attribute on the mock instance ---
+    # Ensure the mock splitter instance has the embed_model attribute for later use by service code
+    service.semantic_splitter.embed_model = mock_embedding_instance
+
     return service
 
 
@@ -178,21 +201,24 @@ def kb_service_default(
 def kb_service_custom(
     mock_pinecone_adapter,
     mock_mongodb_adapter,
-    mock_openai_embedding,
-    mock_semantic_splitter,  # Ensure splitter mock is included
+    mock_openai_embedding,  # Mock class
+    mock_semantic_splitter,  # Mock class
     mock_uuid,
     mock_datetime,
 ):
-    # Custom service with small model, rerank on
+    # Configure mocks for custom settings before service init
     mock_pinecone_adapter.embedding_dimensions = 1536
     mock_pinecone_adapter.use_reranking = True
-    mock_openai_embedding.return_value.dimensions = 1536
-    mock_openai_embedding.return_value.aget_text_embedding.return_value = [0.1] * 1536
-    mock_openai_embedding.return_value.aget_query_embedding.return_value = [0.2] * 1536
-    mock_openai_embedding.return_value.aget_text_embedding_batch.side_effect = (
+    # Configure the mock embedding INSTANCE
+    mock_embedding_instance = mock_openai_embedding.return_value
+    mock_embedding_instance.dimensions = 1536
+    mock_embedding_instance.aget_text_embedding.return_value = [0.1] * 1536
+    mock_embedding_instance.aget_query_embedding.return_value = [0.2] * 1536
+    mock_embedding_instance.aget_text_embedding_batch.side_effect = (
         lambda texts, **kwargs: [[0.1 + i * 0.01] * 1536 for i in range(len(texts))]
     )
 
+    # Initialize service - relies on patches applied by other fixtures
     service = KnowledgeBaseService(
         pinecone_adapter=mock_pinecone_adapter,
         mongodb_adapter=mock_mongodb_adapter,
@@ -204,9 +230,26 @@ def kb_service_custom(
         splitter_buffer_size=2,
         splitter_breakpoint_percentile=90,
     )
-    # Ensure mocks are attached correctly after init if needed
-    service.semantic_splitter = mock_semantic_splitter.return_value
-    service.semantic_splitter.embed_model = mock_openai_embedding.return_value
+
+    # --- Verification ---
+    # Verify the service holds the main mock instances
+    assert service.pinecone is mock_pinecone_adapter
+    assert service.mongo is mock_mongodb_adapter
+    # Verify the service holds the instance created by the mocked splitter class
+    assert service.semantic_splitter is mock_semantic_splitter.return_value
+
+    # Verify the mock splitter CLASS was called correctly during service init
+    mock_semantic_splitter.assert_called_once()
+    call_args, call_kwargs = mock_semantic_splitter.call_args
+    assert "embed_model" in call_kwargs
+    assert (
+        call_kwargs["embed_model"] is mock_embedding_instance
+    )  # Check instance passed to constructor
+
+    # --- Explicitly set attribute on the mock instance ---
+    # Ensure the mock splitter instance has the embed_model attribute for later use by service code
+    service.semantic_splitter.embed_model = mock_embedding_instance
+
     return service
 
 
@@ -223,6 +266,7 @@ class TestKnowledgeBaseServiceInitialization:
         mock_semantic_splitter,
     ):
         api_key = "test-key-init-default"
+        # Service init relies on patches from fixtures
         service = KnowledgeBaseService(
             mock_pinecone_adapter,
             mock_mongodb_adapter,
@@ -233,17 +277,20 @@ class TestKnowledgeBaseServiceInitialization:
         assert service.collection == "knowledge_documents"
         assert service.rerank_results is False
         assert service.openai_model_name == "text-embedding-3-large"
+
+        # Check that the correct classes were called with the right args during init
         mock_openai_embedding.assert_called_once_with(
             model="text-embedding-3-large", api_key=api_key
         )
+        # Check that the splitter was initialized with the mock embedding instance
         mock_semantic_splitter.assert_called_once_with(
             buffer_size=1,
             breakpoint_percentile_threshold=95,
-            embed_model=mock_openai_embedding.return_value,
+            embed_model=mock_openai_embedding.return_value,  # Check embed_model passed
         )
         # Check collection setup calls
         mock_mongodb_adapter.collection_exists.assert_called_with("knowledge_documents")
-        mock_mongodb_adapter.create_index.assert_called()  # Check that indexing was attempted
+        mock_mongodb_adapter.create_index.assert_called()
 
     def test_init_successful_custom_args(
         self,
@@ -253,7 +300,10 @@ class TestKnowledgeBaseServiceInitialization:
         mock_semantic_splitter,
     ):
         api_key = "test-key-init-custom"
-        mock_pinecone_adapter.embedding_dimensions = 1536  # Match small model
+        # Configure pinecone mock before service init
+        mock_pinecone_adapter.embedding_dimensions = 1536
+
+        # Service init relies on patches from fixtures
         service = KnowledgeBaseService(
             mock_pinecone_adapter,
             mock_mongodb_adapter,
@@ -269,13 +319,16 @@ class TestKnowledgeBaseServiceInitialization:
         assert service.rerank_results is True
         assert service.rerank_top_k == 2
         assert service.openai_model_name == "text-embedding-3-small"
+
+        # Check that the correct classes were called with the right args during init
         mock_openai_embedding.assert_called_once_with(
             model="text-embedding-3-small", api_key=api_key
         )
+        # Check that the splitter was initialized with the mock embedding instance
         mock_semantic_splitter.assert_called_once_with(
             buffer_size=3,
             breakpoint_percentile_threshold=80,
-            embed_model=mock_openai_embedding.return_value,
+            embed_model=mock_openai_embedding.return_value,  # Check embed_model passed
         )
         mock_mongodb_adapter.collection_exists.assert_called_with("custom_coll")
 
@@ -337,13 +390,20 @@ class TestKnowledgeBaseServiceInitialization:
             )
 
     def test_ensure_collection_exists(self, kb_service_default, mock_mongodb_adapter):
-        # Reset mocks to simulate collection existing
+        # Reset mocks to simulate collection existing for this specific check
         mock_mongodb_adapter.collection_exists.reset_mock()
         mock_mongodb_adapter.create_collection.reset_mock()
         mock_mongodb_adapter.create_index.reset_mock()
         mock_mongodb_adapter.collection_exists.return_value = True
 
-        kb_service_default._ensure_collection()
+        # Re-initialize service to trigger _ensure_collection during init
+        # Use the already mocked adapters from kb_service_default
+        KnowledgeBaseService(
+            kb_service_default.pinecone,
+            kb_service_default.mongo,
+            openai_api_key="test-key-ensure-exists",
+            collection_name=kb_service_default.collection,
+        )
 
         mock_mongodb_adapter.collection_exists.assert_called_once_with(
             kb_service_default.collection
@@ -357,7 +417,7 @@ class TestKnowledgeBaseServiceInitialization:
         mock_pinecone_adapter,
         mock_mongodb_adapter,
         mock_openai_embedding,
-        mock_semantic_splitter,
+        mock_semantic_splitter,  # Needed for service init
     ):
         # Reset mocks and set collection_exists to False for this specific test
         mock_mongodb_adapter.collection_exists.reset_mock()
@@ -384,7 +444,7 @@ class TestKnowledgeBaseServiceAddDocument:
     # Tests for adding plain text documents
     async def test_add_document_success_rerank_off(
         self,
-        kb_service_default,
+        kb_service_default,  # Uses the corrected fixture
         mock_mongodb_adapter,
         mock_pinecone_adapter,
         mock_uuid,
@@ -394,6 +454,7 @@ class TestKnowledgeBaseServiceAddDocument:
         text = "This is a test document."
         metadata = {"source": "test_source", "tags": ["tag1", "tag2"]}
         expected_id = str(mock_uuid.return_value)
+        # Access embed model via service instance which should have the correct mock
         expected_embedding = (
             service.semantic_splitter.embed_model.aget_text_embedding.return_value
         )
@@ -416,7 +477,7 @@ class TestKnowledgeBaseServiceAddDocument:
                 "updated_at": now,
             },
         )
-        # Check embedding call
+        # Check embedding call via service instance
         service.semantic_splitter.embed_model.aget_text_embedding.assert_awaited_once_with(
             text
         )
@@ -439,7 +500,7 @@ class TestKnowledgeBaseServiceAddDocument:
 
     async def test_add_document_success_rerank_on(
         self,
-        kb_service_custom,  # Uses small model, rerank on
+        kb_service_custom,  # Uses the corrected fixture
         mock_mongodb_adapter,
         mock_pinecone_adapter,
         mock_uuid,
@@ -449,9 +510,10 @@ class TestKnowledgeBaseServiceAddDocument:
         text = "Another test document for reranking."
         metadata = {"source": "rerank_source"}
         expected_id = str(mock_uuid.return_value)
+        # Access embed model via service instance
         expected_embedding = (
             service.semantic_splitter.embed_model.aget_text_embedding.return_value
-        )  # Should be 1536 dim
+        )
         now = mock_datetime.now.return_value
 
         doc_id = await service.add_document(text, metadata)
@@ -466,18 +528,19 @@ class TestKnowledgeBaseServiceAddDocument:
                 "is_chunk": False,
                 "parent_document_id": None,
                 "source": "rerank_source",
+                "tags": [],  # Default tags if not provided
                 "created_at": now,
                 "updated_at": now,
             },
         )
-        # Check embedding call
+        # Check embedding call via service instance
         service.semantic_splitter.embed_model.aget_text_embedding.assert_awaited_once_with(
             text
         )
         # Check Pinecone upsert
         mock_pinecone_adapter.upsert.assert_awaited_once()
         upsert_call_kwargs = mock_pinecone_adapter.upsert.await_args.kwargs
-        assert upsert_call_kwargs["namespace"] is None  # Default namespace
+        assert upsert_call_kwargs["namespace"] is None
         vector = upsert_call_kwargs["vectors"][0]
         assert vector["id"] == expected_id
         assert vector["values"] == expected_embedding
@@ -486,8 +549,8 @@ class TestKnowledgeBaseServiceAddDocument:
             "is_chunk": False,
             "parent_document_id": None,
             "source": "rerank_source",
-            "tags": [],  # Default if not provided
-            service.pinecone.rerank_text_field: text,  # Ensure rerank field IS present
+            "tags": [],
+            service.pinecone.rerank_text_field: text,
         }
 
     async def test_add_document_with_provided_id(
@@ -1013,7 +1076,7 @@ class TestKnowledgeBaseServiceAddPdfDocument:
         mock_pinecone_adapter,
         mock_pypdf_reader,
         mock_semantic_splitter,
-        mock_uuid,  # Use the single UUID fixture for parent ID
+        mock_uuid,  # Correct: Only one UUID needed for the parent doc
         mock_datetime,
         mock_asyncio_to_thread,
     ):
@@ -1100,7 +1163,7 @@ class TestKnowledgeBaseServiceQuery:
     # Tests for querying, including interaction between Pinecone and Mongo
     async def test_query_success_plain_doc_and_chunk(
         self,
-        kb_service_default,
+        kb_service_default,  # Uses corrected fixture
         mock_mongodb_adapter,
         mock_pinecone_adapter,
         mock_datetime,
@@ -1109,6 +1172,7 @@ class TestKnowledgeBaseServiceQuery:
         query = "find my documents"
         top_k = 5
         namespace = "test-ns"
+        # Access embed model via service instance
         expected_query_vector = (
             service.semantic_splitter.embed_model.aget_query_embedding.return_value
         )
@@ -1116,13 +1180,14 @@ class TestKnowledgeBaseServiceQuery:
 
         # Mock Pinecone response (mix of plain doc and chunk)
         pinecone_res = [
+            # ... (pinecone response setup) ...
             {
                 "id": "plain_doc_1",
                 "score": 0.9,
                 "metadata": {
                     "document_id": "plain_doc_1",
                     "is_chunk": False,
-                    "source": "pinecone_s1",  # Source from Pinecone meta
+                    "source": "pinecone_s1",
                 },
             },
             {
@@ -1133,43 +1198,44 @@ class TestKnowledgeBaseServiceQuery:
                     "parent_document_id": "pdf1",
                     "is_chunk": True,
                     "chunk_index": 0,
-                    "source": "pinecone_pdf_source",  # Source from Pinecone meta
+                    "source": "pinecone_pdf_source",
                 },
             },
         ]
         mock_pinecone_adapter.query.return_value = pinecone_res
 
-        # Mock Mongo response (needs plain doc, chunk doc, and parent doc for the chunk)
+        # Mock Mongo response
         mongo_docs = [
-            {  # Plain doc
+            # ... (mongo response setup) ...
+            {
                 "_id": "mongo_plain_1",
                 "document_id": "plain_doc_1",
                 "content": "Content of plain doc 1.",
                 "is_chunk": False,
                 "parent_document_id": None,
-                "source": "mongo_s1",  # Source from Mongo takes precedence
+                "source": "mongo_s1",
                 "tags": ["mongo_tag"],
                 "created_at": now - timedelta(days=1),
                 "updated_at": now,
             },
-            {  # Chunk doc
+            {
                 "_id": "mongo_chunk_0",
                 "document_id": "pdf1_chunk_0",
                 "content": "Content of PDF 1 chunk 0.",
                 "is_chunk": True,
                 "parent_document_id": "pdf1",
                 "chunk_index": 0,
-                "source": "mongo_pdf_source",  # Source from Mongo takes precedence
+                "source": "mongo_pdf_source",
                 "created_at": now - timedelta(days=2),
                 "updated_at": now - timedelta(days=1),
             },
-            {  # Parent doc for the chunk
+            {
                 "_id": "mongo_parent_1",
                 "document_id": "pdf1",
-                "content": "Full extracted text of PDF 1.",  # Not usually returned in query
+                "content": "Full extracted text of PDF 1.",
                 "is_chunk": False,
                 "parent_document_id": None,
-                "source": "mongo_pdf_source",  # Parent source
+                "source": "mongo_pdf_source",
                 "year": 2023,
                 "created_at": now - timedelta(days=2),
                 "updated_at": now - timedelta(days=1),
@@ -1223,6 +1289,11 @@ class TestKnowledgeBaseServiceQuery:
         assert results[1].metadata["parent_document_id"] == "pdf1"
         assert results[1].metadata["chunk_index"] == 0
         assert results[1].metadata["year"] == 2023  # Inherited from parent
+
+        # more assertions can be added here as needed
+        assert len(results) == 2
+        assert results[0].document_id == "plain_doc_1"
+        assert results[1].document_id == "pdf1_chunk_0"
 
     async def test_query_success_rerank_on(
         self,
