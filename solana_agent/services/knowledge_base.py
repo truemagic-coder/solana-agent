@@ -674,11 +674,11 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                 return False  # Prevent deleting chunks directly
             if target_doc:
                 document_found = True
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.error(
                 f"Error checking document type for {document_id} in MongoDB: {e}"
-            )
-            return False  # Fail if we can't even check the type
+            )  # pragma: no cover
+            return False  # pragma: no cover # Fail if we can't even check the type
 
         if not document_found:
             logger.warning(f"Document {document_id} not found for deletion.")

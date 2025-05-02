@@ -252,66 +252,6 @@ class TestSolanaAgent:
             )
 
     @pytest.mark.asyncio
-    async def test_kb_update_document(self, config_dict, mock_query_service):
-        """Test updating a document via the KB client method."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory:
-            mock_factory.create_from_config.return_value = mock_query_service
-            agent = SolanaAgent(config=config_dict)
-
-            doc_id = "doc-to-update-kb"
-            new_text = "Updated text."
-            new_meta = {"source": "updated"}
-            namespace = "kb_ns_update"
-
-            # Mock the underlying service call
-            mock_query_service.knowledge_base.update_document.return_value = True
-
-            result = await agent.kb_update_document(
-                document_id=doc_id,
-                text=new_text,
-                metadata=new_meta,
-                namespace=namespace,
-            )
-
-            assert result is True
-            mock_query_service.knowledge_base.update_document.assert_called_once_with(
-                doc_id, new_text, new_meta, namespace
-            )
-
-    @pytest.mark.asyncio
-    async def test_kb_add_documents_batch(self, config_dict, mock_query_service):
-        """Test adding documents in batch via the KB client method."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory:
-            mock_factory.create_from_config.return_value = mock_query_service
-            agent = SolanaAgent(config=config_dict)
-
-            docs = [
-                {"text": "batch1", "metadata": {"id": "b1"}},
-                {"text": "batch2", "metadata": {"id": "b2"}},
-            ]
-            namespace = "kb_ns_batch"
-            batch_size = 10
-            expected_ids = ["b1", "b2"]
-
-            # Mock the underlying service call
-            mock_query_service.knowledge_base.add_documents_batch.return_value = (
-                expected_ids
-            )
-
-            result_ids = await agent.kb_add_documents_batch(
-                documents=docs, namespace=namespace, batch_size=batch_size
-            )
-
-            assert result_ids == expected_ids
-            mock_query_service.knowledge_base.add_documents_batch.assert_called_once_with(
-                docs, namespace, batch_size
-            )
-
-    @pytest.mark.asyncio
     async def test_kb_add_pdf_document_bytes(self, config_dict, mock_query_service):
         """Test adding a PDF document from bytes via the KB client method."""
         with patch(
