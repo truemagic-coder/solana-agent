@@ -106,7 +106,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
         mock_mongodb_adapter.find_one.assert_called_once_with(
             knowledge_base_service.collection,
             {"document_id": PLAIN_DOC_ID},
-            projection={"is_chunk": 1},
         )
         mock_mongodb_adapter.find.assert_called_once_with(
             knowledge_base_service.collection,
@@ -116,7 +115,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                     {"parent_document_id": PLAIN_DOC_ID},
                 ]
             },
-            projection={"document_id": 1},
         )
         mock_mongodb_adapter.delete_many.assert_called_once_with(
             knowledge_base_service.collection, {"document_id": {"$in": [PLAIN_DOC_ID]}}
@@ -155,7 +153,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
         mock_mongodb_adapter.find_one.assert_called_once_with(
             knowledge_base_service.collection,
             {"document_id": PARENT_DOC_ID},
-            projection={"is_chunk": 1},
         )
         mock_mongodb_adapter.find.assert_called_once_with(
             knowledge_base_service.collection,
@@ -165,7 +162,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                     {"parent_document_id": PARENT_DOC_ID},
                 ]
             },
-            projection={"document_id": 1},
         )
         # Assert delete_many called with all IDs
         call_args, _ = mock_mongodb_adapter.delete_many.call_args
@@ -199,7 +195,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
         mock_mongodb_adapter.find_one.assert_called_once_with(
             knowledge_base_service.collection,
             {"document_id": CHUNK_ONLY_ID},
-            projection={"is_chunk": 1},
         )
         # Ensure other operations were not called
         mock_mongodb_adapter.find.assert_not_called()
@@ -225,7 +220,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
         mock_mongodb_adapter.find_one.assert_called_once_with(
             knowledge_base_service.collection,
             {"document_id": NON_EXISTENT_DOC_ID},
-            projection={"is_chunk": 1},
         )
         # find is still called to check for potential chunks even if find_one fails
         mock_mongodb_adapter.find.assert_called_once_with(
@@ -236,7 +230,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                     {"parent_document_id": NON_EXISTENT_DOC_ID},
                 ]
             },
-            projection={"document_id": 1},
         )
         # Ensure delete operations were not called as nothing was found
         mock_mongodb_adapter.delete_many.assert_not_called()
@@ -401,7 +394,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                 mock_mongodb_adapter.find_one.assert_called_once_with(
                     knowledge_base_service.collection,
                     {"document_id": PLAIN_DOC_ID},
-                    projection={"is_chunk": 1},
                 )
                 # Check find call for associated docs
                 mock_mongodb_adapter.find.assert_called_once_with(
@@ -412,7 +404,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                             {"parent_document_id": PLAIN_DOC_ID},
                         ]
                     },
-                    projection={"document_id": 1},
                 )
                 # Check Mongo delete call
                 mock_mongodb_adapter.delete_many.assert_called_once_with(
@@ -461,7 +452,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                 mock_mongodb_adapter.find_one.assert_called_once_with(
                     knowledge_base_service.collection,
                     {"document_id": PARENT_DOC_ID},
-                    projection={"is_chunk": 1},
                 )
                 # Check find call for associated docs
                 mock_mongodb_adapter.find.assert_called_once_with(
@@ -472,7 +462,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                             {"parent_document_id": PARENT_DOC_ID},
                         ]
                     },
-                    projection={"document_id": 1},
                 )
                 # Assert delete_many called with all IDs
                 call_args, _ = mock_mongodb_adapter.delete_many.call_args
@@ -515,7 +504,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                 mock_mongodb_adapter.find_one.assert_called_once_with(
                     knowledge_base_service.collection,
                     {"document_id": CHUNK_ONLY_ID},
-                    projection={"is_chunk": 1},
                 )
                 # Ensure other operations were not called
                 mock_mongodb_adapter.find.assert_not_called()
@@ -547,7 +535,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                 mock_mongodb_adapter.find_one.assert_called_once_with(
                     knowledge_base_service.collection,
                     {"document_id": NON_EXISTENT_DOC_ID},
-                    projection={"is_chunk": 1},
                 )
                 # Check find call (it's still called even if find_one returns None)
                 mock_mongodb_adapter.find.assert_called_once_with(
@@ -558,7 +545,6 @@ class TestKnowledgeBaseServiceDeleteDocument:
                             {"parent_document_id": NON_EXISTENT_DOC_ID},
                         ]
                     },
-                    projection={"document_id": 1},
                 )
                 # Ensure delete operations were not called as nothing was found
                 mock_mongodb_adapter.delete_many.assert_not_called()

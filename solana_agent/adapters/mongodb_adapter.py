@@ -39,6 +39,9 @@ class MongoDBAdapter(DataStorageProvider):
         result = self.db[collection].insert_many(documents)
         return [str(doc_id) for doc_id in result.inserted_ids]
 
+    def delete_many(self, collection: str, query: Dict):
+        return self.db[collection].delete_many(query)
+
     def find_one(self, collection: str, query: Dict) -> Optional[Dict]:
         return self.db[collection].find_one(query)
 

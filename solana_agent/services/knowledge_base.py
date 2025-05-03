@@ -664,7 +664,6 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             target_doc = self.mongo.find_one(
                 self.collection,
                 {"document_id": document_id},
-                projection={"is_chunk": 1},
             )
             if target_doc and target_doc.get("is_chunk"):
                 logger.warning(
@@ -700,7 +699,6 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
                             {"parent_document_id": document_id},
                         ]
                     },
-                    projection={"document_id": 1},
                 )
             )
             if docs_to_delete_mongo:

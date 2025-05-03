@@ -115,6 +115,18 @@ class TestMongoDBAdapter:
         for doc in stored_docs:
             assert doc in documents
 
+    def test_delete_many(self, mongodb_adapter, sample_data):
+        """Test deleting multiple documents."""
+        for doc in sample_data:
+            mongodb_adapter.insert_one("test_collection", doc)
+
+        # Delete all developers
+        result = mongodb_adapter.delete_many("test_collection", {"tags": "developer"})
+        assert result is True
+
+        remaining = mongodb_adapter.find("test_collection", {})
+        assert len(remaining) == 2
+
     def test_find_one_existing(self, mongodb_adapter, sample_data):
         """Test finding a single existing document."""
         for doc in sample_data:
