@@ -388,7 +388,7 @@ config = {
 
 ### Knowledge Base
 
-The Knowledge Base (KB) is meant to store text values and/or small PDFs.
+The Knowledge Base (KB) is meant to store text values and/or PDFs (extracts text) - can handle very large PDFs.
 
 ```python
 config = {

@@ -262,8 +262,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         # --- 2. Store Parent PDF Metadata in MongoDB (NO BINARY) ---
         mongo_parent_doc = {
             "document_id": parent_doc_id,
-            "content": extracted_text,  # Store full extracted text for reference if needed
-            # "pdf_data": pdf_bytes, # DO NOT STORE BINARY
+            "content": None,
             "is_chunk": False,
             "parent_document_id": None,
             **metadata,
@@ -275,11 +274,11 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             logger.info(
                 f"Stored parent metadata for PDF {parent_doc_id} in MongoDB."
             )  # Use logger.info
-        except Exception as e:  # pragma: no cover
-            logger.error(  # Use logger.error
+        except Exception as e:
+            logger.error(
                 f"Error inserting parent PDF metadata {parent_doc_id} into MongoDB: {e}"
-            )  # pragma: no cover
-            raise  # pragma: no cover
+            )
+            raise
 
         # --- 3. Semantic Chunking ---
         if not extracted_text.strip():

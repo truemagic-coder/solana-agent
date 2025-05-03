@@ -85,6 +85,36 @@ class TestMongoDBAdapter:
         stored = mongodb_adapter.db["test_collection"].find_one({"_id": result_id})
         assert stored["name"] == "Test"
 
+    def test_insert_many(self, mongodb_adapter, sample_data):
+        """Test inserting multiple documents."""
+        result_ids = mongodb_adapter.insert_many("test_collection", sample_data)
+        assert len(result_ids) == len(sample_data)
+
+        # Verify all documents were inserted
+        stored_docs = list(mongodb_adapter.db["test_collection"].find())
+        assert len(stored_docs) == len(sample_data)
+
+        # Check if the inserted documents match the sample data
+        for doc in stored_docs:
+            assert doc in sample_data
+
+    def test_insert_many_with_id(self, mongodb_adapter):
+        """Test inserting multiple documents with existing IDs."""
+        documents = [
+            {"_id": "id1", "name": "Test1"},
+            {"_id": "id2", "name": "Test2"},
+        ]
+        result_ids = mongodb_adapter.insert_many("test_collection", documents)
+        assert result_ids == ["id1", "id2"]
+
+        # Verify all documents were inserted
+        stored_docs = list(mongodb_adapter.db["test_collection"].find())
+        assert len(stored_docs) == len(documents)
+
+        # Check if the inserted documents match the sample data
+        for doc in stored_docs:
+            assert doc in documents
+
     def test_find_one_existing(self, mongodb_adapter, sample_data):
         """Test finding a single existing document."""
         for doc in sample_data:
