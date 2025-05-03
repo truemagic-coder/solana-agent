@@ -184,7 +184,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         pinecone_metadata = {
             "document_id": doc_id,
             "is_chunk": False,
-            "parent_document_id": None,  # Explicitly set for clarity
+            "parent_document_id": False,  # Explicitly set for clarity - Pinecone can't use None
             "source": metadata.get("source", "unknown"),
             "tags": metadata.get("tags", []),
         }
