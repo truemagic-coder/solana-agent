@@ -92,27 +92,6 @@ class SolanaAgent(ABC):
         pass
 
     @abstractmethod
-    async def kb_update_document(
-        self,
-        document_id: str,
-        text: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        namespace: Optional[str] = None,
-    ) -> bool:
-        """Update an existing document in the knowledge base."""
-        pass
-
-    @abstractmethod
-    async def kb_add_documents_batch(
-        self,
-        documents: List[Dict[str, Any]],
-        namespace: Optional[str] = None,
-        batch_size: int = 50,
-    ) -> List[str]:
-        """Add multiple documents to the knowledge base in batches."""
-        pass
-
-    @abstractmethod
     async def kb_add_pdf_document(
         self,
         pdf_data: Union[bytes, str],

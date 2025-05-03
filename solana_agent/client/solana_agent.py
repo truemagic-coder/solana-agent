@@ -227,48 +227,6 @@ class SolanaAgent(SolanaAgentInterface):
         kb = self._ensure_kb()
         return await kb.delete_document(document_id, namespace)
 
-    async def kb_update_document(
-        self,
-        document_id: str,
-        text: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        namespace: Optional[str] = None,
-    ) -> bool:
-        """
-        Update an existing document in the knowledge base.
-
-        Args:
-            document_id: ID of document to update.
-            text: Optional new text content.
-            metadata: Optional metadata to update.
-            namespace: Optional Pinecone namespace.
-
-        Returns:
-            True if successful.
-        """
-        kb = self._ensure_kb()
-        return await kb.update_document(document_id, text, metadata, namespace)
-
-    async def kb_add_documents_batch(
-        self,
-        documents: List[Dict[str, Any]],
-        namespace: Optional[str] = None,
-        batch_size: int = 50,
-    ) -> List[str]:
-        """
-        Add multiple documents to the knowledge base in batches.
-
-        Args:
-            documents: List of documents ({'text': ..., 'metadata': ...}).
-            namespace: Optional Pinecone namespace.
-            batch_size: Number of documents per batch.
-
-        Returns:
-            List of added document IDs.
-        """
-        kb = self._ensure_kb()
-        return await kb.add_documents_batch(documents, namespace, batch_size)
-
     async def kb_add_pdf_document(
         self,
         pdf_data: Union[bytes, str],
