@@ -122,7 +122,7 @@ class TestMongoDBAdapter:
 
         # Delete all developers
         result = mongodb_adapter.delete_many("test_collection", {"tags": "developer"})
-        assert result is True
+        assert result.deleted_count == 3
 
         remaining = mongodb_adapter.find("test_collection", {})
         assert len(remaining) == 2
