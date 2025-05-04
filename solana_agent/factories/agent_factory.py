@@ -168,6 +168,30 @@ class SolanaAgentFactory:
             output_guardrails=output_guardrails,
         )
 
+        if "gemini" in config and "api_key" in config["gemini"]:
+            # Create primary services
+            agent_service = AgentService(
+                llm_provider=llm_adapter,
+                business_mission=business_mission,
+                config=config,
+                api_key=config["gemini"]["api_key"],
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                model="gemini-2.5-pro-preview-03-25",
+                output_guardrails=output_guardrails,
+            )  # pragma: no cover
+
+        elif "grok" in config and "api_key" in config["grok"]:
+            # Create primary services
+            agent_service = AgentService(
+                llm_provider=llm_adapter,
+                business_mission=business_mission,
+                config=config,
+                api_key=config["grok"]["api_key"],
+                base_url="https://api.x.ai/v1",
+                model="grok-3-fast",
+                output_guardrails=output_guardrails,
+            )  # pragma: no cover
+
         # Create routing service
         routing_service = RoutingService(
             llm_provider=llm_adapter,
