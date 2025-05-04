@@ -93,21 +93,21 @@
 </section>
 <section id="flows">
 <h3>Flows<a class="headerlink" href="#flows" title="Link to this heading"></a></h3>
-<p>In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).</p>
-<p>An agent can have multiple tools and will choose the best one to answer the user query.</p>
-<p>Routing is determined by optimal domain expertise of the agent for the user query.</p>
-<p>When the agent uses a tool it feeds the tool output back into the agent to generate the final response.</p>
+<p>In both flows of single and multiple agents - it is one user query to one agent using one or many tools (if needed).</p>
+<p>An agent can have multiple tools and will choose the best ones to fulfill the user’s query.</p>
+<p>Routing is determined by optimal domain expertise of the agent for the user’s query.</p>
+<p>When the agent uses tools it feeds the tools output back to itself to generate the final response.</p>
 <p>This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.</p>
 <p>Keep this in mind while designing your agentic systems using Solana Agent.</p>
 <div class="highlight-ascii notranslate"><div class="highlight"><pre><span></span>                     Single Agent
 
-   ┌────────┐        ┌─────────┐        ┌────────┐
-   │        │        │         │        │        │
-   │        │        │         │        │        │
-   │  User  │◄──────►│  Agent  │◄──────►│  Tool  │
-   │        │        │         │        │        │
-   │        │        │         │        │        │
-   └────────┘        └─────────┘        └────────┘
+   ┌────────┐        ┌─────────┐        ┌────────-┐
+   │        │        │         │        │         │
+   │        │        │         │        │         │
+   │  User  │◄──────►│  Agent  │◄──────►│  Tools  │
+   │        │        │         │        │         │
+   │        │        │         │        │         │
+   └────────┘        └─────────┘        └────────-┘
 
 
 
@@ -115,13 +115,13 @@
 
                      Multiple Agents
 
-     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
-     │        │        │          │        │         │        │        │
-     │        │        │          │        │         │        │        │
-┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
-│    │        │        │          │        │         │        │        │
-│    │        │        │          │        │         │        │        │
-│    └────────┘        └──────────┘        └────┬────┘        └────────┘
+     ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────-┐
+     │        │        │          │        │         │        │         │
+     │        │        │          │        │         │        │         │
+┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tools  │
+│    │        │        │          │        │         │        │         │
+│    │        │        │          │        │         │        │         │
+│    └────────┘        └──────────┘        └────┬────┘        └────────-┘
 │                                               │
 │                                               │
 │                                               │
@@ -373,6 +373,28 @@ uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span cl
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;logfire&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-logfire-write-token&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="grok-optional">
+<h3>Grok - Optional<a class="headerlink" href="#grok-optional" title="Link to this heading"></a></h3>
+<p><cite>grok-3-fast</cite> can be used instead of <cite>gpt-4.1</cite> for the agent model</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;grok&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-grok-api-key&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="gemini-optional">
+<h3>Gemini - Optional<a class="headerlink" href="#gemini-optional" title="Link to this heading"></a></h3>
+<p><cite>gemini-2.5-pro-preview-03-25</cite> can be used instead of <cite>gpt-4.1</cite> for the agent model</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;gemini&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-gemini-api-key&quot;</span><span class="p">,</span>
    <span class="p">},</span>
 <span class="p">}</span>
 </pre></div>

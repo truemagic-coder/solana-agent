@@ -23,13 +23,13 @@ Installation
 Flows
 ~~~~~~
 
-In both flows of single and multiple agents - it is one user query to one agent using one tool (if needed).
+In both flows of single and multiple agents - it is one user query to one agent using one or many tools (if needed).
 
-An agent can have multiple tools and will choose the best one to answer the user query.
+An agent can have multiple tools and will choose the best ones to fulfill the user's query.
 
-Routing is determined by optimal domain expertise of the agent for the user query.
+Routing is determined by optimal domain expertise of the agent for the user's query.
 
-When the agent uses a tool it feeds the tool output back into the agent to generate the final response.
+When the agent uses tools it feeds the tools output back to itself to generate the final response.
 
 This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
 
@@ -39,13 +39,13 @@ Keep this in mind while designing your agentic systems using Solana Agent.
 
                         Single Agent                                     
                                                                            
-      ┌────────┐        ┌─────────┐        ┌────────┐                    
-      │        │        │         │        │        │                    
-      │        │        │         │        │        │                    
-      │  User  │◄──────►│  Agent  │◄──────►│  Tool  │                    
-      │        │        │         │        │        │                    
-      │        │        │         │        │        │                    
-      └────────┘        └─────────┘        └────────┘                    
+      ┌────────┐        ┌─────────┐        ┌────────-┐                    
+      │        │        │         │        │         │                    
+      │        │        │         │        │         │                    
+      │  User  │◄──────►│  Agent  │◄──────►│  Tools  │                    
+      │        │        │         │        │         │                    
+      │        │        │         │        │         │                    
+      └────────┘        └─────────┘        └────────-┘                    
                                                                            
                                                                            
                                                                            
@@ -53,13 +53,13 @@ Keep this in mind while designing your agentic systems using Solana Agent.
                                                                            
                         Multiple Agents                                   
                                                                            
-        ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────┐
-        │        │        │          │        │         │        │        │
-        │        │        │          │        │         │        │        │
-   ┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tool  │
-   │    │        │        │          │        │         │        │        │
-   │    │        │        │          │        │         │        │        │
-   │    └────────┘        └──────────┘        └────┬────┘        └────────┘
+        ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────-┐
+        │        │        │          │        │         │        │         │
+        │        │        │          │        │         │        │         │
+   ┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tools  │
+   │    │        │        │          │        │         │        │         │
+   │    │        │        │          │        │         │        │         │
+   │    └────────┘        └──────────┘        └────┬────┘        └────────-┘
    │                                               │                       
    │                                               │                       
    │                                               │                       
@@ -331,6 +331,35 @@ Observability and Tracing - Optional
          "api_key": "your-logfire-write-token",
       },
    }
+
+
+Grok - Optional
+~~~~~~~~~~~~~~~~
+
+`grok-3-fast` can be used instead of `gpt-4.1` for the agent model
+
+.. code-block:: python
+
+   config = {
+      "grok": {
+         "api_key": "your-grok-api-key",
+      },
+   }
+
+
+Gemini - Optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+`gemini-2.5-pro-preview-03-25` can be used instead of `gpt-4.1` for the agent model
+
+.. code-block:: python
+
+   config = {
+      "gemini": {
+         "api_key": "your-gemini-api-key",
+      },
+   }
+
 
 Knowledge Base - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
