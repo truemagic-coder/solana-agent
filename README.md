@@ -20,6 +20,7 @@ Build your AI agents in three lines of code!
 * Three lines of code setup
 * Simple Agent Definition
 * Fast Responses
+* Multi-Vendor Support
 * Solana Ecosystem Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
@@ -44,6 +45,7 @@ Build your AI agents in three lines of code!
 * Easy three lines of code setup
 * Simple agent definition using JSON
 * Fast AI responses
+* Multi-vendor support including OpenAI, Grok, and Gemini AI services
 * Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
