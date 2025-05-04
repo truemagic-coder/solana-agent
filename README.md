@@ -77,13 +77,20 @@ Build your AI agents in three lines of code!
 
 ### AI Models Used
 
-* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent)
+**OpenAI**
+* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent - can be overridden)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 * [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation)
 * [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview) (Internet search)
+
+**Grok**
+* [grok-3-fast](https://x.ai/api#pricing) (agent - optional)
+
+**Gemini**
+* [gemini-2.5-pro-preview-03-25](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-pro-preview-03-25) (agent - optional)
 
 ## Installation
 
@@ -382,6 +389,30 @@ config = {
 config = {
     "logfire": {
         "api_key": "your-logfire-write-token",
+    },
+}
+```
+
+### Grok
+
+`grok-3-fast` can be used instead of `gpt-4.1` for the agent model
+
+```python
+config = {
+    "grok": {
+        "api_key": "your-grok-api-key",
+    },
+}
+```
+
+### Gemini
+
+`gemini-2.5-pro-preview-03-25` can be used instead of `gpt-4.1` for the agent model
+
+```python
+config = {
+    "gemini": {
+        "api_key": "your-gemini-api-key",
     },
 }
 ```
