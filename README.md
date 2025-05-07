@@ -85,14 +85,16 @@ Build your AI agents in three lines of code!
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
-* [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation)
+* [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation - can be overridden)
 * [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview) (Internet search)
 
 **Grok**
 * [grok-3-fast](https://x.ai/api#pricing) (agent - optional)
+* [grok-2-image](https://x.ai/api#pricing) (image generation - optional)
 
 **Gemini**
 * [gemini-2.5-flash-preview-04-17](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (agent - optional)
+* [imagen-3.0-generate-002](https://ai.google.dev/gemini-api/docs/models#imagen-3) (image generation - optional)
 
 ## Installation
 
