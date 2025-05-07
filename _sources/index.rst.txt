@@ -677,11 +677,10 @@ This plugin allows the agent to generate images using OpenAI's image models and 
    from solana_agent import SolanaAgent
 
    config = {
-      "openai": {
-         "api_key": "your-openai-api-key" # Required: Your OpenAI API key
-      },
       "tools": {
          "image_gen": {
+               "provider": "grok",                                          # Required: either "openai", "grok", or "gemini"
+               "api_key": "your-api-key",                                   # Required: your OpenAI or Grok or Gemini API key
                "s3_endpoint_url": "https://your-s3-endpoint.com",           # Required: e.g., https://nyc3.digitaloceanspaces.com
                "s3_access_key_id": "YOUR_S3_ACCESS_KEY",                    # Required: Your S3 access key ID
                "s3_secret_access_key": "YOUR_S3_SECRET_KEY",                # Required: Your S3 secret access key
