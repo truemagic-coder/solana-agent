@@ -715,7 +715,7 @@ async for response in solana_agent.process("user123", "Send an email to bob@bob.
 
 ### Image Generation
 
-Generate images using OpenAI's `gpt-image-1` and upload them to S3-compatible storage.
+Generate images using OpenAI, Grok, or Gemini image models and upload them to S3-compatible storage.
 
 `pip install sakit`
 
