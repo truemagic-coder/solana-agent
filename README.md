@@ -92,7 +92,7 @@ Build your AI agents in three lines of code!
 * [grok-3-fast](https://x.ai/api#pricing) (agent - optional)
 
 **Gemini**
-* [gemini-2.5-pro-preview-03-25](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-pro-preview-03-25) (agent - optional)
+* [gemini-2.5-flash-preview-04-17](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (agent - optional)
 
 ## Installation
 
