@@ -679,7 +679,7 @@ Generate images using OpenAI, Grok, or Gemini image models and upload them to S3
    config = {
       "tools": {
          "image_gen": {
-               "provider": "grok",                                          # Required: either "openai", "grok", or "gemini"
+               "provider": "openai",                                        # Required: either "openai", "grok", or "gemini"
                "api_key": "your-api-key",                                   # Required: your OpenAI or Grok or Gemini API key
                "s3_endpoint_url": "https://your-s3-endpoint.com",           # Required: e.g., https://nyc3.digitaloceanspaces.com
                "s3_access_key_id": "YOUR_S3_ACCESS_KEY",                    # Required: Your S3 access key ID
@@ -704,6 +704,48 @@ Generate images using OpenAI, Grok, or Gemini image models and upload them to S3
    async for response in solana_agent.process("user123", "Generate an image of a smiling unicorn!"):
       print(response, end="")
 
+
+### Nemo Agent
+
+This plugin allows the agent to generate python programs using [Nemo Agent](https://nemo-agent.com) and uploads the files in a ZIP file to s3-compatible storage. It returns the public URL of the zip file.
+
+This has been tested using [Cloudflare R2](https://developers.cloudflare.com/r2/).
+
+.. code-block:: bash
+   
+   pip install sakit
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "tools": {
+         "nemo_agent": {
+               "provider": "openai",                                        # Required: either "openai" or "gemini"
+               "api_key": "your-api-key",                                   # Required: your OpenAI or Gemini API key
+               "s3_endpoint_url": "https://your-s3-endpoint.com",           # Required: e.g., https://nyc3.digitaloceanspaces.com
+               "s3_access_key_id": "YOUR_S3_ACCESS_KEY",                    # Required: Your S3 access key ID
+               "s3_secret_access_key": "YOUR_S3_SECRET_KEY",                # Required: Your S3 secret access key
+               "s3_bucket_name": "your-bucket-name",                        # Required: The name of your S3 bucket
+               "s3_region_name": "your-region",                             # Optional: e.g., "nyc3", needed by some providers
+               "s3_public_url_base": "https://your-cdn-or-bucket-url.com/", # Optional: Custom base URL for public links (include trailing slash). If omitted, a standard URL is constructed.
+         }
+      },
+      "agents": [
+         {
+               "name": "python_dev",
+               "instructions": "You are an expert Python Developer. You always use your nemo_agent tool to generate python code.",
+               "specialization": "Python Developer",
+               "tools": ["nemo_agent"],  # Enable the tool for this agent
+         }
+      ]
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   async for response in solana_agent.process("user123", "Generate an example leetcode medium in Python and give me the zip file."):
+      print(response, end="")
 
 Inline Tool Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
