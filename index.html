@@ -693,7 +693,7 @@ uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span cl
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
       <span class="s2">&quot;image_gen&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;grok&quot;</span><span class="p">,</span>                                          <span class="c1"># Required: either &quot;openai&quot;, &quot;grok&quot;, or &quot;gemini&quot;</span>
+            <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;openai&quot;</span><span class="p">,</span>                                        <span class="c1"># Required: either &quot;openai&quot;, &quot;grok&quot;, or &quot;gemini&quot;</span>
             <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>                                   <span class="c1"># Required: your OpenAI or Grok or Gemini API key</span>
             <span class="s2">&quot;s3_endpoint_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://your-s3-endpoint.com&quot;</span><span class="p">,</span>           <span class="c1"># Required: e.g., https://nyc3.digitaloceanspaces.com</span>
             <span class="s2">&quot;s3_access_key_id&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_S3_ACCESS_KEY&quot;</span><span class="p">,</span>                    <span class="c1"># Required: Your S3 access key ID</span>
@@ -716,6 +716,43 @@ uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span cl
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
 <span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Generate an image of a smiling unicorn!&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>### Nemo Agent</p>
+<p>This plugin allows the agent to generate python programs using [Nemo Agent](<a class="reference external" href="https://nemo-agent.com">https://nemo-agent.com</a>) and uploads the files in a ZIP file to s3-compatible storage. It returns the public URL of the zip file.</p>
+<p>This has been tested using [Cloudflare R2](<a class="reference external" href="https://developers.cloudflare.com/r2/">https://developers.cloudflare.com/r2/</a>).</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;nemo_agent&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="s2">&quot;openai&quot;</span><span class="p">,</span>                                        <span class="c1"># Required: either &quot;openai&quot; or &quot;gemini&quot;</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>                                   <span class="c1"># Required: your OpenAI or Gemini API key</span>
+            <span class="s2">&quot;s3_endpoint_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://your-s3-endpoint.com&quot;</span><span class="p">,</span>           <span class="c1"># Required: e.g., https://nyc3.digitaloceanspaces.com</span>
+            <span class="s2">&quot;s3_access_key_id&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_S3_ACCESS_KEY&quot;</span><span class="p">,</span>                    <span class="c1"># Required: Your S3 access key ID</span>
+            <span class="s2">&quot;s3_secret_access_key&quot;</span><span class="p">:</span> <span class="s2">&quot;YOUR_S3_SECRET_KEY&quot;</span><span class="p">,</span>                <span class="c1"># Required: Your S3 secret access key</span>
+            <span class="s2">&quot;s3_bucket_name&quot;</span><span class="p">:</span> <span class="s2">&quot;your-bucket-name&quot;</span><span class="p">,</span>                        <span class="c1"># Required: The name of your S3 bucket</span>
+            <span class="s2">&quot;s3_region_name&quot;</span><span class="p">:</span> <span class="s2">&quot;your-region&quot;</span><span class="p">,</span>                             <span class="c1"># Optional: e.g., &quot;nyc3&quot;, needed by some providers</span>
+            <span class="s2">&quot;s3_public_url_base&quot;</span><span class="p">:</span> <span class="s2">&quot;https://your-cdn-or-bucket-url.com/&quot;</span><span class="p">,</span> <span class="c1"># Optional: Custom base URL for public links (include trailing slash). If omitted, a standard URL is constructed.</span>
+      <span class="p">}</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;python_dev&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert Python Developer. You always use your nemo_agent tool to generate python code.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Python Developer&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;nemo_agent&quot;</span><span class="p">],</span>  <span class="c1"># Enable the tool for this agent</span>
+      <span class="p">}</span>
+   <span class="p">]</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Generate an example leetcode medium in Python and give me the zip file.&quot;</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
