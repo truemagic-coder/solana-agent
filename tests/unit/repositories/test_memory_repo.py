@@ -409,3 +409,46 @@ class TestMemoryRepository:
         result = repo.find("conversations", {})
         assert result == []
         mock_mongo_adapter.find.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_only_returns_formatted_memory(
+        self, mock_mongo_adapter
+    ):
+        """Test retrieval from MongoDB only, returns formatted memory string."""
+        # Setup: no Zep, only MongoDB
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        # Mock MongoDB find to return a doc with user and assistant messages
+        mock_mongo_adapter.find.return_value = [
+            {"user_message": "Hello", "assistant_message": "Hi there"}
+        ]
+        result = await repo.retrieve("user123")
+        assert "\nUser: Hello\nAssistant: Hi there" in result
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_only_handles_no_results(self, mock_mongo_adapter):
+        """Test retrieval from MongoDB returns empty string if no docs."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.return_value = []
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_only_handles_missing_fields(self, mock_mongo_adapter):
+        """Test retrieval from MongoDB skips docs missing required fields."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        # Missing assistant_message
+        mock_mongo_adapter.find.return_value = [{"user_message": "Hello"}]
+        result = await repo.retrieve("user123")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_error_logged_and_returns_empty(
+        self, mock_mongo_adapter
+    ):
+        """Test retrieval logs error and returns empty string on exception."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.side_effect = Exception("Find error")
+        with patch("solana_agent.repositories.memory.logger") as mock_logger:
+            result = await repo.retrieve("user123")
+            assert result == ""
+            mock_logger.error.assert_called()
