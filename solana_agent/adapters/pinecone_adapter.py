@@ -41,7 +41,7 @@ class PineconeAdapter(VectorStorageProvider):
         create_index_if_not_exists: bool = True,
         # Reranking Config
         use_reranking: bool = False,
-        rerank_model: Optional[PineconeRerankModel] = None,
+        rerank_model: Optional[PineconeRerankModel] = "cohere-rerank-3.5",
         rerank_top_k: int = 3,  # Final number of results after reranking
         # Multiplier for initial fetch before rerank
         initial_query_top_k_multiplier: int = 5,
@@ -371,7 +371,7 @@ class PineconeAdapter(VectorStorageProvider):
                     "parameters": rerank_params,
                 }
 
-                rerank_response = await self.pinecone.rerank(**rerank_request)
+                rerank_response = await self.pinecone.inference.rerank(**rerank_request)
 
                 # 4. Process Reranked Results
                 reranked_results = []

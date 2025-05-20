@@ -270,7 +270,9 @@ class SolanaAgentFactory:
                     ),
                     # Reranking config
                     use_reranking=pinecone_config.get("use_reranking", False),
-                    rerank_model=pinecone_config.get("rerank_model"),
+                    rerank_model=pinecone_config.get(
+                        "rerank_model", "cohere-rerank-3.5"
+                    ),
                     rerank_top_k=pinecone_config.get("rerank_top_k", 3),
                     initial_query_top_k_multiplier=pinecone_config.get(
                         "initial_query_top_k_multiplier", 5

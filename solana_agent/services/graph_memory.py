@@ -58,7 +58,13 @@ class GraphMemoryService(GraphMemoryServiceInterface):
                 entity["text"], model=self.embedding_model
             )
             await self.pinecone.upsert(
-                [{"id": node_id, "values": embedding}],
+                [
+                    {
+                        "id": node_id,
+                        "values": embedding,
+                        "metadata": {"text": self._truncate_text(entity["text"])},
+                    }
+                ],
                 namespace=namespace,
             )
         return episode_id
@@ -85,3 +91,12 @@ class GraphMemoryService(GraphMemoryServiceInterface):
 
     async def traverse(self, node_id: str, depth: int = 1) -> List[Dict[str, Any]]:
         return await self.graph.find_neighbors(node_id, depth=depth)
+
+    # pinecone has a 40kb character limit for text
+    def _truncate_text(self, text: str, max_length: int = 40960) -> str:
+        """
+        Truncate text to a maximum length.
+        """
+        if len(text) > max_length - 3:
+            return text[:max_length] + "..."
+        return text

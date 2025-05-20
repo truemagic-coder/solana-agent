@@ -418,7 +418,6 @@ config = {
         "pinecone": {
             "api_key": "your-pinecone-api-key",
             "index_name": "your-pinecone-index-name",
-            "use_reranking": True # optional - but increases better matching - requires Pinecone Standard
         }
     },
     "mongo": {
