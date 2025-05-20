@@ -10,11 +10,13 @@ import logging
 from typing import Dict, Any, List
 
 # Service imports
+from solana_agent.adapters.mongodb_graph_adapter import MongoDBGraphAdapter
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
     OutputGuardrail,
 )
+from solana_agent.services.graph_memory import GraphMemoryService
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -241,6 +243,7 @@ class SolanaAgentFactory:
 
         # Initialize Knowledge Base if configured
         knowledge_base = None
+        graph_memory_service = None
         kb_config = config.get("knowledge_base")
         # Requires both KB config section and MongoDB adapter
         if kb_config and db_adapter:
@@ -311,6 +314,34 @@ class SolanaAgentFactory:
                     "Knowledge Base Service initialized successfully."
                 )  # Use logger.info
 
+                # Create Graph Memory Service
+                graph_memory_config = pinecone_config.get("agent_memory", {})
+                try:
+                    # Create MongoDBGraphAdapter
+                    mongo_graph_adapter = MongoDBGraphAdapter(
+                        mongo_adapter=db_adapter,
+                        node_collection=graph_memory_config.get(
+                            "node_collection", "graph_nodes"
+                        ),
+                        edge_collection=graph_memory_config.get(
+                            "edge_collection", "graph_edges"
+                        ),
+                    )
+
+                    # Create GraphMemoryService
+                    graph_memory_service = GraphMemoryService(
+                        graph_adapter=mongo_graph_adapter,
+                        pinecone_adapter=pinecone_adapter,
+                        openai_adapter=llm_adapter,
+                        embedding_model=graph_memory_config.get(
+                            "embedding_model", "text-embedding-3-large"
+                        ),
+                    )
+                    logger.info("Graph Memory Service initialized successfully.")
+                except Exception as e:
+                    logger.exception(f"Failed to initialize Graph Memory: {e}")
+                    graph_memory_service = None
+
             except Exception as e:
                 # Use logger.exception to include traceback automatically
                 logger.exception(f"Failed to initialize Knowledge Base: {e}")
@@ -324,6 +355,7 @@ class SolanaAgentFactory:
             knowledge_base=knowledge_base,  # Pass the potentially created KB
             kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
             input_guardrails=input_guardrails,
+            graph_memory=graph_memory_service,
         )
 
         return query_service

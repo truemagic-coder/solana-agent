@@ -17,12 +17,13 @@ from solana_agent.interfaces.services.routing import (
 from solana_agent.interfaces.providers.memory import (
     MemoryProvider as MemoryProviderInterface,
 )
-from solana_agent.interfaces.services.knowledge_base import (
-    KnowledgeBaseService as KnowledgeBaseInterface,
+from solana_agent.services.knowledge_base import (
+    KnowledgeBaseService,
 )
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
 )
+from solana_agent.services.graph_memory import GraphMemoryService
 
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -38,9 +39,10 @@ class QueryService(QueryServiceInterface):
         agent_service: AgentService,
         routing_service: RoutingService,
         memory_provider: Optional[MemoryProviderInterface] = None,
-        knowledge_base: Optional[KnowledgeBaseInterface] = None,
+        knowledge_base: Optional[KnowledgeBaseService] = None,
         kb_results_count: int = 3,
         input_guardrails: List[InputGuardrail] = None,
+        graph_memory: Optional[GraphMemoryService] = None,
     ):
         """Initialize the query service.
 
@@ -51,6 +53,7 @@ class QueryService(QueryServiceInterface):
             knowledge_base: Optional provider for knowledge base interactions
             kb_results_count: Number of results to retrieve from knowledge base
             input_guardrails: List of input guardrail instances
+            graph_memory: Optional graph memory service instance
         """
         self.agent_service = agent_service
         self.routing_service = routing_service
@@ -58,6 +61,7 @@ class QueryService(QueryServiceInterface):
         self.knowledge_base = knowledge_base
         self.kb_results_count = kb_results_count
         self.input_guardrails = input_guardrails or []
+        self.graph_memory = graph_memory
 
     async def process(
         self,
@@ -168,6 +172,18 @@ class QueryService(QueryServiceInterface):
                 # Store simple interaction in memory (using processed user_text)
                 if self.memory_provider:
                     await self._store_conversation(user_id, user_text, response)
+                # --- Store in graph memory if available ---
+                if self.graph_memory:
+                    try:
+                        await self.graph_memory.add_episode(
+                            user_message=user_text,
+                            assistant_message=response,
+                            user_id=user_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error storing in graph memory: {e}", exc_info=True
+                        )
                 return
 
             # --- 4. Get Memory Context ---
@@ -232,6 +248,43 @@ class QueryService(QueryServiceInterface):
                 combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base results and Tool results (if applicable) over Conversation History.\n\n"
             logger.debug(f"Combined context length: {len(combined_context)}")
 
+            # --- 7a. Retrieve Graph Memory Context (NEW) ---
+            graph_context = ""
+            if self.graph_memory:
+                try:
+                    # Use processed user_text for graph memory search
+                    graph_results = await self.graph_memory.search(
+                        user_id=user_id,
+                        query=user_text,
+                        top_k=3,
+                    )
+                    if graph_results:
+                        graph_context = (
+                            "**GRAPH MEMORY (Relevant Episodes/Entities):**\n"
+                        )
+                        for i, node in enumerate(graph_results, 1):
+                            node_type = node.get("type", "node")
+                            node_text = node.get("text", "")
+                            episode_id = node.get("episode_id", "")
+                            graph_context += f"[{i}] ({node_type}) {node_text}"
+                            if episode_id:
+                                graph_context += f" (Episode: {episode_id})"
+                            graph_context += "\n\n"
+                        logger.info(
+                            f"Retrieved {len(graph_results)} results from Graph Memory."
+                        )
+                    else:
+                        logger.info("No relevant results found in Graph Memory.")
+                except Exception as e:
+                    logger.error(f"Error retrieving graph memory: {e}", exc_info=True)
+
+            if graph_context:
+                combined_context += f"{graph_context}\n"
+
+            if memory_context or kb_context or graph_context:
+                combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base, Graph Memory, and Tool results (if applicable) over Conversation History.\n\n"
+            logger.debug(f"Combined context length: {len(combined_context)}")
+
             # --- 8. Generate Response ---
             # Pass the processed user_text and images to the agent service
             if output_format == "audio":
@@ -257,6 +310,20 @@ class QueryService(QueryServiceInterface):
                         user_message=user_text,  # Store only text part of user query
                         assistant_message=self.agent_service.last_text_response,
                     )
+                # --- Store in graph memory if available ---
+                if self.graph_memory and hasattr(
+                    self.agent_service, "last_text_response"
+                ):
+                    try:
+                        await self.graph_memory.add_episode(
+                            user_message=user_text,
+                            assistant_message=self.agent_service.last_text_response,
+                            user_id=user_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error storing in graph memory: {e}", exc_info=True
+                        )
             else:
                 full_text_response = ""
                 async for chunk in self.agent_service.generate_response(
@@ -279,6 +346,18 @@ class QueryService(QueryServiceInterface):
                         user_message=user_text,  # Store only text part of user query
                         assistant_message=full_text_response,
                     )
+                # --- Store in graph memory if available ---
+                if self.graph_memory and full_text_response:
+                    try:
+                        await self.graph_memory.add_episode(
+                            user_message=user_text,
+                            assistant_message=full_text_response,
+                            user_id=user_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error storing in graph memory: {e}", exc_info=True
+                        )
 
         except Exception as e:
             import traceback
