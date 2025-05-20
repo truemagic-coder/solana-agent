@@ -310,17 +310,6 @@ Conversational History - Optional
       },
    }
 
-Conversational Memory - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-   
-   config = {
-      "zep": {
-         "api_key": "your-zep-api-key",
-      },
-   }
-
 Observability and Tracing - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -361,7 +350,7 @@ Gemini - Optional
    }
 
 
-Knowledge Base - Optional
+Knowledge Base & Conversational Memory - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The Knowledge Base (KB) is meant to store text values and/or small PDFs.

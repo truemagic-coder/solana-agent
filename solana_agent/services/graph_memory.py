@@ -78,7 +78,6 @@ class GraphMemoryService(GraphMemoryServiceInterface):
         # Only return nodes that match user_id
         nodes = []
         for nid in node_ids:
-            print(f"Node ID: {nid}")
             node = await self.graph.get_node(nid)
             if node and node.get("user_id") == user_id:
                 nodes.append(node)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "29.2.0-dev80"
+version = "30.0.0"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -27,7 +27,6 @@ python = ">=3.12,<4.0"
 openai = "1.79.0"
 pydantic = ">=2"
 pymongo = "4.13.0"
-zep-cloud = "2.12.3"
 instructor = "1.8.2"
 pinecone = "6.0.2"
 llama-index-core = "0.12.37"

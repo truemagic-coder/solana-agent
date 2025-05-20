@@ -3949,23 +3949,6 @@ multidict = ">=4.0"
 propcache = ">=0.2.1"
 
 [[package]]
-name = "zep-cloud"
-version = "2.12.3"
-description = ""
-optional = false
-python-versions = "<4.0,>=3.9.0"
-groups = ["main"]
-files = [
-    {file = "zep_cloud-2.12.3-py3-none-any.whl", hash = "sha256:20b5e71b22f65e20fdd502c26bdf22878985db340c84b10a3f4e5b60b967eff9"},
-    {file = "zep_cloud-2.12.3.tar.gz", hash = "sha256:0b98b66b1ed26a5911f3cfb53a56419c9dddbb7a417967277429eb348288b515"},
-]
-
-[package.dependencies]
-httpx = ">=0.21.2"
-pydantic = ">=1.9.2"
-typing_extensions = ">=4.0.0"
-
-[[package]]
 name = "zipp"
 version = "3.21.0"
 description = "Backport of pathlib-compatible object wrapper for zip files"
@@ -3988,4 +3971,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "03ee613e57745218b7a810e24ccbbfdf0fc30a4fc4db1a68ac2e2faa51d3c282"
+content-hash = "a3899e77d6e48844998311ef9538da28b912a7a0a2e703a4abb967855babfb9a"

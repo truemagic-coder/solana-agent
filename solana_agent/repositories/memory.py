@@ -1,9 +1,6 @@
 import logging  # Import logging
-from copy import deepcopy
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
-from zep_cloud.client import AsyncZep as AsyncZepCloud
-from zep_cloud.types import Message
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
@@ -12,12 +9,11 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryRepository(MemoryProvider):
-    """Combined Zep and MongoDB implementation of MemoryProvider."""
+    """MongoDB implementation of MemoryProvider."""
 
     def __init__(
         self,
         mongo_adapter: Optional[MongoDBAdapter] = None,
-        zep_api_key: Optional[str] = None,
     ):
         """Initialize the combined memory provider."""
         if not mongo_adapter:
@@ -36,13 +32,8 @@ class MemoryRepository(MemoryProvider):
             except Exception as e:
                 logger.error(f"Error initializing MongoDB: {e}")  # Use logger.error
 
-        self.zep = None
-        # Initialize Zep
-        if zep_api_key:
-            self.zep = AsyncZepCloud(api_key=zep_api_key)
-
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
-        """Store messages in both Zep and MongoDB."""
+        """Store messages in MongoDB."""
         if not user_id:
             raise ValueError("User ID cannot be None or empty")
         if not messages or not isinstance(messages, list):
@@ -86,56 +77,22 @@ class MemoryRepository(MemoryProvider):
             except Exception as e:
                 logger.error(f"MongoDB storage error: {e}")  # Use logger.error
 
-        # Store in Zep
-        if not self.zep:
-            return
-
-        # Convert messages to Zep format
-        zep_messages = []
-        for msg in messages:
-            if "role" in msg and "content" in msg:
-                content = self._truncate(deepcopy(msg["content"]))
-                zep_msg = Message(
-                    role=msg["role"],
-                    content=content,
-                    role_type=msg["role"],
-                )
-                zep_messages.append(zep_msg)
-
-        # Add messages to Zep memory
-        if zep_messages:
-            try:
-                await self.zep.memory.add(session_id=user_id, messages=zep_messages)
-            except Exception:
-                try:
-                    try:
-                        await self.zep.user.add(user_id=user_id)
-                    except Exception as e:
-                        logger.error(
-                            f"Zep user addition error: {e}"
-                        )  # Use logger.error
-
-                    try:
-                        await self.zep.memory.add_session(
-                            session_id=user_id, user_id=user_id
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Zep session creation error: {e}"
-                        )  # Use logger.error
-                    await self.zep.memory.add(session_id=user_id, messages=zep_messages)
-                except Exception as e:
-                    logger.error(f"Zep memory addition error: {e}")  # Use logger.error
-                    return
-
     async def retrieve(self, user_id: str) -> str:
-        """Retrieve memory context from Zep only."""
+        """Retrieve memory context from MongoDB."""
         try:
             memories = ""
-            if self.zep:
-                memory = await self.zep.memory.get(session_id=user_id)
-                if memory and memory.context:
-                    memories = memory.context
+            if self.mongo:
+                query = {"user_id": user_id}
+                sort = [("timestamp", -1)]
+                limit = 3
+                skip = 0
+                results = self.mongo.find(
+                    self.collection, query, sort=sort, limit=limit, skip=skip
+                )
+                if results:
+                    for result in results:
+                        memories += f"User: {result.get('user_message')}\n"
+                        memories += f"Assistant: {result.get('assistant_message')}\n"
             return memories
 
         except Exception as e:
@@ -149,19 +106,6 @@ class MemoryRepository(MemoryProvider):
                 self.mongo.delete_all(self.collection, {"user_id": user_id})
             except Exception as e:
                 logger.error(f"MongoDB deletion error: {e}")  # Use logger.error
-
-        if not self.zep:
-            return
-
-        try:
-            await self.zep.memory.delete(session_id=user_id)
-        except Exception as e:
-            logger.error(f"Zep memory deletion error: {e}")  # Use logger.error
-
-        try:
-            await self.zep.user.delete(user_id=user_id)
-        except Exception as e:
-            logger.error(f"Zep user deletion error: {e}")  # Use logger.error
 
     def find(
         self,
@@ -186,22 +130,3 @@ class MemoryRepository(MemoryProvider):
         if not self.mongo:
             return 0
         return self.mongo.count_documents(collection, query)
-
-    def _truncate(self, text: str, limit: int = 2500) -> str:
-        """Truncate text to be within limits."""
-        if text is None:
-            raise AttributeError("Cannot truncate None text")
-
-        if not text:
-            return ""
-
-        if len(text) <= limit:
-            return text
-
-        # Try to truncate at last period before limit
-        last_period = text.rfind(".", 0, limit)
-        if last_period > 0:
-            return text[: last_period + 1]
-
-        # If no period found, truncate at limit and add ellipsis
-        return text[: limit - 3] + "..."
