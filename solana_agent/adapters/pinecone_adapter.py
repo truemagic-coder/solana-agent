@@ -33,7 +33,7 @@ class PineconeAdapter(VectorStorageProvider):
         self,
         api_key: Optional[str] = None,
         index_name: Optional[str] = None,
-        # Default for OpenAI text-embedding-3-large, MUST match external embedder
+        # Default for OpenAI text-embedding-3-small, MUST match external embedder
         embedding_dimensions: int = 3072,
         cloud_provider: str = "aws",
         region: str = "us-east-1",

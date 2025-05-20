@@ -243,10 +243,10 @@ class SolanaAgentFactory:
 
                 # Determine OpenAI model and dimensions for KBService
                 openai_model_name = openai_embed_config.get(
-                    "model_name", "text-embedding-3-large"
+                    "model_name", "text-embedding-3-small"
                 )
-                if openai_model_name == "text-embedding-3-large":
-                    openai_dimensions = 3072
+                if openai_model_name == "text-embedding-3-large":  # pragma: no cover
+                    openai_dimensions = 3072  # pragma: no cover
                 elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
                     openai_dimensions = 1536  # pragma: no cover
                 else:  # pragma: no cover
@@ -324,7 +324,7 @@ class SolanaAgentFactory:
                         pinecone_adapter=pinecone_adapter,
                         openai_adapter=llm_adapter,
                         embedding_model=graph_memory_config.get(
-                            "embedding_model", "text-embedding-3-large"
+                            "embedding_model", "text-embedding-3-small"
                         ),
                     )
                     logger.info("Graph Memory Service initialized successfully.")

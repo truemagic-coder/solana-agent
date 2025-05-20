@@ -15,7 +15,7 @@ class GraphMemoryService(GraphMemoryServiceInterface):
         graph_adapter: MongoDBGraphAdapter,
         pinecone_adapter: PineconeAdapter,
         openai_adapter: OpenAIAdapter,
-        embedding_model: str = "text-embedding-3-large",
+        embedding_model: str = "text-embedding-3-small",
     ):
         self.graph = graph_adapter
         self.pinecone = pinecone_adapter
