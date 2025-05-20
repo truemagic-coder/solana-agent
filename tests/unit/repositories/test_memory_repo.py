@@ -6,7 +6,7 @@ Zep and MongoDB memory provider implementation.
 """
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from datetime import datetime
 
 from solana_agent.repositories.memory import MemoryRepository
