@@ -33,7 +33,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
         pinecone_adapter: PineconeAdapter,
         mongodb_adapter: MongoDBAdapter,
         openai_api_key: str,
-        openai_model_name: str = "text-embedding-3-large",
+        openai_model_name: str = "text-embedding-3-small",
         collection_name: str = "knowledge_documents",
         rerank_results: bool = False,
         rerank_top_k: int = 3,
@@ -70,7 +70,7 @@ class KnowledgeBaseService(KnowledgeBaseInterface):
             )
 
         # Determine expected embedding dimensions based on model name
-        if openai_model_name == "text-embedding-3-large":
+        if openai_model_name == "text-embedding-3-small":
             openai_dimensions = 3072
         elif openai_model_name == "text-embedding-3-small":
             openai_dimensions = 1536

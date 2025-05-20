@@ -36,8 +36,8 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_CHAT_MODEL = "gpt-4.1"
 DEFAULT_VISION_MODEL = "gpt-4.1"
 DEFAULT_PARSE_MODEL = "gpt-4.1-nano"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
-DEFAULT_EMBEDDING_DIMENSIONS = 3072
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_EMBEDDING_DIMENSIONS = 1536
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 DEFAULT_TTS_MODEL = "tts-1"
 
@@ -526,7 +526,7 @@ class OpenAIAdapter(LLMProvider):
 
         Args:
             text: The text to embed.
-            model: The embedding model to use (defaults to text-embedding-3-large).
+            model: The embedding model to use (defaults to text-embedding-3-small).
             dimensions: Desired output dimensions for the embedding.
 
         Returns:

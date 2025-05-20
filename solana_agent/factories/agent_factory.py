@@ -10,11 +10,13 @@ import logging
 from typing import Dict, Any, List
 
 # Service imports
+from solana_agent.adapters.mongodb_graph_adapter import MongoDBGraphAdapter
 from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
     OutputGuardrail,
 )
+from solana_agent.services.graph_memory import GraphMemoryService
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -134,21 +136,9 @@ class SolanaAgentFactory:
             )
 
         # Create repositories
-        memory_provider = None
+        memory_provider = MemoryRepository(mongo_adapter=db_adapter)
 
-        if "zep" in config and "mongo" in config:
-            memory_provider = MemoryRepository(
-                mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key")
-            )
-
-        if "mongo" in config and "zep" not in config:
-            memory_provider = MemoryRepository(mongo_adapter=db_adapter)
-
-        if "zep" in config and "mongo" not in config:
-            if "api_key" not in config["zep"]:
-                raise ValueError("Zep API key is required.")
-            memory_provider = MemoryRepository(zep_api_key=config["zep"].get("api_key"))
-
+        # Create guardrails
         guardrail_config = config.get("guardrails", {})
         input_guardrails: List[InputGuardrail] = SolanaAgentFactory._create_guardrails(
             guardrail_config.get("input", [])
@@ -241,6 +231,7 @@ class SolanaAgentFactory:
 
         # Initialize Knowledge Base if configured
         knowledge_base = None
+        graph_memory_service = None
         kb_config = config.get("knowledge_base")
         # Requires both KB config section and MongoDB adapter
         if kb_config and db_adapter:
@@ -252,10 +243,10 @@ class SolanaAgentFactory:
 
                 # Determine OpenAI model and dimensions for KBService
                 openai_model_name = openai_embed_config.get(
-                    "model_name", "text-embedding-3-large"
+                    "model_name", "text-embedding-3-small"
                 )
-                if openai_model_name == "text-embedding-3-large":
-                    openai_dimensions = 3072
+                if openai_model_name == "text-embedding-3-large":  # pragma: no cover
+                    openai_dimensions = 3072  # pragma: no cover
                 elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
                     openai_dimensions = 1536  # pragma: no cover
                 else:  # pragma: no cover
@@ -279,7 +270,9 @@ class SolanaAgentFactory:
                     ),
                     # Reranking config
                     use_reranking=pinecone_config.get("use_reranking", False),
-                    rerank_model=pinecone_config.get("rerank_model"),
+                    rerank_model=pinecone_config.get(
+                        "rerank_model", "cohere-rerank-3.5"
+                    ),
                     rerank_top_k=pinecone_config.get("rerank_top_k", 3),
                     initial_query_top_k_multiplier=pinecone_config.get(
                         "initial_query_top_k_multiplier", 5
@@ -311,6 +304,34 @@ class SolanaAgentFactory:
                     "Knowledge Base Service initialized successfully."
                 )  # Use logger.info
 
+                # Create Graph Memory Service
+                graph_memory_config = pinecone_config.get("agent_memory", {})
+                try:
+                    # Create MongoDBGraphAdapter
+                    mongo_graph_adapter = MongoDBGraphAdapter(
+                        mongo_adapter=db_adapter,
+                        node_collection=graph_memory_config.get(
+                            "node_collection", "graph_nodes"
+                        ),
+                        edge_collection=graph_memory_config.get(
+                            "edge_collection", "graph_edges"
+                        ),
+                    )
+
+                    # Create GraphMemoryService
+                    graph_memory_service = GraphMemoryService(
+                        graph_adapter=mongo_graph_adapter,
+                        pinecone_adapter=pinecone_adapter,
+                        openai_adapter=llm_adapter,
+                        embedding_model=graph_memory_config.get(
+                            "embedding_model", "text-embedding-3-small"
+                        ),
+                    )
+                    logger.info("Graph Memory Service initialized successfully.")
+                except Exception as e:
+                    logger.exception(f"Failed to initialize Graph Memory: {e}")
+                    graph_memory_service = None
+
             except Exception as e:
                 # Use logger.exception to include traceback automatically
                 logger.exception(f"Failed to initialize Knowledge Base: {e}")
@@ -324,6 +345,7 @@ class SolanaAgentFactory:
             knowledge_base=knowledge_base,  # Pass the potentially created KB
             kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
             input_guardrails=input_guardrails,
+            graph_memory=graph_memory_service,
         )
 
         return query_service

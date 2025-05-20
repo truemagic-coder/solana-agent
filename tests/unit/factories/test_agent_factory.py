@@ -703,7 +703,7 @@ class TestSolanaAgentFactory:
             pinecone_adapter=mock_pinecone_instance,
             mongodb_adapter=mock_mongo_instance,
             openai_api_key="test-openai-key",  # From config
-            openai_model_name="text-embedding-3-large",
+            openai_model_name="text-embedding-3-small",
             collection_name="knowledge_documents",  # From config
             rerank_results=True,  # From config (pinecone.use_reranking)
             rerank_top_k=3,  # From config (knowledge_base.results_count)

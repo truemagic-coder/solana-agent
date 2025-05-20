@@ -74,7 +74,7 @@ def knowledge_base_service(
             pinecone_adapter=mock_pinecone_adapter,
             mongodb_adapter=mock_mongodb_adapter,
             openai_api_key="fake-key",  # Required by init
-            openai_model_name="text-embedding-3-large",  # Match dimension logic
+            openai_model_name="text-embedding-3-small",  # Match dimension logic
         )
     return service
 

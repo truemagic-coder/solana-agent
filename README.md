@@ -71,7 +71,6 @@ Build your AI agents in three lines of code!
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - AI Model Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
-* [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 * [AgentiPy](https://agentipy.fun) - Solana Ecosystem (optional)
 * [Zapier](https://zapier.com) - App Integrations (optional)
@@ -82,7 +81,7 @@ Build your AI agents in three lines of code!
 **OpenAI**
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent - can be overridden)
 * [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
-* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
+* [text-embedding-3-small](https://platform.openai.com/docs/models/text-embedding-3-small) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 * [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation - can be overridden)
@@ -377,16 +376,6 @@ config = {
 }
 ```
 
-### Conversational Memory
-
-```python
-config = {
-    "zep": {
-        "api_key": "your-zep-cloud-api-key",
-    },
-}
-```
-
 ### Observability and Tracing
 
 ```python
@@ -421,9 +410,7 @@ config = {
 }
 ```
 
-### Knowledge Base
-
-The Knowledge Base (KB) is meant to store text values and/or PDFs (extracts text) - can handle very large PDFs.
+### Knowledge Base & Conversational Memory
 
 ```python
 config = {
