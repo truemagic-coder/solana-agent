@@ -176,7 +176,7 @@ class SolanaAgentFactory:
                 config=config,
                 api_key=config["gemini"]["api_key"],
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                model="gemini-2.5-flash-preview-04-17",
+                model="gemini-2.5-flash-preview-05-20",
                 output_guardrails=output_guardrails,
             )  # pragma: no cover
 
