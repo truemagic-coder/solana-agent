@@ -773,13 +773,14 @@ class AgentService(AgentServiceInterface):
 
     def _get_tool_usage_prompt(self, agent_name: str) -> str:
         """Generate marker-based instructions for tool usage."""
-        tools = self.get_agent_tools(agent_name)
-        if not tools:
+        # Only include tools actually assigned to this agent
+        agent_tools = self.tool_registry.get_agent_tools(agent_name)
+        if not agent_tools:
             return ""
 
         # Simplify tool representation for the prompt
         simplified_tools = []
-        for tool in tools:
+        for tool in agent_tools:
             simplified_tool = {
                 "name": tool.get("name"),
                 "description": tool.get("description"),

@@ -168,6 +168,12 @@ class SolanaAgentFactory:
             output_guardrails=output_guardrails,
         )
 
+        # Create routing service
+        routing_service = RoutingService(
+            llm_provider=llm_adapter,
+            agent_service=agent_service,
+        )
+
         if "gemini" in config and "api_key" in config["gemini"]:
             # Create primary services
             agent_service = AgentService(
@@ -178,6 +184,15 @@ class SolanaAgentFactory:
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                 model="gemini-2.5-flash-preview-05-20",
                 output_guardrails=output_guardrails,
+            )  # pragma: no cover
+
+            # Create routing service
+            routing_service = RoutingService(
+                llm_provider=llm_adapter,
+                agent_service=agent_service,
+                api_key=config["gemini"]["api_key"],
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                model="gemini-2.5-flash-preview-05-20",
             )  # pragma: no cover
 
         elif "grok" in config and "api_key" in config["grok"]:
@@ -192,11 +207,35 @@ class SolanaAgentFactory:
                 output_guardrails=output_guardrails,
             )  # pragma: no cover
 
-        # Create routing service
-        routing_service = RoutingService(
-            llm_provider=llm_adapter,
-            agent_service=agent_service,
-        )
+            # Create routing service
+            routing_service = RoutingService(
+                llm_provider=llm_adapter,
+                agent_service=agent_service,
+                api_key=config["gemini"]["api_key"],
+                base_url="https://api.x.ai/v1",
+                model="grok-3-mini-fast",
+            )  # pragma: no cover
+
+        elif "ollama" in config and "api_key" in config["ollama"]:
+            # Create primary services
+            agent_service = AgentService(
+                llm_provider=llm_adapter,
+                business_mission=business_mission,
+                config=config,
+                api_key=config["ollama"]["api_key"],
+                base_url="http://localhost:11434/v1",
+                model="gemma3:4b-it-qat",
+                output_guardrails=output_guardrails,
+            )  # pragma: no cover
+
+            # Create routing service
+            routing_service = RoutingService(
+                llm_provider=llm_adapter,
+                agent_service=agent_service,
+                api_key=config["ollama"]["api_key"],
+                base_url="http://localhost:11434/v1",
+                model="gemma3:4b-it-qat",
+            )  # pragma: no cover
 
         # Debug the agent service tool registry
         logger.debug(  # Use logger.debug

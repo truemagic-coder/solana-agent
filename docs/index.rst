@@ -336,8 +336,6 @@ Observability and Tracing - Optional
 Grok - Optional
 ~~~~~~~~~~~~~~~~
 
-`grok-3-fast` can be used instead of `gpt-4.1` for the agent model
-
 .. code-block:: python
 
    config = {
@@ -349,8 +347,6 @@ Grok - Optional
 
 Gemini - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-`gemini-2.5-pro-preview-03-25` can be used instead of `gpt-4.1` for the agent model
 
 .. code-block:: python
 

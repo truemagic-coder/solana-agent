@@ -81,7 +81,7 @@ Build your AI agents in three lines of code!
 
 **OpenAI**
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent - can be overridden)
-* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router)
+* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router - can be overridden)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
@@ -90,11 +90,15 @@ Build your AI agents in three lines of code!
 
 **Grok**
 * [grok-3-fast](https://x.ai/api#pricing) (agent - optional)
+* [grok-3-mini-fast](https://x.ai/api#pricing) (router - optional)
 * [grok-2-image](https://x.ai/api#pricing) (image generation - optional)
 
 **Gemini**
-* [gemini-2.5-flash-preview-04-17](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (agent - optional)
+* [gemini-2.5-flash-preview-04-17](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (agent & router - optional)
 * [imagen-3.0-generate-002](https://ai.google.dev/gemini-api/docs/models#imagen-3) (image generation - optional)
+
+**Ollama**
+* [gemma:4b-it-qat](https://ollama.com/library/gemma3) - (agent & router - optional)
 
 ## Installation
 
@@ -399,8 +403,6 @@ config = {
 
 ### Grok
 
-`grok-3-fast` can be used instead of `gpt-4.1` for the agent model
-
 ```python
 config = {
     "grok": {
@@ -411,12 +413,20 @@ config = {
 
 ### Gemini
 
-`gemini-2.5-pro-preview-03-25` can be used instead of `gpt-4.1` for the agent model
-
 ```python
 config = {
     "gemini": {
         "api_key": "your-gemini-api-key",
+    },
+}
+```
+
+### Ollama
+
+```python
+config = {
+    "ollama": {
+        "api_key": "use-this-key-1010"
     },
 }
 ```
