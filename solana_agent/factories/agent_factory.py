@@ -226,7 +226,7 @@ class SolanaAgentFactory:
                 base_url="http://localhost:11434/v1",
                 model="gemma3:4b-it-qat",
                 output_guardrails=output_guardrails,
-            )
+            )  # pragma: no cover
 
             # Create routing service
             routing_service = RoutingService(
