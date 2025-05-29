@@ -19,7 +19,7 @@ Build your AI agents in three lines of code!
 * Simple Agent Definition
 * Fast Responses
 * Multi-Vendor Support
-* Solana Ecosystem Integration
+* Solana Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
 * Conversational Memory & History
@@ -44,7 +44,7 @@ Build your AI agents in three lines of code!
 * Simple agent definition using JSON
 * Fast AI responses
 * Multi-vendor support including OpenAI, Grok, and Gemini AI services
-* Solana Ecosystem Integration via [AgentiPy](https://github.com/niceberginc/agentipy)
+* Solana Integration with transfers and swaps
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
 * Designed for a multi-agent swarm 
@@ -71,7 +71,6 @@ Build your AI agents in three lines of code!
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
-* [AgentiPy](https://agentipy.fun) - Solana Ecosystem (optional)
 * [Zapier](https://zapier.com) - App Integrations (optional)
 * [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
 
@@ -621,36 +620,68 @@ Tools empower agents to interact with external systems, fetch data, or perform a
 
 Tools can be used from plugins like Solana Agent Kit (sakit) or via inline tools. Tools available via plugins integrate automatically with Solana Agent.
 
-* Agents can use multiple tools per response and should apply the right sequential order (like send an email to bob@bob.com with the latest news on Solana)
-* Agents choose the best tools for the job
-* Solana Agent doesn't use OpenAI function calling (tools) as they don't support async functions
-* Solana Agent tools are async functions
+### Solana Transfer
 
-### Solana
+This plugin enables Solana Agent to transfer SOL and SPL tokens from the agent's wallet to the destination wallet.
+
+Don't use tickers - but mint addresses in your user queries.
 
 `pip install sakit`
 
 ```python
 config = {
     "tools": {
-        "solana": {
-            "private_key": "your-solana-wallet-private-key", # base58 encoded string
-            "rpc_url": "your-solana-rpc-url",
+        "solana_transfer": {
+            "rpc_url": "my-rpc-url", # Required - your RPC URL - Helius is recommended
+            "private_key": "my-private-key", # Required - base58 string - please use env vars to store the key as it is very confidential
         },
     },
     "agents": [
         {
             "name": "solana_expert",
-            "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
-            "specialization": "Solana blockchain interaction",
-            "tools": ["solana"],  # Enable the tool for this agent
+            "instructions": "You are a Solana expert that can transfer tokens.",
+            "specialization": "Solana Blockchain",
+            "tools": ["solana_transfer"], # Enable the tool for this agent
         }
-    ]
+    ],
 }
 
 solana_agent = SolanaAgent(config=config)
 
-async for response in solana_agent.process("user123", "What is my SOL balance?"):
+async for response in solana_agent.process("user123", "Transfer 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to DzvqBkUHUhuhHtNKGWSCVEAm2rHdm9bxxdQYC6mZBZyF"):
+    print(response, end="")
+```
+
+### Solana Swap
+
+This plugin enables Solana Agent to trade (swap) tokens using Jupiter.
+
+Don't use tickers - but mint addresses in your user queries.
+
+`pip install sakit`
+
+```python
+config = {
+    "tools": {
+        "solana_swap": {
+            "rpc_url": "my-rpc-url", # Required - your RPC URL - Helius is recommended
+            "private_key": "my-private-key", # Required - base58 string - please use env vars to store the key as it is very confidential
+            "jupiter_url": "my-custom-url" # Optional - if you are using a custom Jupiter service like Metis from QuickNode
+        },
+    },
+    "agents": [
+        {
+            "name": "solana_expert",
+            "instructions": "You are a Solana expert that can swap tokens.",
+            "specialization": "Solana Blockchain",
+            "tools": ["solana_swap"], # Enable the tool for this agent
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "Swap 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to So11111111111111111111111111111111111111112"):
     print(response, end="")
 ```
 
