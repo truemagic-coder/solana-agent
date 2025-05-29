@@ -584,8 +584,8 @@ uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span cl
 <section id="tools">
 <h3>Tools<a class="headerlink" href="#tools" title="Link to this heading"></a></h3>
 </section>
-<section id="solana">
-<h3>Solana<a class="headerlink" href="#solana" title="Link to this heading"></a></h3>
+<section id="solana-transfer">
+<h3>Solana Transfer<a class="headerlink" href="#solana-transfer" title="Link to this heading"></a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
 </pre></div>
 </div>
@@ -593,24 +593,56 @@ uvx<span class="w"> </span>solana-agent<span class="w"> </span>--user-id<span cl
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
    <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;solana&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-solana-wallet-private-key&quot;</span><span class="p">,</span> <span class="c1"># base58 encoded string</span>
-            <span class="s2">&quot;rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;your-solana-rpc-url&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;solana_transfer&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;my-rpc-url&quot;</span><span class="p">,</span> <span class="c1"># Required - your RPC URL - Helius is recommended</span>
+            <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;my-private-key&quot;</span><span class="p">,</span> <span class="c1"># Required - base58 string - please use env vars to store the key as it is very confidential</span>
       <span class="p">},</span>
    <span class="p">},</span>
-   <span class="s2">&quot;ai_agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
             <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_expert&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Solana blockchain interaction&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;solana&quot;</span><span class="p">],</span>  <span class="c1"># Enable the tool for this agent</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a Solana expert that can transfer tokens.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Solana Blockchain&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;solana_transfer&quot;</span><span class="p">],</span> <span class="c1"># Enable the tool for this agent</span>
       <span class="p">}</span>
-   <span class="p">]</span>
+   <span class="p">],</span>
 <span class="p">}</span>
 
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What is my SOL balance?&quot;</span><span class="p">):</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Transfer 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to DzvqBkUHUhuhHtNKGWSCVEAm2rHdm9bxxdQYC6mZBZyF&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="solana-swap">
+<h3>Solana Swap<a class="headerlink" href="#solana-swap" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+   <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
+      <span class="s2">&quot;solana_swap&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;rpc_url&quot;</span><span class="p">:</span> <span class="s2">&quot;my-rpc-url&quot;</span><span class="p">,</span> <span class="c1"># Required - your RPC URL - Helius is recommended</span>
+            <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;my-private-key&quot;</span><span class="p">,</span> <span class="c1"># Required - base58 string - please use env vars to store the key as it is very confidential</span>
+            <span class="s2">&quot;jupiter_url&quot;</span><span class="p">:</span> <span class="s2">&quot;my-custom-url&quot;</span> <span class="c1"># Optional - if you are using a custom Jupiter service like Metis from QuickNode</span>
+      <span class="p">},</span>
+   <span class="p">},</span>
+   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
+      <span class="p">{</span>
+            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;solana_expert&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a Solana expert that can swap tokens.&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Solana Blockchain&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;solana_swap&quot;</span><span class="p">],</span> <span class="c1"># Enable the tool for this agent</span>
+      <span class="p">}</span>
+   <span class="p">],</span>
+<span class="p">}</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Swap 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to So11111111111111111111111111111111111111112&quot;</span><span class="p">):</span>
    <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>

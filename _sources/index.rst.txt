@@ -553,7 +553,7 @@ Example Custom Guardrails - Optional
 Tools
 ~~~~~~
 
-Solana
+Solana Transfer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
@@ -566,25 +566,60 @@ Solana
 
    config = {
       "tools": {
-         "solana": {
-               "private_key": "your-solana-wallet-private-key", # base58 encoded string
-               "rpc_url": "your-solana-rpc-url",
+         "solana_transfer": {
+               "rpc_url": "my-rpc-url", # Required - your RPC URL - Helius is recommended
+               "private_key": "my-private-key", # Required - base58 string - please use env vars to store the key as it is very confidential
          },
       },
-      "ai_agents": [
+      "agents": [
          {
                "name": "solana_expert",
-               "instructions": "You are an expert Solana blockchain assistant. You always use the Solana tool to perform actions on the Solana blockchain.",
-               "specialization": "Solana blockchain interaction",
-               "tools": ["solana"],  # Enable the tool for this agent
+               "instructions": "You are a Solana expert that can transfer tokens.",
+               "specialization": "Solana Blockchain",
+               "tools": ["solana_transfer"], # Enable the tool for this agent
          }
-      ]
+      ],
    }
 
    solana_agent = SolanaAgent(config=config)
 
-   async for response in solana_agent.process("user123", "What is my SOL balance?"):
+   async for response in solana_agent.process("user123", "Transfer 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to DzvqBkUHUhuhHtNKGWSCVEAm2rHdm9bxxdQYC6mZBZyF"):
       print(response, end="")
+
+Solana Swap
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+   
+   pip install sakit
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "tools": {
+         "solana_swap": {
+               "rpc_url": "my-rpc-url", # Required - your RPC URL - Helius is recommended
+               "private_key": "my-private-key", # Required - base58 string - please use env vars to store the key as it is very confidential
+               "jupiter_url": "my-custom-url" # Optional - if you are using a custom Jupiter service like Metis from QuickNode
+         },
+      },
+      "agents": [
+         {
+               "name": "solana_expert",
+               "instructions": "You are a Solana expert that can swap tokens.",
+               "specialization": "Solana Blockchain",
+               "tools": ["solana_swap"], # Enable the tool for this agent
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   async for response in solana_agent.process("user123", "Swap 0.01 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB to So11111111111111111111111111111111111111112"):
+      print(response, end="")
+
 
 Internet Search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
