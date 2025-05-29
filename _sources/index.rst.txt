@@ -675,7 +675,7 @@ Other MCP servers may work but are not supported.
    config = {
       "tools": {
          "mcp": {
-               "urls": ["my-zapier-mcp-url"],
+               "url": "my-zapier-mcp-url",
          }
       },
       "agents": [
