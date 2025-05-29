@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import (
+    Any,
     AsyncGenerator,
+    Dict,
     List,
     Literal,
     Optional,
@@ -26,7 +28,9 @@ class LLMProvider(ABC):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> str:
+        functions: Optional[List[Dict[str, Any]]] = None,
+        function_call: Optional[Union[str, Dict[str, Any]]] = None,
+    ) -> Any:
         """Generate text from the language model."""
         pass
 
