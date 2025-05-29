@@ -163,8 +163,10 @@ class OpenAIAdapter(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> str:  # pragma: no cover
-        """Generate text from OpenAI models as a single string (no images)."""
+        functions: Optional[List[Dict[str, Any]]] = None,
+        function_call: Optional[Union[str, Dict[str, Any]]] = None,
+    ) -> Any:  # pragma: no cover
+        """Generate text or function call from OpenAI models."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -174,6 +176,10 @@ class OpenAIAdapter(LLMProvider):
             "messages": messages,
             "model": model or self.text_model,
         }
+        if functions:
+            request_params["functions"] = functions
+        if function_call:
+            request_params["function_call"] = function_call
 
         if api_key and base_url:
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -185,17 +191,13 @@ class OpenAIAdapter(LLMProvider):
 
         try:
             response = await client.chat.completions.create(**request_params)
-            if response.choices and response.choices[0].message.content:
-                return response.choices[0].message.content
-            else:
-                logger.warning("Received non-streaming response with no content.")
-                return ""
-        except OpenAIError as e:  # Catch specific OpenAI errors
+            return response
+        except OpenAIError as e:
             logger.error(f"OpenAI API error during text generation: {e}")
-            return f"I apologize, but I encountered an API error: {e}"
+            return None
         except Exception as e:
             logger.exception(f"Error in generate_text: {e}")
-            return f"I apologize, but I encountered an unexpected error: {e}"
+            return None
 
     def _calculate_gpt41_image_cost(self, width: int, height: int, model: str) -> int:
         """Calculates the token cost for an image with GPT-4.1 models."""
