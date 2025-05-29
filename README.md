@@ -733,7 +733,7 @@ from solana_agent import SolanaAgent
 config = {
     "tools": {
         "mcp": {
-            "urls": ["my-zapier-mcp-url"],
+            "url": "my-zapier-mcp-url",
         }
     },
     "agents": [
