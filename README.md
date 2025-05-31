@@ -18,7 +18,6 @@ Build your AI agents in three lines of code!
 * Three lines of code setup
 * Simple Agent Definition
 * Fast Responses
-* Multi-Vendor Support
 * Solana Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
@@ -44,7 +43,6 @@ Build your AI agents in three lines of code!
 * Easy three lines of code setup
 * Simple agent definition using JSON
 * Fast AI responses
-* Multi-vendor support including OpenAI, Grok, and Gemini AI services
 * Solana Integration
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
@@ -79,25 +77,10 @@ Build your AI agents in three lines of code!
 ### AI Models Used
 
 **OpenAI**
-* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent - can be overridden)
-* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (router - can be overridden)
+* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
-* [gpt-image-1](https://platform.openai.com/docs/models/gpt-image-1) (image generation - can be overridden)
-* [gpt-4o-mini-search-preview](https://platform.openai.com/docs/models/gpt-4o-mini-search-preview) (Internet search)
-
-**Grok**
-* [grok-3-fast](https://x.ai/api#pricing) (agent - optional)
-* [grok-3-mini-fast](https://x.ai/api#pricing) (router - optional)
-* [grok-2-image](https://x.ai/api#pricing) (image generation - optional)
-
-**Gemini**
-* [gemini-2.5-flash-preview-04-17](https://ai.google.dev/gemini-api/docs/models#gemini-2.5-flash-preview) (agent & router - optional)
-* [imagen-3.0-generate-002](https://ai.google.dev/gemini-api/docs/models#imagen-3) (image generation - optional)
-
-**Ollama**
-* [gemma:4b-it-qat](https://ollama.com/library/gemma3) - (agent & router - optional)
 
 ## Installation
 
@@ -428,36 +411,6 @@ config = {
 config = {
     "logfire": {
         "api_key": "your-logfire-write-token",
-    },
-}
-```
-
-### Grok
-
-```python
-config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-    },
-}
-```
-
-### Gemini
-
-```python
-config = {
-    "gemini": {
-        "api_key": "your-gemini-api-key",
-    },
-}
-```
-
-### Ollama
-
-```python
-config = {
-    "ollama": {
-        "api_key": "use-this-key-1010"
     },
 }
 ```

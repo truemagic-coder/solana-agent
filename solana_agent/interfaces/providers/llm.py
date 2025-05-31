@@ -28,8 +28,7 @@ class LLMProvider(ABC):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        functions: Optional[List[Dict[str, Any]]] = None,
-        function_call: Optional[Union[str, Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:
         """Generate text from the language model."""
         pass
@@ -43,8 +42,7 @@ class LLMProvider(ABC):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        functions: Optional[List[Dict[str, Any]]] = None,
-        function_call: Optional[Union[str, Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> T:
         """Generate structured output using a specific model class."""
         pass
@@ -106,6 +104,7 @@ class LLMProvider(ABC):
         images: List[Union[str, bytes]],
         system_prompt: str = "",
         detail: Literal["low", "high", "auto"] = "auto",
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Generate text from the language model using images."""
         pass

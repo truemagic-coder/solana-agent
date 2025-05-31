@@ -267,11 +267,15 @@ class AgentService(AgentServiceInterface):
         full_prompt += f"USER IDENTIFIER: {user_id}"
 
         # Get OpenAI function schemas for this agent's tools
-        functions = [
+        tools = [
             {
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {}),
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("parameters", {}),
+                    "strict": True,
+                },
             }
             for tool in self.get_agent_tools(agent_name)
         ]
@@ -286,8 +290,7 @@ class AgentService(AgentServiceInterface):
                     api_key=self.api_key,
                     base_url=self.base_url,
                     model=self.model,
-                    functions=functions if functions else None,
-                    function_call="auto" if functions else None,
+                    tools=tools if tools else None,
                 )
                 yield model_instance
                 return
@@ -295,15 +298,25 @@ class AgentService(AgentServiceInterface):
             # --- Streaming text/audio with tool support (as before) ---
             response_text = ""
             while True:
-                response = await self.llm_provider.generate_text(
-                    prompt=full_prompt,
-                    system_prompt=system_prompt,
-                    functions=functions if functions else None,
-                    function_call="auto" if functions else None,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    model=self.model,
-                )
+                if not images:
+                    response = await self.llm_provider.generate_text(
+                        prompt=full_prompt,
+                        system_prompt=system_prompt,
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        model=self.model,
+                        tools=tools if tools else None,
+                    )
+                else:
+                    response = await self.llm_provider.generate_text_with_images(
+                        prompt=full_prompt,
+                        system_prompt=system_prompt,
+                        api_key=self.api_key,
+                        base_url=self.base_url,
+                        model=self.model,
+                        tools=tools if tools else None,
+                        images=images,
+                    )
                 if (
                     not response
                     or not hasattr(response, "choices")
@@ -316,25 +329,24 @@ class AgentService(AgentServiceInterface):
                 choice = response.choices[0]
                 message = getattr(choice, "message", choice)
 
-                # If the model wants to call a function/tool
-                if hasattr(message, "function_call") and message.function_call:
-                    function_name = message.function_call.name
-                    arguments = json.loads(message.function_call.arguments)
-                    logger.info(
-                        f"Model requested tool '{function_name}' with args: {arguments}"
-                    )
-
-                    # Execute the tool (async)
-                    tool_result = await self.execute_tool(
-                        agent_name, function_name, arguments
-                    )
-
-                    # Add the tool result to the prompt for the next round
-                    full_prompt += (
-                        f"\n\nTool '{function_name}' was called with arguments {arguments}.\n"
-                        f"Result: {tool_result}\n"
-                    )
-                    continue  # Loop again, LLM will see tool result and may call another tool or finish
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        if tool_call.type == "function":
+                            function_name = tool_call.function.name
+                            arguments = json.loads(tool_call.function.arguments)
+                            logger.info(
+                                f"Model requested tool '{function_name}' with args: {arguments}"
+                            )
+                            # Execute the tool (async)
+                            tool_result = await self.execute_tool(
+                                agent_name, function_name, arguments
+                            )
+                            # Add the tool result to the prompt for the next round
+                            full_prompt += (
+                                f"\n\nTool '{function_name}' was called with arguments {arguments}.\n"
+                                f"Result: {tool_result}\n"
+                            )
+                    continue
 
                 # Otherwise, it's a normal message (final answer)
                 response_text = message.content
