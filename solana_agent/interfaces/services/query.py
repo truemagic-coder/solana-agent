@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
@@ -35,7 +37,8 @@ class QueryService(ABC):
         prompt: Optional[str] = None,
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process the user request and generate a response."""
         pass
 

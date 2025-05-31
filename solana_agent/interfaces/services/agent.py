@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from solana_agent.domains.agent import AIAgent
 
@@ -45,7 +47,8 @@ class AgentService(ABC):
         ] = "aac",
         prompt: Optional[str] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Generate a response from an agent."""
         pass
 

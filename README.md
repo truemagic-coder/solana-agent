@@ -29,6 +29,7 @@ Build your AI agents in three lines of code!
 * Extensible Tooling
 * Automatic Tool Workflows
 * Autonomous Operation
+* Structured Outputs
 * Knowledge Base
 * MCP Support
 * Guardrails
@@ -60,6 +61,7 @@ Build your AI agents in three lines of code!
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
 * Automatic sequential tool workflows allowing agents to chain multiple tools
+* Deterministically return structured outputs
 * Combine with event-driven systems to create autonomous agents
 
 ## Stack
@@ -306,6 +308,38 @@ async for response in solana_agent.process("user123", "What is in this image? De
     print(response, end="")
 ```
 
+### Structured Outputs
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "agents": [
+        {
+            "name": "researcher",
+            "instructions": "You are a research expert.",
+            "specialization": "Researcher",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+class ResearchProposal(BaseModel):
+    title: str
+    abstract: str
+    key_points: list[str]
+
+full_response = None
+async for response in solana_agent.process("user123", "Research the life of Ben Franklin - the founding Father.", output_model=ResearchProposal):
+    full_response = response
+
+print(full_response.model_dump())
+```
+
 ### Command Line Interface (CLI)
 
 Solana Agent includes a command-line interface (CLI) for text-based chat using a configuration file.
@@ -540,6 +574,8 @@ async for response in solana_agent.process("user123", "Summarize the annual repo
 
 Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.
 
+Guardrails don't work with structured outputs.
+
 Solana Agent provides a built-in PII scrubber based on [scrubadub](https://github.com/LeapBeyond/scrubadub).
 
 ```python
@@ -579,6 +615,8 @@ config = {
 ```
 
 #### Example Custom Guardrails
+
+Guardrails don't work with structured outputs.
 
 ```python
 from solana_agent import InputGuardrail, OutputGuardrail

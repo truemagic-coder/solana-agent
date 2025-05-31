@@ -10,7 +10,9 @@ from datetime import datetime
 import json
 import logging  # Add logging
 import re
-from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Union
+from typing import AsyncGenerator, Dict, List, Literal, Optional, Any, Type, Union
+
+from pydantic import BaseModel
 
 from solana_agent.interfaces.services.agent import AgentService as AgentServiceInterface
 from solana_agent.interfaces.providers.llm import LLMProvider
@@ -229,8 +231,9 @@ class AgentService(AgentServiceInterface):
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
         prompt: Optional[str] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
-        """Generate a response using OpenAI function calling (tools API) via generate_text."""
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
+        """Generate a response using OpenAI function calling (tools API) or structured output."""
 
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
@@ -252,9 +255,7 @@ class AgentService(AgentServiceInterface):
         system_prompt = self.get_agent_system_prompt(agent_name)
         user_content = str(query)
         if images:
-            user_content += (
-                "\n\n[Images attached]"  # Optionally, handle images as needed
-            )
+            user_content += "\n\n[Images attached]"
 
         # Compose the prompt for generate_text
         full_prompt = ""
@@ -266,18 +267,33 @@ class AgentService(AgentServiceInterface):
         full_prompt += f"USER IDENTIFIER: {user_id}"
 
         # Get OpenAI function schemas for this agent's tools
-        functions = []
-        for tool in self.get_agent_tools(agent_name):
-            functions.append(
-                {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("parameters", {}),
-                }
-            )
+        functions = [
+            {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("parameters", {}),
+            }
+            for tool in self.get_agent_tools(agent_name)
+        ]
 
-        response_text = ""
         try:
+            if output_model is not None:
+                # --- Structured output with tool support ---
+                model_instance = await self.llm_provider.parse_structured_output(
+                    prompt=full_prompt,
+                    system_prompt=system_prompt,
+                    model_class=output_model,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    model=self.model,
+                    functions=functions if functions else None,
+                    function_call="auto" if functions else None,
+                )
+                yield model_instance
+                return
+
+            # --- Streaming text/audio with tool support (as before) ---
+            response_text = ""
             while True:
                 response = await self.llm_provider.generate_text(
                     prompt=full_prompt,
@@ -298,9 +314,7 @@ class AgentService(AgentServiceInterface):
                     break
 
                 choice = response.choices[0]
-                message = getattr(
-                    choice, "message", choice
-                )  # Support both OpenAI and instructor
+                message = getattr(choice, "message", choice)
 
                 # If the model wants to call a function/tool
                 if hasattr(message, "function_call") and message.function_call:
@@ -316,7 +330,6 @@ class AgentService(AgentServiceInterface):
                     )
 
                     # Add the tool result to the prompt for the next round
-                    # (You may want to format this differently for your use case)
                     full_prompt += (
                         f"\n\nTool '{function_name}' was called with arguments {arguments}.\n"
                         f"Result: {tool_result}\n"
@@ -381,6 +394,7 @@ class AgentService(AgentServiceInterface):
 
         if not text:
             return ""
+        text = text.replace("’", "'").replace("‘", "'")
         text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
         text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
@@ -411,9 +425,7 @@ class AgentService(AgentServiceInterface):
             flags=re.UNICODE,
         )
         text = emoji_pattern.sub(r" ", text)
-        text = re.sub(
-            r"[^\w\s\.\,\;\:\?\!\'\"\-\(\)]", " ", text
-        )  # Keep basic punctuation
+        text = re.sub(r"[^\w\s\.\,\;\:\?\!\'\"\-\(\)]", " ", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 

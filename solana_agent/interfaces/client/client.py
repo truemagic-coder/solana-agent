@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Union
+from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
@@ -35,7 +37,8 @@ class SolanaAgent(ABC):
         ] = "mp4",
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process a user message and return the response stream."""
         pass
 
