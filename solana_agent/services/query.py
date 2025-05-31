@@ -7,7 +7,9 @@ clean separation of concerns.
 """
 
 import logging
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel
 
 # Interface imports
 from solana_agent.interfaces.services.query import QueryService as QueryServiceInterface
@@ -86,7 +88,8 @@ class QueryService(QueryServiceInterface):
         ] = "mp4",
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request with appropriate agent and apply input guardrails.
 
         Args:
@@ -100,6 +103,7 @@ class QueryService(QueryServiceInterface):
             audio_input_format: Audio input format
             prompt: Optional prompt for the agent
             router: Optional routing service for processing
+            output_model: Optional Pydantic model for structured output
 
         Yields:
             Response chunks (text strings or audio bytes)
@@ -267,9 +271,10 @@ class QueryService(QueryServiceInterface):
                     memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
+                    output_model=output_model,
                 ):
                     yield chunk
-                    full_text_response += chunk
+                    full_text_response = chunk
 
                 # Store conversation using processed user_text
                 # Note: Storing images in history is not directly supported by current memory provider interface

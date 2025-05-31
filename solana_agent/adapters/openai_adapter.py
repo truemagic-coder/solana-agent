@@ -410,6 +410,8 @@ class OpenAIAdapter(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        functions: Optional[List[Dict[str, Any]]] = None,
+        function_call: Optional[Union[str, Dict[str, Any]]] = None,
     ) -> T:  # pragma: no cover
         """Generate structured output using Pydantic model parsing with Instructor."""
 
@@ -431,13 +433,18 @@ class OpenAIAdapter(LLMProvider):
 
             patched_client = instructor.from_openai(client, mode=Mode.TOOLS_STRICT)
 
-            # Use instructor's structured generation with function calling
-            response = await patched_client.chat.completions.create(
-                model=current_parse_model,  # Use the determined model
-                messages=messages,
-                response_model=model_class,
-                max_retries=2,  # Automatically retry on validation errors
-            )
+            create_args = {
+                "model": current_parse_model,
+                "messages": messages,
+                "response_model": model_class,
+                "max_retries": 2,  # Automatically retry on validation errors
+            }
+            if functions:
+                create_args["tools"] = functions
+            if function_call:
+                create_args["function_call"] = function_call
+
+            response = await patched_client.chat.completions.create(**create_args)
             return response
         except Exception as e:
             logger.warning(

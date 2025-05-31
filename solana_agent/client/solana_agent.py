@@ -7,7 +7,9 @@ the agent system without dealing with internal implementation details.
 
 import json
 import importlib.util
-from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Union
+from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
@@ -69,7 +71,8 @@ class SolanaAgent(SolanaAgentInterface):
         ] = "mp4",
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-    ) -> AsyncGenerator[Union[str, bytes], None]:  # pragma: no cover
+        output_model: Optional[Type[BaseModel]] = None,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process a user message (text or audio) and optional images, returning the response stream.
 
         Args:
@@ -83,6 +86,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_input_format: Audio input format
             router: Optional routing service for processing
             images: Optional list of image URLs (str) or image bytes.
+            output_model: Optional Pydantic model for structured output
 
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
@@ -98,6 +102,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_input_format=audio_input_format,
             prompt=prompt,
             router=router,
+            output_model=output_model,
         ):
             yield chunk
 
