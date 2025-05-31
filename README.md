@@ -26,7 +26,6 @@ Build your AI agents in three lines of code!
 * Intelligent Routing
 * Business Alignment
 * Extensible Tooling
-* Automatic Tool Workflows
 * Autonomous Operation
 * Structured Outputs
 * Knowledge Base
@@ -58,7 +57,6 @@ Build your AI agents in three lines of code!
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
-* Automatic sequential tool workflows allowing agents to chain multiple tools
 * Deterministically return structured outputs
 * Combine with event-driven systems to create autonomous agents
 
