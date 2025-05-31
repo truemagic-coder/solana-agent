@@ -394,6 +394,7 @@ class AgentService(AgentServiceInterface):
 
         if not text:
             return ""
+        text = text.replace("’", "'").replace("‘", "'")
         text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
         text = re.sub(r"`([^`]+)`", r"\1", text)
         text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
@@ -424,9 +425,7 @@ class AgentService(AgentServiceInterface):
             flags=re.UNICODE,
         )
         text = emoji_pattern.sub(r" ", text)
-        text = re.sub(
-            r"[^\w\s\.\,\;\:\?\!\'\"\-\(\)]", " ", text
-        )  # Keep basic punctuation
+        text = re.sub(r"[^\w\s\.\,\;\:\?\!\'\"\-\(\)]", " ", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
