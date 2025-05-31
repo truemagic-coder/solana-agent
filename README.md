@@ -41,12 +41,11 @@ Build your AI agents in three lines of code!
 
 * Easy three lines of code setup
 * Simple agent definition using JSON
-* Fast AI responses
+* Designed for a multi-agent swarm 
+* Fast multi-modal processing of text, audio, and images
 * Solana Integration
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
-* Designed for a multi-agent swarm 
-* Seamless streaming with real-time multi-modal processing of text, audio, and images
 * Persistent memory that preserves context across all agent interactions
 * Quick Internet search to answer users' queries
 * Streamlined message history for all agent interactions
