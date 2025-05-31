@@ -27,7 +27,7 @@ Build your AI agents in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Autonomous Operation
-* Automated Tool Workflows
+* Smart Workflows
 * Structured Outputs
 * Knowledge Base
 * MCP Support
@@ -38,13 +38,32 @@ Build your AI agents in three lines of code!
 * Built in Python
 * Powers [CometHeart](https://cometheart.com)
 
+## Unique Selling Proposition (USP) - Smart Workflows
+
+Solana Agent is the first AI agent framework to deliver truly intelligent, dynamic workflows.
+
+With Solana Agent, you can seamlessly define and integrate tools — such as Zapier MCP (for sending emails via Mailgun) and the Solana Balance tool—directly into your agent’s capabilities.
+
+Then prompt your agent with natural language, for example:  
+“Get my balances for my Solana wallet and then email them to me.”
+
+Solana Agent will automatically orchestrate the workflow:  
+It will first use the Solana Balance tool to retrieve your balances, then invoke the Zapier MCP tool to send the results via email — all without manual intervention or brittle, hardcoded logic.
+
+You can also chain tool outputs (structured or unstructured) as inputs for subsequent tasks, enabling complex, multi-step automations with ease.
+
+**The result?**  
+A framework that is both powerful and simple — eliminating the need for static, fragile workflow definitions.  
+Smart workflows are as easy as combining your tools and prompts.
+
 ## Features
 
 * Easy three lines of code setup
 * Simple agent definition using JSON
 * Designed for a multi-agent swarm 
 * Fast multi-modal processing of text, audio, and images
-* Solana Integration
+* Smart workflows that keep flows simple and smart
+* Interact with the Solana blockchain with many useful tools
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
 * Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
 * Persistent memory that preserves context across all agent interactions
@@ -58,7 +77,6 @@ Build your AI agents in three lines of code!
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
 * Deterministically return structured outputs
-* Sequentially provide tool commands that execute in the proper order
 * Combine with event-driven systems to create autonomous agents
 
 ## Stack
