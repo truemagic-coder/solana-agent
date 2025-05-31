@@ -234,6 +234,40 @@ Image/Text Streaming
       print(response, end="")
 
 
+Structured Outputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "openai": {
+         "api_key": "your-openai-api-key",
+      },
+      "agents": [
+         {
+               "name": "researcher",
+               "instructions": "You are a research expert.",
+               "specialization": "Researcher",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   class ResearchProposal(BaseModel):
+      title: str
+      abstract: str
+      key_points: list[str]
+
+   full_response = None
+   async for response in solana_agent.process("user123", "Research the life of Ben Franklin - the founding Father.", output_model=ResearchProposal):
+      full_response = response
+
+   print(full_response.model_dump())
+
+
 Command Line Interface (CLI)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -474,6 +508,8 @@ Guardrails - Optional
 
 Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.
 
+Guardrails don't apply to structured outputs.
+
 Solana Agent provides a built-in PII scrubber based on scrubadub.
 
 .. code-block:: python
@@ -514,6 +550,8 @@ Solana Agent provides a built-in PII scrubber based on scrubadub.
 
 Example Custom Guardrails - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Guardrails don't apply to structured outputs.
 
 .. code-block:: python
 

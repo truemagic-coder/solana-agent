@@ -274,7 +274,8 @@ class QueryService(QueryServiceInterface):
                     output_model=output_model,
                 ):
                     yield chunk
-                    full_text_response = chunk
+                    if output_model is None:
+                        full_text_response += chunk
 
                 # Store conversation using processed user_text
                 # Note: Storing images in history is not directly supported by current memory provider interface
