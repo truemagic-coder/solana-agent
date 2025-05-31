@@ -27,6 +27,7 @@ Build your AI agents in three lines of code!
 * Business Alignment
 * Extensible Tooling
 * Autonomous Operation
+* Automated Tool Workflows
 * Structured Outputs
 * Knowledge Base
 * MCP Support
@@ -57,6 +58,7 @@ Build your AI agents in three lines of code!
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
 * Deterministically return structured outputs
+* Sequentially provide tool commands that execute in the proper order
 * Combine with event-driven systems to create autonomous agents
 
 ## Stack
@@ -74,7 +76,7 @@ Build your AI agents in three lines of code!
 ### AI Models Used
 
 **OpenAI**
-* [gpt-4.1-nano](https://platform.openai.com/docs/models/gpt-4.1-nano) (agent & router)
+* [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
