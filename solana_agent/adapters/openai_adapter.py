@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-4.1"
-DEFAULT_VISION_MODEL = "gpt-4.1"
+DEFAULT_CHAT_MODEL = "gpt-4.1-nano"
+DEFAULT_VISION_MODEL = "gpt-4.1-nano"
 DEFAULT_PARSE_MODEL = "gpt-4.1-nano"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 DEFAULT_EMBEDDING_DIMENSIONS = 3072
@@ -163,9 +163,8 @@ class OpenAIAdapter(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        functions: Optional[List[Dict[str, Any]]] = None,
-        function_call: Optional[Union[str, Dict[str, Any]]] = None,
-    ) -> Any:  # pragma: no cover
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:  # pragma: no cover
         """Generate text or function call from OpenAI models."""
         messages = []
         if system_prompt:
@@ -176,10 +175,8 @@ class OpenAIAdapter(LLMProvider):
             "messages": messages,
             "model": model or self.text_model,
         }
-        if functions:
-            request_params["functions"] = functions
-        if function_call:
-            request_params["function_call"] = function_call
+        if tools:
+            request_params["tools"] = tools
 
         if api_key and base_url:
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -410,8 +407,7 @@ class OpenAIAdapter(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        functions: Optional[List[Dict[str, Any]]] = None,
-        function_call: Optional[Union[str, Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> T:  # pragma: no cover
         """Generate structured output using Pydantic model parsing with Instructor."""
 
@@ -439,10 +435,8 @@ class OpenAIAdapter(LLMProvider):
                 "response_model": model_class,
                 "max_retries": 2,  # Automatically retry on validation errors
             }
-            if functions:
-                create_args["tools"] = functions
-            if function_call:
-                create_args["function_call"] = function_call
+            if tools:
+                create_args["tools"] = tools
 
             response = await patched_client.chat.completions.create(**create_args)
             return response
