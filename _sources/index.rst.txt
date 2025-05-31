@@ -366,31 +366,6 @@ Observability and Tracing - Optional
       },
    }
 
-
-Grok - Optional
-~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "grok": {
-         "api_key": "your-grok-api-key",
-      },
-   }
-
-
-Gemini - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   config = {
-      "gemini": {
-         "api_key": "your-gemini-api-key",
-      },
-   }
-
-
 Knowledge Base - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
