@@ -42,7 +42,7 @@ Build your AI agents in three lines of code!
 
 Solana Agent is the first AI agent framework to deliver truly intelligent, dynamic workflows.
 
-With Solana Agent, you can seamlessly define and integrate tools — such as Zapier MCP (for sending emails via Mailgun) and the Solana Balance tool—directly into your agent’s capabilities.
+With Solana Agent, you can seamlessly define and integrate tools — such as Zapier MCP (for sending emails via Mailgun) and the Solana Balance tool — directly into your agent’s capabilities.
 
 Then prompt your agent with natural language, for example:  
 “Get my balances for my Solana wallet and then email them to me.”
