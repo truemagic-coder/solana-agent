@@ -260,7 +260,7 @@ class AgentService(AgentServiceInterface):
         # Compose the prompt for generate_text
         full_prompt = ""
         if memory_context:
-            full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n"
+            full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n Always use your tools to perform actions and don't rely on your memory!\n\n"
         if prompt:
             full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
         full_prompt += user_content
