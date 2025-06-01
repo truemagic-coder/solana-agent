@@ -94,7 +94,7 @@ Smart workflows are as easy as combining your tools and prompts.
 ### AI Models Used
 
 **OpenAI**
-* [gpt-4.1-mini](https://platform.openai.com/docs/models/gpt-4.1-mini) (agent & router)
+* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
