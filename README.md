@@ -639,8 +639,7 @@ pip install sakit
 ### Inline Tool Example
 
 ```python
-from solana_agent import SolanaAgent
-from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent import SolanaAgent, Tool
 
 class TestTool(Tool):
     def __init__(self):
