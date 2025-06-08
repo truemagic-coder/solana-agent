@@ -15,6 +15,7 @@ from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.plugins.tools.auto_tool import AutoTool
+from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
     OutputGuardrail,
@@ -30,6 +31,7 @@ __all__ = [
     "PluginManager",
     "ToolRegistry",
     "AutoTool",
+    "Tool",
     # Guardrails
     "InputGuardrail",
     "OutputGuardrail",
