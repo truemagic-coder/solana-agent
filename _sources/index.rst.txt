@@ -608,7 +608,8 @@ Inline Tool Example
                "query": {"type": "string", "description": "Search query text"},
                "user_id": {"type": "string", "description": "User ID for the search session"}
             },
-            "required": ["query", "user_id"]
+            "required": ["query", "user_id"],
+            "additionalProperties": False,
          }
 
       async def execute(self, **params) -> Dict[str, Any]:
