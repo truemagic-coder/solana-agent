@@ -129,7 +129,7 @@ class MemoryRepository(MemoryProvider):
                     return
 
     async def retrieve(self, user_id: str) -> str:
-        """Retrieve memory context from Zep and MongoDB."""
+        """Retrieve memory context from Zep."""
         try:
             memories = ""
             if self.zep:
@@ -137,20 +137,6 @@ class MemoryRepository(MemoryProvider):
                 if memory and memory.context:
                     memories = memory.context
 
-            if self.mongo:
-                query = {"user_id": user_id}
-                sort = [("timestamp", -1)]
-                limit = 1
-                skip = 0
-                mongo_memory = self.mongo.find(
-                    self.collection, query, sort=sort, limit=limit, skip=skip
-                )
-                if mongo_memory:
-                    for doc in mongo_memory:
-                        user_message = doc.get("user_message")
-                        assistant_message = doc.get("assistant_message")
-                        if user_message and assistant_message:
-                            memories += f"\nUser: {user_message}\nAssistant: {assistant_message}"
             return memories
 
         except Exception as e:
