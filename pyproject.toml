@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "30.0.8"
+version = "30.0.9"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -24,20 +24,20 @@ python_paths = [".", "tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "1.93.0"
+openai = "1.93.3"
 pydantic = ">=2"
 pymongo = "4.13.2"
 zep-cloud = "2.17.0"
-instructor = "1.9.0"
+instructor = "1.9.2"
 pinecone = "7.3.0"
-llama-index-core = "0.12.45"
+llama-index-core = "0.12.48"
 llama-index-embeddings-openai = "0.3.1"
 pypdf = "5.7.0"
 scrubadub = "2.0.1"
-logfire = "3.21.2"
+logfire = "3.23.0"
 typer = "0.16.0"
 rich = ">=13,<14.0"
-pillow = "11.2.1"
+pillow = "11.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
@@ -50,7 +50,7 @@ sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
 sphinx-autobuild = "^2024.10.3"
 mongomock = "^4.3.0"
-ruff = "^0.11.13"
+ruff = "^0.12.2"
 
 [tool.poetry.scripts]
 solana-agent = "solana_agent.cli:app"
