@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-4.1"
-DEFAULT_VISION_MODEL = "gpt-4.1"
-DEFAULT_PARSE_MODEL = "gpt-4.1"
+DEFAULT_CHAT_MODEL = "gpt-5"
+DEFAULT_VISION_MODEL = "gpt-5"
+DEFAULT_PARSE_MODEL = "gpt-5"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 DEFAULT_EMBEDDING_DIMENSIONS = 3072
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"

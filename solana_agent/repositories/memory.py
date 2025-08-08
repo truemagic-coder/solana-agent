@@ -43,7 +43,7 @@ class MemoryRepository(MemoryProvider):
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         """Store messages in both Zep and MongoDB."""
-        if not user_id:
+        if not user_id or user_id == "" or not isinstance(user_id, str):
             raise ValueError("User ID cannot be None or empty")
         if not messages or not isinstance(messages, list):
             raise ValueError("Messages must be a non-empty list")
@@ -92,6 +92,7 @@ class MemoryRepository(MemoryProvider):
 
         # Convert messages to Zep format
         zep_messages = []
+
         for msg in messages:
             if "role" in msg and "content" in msg:
                 content = self._truncate(deepcopy(msg["content"]))
@@ -105,7 +106,10 @@ class MemoryRepository(MemoryProvider):
         # Add messages to Zep memory
         if zep_messages:
             try:
-                await self.zep.memory.add(session_id=user_id, messages=zep_messages)
+                await self.zep.thread.add_messages(
+                    thread_id=user_id,
+                    messages=zep_messages,
+                )
             except Exception:
                 try:
                     try:
@@ -116,14 +120,18 @@ class MemoryRepository(MemoryProvider):
                         )  # Use logger.error
 
                     try:
-                        await self.zep.memory.add_session(
-                            session_id=user_id, user_id=user_id
+                        await self.zep.thread.create(
+                            thread_id=user_id,
+                            user_id=user_id,
                         )
                     except Exception as e:
                         logger.error(
-                            f"Zep session creation error: {e}"
+                            f"Zep thread creation error: {e}"
                         )  # Use logger.error
-                    await self.zep.memory.add(session_id=user_id, messages=zep_messages)
+                    await self.zep.thread.add_messages(
+                        thread_id=user_id,
+                        messages=zep_messages,
+                    )
                 except Exception as e:
                     logger.error(f"Zep memory addition error: {e}")  # Use logger.error
                     return
