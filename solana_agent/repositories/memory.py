@@ -96,10 +96,10 @@ class MemoryRepository(MemoryProvider):
         for msg in messages:
             if "role" in msg and "content" in msg:
                 content = self._truncate(deepcopy(msg["content"]))
+                role_type = "user" if msg["role"] == "user" else "assistant"
                 zep_msg = Message(
-                    role=msg["role"],
                     content=content,
-                    role_type=msg["role"],
+                    role=role_type,
                 )
                 zep_messages.append(zep_msg)
 
@@ -141,7 +141,7 @@ class MemoryRepository(MemoryProvider):
         try:
             memories = ""
             if self.zep:
-                memory = await self.zep.memory.get(session_id=user_id)
+                memory = await self.zep.thread.get_user_context(thread_id=user_id)
                 if memory and memory.context:
                     memories = memory.context
 
@@ -163,7 +163,7 @@ class MemoryRepository(MemoryProvider):
             return
 
         try:
-            await self.zep.memory.delete(session_id=user_id)
+            await self.zep.thread.delete(thread_id=user_id)
         except Exception as e:
             logger.error(f"Zep memory deletion error: {e}")  # Use logger.error
 

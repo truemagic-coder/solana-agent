@@ -22,7 +22,6 @@ def mock_mongo_adapter():
 def mock_zep():
     mock = AsyncMock()
     mock.user = AsyncMock()
-    mock.memory = AsyncMock()
     mock.thread = AsyncMock()
     return mock
 
@@ -78,9 +77,7 @@ class TestMemoryRepository:
         with pytest.raises(ValueError):
             await repo.store("", valid_messages)
         with pytest.raises(ValueError):
-            await repo.store(
-                123, valid_messages
-            )  # Make sure your implementation checks this!
+            await repo.store(123, valid_messages)
         with pytest.raises(ValueError):
             await repo.store("user123", [])
         with pytest.raises(ValueError):
@@ -113,7 +110,6 @@ class TestMemoryRepository:
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
         await repo.store("user123", valid_messages)
-        # Should call thread.add_messages directly
         mock_zep.thread.add_messages.assert_called_once()
         mock_zep.user.add.assert_not_called()
         mock_zep.thread.create.assert_not_called()
@@ -158,9 +154,9 @@ class TestMemoryRepository:
         repo.zep = mock_zep
         mock_memory = MagicMock()
         mock_memory.context = "Sample memory context data"
-        mock_zep.memory.get.return_value = mock_memory
+        mock_zep.thread.get_user_context.return_value = mock_memory
         result = await repo.retrieve("test_user")
-        mock_zep.memory.get.assert_called_once_with(session_id="test_user")
+        mock_zep.thread.get_user_context.assert_called_once_with(thread_id="test_user")
         assert result == "Sample memory context data"
 
     @pytest.mark.asyncio
@@ -168,17 +164,17 @@ class TestMemoryRepository:
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
         # None memory
-        mock_zep.memory.get.return_value = None
+        mock_zep.thread.get_user_context.return_value = None
         result = await repo.retrieve("user123")
         assert result == ""
         # Missing context
         memory = MagicMock()
         memory.context = None
-        mock_zep.memory.get.return_value = memory
+        mock_zep.thread.get_user_context.return_value = memory
         result = await repo.retrieve("user123")
         assert result == ""
         # Retrieval error
-        mock_zep.memory.get.side_effect = Exception("Retrieval error")
+        mock_zep.thread.get_user_context.side_effect = Exception("Retrieval error")
         result = await repo.retrieve("user123")
         assert result == ""
 
@@ -192,7 +188,7 @@ class TestMemoryRepository:
         mock_mongo_adapter.delete_all.assert_called_once_with(
             "conversations", {"user_id": "user123"}
         )
-        mock_zep.memory.delete.assert_called_once_with(session_id="user123")
+        mock_zep.thread.delete.assert_called_once_with(thread_id="user123")
         mock_zep.user.delete.assert_called_once_with(user_id="user123")
 
     def test_find_success(self, mock_mongo_adapter):
@@ -209,12 +205,10 @@ class TestMemoryRepository:
         assert result == 5
         mock_mongo_adapter.count_documents.assert_called_once()
 
-    def test_count_documents_success_no_mongo(self, mock_mongo_adapter):
+    def test_count_documents_success_no_mongo(self):
         repo = MemoryRepository()
-        mock_mongo_adapter.count_documents.return_value = 0
         result = repo.count_documents("conversations", {"query": "test"})
         assert result == 0
-        mock_mongo_adapter.count_documents.assert_not_called()
 
     def test_truncate_text(self):
         repo = MemoryRepository()
@@ -254,7 +248,7 @@ class TestMemoryRepository:
 
     @pytest.mark.asyncio
     async def test_delete_zep_memory_error(self, mock_zep):
-        mock_zep.memory.delete.side_effect = Exception("Memory delete error")
+        mock_zep.thread.delete.side_effect = Exception("Memory delete error")
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
         await repo.delete("user123")
@@ -266,7 +260,7 @@ class TestMemoryRepository:
         repo = MemoryRepository(zep_api_key="test_key")
         repo.zep = mock_zep
         await repo.delete("user123")
-        mock_zep.memory.delete.assert_called_once()
+        mock_zep.thread.delete.assert_called_once()
 
     def test_find_mongo_error(self, mock_mongo_adapter):
         mock_mongo_adapter.find.side_effect = Exception("Find error")
