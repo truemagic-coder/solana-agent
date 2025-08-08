@@ -43,7 +43,7 @@ class MemoryRepository(MemoryProvider):
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         """Store messages in both Zep and MongoDB."""
-        if not user_id:
+        if not user_id or user_id == "" or not isinstance(user_id, str):
             raise ValueError("User ID cannot be None or empty")
         if not messages or not isinstance(messages, list):
             raise ValueError("Messages must be a non-empty list")
@@ -92,20 +92,24 @@ class MemoryRepository(MemoryProvider):
 
         # Convert messages to Zep format
         zep_messages = []
+
         for msg in messages:
             if "role" in msg and "content" in msg:
                 content = self._truncate(deepcopy(msg["content"]))
+                role_type = "user" if msg["role"] == "user" else "assistant"
                 zep_msg = Message(
-                    role=msg["role"],
                     content=content,
-                    role_type=msg["role"],
+                    role=role_type,
                 )
                 zep_messages.append(zep_msg)
 
         # Add messages to Zep memory
         if zep_messages:
             try:
-                await self.zep.memory.add(session_id=user_id, messages=zep_messages)
+                await self.zep.thread.add_messages(
+                    thread_id=user_id,
+                    messages=zep_messages,
+                )
             except Exception:
                 try:
                     try:
@@ -116,14 +120,18 @@ class MemoryRepository(MemoryProvider):
                         )  # Use logger.error
 
                     try:
-                        await self.zep.memory.add_session(
-                            session_id=user_id, user_id=user_id
+                        await self.zep.thread.create(
+                            thread_id=user_id,
+                            user_id=user_id,
                         )
                     except Exception as e:
                         logger.error(
-                            f"Zep session creation error: {e}"
+                            f"Zep thread creation error: {e}"
                         )  # Use logger.error
-                    await self.zep.memory.add(session_id=user_id, messages=zep_messages)
+                    await self.zep.thread.add_messages(
+                        thread_id=user_id,
+                        messages=zep_messages,
+                    )
                 except Exception as e:
                     logger.error(f"Zep memory addition error: {e}")  # Use logger.error
                     return
@@ -133,7 +141,7 @@ class MemoryRepository(MemoryProvider):
         try:
             memories = ""
             if self.zep:
-                memory = await self.zep.memory.get(session_id=user_id)
+                memory = await self.zep.thread.get_user_context(thread_id=user_id)
                 if memory and memory.context:
                     memories = memory.context
 
@@ -155,7 +163,7 @@ class MemoryRepository(MemoryProvider):
             return
 
         try:
-            await self.zep.memory.delete(session_id=user_id)
+            await self.zep.thread.delete(thread_id=user_id)
         except Exception as e:
             logger.error(f"Zep memory deletion error: {e}")  # Use logger.error
 
