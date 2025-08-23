@@ -89,6 +89,8 @@ class QueryService(QueryServiceInterface):
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
         output_model: Optional[Type[BaseModel]] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
+        capture_name: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request with appropriate agent and apply input guardrails.
 
@@ -263,6 +265,47 @@ class QueryService(QueryServiceInterface):
                     )
             else:
                 full_text_response = ""
+                # If capture_schema is provided, we run a structured output pass first
+                capture_data: Optional[BaseModel] = None
+                # If no explicit capture provided, use the agent's configured capture
+                if not capture_schema or not capture_name:
+                    try:
+                        cap = self.agent_service.get_agent_capture(agent_name)
+                        if cap:
+                            capture_name = cap.get("name")
+                            capture_schema = cap.get("schema")
+                    except Exception:
+                        pass
+
+                if capture_schema and capture_name:
+                    try:
+                        # Build a dynamic Pydantic model from JSON schema
+                        DynamicModel = self._build_model_from_json_schema(
+                            capture_name, capture_schema
+                        )
+                        async for result in self.agent_service.generate_response(
+                            agent_name=agent_name,
+                            user_id=user_id,
+                            query=user_text,
+                            images=images,
+                            memory_context=combined_context,
+                            output_format="text",
+                            prompt=(
+                                (
+                                    prompt
+                                    + "\n\nReturn only the JSON for the requested schema."
+                                )
+                                if prompt
+                                else "Return only the JSON for the requested schema."
+                            ),
+                            output_model=DynamicModel,
+                        ):
+                            # This yields a pydantic model instance
+                            capture_data = result  # type: ignore
+                            break
+                    except Exception as e:
+                        logger.error(f"Error during capture structured output: {e}")
+
                 async for chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
@@ -285,6 +328,30 @@ class QueryService(QueryServiceInterface):
                         user_message=user_text,  # Store only text part of user query
                         assistant_message=full_text_response,
                     )
+
+                # Persist capture if available
+                if (
+                    self.memory_provider
+                    and capture_schema
+                    and capture_name
+                    and capture_data is not None
+                ):
+                    try:
+                        # pydantic v2: model_dump
+                        data_dict = (
+                            capture_data.model_dump()  # type: ignore[attr-defined]
+                            if hasattr(capture_data, "model_dump")
+                            else capture_data.dict()  # type: ignore
+                        )
+                        await self.memory_provider.save_capture(
+                            user_id=user_id,
+                            capture_name=capture_name,
+                            agent_name=agent_name,
+                            data=data_dict,
+                            schema=capture_schema,
+                        )
+                    except Exception as e:
+                        logger.error(f"Error saving capture: {e}")
 
         except Exception as e:
             import traceback
@@ -458,3 +525,52 @@ class QueryService(QueryServiceInterface):
             logger.debug(
                 "Memory provider not configured, skipping conversation storage."
             )
+
+    def _build_model_from_json_schema(
+        self, name: str, schema: Dict[str, Any]
+    ) -> Type[BaseModel]:
+        """Create a Pydantic model dynamically from a JSON Schema subset.
+
+        Supports 'type' string, integer, number, boolean, object (flat), array (of simple types),
+        required fields, and default values. Nested objects/arrays can be extended later.
+        """
+        from pydantic import create_model
+
+        def py_type(js: Dict[str, Any]):
+            t = js.get("type")
+            if isinstance(t, list):
+                # handle ["null", "string"] => Optional[str]
+                non_null = [x for x in t if x != "null"]
+                if not non_null:
+                    return Optional[Any]
+                base = py_type({"type": non_null[0]})
+                return Optional[base]
+            if t == "string":
+                return str
+            if t == "integer":
+                return int
+            if t == "number":
+                return float
+            if t == "boolean":
+                return bool
+            if t == "array":
+                items = js.get("items", {"type": "string"})
+                return List[py_type(items)]
+            if t == "object":
+                # For now, represent as Dict[str, Any]
+                return Dict[str, Any]
+            return Any
+
+        properties: Dict[str, Any] = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        fields = {}
+        for field_name, field_schema in properties.items():
+            typ = py_type(field_schema)
+            default = field_schema.get("default")
+            if field_name in required and default is None:
+                fields[field_name] = (typ, ...)
+            else:
+                fields[field_name] = (typ, default)
+
+        Model = create_model(name, **fields)  # type: ignore
+        return Model

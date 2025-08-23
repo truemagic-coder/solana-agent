@@ -36,6 +36,18 @@ class MemoryRepository(MemoryProvider):
             except Exception as e:
                 logger.error(f"Error initializing MongoDB: {e}")  # Use logger.error
 
+            # Initialize captures collection and indexes
+            try:
+                self.captures_collection = "captures"
+                self.mongo.create_collection(self.captures_collection)
+                self.mongo.create_index(self.captures_collection, [("user_id", 1)])
+                self.mongo.create_index(self.captures_collection, [("capture_name", 1)])
+                self.mongo.create_index(self.captures_collection, [("agent_name", 1)])
+                self.mongo.create_index(self.captures_collection, [("timestamp", 1)])
+            except Exception as e:
+                logger.error(f"Error initializing MongoDB captures collection: {e}")
+                self.captures_collection = "captures"
+
         self.zep = None
         # Initialize Zep
         if zep_api_key:
@@ -214,3 +226,38 @@ class MemoryRepository(MemoryProvider):
 
         # If no period found, truncate at limit and add ellipsis
         return text[: limit - 3] + "..."
+
+    async def save_capture(
+        self,
+        user_id: str,
+        capture_name: str,
+        agent_name: Optional[str],
+        data: Dict[str, Any],
+        schema: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Persist a structured capture in MongoDB."""
+        if not self.mongo:
+            logger.warning("MongoDB not configured; cannot save capture.")
+            return None
+
+        if not user_id or not isinstance(user_id, str):
+            raise ValueError("user_id must be a non-empty string")
+        if not capture_name or not isinstance(capture_name, str):
+            raise ValueError("capture_name must be a non-empty string")
+        if not isinstance(data, dict):
+            raise ValueError("data must be a dictionary")
+
+        doc = {
+            "user_id": user_id,
+            "capture_name": capture_name,
+            "agent_name": agent_name,
+            "data": data,
+            "schema": schema or {},
+            "timestamp": datetime.now(timezone.utc),
+        }
+        try:
+            capture_id = self.mongo.insert_one(self.captures_collection, doc)
+            return capture_id
+        except Exception as e:
+            logger.error(f"MongoDB save_capture error: {e}")
+            return None

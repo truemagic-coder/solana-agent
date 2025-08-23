@@ -28,7 +28,7 @@ Build your AI agents in three lines of code!
 * Extensible Tooling
 * Autonomous Operation
 * Smart Workflows
-* Structured Outputs
+* Agentic Forms
 * Knowledge Base
 * MCP Support
 * Guardrails
@@ -77,7 +77,7 @@ Smart workflows are as easy as combining your tools and prompts.
 * Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
-* Deterministically return structured outputs
+* Deterministic agentic form filling in natural conversation
 * Combine with event-driven systems to create autonomous agents
 
 ## Stack
@@ -309,7 +309,9 @@ async for response in solana_agent.process("user123", "What is in this image? De
     print(response, end="")
 ```
 
-### Structured Outputs
+### Agentic Forms
+
+You can attach a JSON Schema to any agent in your config so it can collect structured data conversationally.
 
 ```python
 from solana_agent import SolanaAgent
@@ -320,25 +322,31 @@ config = {
     },
     "agents": [
         {
-            "name": "researcher",
-            "instructions": "You are a research expert.",
-            "specialization": "Researcher",
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        },
+        {
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+            "capture_name": "contact_info",
+            "capture_schema": {
+                "type": "object",
+                "properties": {
+                    "email": { "type": "string" },
+                    "phone": { "type": "string" },
+                    "subscribe": { "type": "boolean", "default": false }
+                },
+                "required": ["email"]
         }
     ],
 }
 
 solana_agent = SolanaAgent(config=config)
 
-class ResearchProposal(BaseModel):
-    title: str
-    abstract: str
-    key_points: list[str]
-
-full_response = None
-async for response in solana_agent.process("user123", "Research the life of Ben Franklin - the founding Father.", output_model=ResearchProposal):
-    full_response = response
-
-print(full_response.model_dump())
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+    print(response, end="")
 ```
 
 ### Command Line Interface (CLI)

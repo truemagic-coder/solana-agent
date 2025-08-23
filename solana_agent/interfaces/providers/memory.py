@@ -36,3 +36,15 @@ class MemoryProvider(ABC):
     def count_documents(self, collection: str, query: Dict) -> int:
         """Count documents matching query."""
         pass
+
+    @abstractmethod
+    async def save_capture(
+        self,
+        user_id: str,
+        capture_name: str,
+        agent_name: Optional[str],
+        data: Dict[str, Any],
+        schema: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Persist a structured capture for a user and return its ID if available."""
+        pass

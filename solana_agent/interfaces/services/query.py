@@ -38,6 +38,8 @@ class QueryService(ABC):
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
+        capture_name: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process the user request and generate a response."""
         pass

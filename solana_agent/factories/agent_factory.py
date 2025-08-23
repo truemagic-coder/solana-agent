@@ -192,10 +192,17 @@ class SolanaAgentFactory:
 
         # Register predefined agents
         for agent_config in config.get("agents", []):
+            extra_kwargs = {}
+            if "capture_name" in agent_config:
+                extra_kwargs["capture_name"] = agent_config.get("capture_name")
+            if "capture_schema" in agent_config:
+                extra_kwargs["capture_schema"] = agent_config.get("capture_schema")
+
             agent_service.register_ai_agent(
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
                 specialization=agent_config["specialization"],
+                **extra_kwargs,
             )
 
             # Register tools for this agent
