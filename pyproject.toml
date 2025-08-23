@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "31.1.0"
+version = "31.1.0-dev2"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -19,8 +19,8 @@ classifiers = [
 ]
 packages = [{ include = "solana_agent" }]
 
-[tool.pytest.ini-options]
-python_paths = [".", "tests"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"

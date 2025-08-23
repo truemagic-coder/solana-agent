@@ -249,25 +249,22 @@ You can attach a JSON Schema to any agent in your config so it can collect struc
       },
       "agents": [
          {
-               "name": "research_specialist",
-               "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-               "specialization": "Research and knowledge synthesis",
-         },
-         {
-               "name": "customer_support",
-               "instructions": "You provide friendly, helpful customer support responses.",
-               "specialization": "Customer inquiries",
-               "capture_name": "contact_info",
-               "capture_schema": {
-                  "type": "object",
-                  "properties": {
-                     "email": { "type": "string" },
-                     "phone": { "type": "string" },
-                     "subscribe": { "type": "boolean", "default": false }
-                  },
-                  "required": ["email"]
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+            "capture_name": "contact_info",
+            "capture_mode": "once",
+            "capture_schema": {
+               "type": "object",
+               "properties": {
+                  "email": { "type": "string" },
+                  "phone": { "type": "string" },
+                  "newsletter_subscribe": { "type": "boolean" }
+               },
+               "required": ["email"]
+            }
          }
-      ],
+      ]
    }
 
    solana_agent = SolanaAgent(config=config)

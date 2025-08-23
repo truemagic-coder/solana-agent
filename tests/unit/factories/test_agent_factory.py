@@ -67,6 +67,31 @@ def guardrails_config(base_config):
     return config
 
 
+# NEW: properly defined (de-dented) fixture
+@pytest.fixture
+def agent_capture_modes_config(base_config):
+    cfg = deepcopy(base_config)
+    cfg["mongo"] = {
+        "connection_string": "mongodb://localhost:27017",
+        "database": "test_db",
+    }
+    cfg["agents"] = [
+        {
+            "name": "contact",
+            "instructions": "",
+            "specialization": "",
+            "capture_mode": "once",
+        },
+        {
+            "name": "donations",
+            "instructions": "",
+            "specialization": "",
+            "capture_mode": "multiple",
+        },
+    ]
+    return cfg
+
+
 # Base configuration for testing
 @pytest.fixture
 def base_config():
@@ -107,6 +132,29 @@ def agent_config(base_config):
         }
     ]
     return config
+
+    @pytest.fixture
+    def agent_capture_modes_config(base_config):
+        cfg = deepcopy(base_config)
+        cfg["mongo"] = {
+            "connection_string": "mongodb://localhost:27017",
+            "database": "test_db",
+        }
+        cfg["agents"] = [
+            {
+                "name": "contact",
+                "instructions": "",
+                "specialization": "",
+                "capture_mode": "once",
+            },
+            {
+                "name": "donations",
+                "instructions": "",
+                "specialization": "",
+                "capture_mode": "multiple",
+            },
+        ]
+        return cfg
 
 
 @pytest.fixture
@@ -583,6 +631,34 @@ class TestSolanaAgentFactory:
         )
 
         assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.MemoryRepository")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_factory_wires_capture_modes(
+        self,
+        mock_query_service,
+        mock_memory_repo,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        agent_capture_modes_config,
+    ):
+        mock_mongo_instance = MagicMock()
+        mock_mongo_adapter.return_value = mock_mongo_instance
+
+        SolanaAgentFactory.create_from_config(agent_capture_modes_config)
+        # Expect MemoryRepository called with capture_modes mapping
+        kwargs = mock_memory_repo.call_args.kwargs
+        assert kwargs["mongo_adapter"] == mock_mongo_instance
+        assert kwargs.get("capture_modes") == {
+            "contact": "once",
+            "donations": "multiple",
+        }
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")

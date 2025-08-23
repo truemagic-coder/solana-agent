@@ -1,13 +1,14 @@
-import logging  # Import logging
-from copy import deepcopy
-from typing import List, Dict, Any, Optional, Tuple
+import logging
+from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime, timezone
+from copy import deepcopy
+
 from zep_cloud.client import AsyncZep as AsyncZepCloud
 from zep_cloud.types import Message
+
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 
-# Setup logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -18,171 +19,157 @@ class MemoryRepository(MemoryProvider):
         self,
         mongo_adapter: Optional[MongoDBAdapter] = None,
         zep_api_key: Optional[str] = None,
+        capture_modes: Optional[Dict[str, str]] = None,
     ):
-        """Initialize the combined memory provider."""
+        self.capture_modes: Dict[str, str] = capture_modes or {}
+
+        # Mongo setup
         if not mongo_adapter:
             self.mongo = None
             self.collection = None
+            self.captures_collection = "captures"
         else:
-            # Initialize MongoDB
             self.mongo = mongo_adapter
             self.collection = "conversations"
-
             try:
-                # Ensure MongoDB collection and indexes
                 self.mongo.create_collection(self.collection)
                 self.mongo.create_index(self.collection, [("user_id", 1)])
                 self.mongo.create_index(self.collection, [("timestamp", 1)])
             except Exception as e:
-                logger.error(f"Error initializing MongoDB: {e}")  # Use logger.error
+                logger.error(f"Error initializing MongoDB: {e}")
 
-            # Initialize captures collection and indexes
             try:
                 self.captures_collection = "captures"
                 self.mongo.create_collection(self.captures_collection)
+                # Basic indexes
                 self.mongo.create_index(self.captures_collection, [("user_id", 1)])
                 self.mongo.create_index(self.captures_collection, [("capture_name", 1)])
                 self.mongo.create_index(self.captures_collection, [("agent_name", 1)])
                 self.mongo.create_index(self.captures_collection, [("timestamp", 1)])
+                # Unique only when mode == 'once'
+                try:
+                    self.mongo.create_index(
+                        self.captures_collection,
+                        [("user_id", 1), ("agent_name", 1), ("capture_name", 1)],
+                        unique=True,
+                        partialFilterExpression={"mode": "once"},
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error creating partial unique index for captures: {e}"
+                    )
             except Exception as e:
                 logger.error(f"Error initializing MongoDB captures collection: {e}")
                 self.captures_collection = "captures"
 
-        self.zep = None
-        # Initialize Zep
-        if zep_api_key:
-            self.zep = AsyncZepCloud(api_key=zep_api_key)
+        # Zep setup
+        self.zep = AsyncZepCloud(api_key=zep_api_key) if zep_api_key else None
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
-        """Store messages in both Zep and MongoDB."""
-        if not user_id or user_id == "" or not isinstance(user_id, str):
+        if not user_id or not isinstance(user_id, str):
             raise ValueError("User ID cannot be None or empty")
         if not messages or not isinstance(messages, list):
             raise ValueError("Messages must be a non-empty list")
         if not all(
-            isinstance(msg, dict) and "role" in msg and "content" in msg
-            for msg in messages
+            isinstance(m, dict) and "role" in m and "content" in m for m in messages
         ):
             raise ValueError(
                 "All messages must be dictionaries with 'role' and 'content' keys"
             )
-        for msg in messages:
-            if msg["role"] not in ["user", "assistant"]:
+        for m in messages:
+            if m["role"] not in ["user", "assistant"]:
                 raise ValueError(
-                    f"Invalid role '{msg['role']}' in message. Only 'user' and 'assistant' roles are accepted."
+                    "Invalid role in message. Only 'user' and 'assistant' are accepted."
                 )
 
-        # Store in MongoDB
+        # Persist last user/assistant pair to Mongo
         if self.mongo and len(messages) >= 2:
             try:
-                # Get last user and assistant messages
                 user_msg = None
                 assistant_msg = None
-                for msg in reversed(messages):
-                    if msg.get("role") == "user" and not user_msg:
-                        user_msg = msg.get("content")
-                    elif msg.get("role") == "assistant" and not assistant_msg:
-                        assistant_msg = msg.get("content")
+                for m in reversed(messages):
+                    if m.get("role") == "user" and not user_msg:
+                        user_msg = m.get("content")
+                    elif m.get("role") == "assistant" and not assistant_msg:
+                        assistant_msg = m.get("content")
                     if user_msg and assistant_msg:
                         break
-
                 if user_msg and assistant_msg:
-                    # Store truncated messages
-                    doc = {
-                        "user_id": user_id,
-                        "user_message": user_msg,
-                        "assistant_message": assistant_msg,
-                        "timestamp": datetime.now(timezone.utc),
-                    }
-                    self.mongo.insert_one(self.collection, doc)
+                    self.mongo.insert_one(
+                        self.collection,
+                        {
+                            "user_id": user_id,
+                            "user_message": user_msg,
+                            "assistant_message": assistant_msg,
+                            "timestamp": datetime.now(timezone.utc),
+                        },
+                    )
             except Exception as e:
-                logger.error(f"MongoDB storage error: {e}")  # Use logger.error
+                logger.error(f"MongoDB storage error: {e}")
 
-        # Store in Zep
+        # Zep
         if not self.zep:
             return
 
-        # Convert messages to Zep format
-        zep_messages = []
+        zep_messages: List[Message] = []
+        for m in messages:
+            content = (
+                self._truncate(deepcopy(m.get("content"))) if "content" in m else None
+            )
+            if content is None:
+                continue
+            role_type = "user" if m.get("role") == "user" else "assistant"
+            zep_messages.append(Message(content=content, role=role_type))
 
-        for msg in messages:
-            if "role" in msg and "content" in msg:
-                content = self._truncate(deepcopy(msg["content"]))
-                role_type = "user" if msg["role"] == "user" else "assistant"
-                zep_msg = Message(
-                    content=content,
-                    role=role_type,
-                )
-                zep_messages.append(zep_msg)
-
-        # Add messages to Zep memory
         if zep_messages:
             try:
                 await self.zep.thread.add_messages(
-                    thread_id=user_id,
-                    messages=zep_messages,
+                    thread_id=user_id, messages=zep_messages
                 )
             except Exception:
                 try:
                     try:
                         await self.zep.user.add(user_id=user_id)
                     except Exception as e:
-                        logger.error(
-                            f"Zep user addition error: {e}"
-                        )  # Use logger.error
-
+                        logger.error(f"Zep user addition error: {e}")
                     try:
-                        await self.zep.thread.create(
-                            thread_id=user_id,
-                            user_id=user_id,
-                        )
+                        await self.zep.thread.create(thread_id=user_id, user_id=user_id)
                     except Exception as e:
-                        logger.error(
-                            f"Zep thread creation error: {e}"
-                        )  # Use logger.error
+                        logger.error(f"Zep thread creation error: {e}")
                     await self.zep.thread.add_messages(
-                        thread_id=user_id,
-                        messages=zep_messages,
+                        thread_id=user_id, messages=zep_messages
                     )
                 except Exception as e:
-                    logger.error(f"Zep memory addition error: {e}")  # Use logger.error
-                    return
+                    logger.error(f"Zep memory addition error: {e}")
 
     async def retrieve(self, user_id: str) -> str:
-        """Retrieve memory context from Zep."""
         try:
             memories = ""
             if self.zep:
                 memory = await self.zep.thread.get_user_context(thread_id=user_id)
                 if memory and memory.context:
                     memories = memory.context
-
             return memories
-
         except Exception as e:
-            logger.error(f"Error retrieving memories: {e}")  # Use logger.error
+            logger.error(f"Error retrieving memories: {e}")
             return ""
 
     async def delete(self, user_id: str) -> None:
-        """Delete memory from both systems."""
         if self.mongo:
             try:
                 self.mongo.delete_all(self.collection, {"user_id": user_id})
             except Exception as e:
-                logger.error(f"MongoDB deletion error: {e}")  # Use logger.error
-
+                logger.error(f"MongoDB deletion error: {e}")
         if not self.zep:
             return
-
         try:
             await self.zep.thread.delete(thread_id=user_id)
         except Exception as e:
-            logger.error(f"Zep memory deletion error: {e}")  # Use logger.error
-
+            logger.error(f"Zep memory deletion error: {e}")
         try:
             await self.zep.user.delete(user_id=user_id)
         except Exception as e:
-            logger.error(f"Zep user deletion error: {e}")  # Use logger.error
+            logger.error(f"Zep user deletion error: {e}")
 
     def find(
         self,
@@ -192,39 +179,29 @@ class MemoryRepository(MemoryProvider):
         limit: int = 0,
         skip: int = 0,
     ) -> List[Dict]:  # pragma: no cover
-        """Find documents in MongoDB."""
         if not self.mongo:
             return []
-
         try:
             return self.mongo.find(collection, query, sort=sort, limit=limit, skip=skip)
         except Exception as e:
-            logger.error(f"MongoDB find error: {e}")  # Use logger.error
+            logger.error(f"MongoDB find error: {e}")
             return []
 
     def count_documents(self, collection: str, query: Dict) -> int:
-        """Count documents in MongoDB."""
         if not self.mongo:
             return 0
         return self.mongo.count_documents(collection, query)
 
     def _truncate(self, text: str, limit: int = 2500) -> str:
-        """Truncate text to be within limits."""
         if text is None:
             raise AttributeError("Cannot truncate None text")
-
         if not text:
             return ""
-
         if len(text) <= limit:
             return text
-
-        # Try to truncate at last period before limit
         last_period = text.rfind(".", 0, limit)
         if last_period > 0:
             return text[: last_period + 1]
-
-        # If no period found, truncate at limit and add ellipsis
         return text[: limit - 3] + "..."
 
     async def save_capture(
@@ -235,11 +212,9 @@ class MemoryRepository(MemoryProvider):
         data: Dict[str, Any],
         schema: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        """Persist a structured capture in MongoDB."""
         if not self.mongo:
             logger.warning("MongoDB not configured; cannot save capture.")
             return None
-
         if not user_id or not isinstance(user_id, str):
             raise ValueError("user_id must be a non-empty string")
         if not capture_name or not isinstance(capture_name, str):
@@ -247,17 +222,55 @@ class MemoryRepository(MemoryProvider):
         if not isinstance(data, dict):
             raise ValueError("data must be a dictionary")
 
-        doc = {
-            "user_id": user_id,
-            "capture_name": capture_name,
-            "agent_name": agent_name,
-            "data": data,
-            "schema": schema or {},
-            "timestamp": datetime.now(timezone.utc),
-        }
         try:
-            capture_id = self.mongo.insert_one(self.captures_collection, doc)
-            return capture_id
+            mode = self.capture_modes.get(agent_name, "once") if agent_name else "once"
+            now = datetime.now(timezone.utc)
+            if mode == "multiple":
+                doc = {
+                    "user_id": user_id,
+                    "agent_name": agent_name,
+                    "capture_name": capture_name,
+                    "data": data or {},
+                    "schema": schema or {},
+                    "mode": "multiple",
+                    "timestamp": now,
+                    "created_at": now,
+                }
+                return self.mongo.insert_one(self.captures_collection, doc)
+            else:
+                key = {
+                    "user_id": user_id,
+                    "agent_name": agent_name,
+                    "capture_name": capture_name,
+                }
+                existing = self.mongo.find_one(self.captures_collection, key)
+                merged_data: Dict[str, Any] = {}
+                if existing and isinstance(existing.get("data"), dict):
+                    merged_data.update(existing.get("data", {}))
+                merged_data.update(data or {})
+                update_doc = {
+                    "$set": {
+                        "user_id": user_id,
+                        "agent_name": agent_name,
+                        "capture_name": capture_name,
+                        "data": merged_data,
+                        "schema": (
+                            schema
+                            if schema is not None
+                            else existing.get("schema")
+                            if existing
+                            else {}
+                        ),
+                        "mode": "once",
+                        "timestamp": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                }
+                self.mongo.update_one(
+                    self.captures_collection, key, update_doc, upsert=True
+                )
+                doc = self.mongo.find_one(self.captures_collection, key)
+                return str(doc.get("_id")) if doc and doc.get("_id") else None
         except Exception as e:
             logger.error(f"MongoDB save_capture error: {e}")
             return None

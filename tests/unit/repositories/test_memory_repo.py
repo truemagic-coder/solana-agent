@@ -63,8 +63,12 @@ class TestMemoryRepository:
         ]
         assert "conversations" in created_names
         assert "captures" in created_names
-        # Indexes: 2 for conversations (user_id, timestamp) and 4 for captures (user_id, capture_name, agent_name, timestamp)
-        assert mock_mongo_adapter.create_index.call_count == 6
+
+    def test_init_creates_expected_indexes(self, mock_mongo_adapter):
+        MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        # Indexes: 2 for conversations (user_id, timestamp) and 5 for captures
+        # (user_id, capture_name, agent_name, timestamp, and unique partial compound index)
+        assert mock_mongo_adapter.create_index.call_count == 7
 
     def test_init_mongo_error(self, mock_mongo_adapter):
         mock_mongo_adapter.create_collection.side_effect = Exception("DB Error")
