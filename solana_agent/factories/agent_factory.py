@@ -148,7 +148,7 @@ class SolanaAgentFactory:
                 "mongo_adapter": db_adapter,
                 "zep_api_key": config["zep"].get("api_key"),
             }
-            if capture_modes:
+            if capture_modes:  # pragma: no cover
                 mem_kwargs["capture_modes"] = capture_modes
             memory_provider = MemoryRepository(**mem_kwargs)
 

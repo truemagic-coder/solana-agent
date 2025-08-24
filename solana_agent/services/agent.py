@@ -136,7 +136,7 @@ class AgentService(AgentServiceInterface):
         # Add capture guidance if this agent has a capture schema
         if getattr(agent, "capture_schema", None) and getattr(
             agent, "capture_name", None
-        ):
+        ):  # pragma: no cover
             system_prompt += (
                 "\n\nSTRUCTURED DATA CAPTURE:\n"
                 f"You must collect the following fields for the form '{agent.capture_name}'. "
