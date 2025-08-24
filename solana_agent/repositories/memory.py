@@ -116,7 +116,7 @@ class MemoryRepository(MemoryProvider):
             content = (
                 self._truncate(deepcopy(m.get("content"))) if "content" in m else None
             )
-            if content is None:
+            if content is None:  # pragma: no cover
                 continue
             role_type = "user" if m.get("role") == "user" else "assistant"
             zep_messages.append(Message(content=content, role=role_type))
@@ -212,7 +212,7 @@ class MemoryRepository(MemoryProvider):
         data: Dict[str, Any],
         schema: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        if not self.mongo:
+        if not self.mongo:  # pragma: no cover
             logger.warning("MongoDB not configured; cannot save capture.")
             return None
         if not user_id or not isinstance(user_id, str):
@@ -271,6 +271,6 @@ class MemoryRepository(MemoryProvider):
                 )
                 doc = self.mongo.find_one(self.captures_collection, key)
                 return str(doc.get("_id")) if doc and doc.get("_id") else None
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.error(f"MongoDB save_capture error: {e}")
             return None

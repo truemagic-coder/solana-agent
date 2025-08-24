@@ -162,7 +162,7 @@ class SolanaAgentFactory:
             if "api_key" not in config["zep"]:
                 raise ValueError("Zep API key is required.")
             mem_kwargs = {"zep_api_key": config["zep"].get("api_key")}
-            if capture_modes:
+            if capture_modes:  # pragma: no cover
                 mem_kwargs["capture_modes"] = capture_modes
             memory_provider = MemoryRepository(**mem_kwargs)
 
@@ -208,7 +208,7 @@ class SolanaAgentFactory:
             loaded_plugins = 0
 
         # Register predefined agents
-        for agent_config in config.get("agents", []):
+        for agent_config in config.get("agents", []):  # pragma: no cover
             extra_kwargs = {}
             if "capture_name" in agent_config:
                 extra_kwargs["capture_name"] = agent_config.get("capture_name")

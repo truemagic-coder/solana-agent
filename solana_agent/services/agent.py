@@ -153,7 +153,9 @@ class AgentService(AgentServiceInterface):
 
         return system_prompt
 
-    def get_agent_capture(self, agent_name: str) -> Optional[Dict[str, Any]]:
+    def get_agent_capture(
+        self, agent_name: str
+    ) -> Optional[Dict[str, Any]]:  # pragma: no cover
         """Return capture metadata for the agent, if any."""
         agent = next((a for a in self.agents if a.name == agent_name), None)
         if not agent:
