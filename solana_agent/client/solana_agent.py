@@ -49,6 +49,8 @@ class SolanaAgent(SolanaAgentInterface):
         user_id: str,
         message: Union[str, bytes],
         prompt: Optional[str] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
+        capture_name: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
             "alloy",
@@ -103,6 +105,8 @@ class SolanaAgent(SolanaAgentInterface):
             prompt=prompt,
             router=router,
             output_model=output_model,
+            capture_schema=capture_schema,
+            capture_name=capture_name,
         ):
             yield chunk
 

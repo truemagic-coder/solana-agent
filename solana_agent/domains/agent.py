@@ -5,7 +5,7 @@ This module defines the core domain models for representing
 AI agents, human agents, and business mission/values.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -53,6 +53,12 @@ class AIAgent(BaseModel):
     name: str = Field(..., description="Unique agent identifier name")
     instructions: str = Field(..., description="Base instructions for the agent")
     specialization: str = Field(..., description="Agent's specialized domain")
+    capture_name: Optional[str] = Field(
+        default=None, description="Optional capture name for structured data"
+    )
+    capture_schema: Optional[Dict[str, Any]] = Field(
+        default=None, description="Optional JSON schema for structured capture"
+    )
 
     @field_validator("name", "specialization")
     @classmethod

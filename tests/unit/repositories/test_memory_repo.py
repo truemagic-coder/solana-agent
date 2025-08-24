@@ -56,8 +56,19 @@ class TestMemoryRepository:
         repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
         assert repo.mongo == mock_mongo_adapter
         assert repo.collection == "conversations"
-        mock_mongo_adapter.create_collection.assert_called_once()
-        assert mock_mongo_adapter.create_index.call_count == 2
+        # Two collections should be created: conversations and captures
+        assert mock_mongo_adapter.create_collection.call_count == 2
+        created_names = [
+            c.args[0] for c in mock_mongo_adapter.create_collection.call_args_list
+        ]
+        assert "conversations" in created_names
+        assert "captures" in created_names
+
+    def test_init_creates_expected_indexes(self, mock_mongo_adapter):
+        MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        # Indexes: 2 for conversations (user_id, timestamp) and 5 for captures
+        # (user_id, capture_name, agent_name, timestamp, and unique partial compound index)
+        assert mock_mongo_adapter.create_index.call_count == 7
 
     def test_init_mongo_error(self, mock_mongo_adapter):
         mock_mongo_adapter.create_collection.side_effect = Exception("DB Error")

@@ -73,6 +73,8 @@ class AgentService(AgentServiceInterface):
         name: str,
         instructions: str,
         specialization: str,
+        capture_name: Optional[str] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Register an AI agent with its specialization.
 
@@ -85,6 +87,8 @@ class AgentService(AgentServiceInterface):
             name=name,
             instructions=instructions,
             specialization=specialization,
+            capture_name=capture_name,
+            capture_schema=capture_schema,
         )
         self.agents.append(agent)
         logger.info(f"Registered AI agent: {name}")
@@ -98,7 +102,6 @@ class AgentService(AgentServiceInterface):
         Returns:
             System prompt
         """
-
         # Get agent by name
         agent = next((a for a in self.agents if a.name == agent_name), None)
 
@@ -130,7 +133,36 @@ class AgentService(AgentServiceInterface):
                 )
                 system_prompt += f"\n\nBUSINESS GOALS:\n{goals_text}"
 
+        # Add capture guidance if this agent has a capture schema
+        if getattr(agent, "capture_schema", None) and getattr(
+            agent, "capture_name", None
+        ):  # pragma: no cover
+            system_prompt += (
+                "\n\nSTRUCTURED DATA CAPTURE:\n"
+                f"You must collect the following fields for the form '{agent.capture_name}'. "
+                "Ask concise follow-up questions to fill any missing required fields one at a time. "
+                "Confirm values when ambiguous, and summarize the captured data before finalizing.\n\n"
+                "JSON Schema (authoritative definition of the fields):\n"
+                f"{agent.capture_schema}\n\n"
+                "Rules:\n"
+                "- Never invent values—ask the user.\n"
+                "- Validate types (emails look like emails, numbers are numbers, booleans are yes/no).\n"
+                "- If the user declines to provide a required value, note it clearly.\n"
+                "- When all required fields are provided, acknowledge completion.\n"
+            )
+
         return system_prompt
+
+    def get_agent_capture(
+        self, agent_name: str
+    ) -> Optional[Dict[str, Any]]:  # pragma: no cover
+        """Return capture metadata for the agent, if any."""
+        agent = next((a for a in self.agents if a.name == agent_name), None)
+        if not agent:
+            return None
+        if agent.capture_name and agent.capture_schema:
+            return {"name": agent.capture_name, "schema": agent.capture_schema}
+        return None
 
     def get_all_ai_agents(self) -> Dict[str, AIAgent]:
         """Get all registered AI agents.

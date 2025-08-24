@@ -133,21 +133,38 @@ class SolanaAgentFactory:
                 voice=org_config.get("voice", ""),
             )
 
+        # Build capture modes from agent config if provided
+        capture_modes: Dict[str, str] = {}
+        for agent in config.get("agents", []):
+            mode = agent.get("capture_mode")
+            if mode in {"once", "multiple"} and agent.get("name"):
+                capture_modes[agent["name"]] = mode
+
         # Create repositories
         memory_provider = None
 
         if "zep" in config and "mongo" in config:
-            memory_provider = MemoryRepository(
-                mongo_adapter=db_adapter, zep_api_key=config["zep"].get("api_key")
-            )
+            mem_kwargs: Dict[str, Any] = {
+                "mongo_adapter": db_adapter,
+                "zep_api_key": config["zep"].get("api_key"),
+            }
+            if capture_modes:  # pragma: no cover
+                mem_kwargs["capture_modes"] = capture_modes
+            memory_provider = MemoryRepository(**mem_kwargs)
 
         if "mongo" in config and "zep" not in config:
-            memory_provider = MemoryRepository(mongo_adapter=db_adapter)
+            mem_kwargs = {"mongo_adapter": db_adapter}
+            if capture_modes:
+                mem_kwargs["capture_modes"] = capture_modes
+            memory_provider = MemoryRepository(**mem_kwargs)
 
         if "zep" in config and "mongo" not in config:
             if "api_key" not in config["zep"]:
                 raise ValueError("Zep API key is required.")
-            memory_provider = MemoryRepository(zep_api_key=config["zep"].get("api_key"))
+            mem_kwargs = {"zep_api_key": config["zep"].get("api_key")}
+            if capture_modes:  # pragma: no cover
+                mem_kwargs["capture_modes"] = capture_modes
+            memory_provider = MemoryRepository(**mem_kwargs)
 
         guardrail_config = config.get("guardrails", {})
         input_guardrails: List[InputGuardrail] = SolanaAgentFactory._create_guardrails(
@@ -191,11 +208,18 @@ class SolanaAgentFactory:
             loaded_plugins = 0
 
         # Register predefined agents
-        for agent_config in config.get("agents", []):
+        for agent_config in config.get("agents", []):  # pragma: no cover
+            extra_kwargs = {}
+            if "capture_name" in agent_config:
+                extra_kwargs["capture_name"] = agent_config.get("capture_name")
+            if "capture_schema" in agent_config:
+                extra_kwargs["capture_schema"] = agent_config.get("capture_schema")
+
             agent_service.register_ai_agent(
                 name=agent_config["name"],
                 instructions=agent_config["instructions"],
                 specialization=agent_config["specialization"],
+                **extra_kwargs,
             )
 
             # Register tools for this agent

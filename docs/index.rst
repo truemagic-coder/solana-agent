@@ -234,8 +234,10 @@ Image/Text Streaming
       print(response, end="")
 
 
-Structured Outputs
+Agentic Forms
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can attach a JSON Schema to any agent in your config so it can collect structured data conversationally.
 
 .. code-block:: python
 
@@ -247,25 +249,28 @@ Structured Outputs
       },
       "agents": [
          {
-               "name": "researcher",
-               "instructions": "You are a research expert.",
-               "specialization": "Researcher",
+            "name": "customer_support",
+            "instructions": "You provide friendly, helpful customer support responses.",
+            "specialization": "Customer inquiries",
+            "capture_name": "contact_info",
+            "capture_mode": "once",
+            "capture_schema": {
+               "type": "object",
+               "properties": {
+                  "email": { "type": "string" },
+                  "phone": { "type": "string" },
+                  "newsletter_subscribe": { "type": "boolean" }
+               },
+               "required": ["email"]
+            }
          }
-      ],
+      ]
    }
 
    solana_agent = SolanaAgent(config=config)
 
-   class ResearchProposal(BaseModel):
-      title: str
-      abstract: str
-      key_points: list[str]
-
-   full_response = None
-   async for response in solana_agent.process("user123", "Research the life of Ben Franklin - the founding Father.", output_model=ResearchProposal):
-      full_response = response
-
-   print(full_response.model_dump())
+   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+      print(response, end="")
 
 
 Command Line Interface (CLI)
