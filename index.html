@@ -289,8 +289,9 @@
 </pre></div>
 </div>
 </section>
-<section id="structured-outputs">
-<h3>Structured Outputs<a class="headerlink" href="#structured-outputs" title="Link to this heading"></a></h3>
+<section id="agentic-forms">
+<h3>Agentic Forms<a class="headerlink" href="#agentic-forms" title="Link to this heading"></a></h3>
+<p>You can attach a JSON Schema to any agent in your config so it can collect structured data conversationally.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
@@ -299,25 +300,28 @@
    <span class="p">},</span>
    <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
       <span class="p">{</span>
-            <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;researcher&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a research expert.&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Researcher&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;capture_name&quot;</span><span class="p">:</span> <span class="s2">&quot;contact_info&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;capture_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;once&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;capture_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+               <span class="s2">&quot;email&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span> <span class="p">},</span>
+               <span class="s2">&quot;phone&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span> <span class="p">},</span>
+               <span class="s2">&quot;newsletter_subscribe&quot;</span><span class="p">:</span> <span class="p">{</span> <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;boolean&quot;</span> <span class="p">}</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;email&quot;</span><span class="p">]</span>
+         <span class="p">}</span>
       <span class="p">}</span>
-   <span class="p">],</span>
+   <span class="p">]</span>
 <span class="p">}</span>
 
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
-<span class="k">class</span><span class="w"> </span><span class="nc">ResearchProposal</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-   <span class="n">title</span><span class="p">:</span> <span class="nb">str</span>
-   <span class="n">abstract</span><span class="p">:</span> <span class="nb">str</span>
-   <span class="n">key_points</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-
-<span class="n">full_response</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;Research the life of Ben Franklin - the founding Father.&quot;</span><span class="p">,</span> <span class="n">output_model</span><span class="o">=</span><span class="n">ResearchProposal</span><span class="p">):</span>
-   <span class="n">full_response</span> <span class="o">=</span> <span class="n">response</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="n">full_response</span><span class="o">.</span><span class="n">model_dump</span><span class="p">())</span>
+<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
+   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
