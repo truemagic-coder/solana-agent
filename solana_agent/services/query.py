@@ -61,6 +61,16 @@ class QueryService(QueryServiceInterface):
         self.kb_results_count = kb_results_count
         self.input_guardrails = input_guardrails or []
 
+        # Temporal memory availability (Pinecone + OpenAI-backed MemoryRepository)
+        self._temporal_memory_enabled = bool(
+            getattr(self.memory_provider, "pinecone", None)
+            and getattr(self.memory_provider, "_openai_client", None)
+            and hasattr(self.memory_provider, "get_context")
+            and hasattr(self.memory_provider, "add_message")
+        )
+
+        print("temporal enabled", self._temporal_memory_enabled)
+
     async def process(
         self,
         user_id: str,
@@ -90,7 +100,7 @@ class QueryService(QueryServiceInterface):
         router: Optional[RoutingServiceInterface] = None,
         output_model: Optional[Type[BaseModel]] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
-        capture_name: Optional[str] = None,
+        capture_name: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request with appropriate agent and apply input guardrails.
 
@@ -174,9 +184,25 @@ class QueryService(QueryServiceInterface):
                 # Store simple interaction in memory (using processed user_text)
                 if self.memory_provider:
                     await self._store_conversation(user_id, user_text, response)
+
+                # Also persist to temporal memory (user + assistant)
+                if self._temporal_memory_enabled:
+                    try:
+                        await self.memory_provider.add_message(
+                            session_id=user_id, role="user", content=user_text
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        await self.memory_provider.add_message(
+                            session_id=user_id, role="assistant", content=response
+                        )
+                    except Exception:
+                        pass
                 return
 
             # --- 4. Get Memory Context ---
+            # 4a. Conversation history string (existing behavior)
             memory_context = ""
             if self.memory_provider:
                 try:
@@ -186,6 +212,30 @@ class QueryService(QueryServiceInterface):
                     )
                 except Exception as e:
                     logger.error(f"Error retrieving memory context: {e}", exc_info=True)
+
+            # 4b. Temporal semantic context (Pinecone)
+            temporal_context = ""
+            if self._temporal_memory_enabled:
+                # First, persist the user turn to temporal memory
+                try:
+                    await self.memory_provider.add_message(
+                        session_id=user_id, role="user", content=user_text
+                    )
+                except Exception:
+                    # Swallow; do not break main flow
+                    pass
+                # Then retrieve semantic context for this session and query
+                try:
+                    temporal_context = await self._build_temporal_memory_context(
+                        session_id=user_id,
+                        user_query=user_text,
+                        k=self.kb_results_count or 3,
+                    )
+                    print("temporal_context:", temporal_context)
+                except Exception:
+                    temporal_context = ""
+
+            print("final temporal context", temporal_context)
 
             # --- 5. Retrieve Relevant Knowledge ---
             kb_context = ""
@@ -229,12 +279,14 @@ class QueryService(QueryServiceInterface):
 
             # --- 7. Combine Context ---
             combined_context = ""
+            if temporal_context:
+                combined_context += f"TEMPORAL MEMORY (Most relevant prior turns):\n{temporal_context}\n\n"
             if memory_context:
                 combined_context += f"CONVERSATION HISTORY (Use for context, but prioritize tools/KB for facts):\n{memory_context}\n\n"
             if kb_context:
                 combined_context += f"{kb_context}\n"
 
-            if memory_context or kb_context:
+            if memory_context or kb_context or temporal_context:
                 combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base results and Tool results (if applicable) over Conversation History.\n\n"
             logger.debug(f"Combined context length: {len(combined_context)}")
 
@@ -263,6 +315,22 @@ class QueryService(QueryServiceInterface):
                         user_message=user_text,  # Store only text part of user query
                         assistant_message=self.agent_service.last_text_response,
                     )
+
+                # Persist assistant turn to temporal memory (fire-and-forget)
+                if self._temporal_memory_enabled:
+                    try:
+                        import asyncio as _asyncio  # local import to avoid shadowing
+
+                        _asyncio.create_task(
+                            self.memory_provider.add_message(
+                                session_id=user_id,
+                                role="assistant",
+                                content=self.agent_service.last_text_response or "",
+                            )
+                        )
+                    except Exception:
+                        pass
+
             else:
                 full_text_response = ""
                 # If capture_schema is provided, we run a structured output pass first
@@ -328,6 +396,21 @@ class QueryService(QueryServiceInterface):
                         user_message=user_text,  # Store only text part of user query
                         assistant_message=full_text_response,
                     )
+
+                # Persist assistant turn to temporal memory (fire-and-forget)
+                if self._temporal_memory_enabled and full_text_response:
+                    try:
+                        import asyncio as _asyncio  # local import to avoid shadowing
+
+                        _asyncio.create_task(
+                            self.memory_provider.add_message(
+                                session_id=user_id,
+                                role="assistant",
+                                content=full_text_response,
+                            )
+                        )
+                    except Exception:
+                        pass
 
                 # Persist capture if available
                 if (
@@ -526,6 +609,38 @@ class QueryService(QueryServiceInterface):
                 "Memory provider not configured, skipping conversation storage."
             )
 
+    async def _build_temporal_memory_context(
+        self, session_id: str, user_query: str, k: int
+    ) -> str:
+        """Fetch semantic context from temporal memory and format it for the prompt."""
+        if not self._temporal_memory_enabled:
+            return ""
+        try:
+            results = await self.memory_provider.get_context(
+                session_id, user_query, k=k
+            )
+            if not results:
+                return ""
+            lines: List[str] = []
+            for r in results:
+                # Hydrated Mongo doc path
+                if isinstance(r, dict) and "content" in r:
+                    role = r.get("role", "unknown")
+                    ts = r.get("timestamp")
+                    ts_s = ts if isinstance(ts, str) else (ts.isoformat() if ts else "")
+                    lines.append(f"[{role}] {ts_s}\n{r['content']}")
+                else:
+                    # Metadata-only result path
+                    meta = r.get("metadata", {}) if isinstance(r, dict) else {}
+                    text = meta.get("text", "")
+                    role = meta.get("role", "unknown")
+                    ts_s = meta.get("timestamp", "")
+                    if text:
+                        lines.append(f"[{role}] {ts_s}\n{text}")
+            return "\n---\n".join(lines[:k])
+        except Exception:
+            return ""
+
     def _build_model_from_json_schema(
         self, name: str, schema: Dict[str, Any]
     ) -> Type[BaseModel]:
@@ -572,5 +687,5 @@ class QueryService(QueryServiceInterface):
             else:
                 fields[field_name] = (typ, default)
 
-        Model = create_model(name, **fields)  # type: ignore
+        Model = create_model(name, **fields)
         return Model

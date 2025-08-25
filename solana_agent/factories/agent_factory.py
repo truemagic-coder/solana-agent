@@ -146,33 +146,57 @@ class SolanaAgentFactory:
         # Optional Pinecone/OpenAI settings for memory vector indexing (not required)
         pinecone_for_memory: Dict[str, Any] = {}
         if "memory" in config:  # pragma: no cover
-            mem_cfg = config["memory"]
-            if "pinecone" in mem_cfg:
+            mem_cfg = config.get("memory") or {}
+
+            # Pinecone can be provided as a string (index name) or a dict
+            pc_cfg_raw = mem_cfg.get("pinecone")
+            pc_cfg: Dict[str, Any] = {}
+            if isinstance(pc_cfg_raw, str):
+                pc_cfg = {"index_name": pc_cfg_raw}
+            elif isinstance(pc_cfg_raw, dict):
+                pc_cfg = pc_cfg_raw or {}
+
+            if pc_cfg:
                 try:
                     pinecone_for_memory["pinecone_adapter"] = PineconeAdapter(
-                        api_key=mem_cfg["pinecone"].get("api_key"),
-                        index_name=mem_cfg["pinecone"].get("index_name"),
-                        embedding_dimensions=mem_cfg["pinecone"].get(
-                            "embedding_dimensions", 1536
-                        ),
-                        cloud_provider=mem_cfg["pinecone"].get("cloud_provider", "aws"),
-                        region=mem_cfg["pinecone"].get("region", "us-east-1"),
-                        metric=mem_cfg["pinecone"].get("metric", "cosine"),
-                        create_index_if_not_exists=mem_cfg["pinecone"].get(
-                            "create_index", True
-                        ),
+                        api_key=pc_cfg.get("api_key")
+                        or config.get("pinecone", {}).get("api_key"),
+                        index_name=pc_cfg.get("index_name"),
+                        embedding_dimensions=pc_cfg.get("embedding_dimensions", 1536),
+                        cloud_provider=pc_cfg.get("cloud_provider", "aws"),
+                        region=pc_cfg.get("region", "us-east-1"),
+                        metric=pc_cfg.get("metric", "cosine"),
+                        create_index_if_not_exists=pc_cfg.get("create_index", True),
                     )
                 except Exception as e:
                     logger.error(
                         f"Failed to initialize PineconeAdapter for memory: {e}"
                     )
-            if "openai" in mem_cfg:
-                pinecone_for_memory["openai_api_key"] = mem_cfg["openai"].get("api_key")
-                pinecone_for_memory["openai_embed_model"] = mem_cfg["openai"].get(
+
+            # OpenAI for embeddings (prefer memory.openai, fallback to root openai)
+            oa_cfg_raw = mem_cfg.get("openai") or {}
+            if isinstance(oa_cfg_raw, dict):
+                pinecone_for_memory["openai_api_key"] = oa_cfg_raw.get(
+                    "api_key"
+                ) or config.get("openai", {}).get("api_key")
+                pinecone_for_memory["openai_embed_model"] = oa_cfg_raw.get(
                     "model", "text-embedding-3-small"
                 )
+            elif "openai" in config:
+                pinecone_for_memory["openai_api_key"] = config["openai"].get("api_key")
+                pinecone_for_memory["openai_embed_model"] = "text-embedding-3-small"
+
+            # Optional namespace and temporal storage flags
             if "namespace" in mem_cfg:
                 pinecone_for_memory["pinecone_namespace"] = mem_cfg.get("namespace")
+            if mem_cfg.get("store_temporal_in_mongo") is not None:
+                pinecone_for_memory["store_temporal_in_mongo"] = bool(
+                    mem_cfg.get("store_temporal_in_mongo")
+                )
+            if mem_cfg.get("temporal_ttl_days") is not None:
+                pinecone_for_memory["temporal_ttl_days"] = int(
+                    mem_cfg.get("temporal_ttl_days")
+                )
 
         if "mongo" in config:
             mem_kwargs = {"mongo_adapter": db_adapter}

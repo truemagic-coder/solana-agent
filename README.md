@@ -422,8 +422,18 @@ config = {
 
 ```python
 config = {
-    "zep": {
-        "api_key": "your-zep-cloud-api-key",
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+    "memory": {
+        "pinecone": {
+            "api_key": "your-pinecone-api-key",
+            "index_name": "your-pinecone-index-name",
+        },
     },
 }
 ```
