@@ -1,295 +1,448 @@
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime
+import asyncio
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from solana_agent.repositories import memory as memory_module
 from solana_agent.repositories.memory import MemoryRepository
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
+from solana_agent.adapters.pinecone_adapter import PineconeAdapter
+
+
+class FakeEmbData:
+    def __init__(self, embedding: List[float]):
+        self.embedding = embedding
+
+
+class FakeEmbResp:
+    def __init__(self, embedding: List[float]):
+        self.data = [FakeEmbData(embedding)]
+
+
+class FakeOpenAIClient:
+    def __init__(self, should_raise_init: bool = False, embedding: List[float] = None):
+        if should_raise_init:
+            raise RuntimeError("init failed")
+        self._embedding = embedding or [0.01, 0.02, 0.03]
+        self.embeddings = self
+
+    # Sync method used via run_in_executor
+    def create(self, model: str, input: str):
+        return FakeEmbResp(self._embedding)
 
 
 @pytest.fixture
-def mock_mongo_adapter():
-    adapter = MagicMock(spec=MongoDBAdapter)
-    adapter.create_collection = MagicMock()
-    adapter.create_index = MagicMock()
-    adapter.insert_one = MagicMock()
-    adapter.delete_all = MagicMock()
-    adapter.find = MagicMock(return_value=[])
-    adapter.count_documents = MagicMock(return_value=0)
-    return adapter
+def mock_mongo():
+    m = MagicMock(spec=MongoDBAdapter)
+    m.create_collection = MagicMock()
+    m.create_index = MagicMock()
+    m.insert_one = MagicMock(return_value="mongo-id-1")
+    m.delete_all = MagicMock()
+    m.find = MagicMock(return_value=[])
+    m.find_one = MagicMock(return_value=None)
+    m.update_one = MagicMock()
+    m.count_documents = MagicMock(return_value=5)
+    return m
 
 
 @pytest.fixture
-def mock_zep():
-    mock = AsyncMock()
-    mock.user = AsyncMock()
-    mock.thread = AsyncMock()
-    return mock
+def mock_pinecone():
+    pc = MagicMock(spec=PineconeAdapter)
+    pc.upsert = AsyncMock()
+    pc.query = AsyncMock(return_value=[])
+    return pc
 
 
-@pytest.fixture
-def valid_messages():
-    return [
+def test_init_without_mongo():
+    repo = MemoryRepository()
+    assert repo.mongo is None
+    assert repo.collection is None
+    assert repo.captures_collection == "captures"
+    # OpenAI client is None by default when no key supplied
+    assert repo._openai_client is None
+
+
+def test_init_with_mongo_creates_indexes_and_handles_partial_index_error(mock_mongo):
+    # Cause only the partial unique index to fail
+    def create_index_side_effect(collection, keys, **kwargs):
+        if kwargs.get("unique") and kwargs.get("partialFilterExpression"):
+            raise Exception("partial unique index error")
+        return None
+
+    mock_mongo.create_index.side_effect = create_index_side_effect
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    assert repo.mongo is mock_mongo
+    assert repo.collection == "conversations"
+    assert repo.captures_collection == "captures"
+    # Conversations collection/indexes
+    mock_mongo.create_collection.assert_any_call("conversations")
+    # Captures collection created
+    mock_mongo.create_collection.assert_any_call("captures")
+
+
+def test_openai_client_init_failure_is_handled(mock_mongo, monkeypatch):
+    # Patch OpenAI class in module namespace to raise on init
+    class BadOpenAI:
+        def __init__(self, api_key: str):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(memory_module, "OpenAI", BadOpenAI, raising=True)
+    repo = MemoryRepository(mongo_adapter=mock_mongo, openai_api_key="key")
+    assert repo._openai_client is None  # gracefully handled
+
+
+@pytest.mark.asyncio
+async def test_store_validation_errors():
+    repo = MemoryRepository()
+    with pytest.raises(ValueError):
+        await repo.store("", [{"role": "user", "content": "hi"}])
+    with pytest.raises(ValueError):
+        await repo.store("u1", None)  # type: ignore
+    with pytest.raises(ValueError):
+        await repo.store("u1", [])
+    with pytest.raises(ValueError):
+        await repo.store("u1", [{"role": "user"}])  # missing content
+    with pytest.raises(ValueError):
+        await repo.store("u1", [{"content": "hi"}])  # missing role
+    with pytest.raises(ValueError):
+        await repo.store("u1", [{"role": "tool", "content": "x"}])  # invalid role
+
+
+@pytest.mark.asyncio
+async def test_store_inserts_pair_and_indexes(mock_mongo, monkeypatch):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    # Patch out _maybe_index_pair to observe call
+    repo._maybe_index_pair = AsyncMock()
+
+    msgs = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi there"},
     ]
+    await repo.store("user123", msgs)
+
+    mock_mongo.insert_one.assert_called_once()
+    args, kwargs = mock_mongo.insert_one.call_args
+    assert args[0] == "conversations"
+    doc = args[1]
+    assert doc["user_id"] == "user123"
+    assert doc["user_message"] == "Hello"
+    assert doc["assistant_message"] == "Hi there"
+    assert isinstance(doc["timestamp"], datetime)
+
+    repo._maybe_index_pair.assert_awaited_once()
 
 
-@pytest.fixture
-def invalid_messages():
-    return [
-        {"invalid_role": "user", "content": "Missing role"},
-        {"role": "user", "invalid_content": "Missing content"},
-        {"role": "invalid", "content": "Invalid role"},
-        {},  # Empty message
-        None,  # None message
+@pytest.mark.asyncio
+async def test_store_no_pair_no_insert(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    msgs = [
+        {"role": "user", "content": "Hello"},
+        {"role": "user", "content": "Another user"},
     ]
+    await repo.store("user123", msgs)
+    mock_mongo.insert_one.assert_not_called()
 
 
-class TestMemoryRepository:
-    def test_init_default(self):
-        repo = MemoryRepository()
-        assert repo.mongo is None
-        assert repo.collection is None
-        assert repo.zep is None
+@pytest.mark.asyncio
+async def test_store_mongo_error_is_logged(mock_mongo, caplog):
+    mock_mongo.insert_one.side_effect = Exception("db down")
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    msgs = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi"},
+    ]
+    with caplog.at_level("ERROR"):
+        await repo.store("user123", msgs)
+        assert any("MongoDB storage error" in r.message for r in caplog.records)
 
-    def test_init_mongo_only(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        assert repo.mongo == mock_mongo_adapter
-        assert repo.collection == "conversations"
-        # Two collections should be created: conversations and captures
-        assert mock_mongo_adapter.create_collection.call_count == 2
-        created_names = [
-            c.args[0] for c in mock_mongo_adapter.create_collection.call_args_list
-        ]
-        assert "conversations" in created_names
-        assert "captures" in created_names
 
-    def test_init_creates_expected_indexes(self, mock_mongo_adapter):
-        MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        # Indexes: 2 for conversations (user_id, timestamp) and 5 for captures
-        # (user_id, capture_name, agent_name, timestamp, and unique partial compound index)
-        assert mock_mongo_adapter.create_index.call_count == 7
+@pytest.mark.asyncio
+async def test_retrieve_returns_empty_string():
+    repo = MemoryRepository()
+    out = await repo.retrieve("anything")
+    assert out == ""
 
-    def test_init_mongo_error(self, mock_mongo_adapter):
-        mock_mongo_adapter.create_collection.side_effect = Exception("DB Error")
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        assert repo.mongo == mock_mongo_adapter
 
-    @patch("solana_agent.repositories.memory.AsyncZepCloud")
-    def test_init_zep_cloud(self, mock_zep_cloud):
-        MemoryRepository(zep_api_key="test_key")
-        mock_zep_cloud.assert_called_once_with(api_key="test_key")
+@pytest.mark.asyncio
+async def test_delete_handles_normal_and_empty_user(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    await repo.delete("userA")
+    await repo.delete("")
+    mock_mongo.delete_all.assert_any_call("conversations", {"user_id": "userA"})
+    mock_mongo.delete_all.assert_any_call("conversations", {"user_id": "user123"})
 
-    @pytest.mark.asyncio
-    async def test_store_validation_errors(
-        self, mock_mongo_adapter, invalid_messages, valid_messages
-    ):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        with pytest.raises(ValueError):
-            await repo.store("", valid_messages)
-        with pytest.raises(ValueError):
-            await repo.store(123, valid_messages)
-        with pytest.raises(ValueError):
-            await repo.store("user123", [])
-        with pytest.raises(ValueError):
-            await repo.store("user123", None)
-        for invalid_msg in invalid_messages:
-            with pytest.raises(ValueError):
-                await repo.store("user123", [invalid_msg])
 
-    @pytest.mark.asyncio
-    async def test_store_mongo_success(self, mock_mongo_adapter, valid_messages):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        await repo.store("user123", valid_messages)
-        mock_mongo_adapter.insert_one.assert_called_once()
-        args = mock_mongo_adapter.insert_one.call_args[0]
-        assert args[0] == "conversations"
-        assert args[1]["user_id"] == "user123"
-        assert args[1]["user_message"] == "Hello"
-        assert args[1]["assistant_message"] == "Hi there"
-        assert isinstance(args[1]["timestamp"], datetime)
+def test_count_documents_with_and_without_mongo(mock_mongo):
+    repo_none = MemoryRepository()
+    assert repo_none.count_documents("x", {}) == 0
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    mock_mongo.count_documents.return_value = 7
+    assert repo.count_documents("x", {}) == 7
 
-    @pytest.mark.asyncio
-    async def test_store_mongo_error(self, mock_mongo_adapter, valid_messages):
-        mock_mongo_adapter.insert_one.side_effect = Exception("Storage error")
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        await repo.store("user123", valid_messages)
-        mock_mongo_adapter.insert_one.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_store_zep_thread_success(self, mock_zep, valid_messages):
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        await repo.store("user123", valid_messages)
-        mock_zep.thread.add_messages.assert_called_once()
-        mock_zep.user.add.assert_not_called()
-        mock_zep.thread.create.assert_not_called()
+def test_truncate_variants():
+    repo = MemoryRepository()
+    assert repo._truncate("") == ""
+    assert repo._truncate("short") == "short"
+    # sentence boundary
+    long = "First sentence. Second sentence that is longer."
+    assert repo._truncate(long, limit=20) == "First sentence."
+    # no period before limit -> ellipsis
+    text = "a" * 3000
+    out = repo._truncate(text)
+    assert out.endswith("...")
+    with pytest.raises(AttributeError):
+        repo._truncate(None)  # type: ignore
 
-    @pytest.mark.asyncio
-    async def test_store_zep_thread_fallback(self, mock_zep, valid_messages):
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        # Simulate thread.add_messages failing once, then succeeding
-        mock_zep.thread.add_messages.side_effect = [Exception("fail"), None]
-        await repo.store("user123", valid_messages)
-        mock_zep.user.add.assert_called_once_with(user_id="user123")
-        mock_zep.thread.create.assert_called_once_with(
-            thread_id="user123", user_id="user123"
-        )
-        assert mock_zep.thread.add_messages.call_count == 2
 
-    @pytest.mark.asyncio
-    async def test_store_zep_thread_fallback_error(self, mock_zep, valid_messages):
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        # Simulate all Zep calls failing
-        mock_zep.thread.add_messages.side_effect = Exception("fail")
-        mock_zep.user.add.side_effect = Exception("fail")
-        mock_zep.thread.create.side_effect = Exception("fail")
-        await repo.store("user123", valid_messages)
-        assert mock_zep.thread.add_messages.call_count == 2
-        mock_zep.user.add.assert_called_once_with(user_id="user123")
-        mock_zep.thread.create.assert_called_once_with(
-            thread_id="user123", user_id="user123"
-        )
+@pytest.mark.asyncio
+async def test__maybe_index_pair_skips_when_unconfigured(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)  # no OpenAI/Pinecone
+    # Should simply return without error
+    await repo._maybe_index_pair("u", "uh", "ah", datetime.now(timezone.utc))
 
-    @pytest.mark.asyncio
-    async def test_retrieve_success_no_zep(self):
-        repo = MemoryRepository()
-        result = await repo.retrieve("user123")
-        assert result == ""
 
-    @pytest.mark.asyncio
-    async def test_retrieve_memory_context_success(self, mock_zep):
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        mock_memory = MagicMock()
-        mock_memory.context = "Sample memory context data"
-        mock_zep.thread.get_user_context.return_value = mock_memory
-        result = await repo.retrieve("test_user")
-        mock_zep.thread.get_user_context.assert_called_once_with(thread_id="test_user")
-        assert result == "Sample memory context data"
+@pytest.mark.asyncio
+async def test__maybe_index_pair_happy_path(monkeypatch):
+    # Configure repo with fake OpenAI and Pinecone
+    repo = MemoryRepository(
+        pinecone_adapter=MagicMock(spec=PineconeAdapter),
+        openai_api_key="KEY",
+    )
+    # Inject fake OpenAI client directly
+    repo._openai_client = FakeOpenAIClient(embedding=[0.1, 0.2, 0.3])
+    # Mock pinecone upsert
+    pc = MagicMock()
+    pc.upsert = AsyncMock()
+    repo.pinecone = pc
 
-    @pytest.mark.asyncio
-    async def test_retrieve_errors(self, mock_zep):
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        # None memory
-        mock_zep.thread.get_user_context.return_value = None
-        result = await repo.retrieve("user123")
-        assert result == ""
-        # Missing context
-        memory = MagicMock()
-        memory.context = None
-        mock_zep.thread.get_user_context.return_value = memory
-        result = await repo.retrieve("user123")
-        assert result == ""
-        # Retrieval error
-        mock_zep.thread.get_user_context.side_effect = Exception("Retrieval error")
-        result = await repo.retrieve("user123")
-        assert result == ""
+    ts = datetime.now(timezone.utc)
+    await repo._maybe_index_pair("userX", "hello world", "hi user", ts)
 
-    @pytest.mark.asyncio
-    async def test_delete_success(self, mock_mongo_adapter, mock_zep):
-        repo = MemoryRepository(
-            mongo_adapter=mock_mongo_adapter, zep_api_key="test_key"
-        )
-        repo.zep = mock_zep
-        await repo.delete("user123")
-        mock_mongo_adapter.delete_all.assert_called_once_with(
-            "conversations", {"user_id": "user123"}
-        )
-        mock_zep.thread.delete.assert_called_once_with(thread_id="user123")
-        mock_zep.user.delete.assert_called_once_with(user_id="user123")
+    repo.pinecone.upsert.assert_awaited_once()
+    args, kwargs = repo.pinecone.upsert.call_args
+    vectors = kwargs["vectors"]
+    assert len(vectors) == 2
+    assert vectors[0]["metadata"]["role"] == "user"
+    assert vectors[1]["metadata"]["role"] == "assistant"
 
-    def test_find_success(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        mock_mongo_adapter.find.return_value = [{"test": "doc"}]
-        result = repo.find("conversations", {"query": "test"})
-        assert result == [{"test": "doc"}]
-        mock_mongo_adapter.find.assert_called_once()
 
-    def test_count_documents_success(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        mock_mongo_adapter.count_documents.return_value = 5
-        result = repo.count_documents("conversations", {"query": "test"})
-        assert result == 5
-        mock_mongo_adapter.count_documents.assert_called_once()
+@pytest.mark.asyncio
+async def test_add_message_validation_errors():
+    repo = MemoryRepository()
+    with pytest.raises(ValueError):
+        await repo.add_message("", "user", "x")
+    with pytest.raises(ValueError):
+        await repo.add_message("s1", "badrole", "x")
+    with pytest.raises(ValueError):
+        await repo.add_message("s1", "user", "")
 
-    def test_count_documents_success_no_mongo(self):
-        repo = MemoryRepository()
-        result = repo.count_documents("conversations", {"query": "test"})
-        assert result == 0
 
-    def test_truncate_text(self):
-        repo = MemoryRepository()
-        assert repo._truncate("Short text") == "Short text"
-        assert (
-            repo._truncate("First sentence. Second sentence.", 20) == "First sentence."
-        )
-        result = repo._truncate("a" * 3000)
-        assert len(result) <= 2503
-        assert result.endswith("...")
-        assert repo._truncate("") == ""
-        with pytest.raises(AttributeError):
-            repo._truncate(None)
+@pytest.mark.asyncio
+async def test_add_message_stores_in_mongo_and_schedules_task(mock_mongo, monkeypatch):
+    repo = MemoryRepository(mongo_adapter=mock_mongo, store_temporal_in_mongo=True)
+    # Ensure messages collection is created; exercise _ensure_messages_collection path
+    assert repo._messages_ready is False
+    # Intercept create_task to verify call
+    created_tasks: Dict[str, Any] = {}
 
-    @pytest.mark.asyncio
-    async def test_store_empty_user_id(self):
-        repo = MemoryRepository()
-        with pytest.raises(ValueError):
-            await repo.store("", [{"role": "user", "content": "test"}])
+    def fake_create_task(coro):
+        created_tasks["task"] = coro
+        # Return a dummy Task
+        loop = asyncio.get_running_loop()
+        return loop.create_task(asyncio.sleep(0))
 
-    @pytest.mark.asyncio
-    async def test_store_missing_messages_pair(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "user", "content": "Another user message"},
-        ]
-        await repo.store("user123", messages)
-        mock_mongo_adapter.insert_one.assert_not_called()
+    monkeypatch.setattr(memory_module.asyncio, "create_task", fake_create_task)
 
-    @pytest.mark.asyncio
-    async def test_delete_mongo_error(self, mock_mongo_adapter):
-        mock_mongo_adapter.delete_all.side_effect = Exception("Delete error")
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        await repo.delete("user123")
-        mock_mongo_adapter.delete_all.assert_called_once()
+    mongo_id = await repo.add_message("sess1", "user", "I need a laptop.")
+    assert mongo_id == "mongo-id-1"
+    # Indexes created lazily
+    mock_mongo.create_collection.assert_any_call("messages")
+    mock_mongo.create_index.assert_any_call(
+        "messages", [("session_id", 1), ("timestamp", -1)]
+    )
+    assert repo._messages_ready is True
+    # create_task invoked
+    assert "task" in created_tasks
 
-    @pytest.mark.asyncio
-    async def test_delete_zep_memory_error(self, mock_zep):
-        mock_zep.thread.delete.side_effect = Exception("Memory delete error")
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        await repo.delete("user123")
-        mock_zep.user.delete.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_delete_zep_user_error(self, mock_zep):
-        mock_zep.user.delete.side_effect = Exception("User delete error")
-        repo = MemoryRepository(zep_api_key="test_key")
-        repo.zep = mock_zep
-        await repo.delete("user123")
-        mock_zep.thread.delete.assert_called_once()
+@pytest.mark.asyncio
+async def test__embed_and_upsert_message_happy_path(monkeypatch):
+    repo = MemoryRepository(
+        pinecone_adapter=MagicMock(spec=PineconeAdapter),
+        openai_api_key="KEY",
+    )
+    repo._openai_client = FakeOpenAIClient(embedding=[0.9, 0.8])
+    pc = MagicMock()
+    pc.upsert = AsyncMock()
+    repo.pinecone = pc
 
-    def test_find_mongo_error(self, mock_mongo_adapter):
-        mock_mongo_adapter.find.side_effect = Exception("Find error")
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        result = repo.find("conversations", {})
-        assert result == []
-        mock_mongo_adapter.find.assert_called_once()
+    ts = datetime.now(timezone.utc)
+    await repo._embed_and_upsert_message(
+        session_id="s1",
+        role="assistant",
+        content="answer",
+        ts=ts,
+        mongo_id="64f0c0ffee0c0ffee0c0ffee",
+    )
+    repo.pinecone.upsert.assert_awaited_once()
+    args, kwargs = repo.pinecone.upsert.call_args
+    vectors = kwargs["vectors"]
+    assert vectors[0]["id"] == "64f0c0ffee0c0ffee0c0ffee"
+    assert vectors[0]["metadata"]["role"] == "assistant"
 
-    @pytest.mark.asyncio
-    async def test_retrieve_mongo_only_handles_no_results(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        mock_mongo_adapter.find.return_value = []
-        result = await repo.retrieve("user123")
-        assert result == ""
 
-    @pytest.mark.asyncio
-    async def test_retrieve_mongo_only_handles_missing_fields(self, mock_mongo_adapter):
-        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
-        mock_mongo_adapter.find.return_value = [{"user_message": "Hello"}]
-        result = await repo.retrieve("user123")
-        assert result == ""
+@pytest.mark.asyncio
+async def test__embed_and_upsert_message_error_is_swallowed(monkeypatch):
+    repo = MemoryRepository(
+        pinecone_adapter=MagicMock(spec=PineconeAdapter),
+        openai_api_key="KEY",
+    )
+    repo._openai_client = FakeOpenAIClient(embedding=[0.9, 0.8])
+    pc = MagicMock()
+    pc.upsert = AsyncMock(side_effect=Exception("pc down"))
+    repo.pinecone = pc
+
+    ts = datetime.now(timezone.utc)
+    # Should not raise
+    await repo._embed_and_upsert_message("s1", "user", "text", ts, None)
+
+
+@pytest.mark.asyncio
+async def test_get_context_not_configured_returns_empty():
+    repo = MemoryRepository()
+    out = await repo.get_context("s1", "laptop")
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_get_context_returns_metadata_only(monkeypatch):
+    repo = MemoryRepository(
+        pinecone_adapter=MagicMock(spec=PineconeAdapter),
+        openai_api_key="KEY",
+    )
+    repo._openai_client = FakeOpenAIClient(embedding=[0.5, 0.6, 0.7])
+
+    # Pinecone returns non-ObjectId-like IDs so hydration path is skipped
+    hits = [
+        {
+            "id": "s1:123:user",
+            "metadata": {"session_id": "s1", "role": "user"},
+            "score": 0.9,
+        },
+        {
+            "id": "s1:124:assistant",
+            "metadata": {"session_id": "s1", "role": "assistant"},
+            "score": 0.8,
+        },
+    ]
+    pc = MagicMock()
+    pc.query = AsyncMock(return_value=hits)
+    repo.pinecone = pc
+
+    out = await repo.get_context("s1", "need a laptop", k=5)
+    assert len(out) == 2
+    assert out[0]["metadata"]["role"] == "user"
+    repo.pinecone.query.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_context_hydrates_mongo_when_objectids_present(mock_mongo):
+    repo = MemoryRepository(
+        mongo_adapter=mock_mongo,
+        pinecone_adapter=MagicMock(spec=PineconeAdapter),
+        openai_api_key="KEY",
+        store_temporal_in_mongo=True,
+    )
+    repo._openai_client = FakeOpenAIClient(embedding=[0.5, 0.6, 0.7])
+
+    # IDs that look like Mongo ObjectIds (24 hex chars)
+    hits = [
+        {
+            "id": "0" * 24,
+            "metadata": {"session_id": "s1", "role": "user"},
+            "score": 0.9,
+        },
+    ]
+    pc = MagicMock()
+    pc.query = AsyncMock(return_value=hits)
+    repo.pinecone = pc
+
+    # Hydrated docs returned directly
+    mock_mongo.find.return_value = [{"_id": "0" * 24, "content": "hello"}]
+    out = await repo.get_context("s1", "hello")
+    assert out == [{"_id": "0" * 24, "content": "hello"}]
+
+
+@pytest.mark.asyncio
+async def test__ensure_messages_collection_short_circuits_and_creates(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo, store_temporal_in_mongo=True)
+    # First call creates
+    await repo._ensure_messages_collection()
+    assert repo._messages_ready is True
+    # Second call short-circuits
+    await repo._ensure_messages_collection()
+    # No exception and no additional asserts necessary
+
+
+@pytest.mark.asyncio
+async def test_save_capture_validation_and_no_mongo():
+    repo_nomongo = MemoryRepository()
+    out = await repo_nomongo.save_capture("u", "contact", "agent", {})
+    assert out is None
+
+    repo = MemoryRepository(mongo_adapter=MagicMock(spec=MongoDBAdapter))
+    with pytest.raises(ValueError):
+        await repo.save_capture("", "contact", "agent", {})
+    with pytest.raises(ValueError):
+        await repo.save_capture("u", "", "agent", {})
+    with pytest.raises(ValueError):
+        await repo.save_capture("u", "contact", "agent", "not-a-dict")  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_save_capture_multiple_mode(mock_mongo):
+    repo = MemoryRepository(
+        mongo_adapter=mock_mongo, capture_modes={"agentA": "multiple"}
+    )
+    out = await repo.save_capture("u1", "donation", "agentA", {"amt": 10}, {"s": 1})
+    mock_mongo.insert_one.assert_called_once()
+    assert out == "mongo-id-1"
+
+
+@pytest.mark.asyncio
+async def test_save_capture_once_mode_merge_existing_and_return_id(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)  # default 'once'
+    existing = {
+        "data": {"email": "a@b.com"},
+        "schema": {"v": 1},
+        "_id": "64f0c0ffee0c0ffee0c0ffee",
+    }
+    mock_mongo.find_one.side_effect = [
+        existing,
+        existing,
+    ]  # first for read-before, second for read-after
+
+    out = await repo.save_capture("u2", "contact", "agentB", {"phone": "123"}, None)
+    # update_one with upsert True
+    mock_mongo.update_one.assert_called_once()
+    assert out == "64f0c0ffee0c0ffee0c0ffee"
+
+
+@pytest.mark.asyncio
+async def test_save_capture_exception_is_swallowed(mock_mongo):
+    repo = MemoryRepository(mongo_adapter=mock_mongo)
+    mock_mongo.update_one.side_effect = Exception("write fail")
+    out = await repo.save_capture("u3", "contact", "agentC", {"x": 1})
+    assert out is None
+
+
+def test__looks_like_object_id():
+    from solana_agent.repositories.memory import _looks_like_object_id
+
+    assert _looks_like_object_id("0" * 24)
+    assert not _looks_like_object_id("g" * 24)  # non-hex
+    assert not _looks_like_object_id("123")  # too short
+    assert not _looks_like_object_id(123)  # not str

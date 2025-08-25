@@ -143,27 +143,42 @@ class SolanaAgentFactory:
         # Create repositories
         memory_provider = None
 
-        if "zep" in config and "mongo" in config:
-            mem_kwargs: Dict[str, Any] = {
-                "mongo_adapter": db_adapter,
-                "zep_api_key": config["zep"].get("api_key"),
-            }
-            if capture_modes:  # pragma: no cover
-                mem_kwargs["capture_modes"] = capture_modes
-            memory_provider = MemoryRepository(**mem_kwargs)
+        # Optional Pinecone/OpenAI settings for memory vector indexing (not required)
+        pinecone_for_memory: Dict[str, Any] = {}
+        if "memory" in config:  # pragma: no cover
+            mem_cfg = config["memory"]
+            if "pinecone" in mem_cfg:
+                try:
+                    pinecone_for_memory["pinecone_adapter"] = PineconeAdapter(
+                        api_key=mem_cfg["pinecone"].get("api_key"),
+                        index_name=mem_cfg["pinecone"].get("index_name"),
+                        embedding_dimensions=mem_cfg["pinecone"].get(
+                            "embedding_dimensions", 1536
+                        ),
+                        cloud_provider=mem_cfg["pinecone"].get("cloud_provider", "aws"),
+                        region=mem_cfg["pinecone"].get("region", "us-east-1"),
+                        metric=mem_cfg["pinecone"].get("metric", "cosine"),
+                        create_index_if_not_exists=mem_cfg["pinecone"].get(
+                            "create_index", True
+                        ),
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to initialize PineconeAdapter for memory: {e}"
+                    )
+            if "openai" in mem_cfg:
+                pinecone_for_memory["openai_api_key"] = mem_cfg["openai"].get("api_key")
+                pinecone_for_memory["openai_embed_model"] = mem_cfg["openai"].get(
+                    "model", "text-embedding-3-small"
+                )
+            if "namespace" in mem_cfg:
+                pinecone_for_memory["pinecone_namespace"] = mem_cfg.get("namespace")
 
-        if "mongo" in config and "zep" not in config:
+        if "mongo" in config:
             mem_kwargs = {"mongo_adapter": db_adapter}
             if capture_modes:
                 mem_kwargs["capture_modes"] = capture_modes
-            memory_provider = MemoryRepository(**mem_kwargs)
-
-        if "zep" in config and "mongo" not in config:
-            if "api_key" not in config["zep"]:
-                raise ValueError("Zep API key is required.")
-            mem_kwargs = {"zep_api_key": config["zep"].get("api_key")}
-            if capture_modes:  # pragma: no cover
-                mem_kwargs["capture_modes"] = capture_modes
+            mem_kwargs.update(pinecone_for_memory)
             memory_provider = MemoryRepository(**mem_kwargs)
 
         guardrail_config = config.get("guardrails", {})

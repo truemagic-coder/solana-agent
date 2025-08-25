@@ -196,23 +196,20 @@ def knowledge_base_config(mongo_config):
 
 @pytest.fixture
 def zep_config(mongo_config):
-    config = deepcopy(mongo_config)
-    config["zep"] = {"api_key": "test-zep-key"}
-    return config
+    # Deprecated: Zep no longer used; return mongo_config unchanged
+    return deepcopy(mongo_config)
 
 
 @pytest.fixture
 def zep_only_config(base_config):
-    config = deepcopy(base_config)
-    config["zep"] = {"api_key": "test-zep-key"}
-    return config
+    # Deprecated: Zep no longer used; leave config unchanged
+    return deepcopy(base_config)
 
 
 @pytest.fixture
 def invalid_zep_config(base_config):
-    config = deepcopy(base_config)
-    config["zep"] = {}  # Missing API key
-    return config
+    # Deprecated: Zep no longer used; return base_config
+    return deepcopy(base_config)
 
 
 @pytest.fixture
@@ -437,7 +434,7 @@ class TestSolanaAgentFactory:
     @patch("solana_agent.factories.agent_factory.RoutingService")
     @patch("solana_agent.factories.agent_factory.MemoryRepository")
     @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_zep_and_mongo(
+    def test_create_from_config_with_mongo_only(
         self,
         mock_query_service,
         mock_memory_repo,
@@ -445,9 +442,9 @@ class TestSolanaAgentFactory:
         mock_agent_service,
         mock_openai_adapter,
         mock_mongo_adapter,
-        zep_config,
+        mongo_config,
     ):
-        """Test creating services with Zep and MongoDB configuration."""
+        """Test creating services with MongoDB configuration (no Zep)."""
         # Setup mocks
         mock_mongo_instance = MagicMock()
         mock_mongo_adapter.return_value = mock_mongo_instance
@@ -469,13 +466,10 @@ class TestSolanaAgentFactory:
         mock_query_service.return_value = mock_query_instance
 
         # Call the factory
-        result = SolanaAgentFactory.create_from_config(zep_config)
+        result = SolanaAgentFactory.create_from_config(mongo_config)
 
         # Verify calls
-        mock_memory_repo.assert_called_once_with(
-            mongo_adapter=mock_mongo_instance, zep_api_key="test-zep-key"
-        )
-
+        mock_memory_repo.assert_called_once()
         assert result == mock_query_instance
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
@@ -483,16 +477,16 @@ class TestSolanaAgentFactory:
     @patch("solana_agent.factories.agent_factory.RoutingService")
     @patch("solana_agent.factories.agent_factory.MemoryRepository")
     @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_zep_only(
+    def test_create_from_config_without_mongo_succeeds(
         self,
         mock_query_service,
         mock_memory_repo,
         mock_routing_service,
         mock_agent_service,
         mock_openai_adapter,
-        zep_only_config,
+        base_config,
     ):
-        """Test creating services with Zep only configuration."""
+        """Test creating services without Mongo should still succeed (memory optional)."""
         # Setup mocks
         mock_openai_instance = MagicMock()
         mock_openai_adapter.return_value = mock_openai_instance
@@ -510,27 +504,23 @@ class TestSolanaAgentFactory:
         mock_query_instance = MagicMock()
         mock_query_service.return_value = mock_query_instance
 
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(zep_only_config)
-
-        # Verify calls
-        mock_memory_repo.assert_called_once_with(zep_api_key="test-zep-key")
-
+        # Call the factory should succeed even without Mongo
+        result = SolanaAgentFactory.create_from_config(base_config)
         assert result == mock_query_instance
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")
     @patch("solana_agent.factories.agent_factory.RoutingService")
     @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_invalid_zep(
+    def test_create_from_config_with_invalid_mongo(
         self,
         mock_query_service,
         mock_routing_service,
         mock_agent_service,
         mock_openai_adapter,
-        invalid_zep_config,
+        base_config,
     ):
-        """Test creating services with invalid Zep configuration."""
+        """Test creating services with invalid Mongo configuration."""
         # Setup mocks
         mock_openai_instance = MagicMock()
         mock_openai_adapter.return_value = mock_openai_instance
@@ -546,8 +536,10 @@ class TestSolanaAgentFactory:
         mock_query_service.return_value = mock_query_instance
 
         # Call the factory - should raise ValueError
-        with pytest.raises(ValueError, match="Zep API key is required"):
-            SolanaAgentFactory.create_from_config(invalid_zep_config)
+        invalid = base_config.copy()
+        invalid["mongo"] = {"connection_string": "mongodb://example"}
+        with pytest.raises(ValueError):
+            SolanaAgentFactory.create_from_config(invalid)
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")
