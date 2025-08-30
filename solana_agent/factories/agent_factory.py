@@ -186,9 +186,16 @@ class SolanaAgentFactory:
         )
 
         # Create routing service
+        # Optional routing model override (use small, cheap model by default in service)
+        routing_model = (
+            config.get("openai", {}).get("routing_model")
+            if isinstance(config.get("openai"), dict)
+            else None
+        )
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
+            model=routing_model,
         )
 
         # Debug the agent service tool registry

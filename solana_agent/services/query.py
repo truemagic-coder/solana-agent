@@ -215,11 +215,32 @@ class QueryService(QueryServiceInterface):
             # --- 6. Route Query ---
             agent_name = "default"  # Fallback agent
             try:
-                # Use processed user_text for routing (images generally don't affect routing logic here)
+                # Build routing input: include previous user message when available
+                routing_input = user_text
+                if self.memory_provider:
+                    try:
+                        # Fetch the most recent previous conversation for continuity
+                        prev_docs = self.memory_provider.find(
+                            collection="conversations",
+                            query={"user_id": user_id},
+                            sort=[("timestamp", -1)],
+                            limit=1,
+                        )
+                        if prev_docs:
+                            prev_user = (prev_docs[0] or {}).get("user_message", "")
+                            if prev_user:
+                                routing_input = (
+                                    f"previous_user_message: {prev_user}\n"
+                                    f"current_user_message: {user_text}"
+                                )
+                    except Exception as e:
+                        logger.debug(f"Routing continuity lookup skipped: {e}")
+
+                # Use processed routing_input for routing
                 if router:
-                    agent_name = await router.route_query(user_text)
+                    agent_name = await router.route_query(routing_input)
                 else:
-                    agent_name = await self.routing_service.route_query(user_text)
+                    agent_name = await self.routing_service.route_query(routing_input)
                 logger.info(f"Routed query to agent: {agent_name}")
             except Exception as e:
                 logger.error(
