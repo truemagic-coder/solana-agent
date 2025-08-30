@@ -1,8 +1,9 @@
 """
 Routing service implementation.
 
-This service manages query routing to appropriate agents based on
-specializations and query analysis.
+This service manages query routing to appropriate agents using an LLM-based
+analysis. It defaults to a small, low-cost model for routing to minimize
+overhead while maintaining quality.
 """
 
 import logging
@@ -28,7 +29,7 @@ class RoutingService(RoutingServiceInterface):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-    ):
+    ) -> None:
         """Initialize the routing service.
 
         Args:
@@ -39,7 +40,10 @@ class RoutingService(RoutingServiceInterface):
         self.agent_service = agent_service
         self.api_key = api_key
         self.base_url = base_url
-        self.model = model
+        # Use a small, cheap model for routing unless explicitly provided
+        self.model = model or "gpt-4.1-mini"
+        # Simple sticky session: remember last routed agent in-process
+        self._last_agent = None
 
     async def _analyze_query(self, query: str) -> Dict[str, Any]:
         """Analyze a query to determine routing information.
@@ -82,9 +86,6 @@ class RoutingService(RoutingServiceInterface):
         2. Any secondary agents that might be helpful (must be from the listed agents)
         3. The complexity level (1-5, where 5 is most complex)
         4. Any key topics or technologies mentioned
-
-        Think carefully about whether the query is more technical/development-focused or more
-        financial/market-focused to match with the appropriate agent.
         """
 
         try:
@@ -131,18 +132,23 @@ class RoutingService(RoutingServiceInterface):
         if len(agents) == 1:
             agent_name = next(iter(agents.keys()))
             logger.info(f"Only one agent available: {agent_name}")  # Use logger.info
+            self._last_agent = agent_name
             return agent_name
 
-        # Analyze query
-        analysis = await self._analyze_query(query)
+        # Short reply bypass and default stickiness
+        short = query.strip().lower()
+        short_replies = {"", "yes", "no", "ok", "k", "y", "n", "1", "0"}
+        if short in short_replies and self._last_agent:
+            return self._last_agent
 
-        # Find best agent based on analysis
+        # Always analyze with a small model to select the best agent
+        analysis = await self._analyze_query(query)
         best_agent = await self._find_best_ai_agent(
             analysis["primary_specialization"], analysis["secondary_specializations"]
         )
-
-        # Return best agent
-        return best_agent
+        chosen = best_agent or next(iter(agents.keys()))
+        self._last_agent = chosen
+        return chosen
 
     async def _find_best_ai_agent(
         self,
