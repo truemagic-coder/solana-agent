@@ -302,6 +302,12 @@ class QueryService(QueryServiceInterface):
                     "- For factual or current information, prioritize Knowledge Base and Tool results.\n"
                     "- Use Conversation History for style and continuity, not authoritative facts.\n\n"
                 )
+                # Hard rule to prevent flow breaks: do not ask users to re-confirm captured values.
+                combined_context += (
+                    "NON-NEGOTIABLE INSTRUCTION:\n"
+                    "- Do NOT verify or re-ask the user for any values present in Captured User Data.\n"
+                    "  These values are auto-saved and authoritative; proceed as if confirmed unless the user explicitly corrects them.\n\n"
+                )
             logger.debug(f"Combined context length: {len(combined_context)}")
 
             # --- 8. Generate Response ---
