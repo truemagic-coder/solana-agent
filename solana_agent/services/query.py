@@ -265,23 +265,111 @@ class QueryService(QueryServiceInterface):
                         if not name or name in latest_by_name:
                             continue
                         latest_by_name[name] = {
-                            "data": (d or {}).get("data", {}),
+                            "data": (d or {}).get("data", {}) or {},
                             "mode": (d or {}).get("mode", "once"),
                             "agent": (d or {}).get("agent_name"),
                         }
-                    if latest_by_name:
-                        lines: List[str] = [
-                            "CAPTURED USER DATA (Authoritative; use these values when present):"
-                        ]
-                        for cname, info in latest_by_name.items():
-                            data = info.get("data", {})
-                            if isinstance(data, dict):
-                                pairs = "; ".join(
-                                    [f"{k}: {v}" for k, v in data.items()]
+
+                    # Determine the active capture config for this agent
+                    active_capture_name = capture_name
+                    active_capture_schema = capture_schema
+                    if not active_capture_name or not active_capture_schema:
+                        try:
+                            cap_cfg = self.agent_service.get_agent_capture(agent_name)
+                            if cap_cfg:
+                                active_capture_name = (
+                                    active_capture_name or cap_cfg.get("name")
                                 )
-                                lines.append(f"- {cname}: {pairs}")
+                                active_capture_schema = (
+                                    active_capture_schema or cap_cfg.get("schema")
+                                )
+                        except Exception:
+                            pass
+
+                    def _non_empty(v: Any) -> bool:
+                        if v is None:
+                            return False
+                        if isinstance(v, str):
+                            s = v.strip().lower()
+                            return s not in {
+                                "",
+                                "null",
+                                "none",
+                                "n/a",
+                                "na",
+                                "undefined",
+                                ".",
+                            }
+                        if isinstance(v, (list, dict, tuple, set)):
+                            return len(v) > 0
+                        return True
+
+                    lines: List[str] = []
+                    # If we have an active capture, show its state prominently
+                    if active_capture_name:
+                        active_data = (
+                            latest_by_name.get(active_capture_name, {}) or {}
+                        ).get("data", {}) or {}
+                        # Compute missing required fields when a schema is available
+                        missing_required: List[str] = []
+                        if isinstance(active_capture_schema, dict):
+                            required = active_capture_schema.get("required", []) or []
+                            for field in required:
+                                if not _non_empty(active_data.get(field)):
+                                    missing_required.append(field)
+
+                        lines.append(
+                            "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
+                        )
+                        lines.append(f"- form_name: {active_capture_name}")
+
+                        # Print filled fields for the active form
+                        if isinstance(active_data, dict) and active_data:
+                            pretty_pairs = []
+                            for k, v in active_data.items():
+                                if _non_empty(v):
+                                    pretty_pairs.append(f"{k}: {v}")
+                            if pretty_pairs:
+                                lines.append(
+                                    f"- filled_fields: {', '.join(pretty_pairs)}"
+                                )
                             else:
-                                lines.append(f"- {cname}: {data}")
+                                lines.append("- filled_fields: (none)")
+                        else:
+                            lines.append("- filled_fields: (none)")
+
+                        # List missing required fields for clarity
+                        if missing_required:
+                            lines.append(
+                                f"- missing_required_fields: {', '.join(missing_required)}"
+                            )
+                        else:
+                            lines.append("- missing_required_fields: (none)")
+
+                        lines.append("")  # spacer
+
+                    # Also include other captures (if any) for awareness
+                    if latest_by_name:
+                        lines.append("OTHER CAPTURED USER DATA (for reference):")
+                        for cname, info in latest_by_name.items():
+                            if cname == active_capture_name:
+                                continue
+                            data = info.get("data", {})
+                            if isinstance(data, dict) and data:
+                                pairs = "; ".join(
+                                    [
+                                        f"{k}: {v}"
+                                        for k, v in data.items()
+                                        if _non_empty(v)
+                                    ]
+                                )
+                                lines.append(
+                                    f"- {cname}: {pairs if pairs else '(none)'}"
+                                )
+                            else:
+                                lines.append(f"- {cname}: (none)")
+
+                    if lines:
                         capture_context = "\n".join(lines) + "\n\n"
                 except Exception as e:
                     logger.debug(f"Capture lookup skipped: {e}")
@@ -302,11 +390,11 @@ class QueryService(QueryServiceInterface):
                     "- For factual or current information, prioritize Knowledge Base and Tool results.\n"
                     "- Use Conversation History for style and continuity, not authoritative facts.\n\n"
                 )
-                # Hard rule to prevent flow breaks: do not ask users to re-confirm captured values.
                 combined_context += (
-                    "NON-NEGOTIABLE INSTRUCTION:\n"
-                    "- Do NOT verify or re-ask the user for any values present in Captured User Data.\n"
-                    "  These values are auto-saved and authoritative; proceed as if confirmed unless the user explicitly corrects them.\n\n"
+                    "FORM FLOW RULES:\n"
+                    "- Ask exactly one missing required field per turn.\n"
+                    "- Do NOT verify or re-ask any values present in Captured User Data; these are authoritative and auto-saved.\n"
+                    "- If no required fields are missing, proceed without further capture questions.\n\n"
                 )
             logger.debug(f"Combined context length: {len(combined_context)}")
 
