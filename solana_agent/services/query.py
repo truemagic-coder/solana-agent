@@ -7,6 +7,7 @@ clean separation of concerns.
 """
 
 import logging
+import re
 from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel
@@ -150,7 +151,6 @@ class QueryService(QueryServiceInterface):
             # --- End Apply Input Guardrails ---
 
             # --- 3. Handle Simple Greetings ---
-            # Simple greetings typically don't involve images
             if not images and user_text.strip().lower() in [
                 "test",
                 "hello",
@@ -171,7 +171,6 @@ class QueryService(QueryServiceInterface):
                 else:
                     yield response
 
-                # Store simple interaction in memory (using processed user_text)
                 if self.memory_provider:
                     await self._store_conversation(user_id, user_text, response)
                 return
@@ -191,12 +190,11 @@ class QueryService(QueryServiceInterface):
             kb_context = ""
             if self.knowledge_base:
                 try:
-                    # Use processed user_text for KB query
                     kb_results = await self.knowledge_base.query(
                         query_text=user_text,
                         top_k=self.kb_results_count,
                         include_content=True,
-                        include_metadata=False,  # Keep metadata minimal for context
+                        include_metadata=False,
                     )
 
                     if kb_results:
@@ -213,13 +211,12 @@ class QueryService(QueryServiceInterface):
                     logger.error(f"Error retrieving knowledge: {e}", exc_info=True)
 
             # --- 6. Route Query ---
-            agent_name = "default"  # Fallback agent
+            agent_name = "default"
+            prev_assistant = ""
             try:
-                # Build routing input: include previous user message when available
                 routing_input = user_text
                 if self.memory_provider:
                     try:
-                        # Fetch the most recent previous conversation for continuity
                         prev_docs = self.memory_provider.find(
                             collection="conversations",
                             query={"user_id": user_id},
@@ -227,7 +224,12 @@ class QueryService(QueryServiceInterface):
                             limit=1,
                         )
                         if prev_docs:
-                            prev_user = (prev_docs[0] or {}).get("user_message", "")
+                            prev_user = (prev_docs[0] or {}).get(
+                                "user_message", ""
+                            ) or ""
+                            prev_assistant = (prev_docs[0] or {}).get(
+                                "assistant_message", ""
+                            ) or ""
                             if prev_user:
                                 routing_input = (
                                     f"previous_user_message: {prev_user}\n"
@@ -236,7 +238,6 @@ class QueryService(QueryServiceInterface):
                     except Exception as e:
                         logger.debug(f"Routing continuity lookup skipped: {e}")
 
-                # Use processed routing_input for routing
                 if router:
                     agent_name = await router.route_query(routing_input)
                 else:
@@ -251,6 +252,7 @@ class QueryService(QueryServiceInterface):
             # --- 7. Combine Context ---
             # 7a. Build Captured User Data context from Mongo (if available)
             capture_context = ""
+            form_complete = False
             if self.memory_provider:
                 try:
                     docs = self.memory_provider.find(
@@ -286,6 +288,7 @@ class QueryService(QueryServiceInterface):
                         except Exception:
                             pass
 
+                    # Helpers
                     def _non_empty(v: Any) -> bool:
                         if v is None:
                             return False
@@ -304,26 +307,155 @@ class QueryService(QueryServiceInterface):
                             return len(v) > 0
                         return True
 
+                    def _parse_numbers_list(s: str) -> List[str]:
+                        nums = re.findall(r"\b(\d+)\b", s)
+                        seen = set()
+                        out: List[str] = []
+                        for n in nums:
+                            if n not in seen:
+                                seen.add(n)
+                                out.append(n)
+                        return out
+
+                    def _detect_field_from_prev_question(
+                        prev_text: str, schema: Dict[str, Any]
+                    ) -> Optional[str]:
+                        if not prev_text or not isinstance(schema, dict):
+                            return None
+                        t = prev_text.lower()
+                        patterns = [
+                            ("ideas", ["which ideas attract you", "ideas"]),
+                            (
+                                "description",
+                                ["please describe yourself", "describe yourself"],
+                            ),
+                            ("myself", ["tell us about yourself"]),
+                            ("questions", ["do you have any questions"]),
+                            (
+                                "rating",
+                                ["rating", "1 to 5", "how satisfied", "how happy"],
+                            ),
+                            ("email", ["email"]),
+                            ("phone", ["phone"]),
+                            ("name", ["name"]),
+                            ("city", ["city"]),
+                            ("state", ["state"]),
+                        ]
+                        candidates = {
+                            k for k in (schema.get("properties") or {}).keys()
+                        }
+                        for field, keys in patterns:
+                            if field in candidates and any(key in t for key in keys):
+                                return field
+                        for field in candidates:
+                            if field in t:
+                                return field
+                        return None
+
+                    def _parse_value_for_field(
+                        field: str, schema: Dict[str, Any], text: str
+                    ) -> Optional[Any]:
+                        props = (schema or {}).get("properties", {})
+                        f_schema = props.get(field, {})
+                        f_type = f_schema.get("type")
+                        if f_type == "array":
+                            items = f_schema.get("items", {})
+                            if items.get("type") == "string":
+                                vals = _parse_numbers_list(text)
+                                return vals if vals else None
+                            parts = [
+                                p.strip()
+                                for p in re.split(r"[,\n;]+", text)
+                                if p.strip()
+                            ]
+                            return parts or None
+                        if f_type == "number":
+                            m = re.search(r"\b([0-9]+(?:\.[0-9]+)?)\b", text)
+                            if m:
+                                try:
+                                    return float(m.group(1))
+                                except Exception:
+                                    return None
+                            return None
+                        if f_type == "string":
+                            if field == "email":
+                                m = re.search(
+                                    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I
+                                )
+                                return m.group(0) if m else None
+                            if field == "phone":
+                                digits = re.sub(r"\D", "", text)
+                                return digits if len(digits) >= 7 else None
+                            nums = _parse_numbers_list(text)
+                            if nums:
+                                return nums[0]
+                            return text.strip() or None
+                        return text.strip() or None
+
+                    # 7a.1 Incremental save based on current message and last assistant question (to avoid lag)
+                    incremental: Dict[str, Any] = {}
+                    try:
+                        if active_capture_name and isinstance(
+                            active_capture_schema, dict
+                        ):
+                            field = _detect_field_from_prev_question(
+                                prev_assistant, active_capture_schema
+                            )
+                            if field:
+                                val = _parse_value_for_field(
+                                    field, active_capture_schema, user_text
+                                )
+                                if _non_empty(val):
+                                    incremental[field] = val
+
+                            if incremental:
+                                try:
+                                    await self.memory_provider.save_capture(
+                                        user_id=user_id,
+                                        capture_name=active_capture_name,
+                                        agent_name=agent_name,
+                                        data=incremental,
+                                        schema=active_capture_schema,
+                                    )
+                                except Exception as se:
+                                    logger.error(
+                                        f"Error saving incremental capture: {se}"
+                                    )
+                    except Exception as e:
+                        logger.debug(f"Incremental extraction skipped: {e}")
+
+                    # 7a.2 Build prompt context using latest Mongo plus the just-saved incremental values
+                    def _get_active_data(name: Optional[str]) -> Dict[str, Any]:
+                        if not name:
+                            return {}
+                        base = (latest_by_name.get(name, {}) or {}).get(
+                            "data", {}
+                        ) or {}
+                        if incremental:
+                            base = {**base, **incremental}
+                        return base
+
+                    def _missing_required(
+                        schema: Optional[Dict[str, Any]], data: Dict[str, Any]
+                    ) -> List[str]:
+                        if not isinstance(schema, dict):
+                            return []
+                        required = schema.get("required", []) or []
+                        return [f for f in required if not _non_empty(data.get(f))]
+
                     lines: List[str] = []
-                    # If we have an active capture, show its state prominently
                     if active_capture_name:
-                        active_data = (
-                            latest_by_name.get(active_capture_name, {}) or {}
-                        ).get("data", {}) or {}
-                        # Compute missing required fields when a schema is available
-                        missing_required: List[str] = []
-                        if isinstance(active_capture_schema, dict):
-                            required = active_capture_schema.get("required", []) or []
-                            for field in required:
-                                if not _non_empty(active_data.get(field)):
-                                    missing_required.append(field)
+                        active_data = _get_active_data(active_capture_name)
+                        missing_required = _missing_required(
+                            active_capture_schema, active_data
+                        )
+                        form_complete = not missing_required
 
                         lines.append(
                             "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
                         )
                         lines.append(f"- form_name: {active_capture_name}")
 
-                        # Print filled fields for the active form
                         if isinstance(active_data, dict) and active_data:
                             pretty_pairs = []
                             for k, v in active_data.items():
@@ -338,7 +470,6 @@ class QueryService(QueryServiceInterface):
                         else:
                             lines.append("- filled_fields: (none)")
 
-                        # List missing required fields for clarity
                         if missing_required:
                             lines.append(
                                 f"- missing_required_fields: {', '.join(missing_required)}"
@@ -346,9 +477,8 @@ class QueryService(QueryServiceInterface):
                         else:
                             lines.append("- missing_required_fields: (none)")
 
-                        lines.append("")  # spacer
+                        lines.append("")
 
-                    # Also include other captures (if any) for awareness
                     if latest_by_name:
                         lines.append("OTHER CAPTURED USER DATA (for reference):")
                         for cname, info in latest_by_name.items():
@@ -399,12 +529,11 @@ class QueryService(QueryServiceInterface):
             logger.debug(f"Combined context length: {len(combined_context)}")
 
             # --- 8. Generate Response ---
-            # Pass the processed user_text and images to the agent service
             if output_format == "audio":
                 async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
-                    query=user_text,  # Pass processed text
+                    query=user_text,
                     images=images,
                     memory_context=combined_context,
                     output_format="audio",
@@ -415,19 +544,17 @@ class QueryService(QueryServiceInterface):
                 ):
                     yield audio_chunk
 
-                # Store conversation using processed user_text
-                # Note: Storing images in history is not directly supported by current memory provider interface
                 if self.memory_provider:
                     await self._store_conversation(
                         user_id=user_id,
-                        user_message=user_text,  # Store only text part of user query
+                        user_message=user_text,
                         assistant_message=self.agent_service.last_text_response,
                     )
             else:
                 full_text_response = ""
-                # If capture_schema is provided, we run a structured output pass first
                 capture_data: Optional[BaseModel] = None
-                # If no explicit capture provided, use the agent's configured capture
+
+                # Resolve agent's default capture if not provided
                 if not capture_schema or not capture_name:
                     try:
                         cap = self.agent_service.get_agent_capture(agent_name)
@@ -437,9 +564,9 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                if capture_schema and capture_name:
+                # Only run full structured capture when the form is complete
+                if capture_schema and capture_name and form_complete:
                     try:
-                        # Build a dynamic Pydantic model from JSON schema
                         DynamicModel = self._build_model_from_json_schema(
                             capture_name, capture_schema
                         )
@@ -453,14 +580,13 @@ class QueryService(QueryServiceInterface):
                             prompt=(
                                 (
                                     prompt
-                                    + "\n\nReturn only the JSON for the requested schema."
+                                    + "\n\nUsing the captured user data above, return only the JSON for the requested schema. Do not invent values."
                                 )
                                 if prompt
-                                else "Return only the JSON for the requested schema."
+                                else "Using the captured user data above, return only the JSON for the requested schema. Do not invent values."
                             ),
                             output_model=DynamicModel,
                         ):
-                            # This yields a pydantic model instance
                             capture_data = result  # type: ignore
                             break
                     except Exception as e:
@@ -469,8 +595,8 @@ class QueryService(QueryServiceInterface):
                 async for chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
                     user_id=user_id,
-                    query=user_text,  # Pass processed text
-                    images=images,  # <-- Pass images
+                    query=user_text,
+                    images=images,
                     memory_context=combined_context,
                     output_format="text",
                     prompt=prompt,
@@ -480,16 +606,14 @@ class QueryService(QueryServiceInterface):
                     if output_model is None:
                         full_text_response += chunk
 
-                # Store conversation using processed user_text
-                # Note: Storing images in history is not directly supported by current memory provider interface
                 if self.memory_provider and full_text_response:
                     await self._store_conversation(
                         user_id=user_id,
-                        user_message=user_text,  # Store only text part of user query
+                        user_message=user_text,
                         assistant_message=full_text_response,
                     )
 
-                # Persist capture if available
+                # Persist final capture when available
                 if (
                     self.memory_provider
                     and capture_schema
@@ -497,7 +621,6 @@ class QueryService(QueryServiceInterface):
                     and capture_data is not None
                 ):
                     try:
-                        # pydantic v2: model_dump
                         data_dict = (
                             capture_data.model_dump()  # type: ignore[attr-defined]
                             if hasattr(capture_data, "model_dump")
@@ -531,7 +654,6 @@ class QueryService(QueryServiceInterface):
                         yield chunk
                 except Exception as tts_e:
                     logger.error(f"Error during TTS for error message: {tts_e}")
-                    # Fallback to yielding text error if TTS fails
                     yield error_msg + f" (TTS Error: {tts_e})"
             else:
                 yield error_msg
@@ -560,19 +682,9 @@ class QueryService(QueryServiceInterface):
         user_id: str,
         page_num: int = 1,
         page_size: int = 20,
-        sort_order: str = "desc",  # "asc" for oldest-first, "desc" for newest-first
+        sort_order: str = "desc",
     ) -> Dict[str, Any]:
-        """Get paginated message history for a user.
-
-        Args:
-            user_id: User ID
-            page_num: Page number (starting from 1)
-            page_size: Number of messages per page
-            sort_order: Sort order ("asc" or "desc")
-
-        Returns:
-            Dictionary with paginated results and metadata.
-        """
+        """Get paginated message history for a user."""
         if not self.memory_provider:
             logger.warning(
                 "Attempted to get user history, but no memory provider is configured."
@@ -587,18 +699,12 @@ class QueryService(QueryServiceInterface):
             }
 
         try:
-            # Calculate skip and limit for pagination
             skip = (page_num - 1) * page_size
-
-            # Get total count of documents
             total = self.memory_provider.count_documents(
                 collection="conversations", query={"user_id": user_id}
             )
-
-            # Calculate total pages
             total_pages = (total + page_size - 1) // page_size if total > 0 else 0
 
-            # Get paginated results
             conversations = self.memory_provider.find(
                 collection="conversations",
                 query={"user_id": user_id},
@@ -607,7 +713,6 @@ class QueryService(QueryServiceInterface):
                 limit=page_size,
             )
 
-            # Format the results
             formatted_conversations = []
             for conv in conversations:
                 timestamp = (
@@ -615,15 +720,11 @@ class QueryService(QueryServiceInterface):
                     if conv.get("timestamp")
                     else None
                 )
-                # Assuming the stored format matches what _store_conversation saves
-                # (which currently only stores text messages)
                 formatted_conversations.append(
                     {
                         "id": str(conv.get("_id")),
-                        "user_message": conv.get("user_message"),  # Or how it's stored
-                        "assistant_message": conv.get(
-                            "assistant_message"
-                        ),  # Or how it's stored
+                        "user_message": conv.get("user_message"),
+                        "assistant_message": conv.get("assistant_message"),
                         "timestamp": timestamp,
                     }
                 )
@@ -658,17 +759,9 @@ class QueryService(QueryServiceInterface):
     async def _store_conversation(
         self, user_id: str, user_message: str, assistant_message: str
     ) -> None:
-        """Store conversation history in memory provider.
-
-        Args:
-            user_id: User ID
-            user_message: User message (text part, potentially processed by input guardrails)
-            assistant_message: Assistant message (potentially processed by output guardrails)
-        """
+        """Store conversation history in memory provider."""
         if self.memory_provider:
             try:
-                # Store only the text parts for now, as memory provider interface
-                # doesn't explicitly handle image data storage in history.
                 await self.memory_provider.store(
                     user_id,
                     [
@@ -699,7 +792,6 @@ class QueryService(QueryServiceInterface):
         def py_type(js: Dict[str, Any]):
             t = js.get("type")
             if isinstance(t, list):
-                # handle ["null", "string"] => Optional[str]
                 non_null = [x for x in t if x != "null"]
                 if not non_null:
                     return Optional[Any]
@@ -717,7 +809,6 @@ class QueryService(QueryServiceInterface):
                 items = js.get("items", {"type": "string"})
                 return List[py_type(items)]
             if t == "object":
-                # For now, represent as Dict[str, Any]
                 return Dict[str, Any]
             return Any
 
