@@ -249,14 +249,59 @@ class QueryService(QueryServiceInterface):
                 )
 
             # --- 7. Combine Context ---
+            # 7a. Build Captured User Data context from Mongo (if available)
+            capture_context = ""
+            if self.memory_provider:
+                try:
+                    docs = self.memory_provider.find(
+                        collection="captures",
+                        query={"user_id": user_id},
+                        sort=[("timestamp", -1)],
+                        limit=100,
+                    )
+                    latest_by_name: Dict[str, Dict[str, Any]] = {}
+                    for d in docs or []:
+                        name = (d or {}).get("capture_name")
+                        if not name or name in latest_by_name:
+                            continue
+                        latest_by_name[name] = {
+                            "data": (d or {}).get("data", {}),
+                            "mode": (d or {}).get("mode", "once"),
+                            "agent": (d or {}).get("agent_name"),
+                        }
+                    if latest_by_name:
+                        lines: List[str] = [
+                            "CAPTURED USER DATA (Authoritative; use these values when present):"
+                        ]
+                        for cname, info in latest_by_name.items():
+                            data = info.get("data", {})
+                            if isinstance(data, dict):
+                                pairs = "; ".join(
+                                    [f"{k}: {v}" for k, v in data.items()]
+                                )
+                                lines.append(f"- {cname}: {pairs}")
+                            else:
+                                lines.append(f"- {cname}: {data}")
+                        capture_context = "\n".join(lines) + "\n\n"
+                except Exception as e:
+                    logger.debug(f"Capture lookup skipped: {e}")
+
+            # 7b. Merge contexts in priority-aware order
             combined_context = ""
+            if capture_context:
+                combined_context += capture_context
             if memory_context:
-                combined_context += f"CONVERSATION HISTORY (Use for context, but prioritize tools/KB for facts):\n{memory_context}\n\n"
+                combined_context += f"CONVERSATION HISTORY (Use for continuity and tone; not authoritative for factual values):\n{memory_context}\n\n"
             if kb_context:
                 combined_context += f"{kb_context}\n"
 
-            if memory_context or kb_context:
-                combined_context += "CRITICAL PRIORITIZATION GUIDE: For factual or current information, prioritize Knowledge Base results and Tool results (if applicable) over Conversation History.\n\n"
+            if capture_context or memory_context or kb_context:
+                combined_context += (
+                    "PRIORITIZATION GUIDE:\n"
+                    "- For user-specific fields, prefer Captured User Data when present.\n"
+                    "- For factual or current information, prioritize Knowledge Base and Tool results.\n"
+                    "- Use Conversation History for style and continuity, not authoritative facts.\n\n"
+                )
             logger.debug(f"Combined context length: {len(combined_context)}")
 
             # --- 8. Generate Response ---
