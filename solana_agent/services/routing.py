@@ -82,9 +82,6 @@ class RoutingService(RoutingServiceInterface):
         2. Any secondary agents that might be helpful (must be from the listed agents)
         3. The complexity level (1-5, where 5 is most complex)
         4. Any key topics or technologies mentioned
-
-        Think carefully about whether the query is more technical/development-focused or more
-        financial/market-focused to match with the appropriate agent.
         """
 
         try:

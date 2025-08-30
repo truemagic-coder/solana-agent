@@ -1077,14 +1077,14 @@ files = [
 
 [[package]]
 name = "instructor"
-version = "1.10.0"
+version = "1.11.2"
 description = "structured outputs for llm"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "instructor-1.10.0-py3-none-any.whl", hash = "sha256:9c789f0fce915d5498059afb5314530c8a5b22b0283302679148ddae98f732b0"},
-    {file = "instructor-1.10.0.tar.gz", hash = "sha256:887d33e058b913290dbf526b0096b1bb8d7ea1a07d75afecbf716161f959697b"},
+    {file = "instructor-1.11.2-py3-none-any.whl", hash = "sha256:f7bc1094bcb7c6494d53ff284fe6a6737eb5e343945693c198e253ee7496fe82"},
+    {file = "instructor-1.11.2.tar.gz", hash = "sha256:e9ad4e2e0450a0840720bd2be034ffdfd7a65262ebdb854e7b2969886e1a2576"},
 ]
 
 [package.dependencies]
@@ -4182,14 +4182,14 @@ propcache = ">=0.2.1"
 
 [[package]]
 name = "zep-cloud"
-version = "3.4.1"
+version = "3.4.3"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.9.0"
 groups = ["main"]
 files = [
-    {file = "zep_cloud-3.4.1-py3-none-any.whl", hash = "sha256:1ddff388f8ec5bcc9de64672a9319c56f921daca1448d477e93406491d405607"},
-    {file = "zep_cloud-3.4.1.tar.gz", hash = "sha256:7ce1d441891f295f6d6a0cd8b8d23e499be6f778757b9d607d31d6f4e739992b"},
+    {file = "zep_cloud-3.4.3-py3-none-any.whl", hash = "sha256:c04b8de1173c9d4c1dbad3570a16a49806a22a534060cc59f24e1773f4f4c201"},
+    {file = "zep_cloud-3.4.3.tar.gz", hash = "sha256:9e811131c6703c83206344c8f3de4d14c9796302df1a4232173e3f4a2c4fcabf"},
 ]
 
 [package.dependencies]
@@ -4197,6 +4197,7 @@ httpx = ">=0.21.2"
 openai = ">=1.9.0,<2.0.0"
 pydantic = ">=1.9.2"
 pydantic-core = ">=2.18.2"
+python-dateutil = ">=2.9.0,<3.0.0"
 typing_extensions = ">=4.0.0"
 
 [[package]]
@@ -4222,4 +4223,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "9a86978a7bd01ed2d82d3599d15e37457d21461fc2fde998377a37c70a735b8e"
+content-hash = "0862aa205353fcf1b00561405149ad4b4b869da3cd3d0282850b030106cbab72"
