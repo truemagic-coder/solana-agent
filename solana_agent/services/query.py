@@ -23,9 +23,7 @@ from solana_agent.interfaces.providers.memory import (
 from solana_agent.interfaces.services.knowledge_base import (
     KnowledgeBaseService as KnowledgeBaseInterface,
 )
-from solana_agent.interfaces.guardrails.guardrails import (
-    InputGuardrail,
-)
+from solana_agent.interfaces.guardrails.guardrails import InputGuardrail
 
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -45,16 +43,7 @@ class QueryService(QueryServiceInterface):
         kb_results_count: int = 3,
         input_guardrails: List[InputGuardrail] = None,
     ):
-        """Initialize the query service.
-
-        Args:
-            agent_service: Service for AI agent management
-            routing_service: Service for routing queries to appropriate agents
-            memory_provider: Optional provider for memory storage and retrieval
-            knowledge_base: Optional provider for knowledge base interactions
-            kb_results_count: Number of results to retrieve from knowledge base
-            input_guardrails: List of input guardrail instances
-        """
+        """Initialize the query service."""
         self.agent_service = agent_service
         self.routing_service = routing_service
         self.memory_provider = memory_provider
@@ -93,26 +82,9 @@ class QueryService(QueryServiceInterface):
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
-        """Process the user request with appropriate agent and apply input guardrails.
-
-        Args:
-            user_id: User ID
-            query: Text query or audio bytes
-            images: Optional list of image URLs (str) or image bytes.
-            output_format: Response format ("text" or "audio")
-            audio_voice: Voice for TTS (text-to-speech)
-            audio_instructions: Audio voice instructions
-            audio_output_format: Audio output format
-            audio_input_format: Audio input format
-            prompt: Optional prompt for the agent
-            router: Optional routing service for processing
-            output_model: Optional Pydantic model for structured output
-
-        Yields:
-            Response chunks (text strings or audio bytes)
-        """
+        """Process the user request and generate a response."""
         try:
-            # --- 1. Handle Audio Input & Extract Text ---
+            # 1) Transcribe audio or accept text
             user_text = ""
             if not isinstance(query, str):
                 logger.info(
@@ -129,64 +101,50 @@ class QueryService(QueryServiceInterface):
                 user_text = query
                 logger.info(f"Received text input length: {len(user_text)}")
 
-            # --- 2. Apply Input Guardrails ---
+            # 2) Input guardrails
             original_text = user_text
-            processed_text = user_text
             for guardrail in self.input_guardrails:
                 try:
-                    processed_text = await guardrail.process(processed_text)
-                    logger.debug(
-                        f"Applied input guardrail: {guardrail.__class__.__name__}"
-                    )
+                    user_text = await guardrail.process(user_text)
                 except Exception as e:
-                    logger.error(
-                        f"Error applying input guardrail {guardrail.__class__.__name__}: {e}",
-                        exc_info=True,
-                    )
-            if processed_text != original_text:
+                    logger.debug(f"Guardrail error: {e}")
+            if user_text != original_text:
                 logger.info(
-                    f"Input guardrails modified user text. Original length: {len(original_text)}, New length: {len(processed_text)}"
+                    f"Input guardrails modified user text. Original length: {len(original_text)}, New length: {len(user_text)}"
                 )
-            user_text = processed_text  # Use the processed text going forward
-            # --- End Apply Input Guardrails ---
 
-            # --- 3. Handle Simple Greetings ---
-            if not images and user_text.strip().lower() in [
-                "test",
-                "hello",
+            # 3) Greetings shortcut
+            if not images and user_text.strip().lower() in {
                 "hi",
+                "hello",
                 "hey",
                 "ping",
-            ]:
-                response = "Hello! How can I help you today?"
-                logger.info("Handling simple greeting.")
+                "test",
+            }:
+                greeting = "Hello! How can I help you today?"
                 if output_format == "audio":
                     async for chunk in self.agent_service.llm_provider.tts(
-                        text=response,
+                        text=greeting,
                         voice=audio_voice,
                         response_format=audio_output_format,
                         instructions=audio_instructions,
                     ):
                         yield chunk
                 else:
-                    yield response
-
+                    yield greeting
                 if self.memory_provider:
-                    await self._store_conversation(user_id, user_text, response)
+                    await self._store_conversation(user_id, original_text, greeting)
                 return
 
-            # --- 4. Get Memory Context ---
+            # 4) Memory context (conversation history)
             memory_context = ""
             if self.memory_provider:
                 try:
                     memory_context = await self.memory_provider.retrieve(user_id)
-                    logger.info(
-                        f"Retrieved memory context length: {len(memory_context)}"
-                    )
-                except Exception as e:
-                    logger.error(f"Error retrieving memory context: {e}", exc_info=True)
+                except Exception:
+                    memory_context = ""
 
-            # --- 5. Retrieve Relevant Knowledge ---
+            # 5) Knowledge base context
             kb_context = ""
             if self.knowledge_base:
                 try:
@@ -196,63 +154,142 @@ class QueryService(QueryServiceInterface):
                         include_content=True,
                         include_metadata=False,
                     )
-
                     if kb_results:
-                        kb_context = "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**\n"
-                        for i, result in enumerate(kb_results, 1):
-                            content = result.get("content", "").strip()
-                            kb_context += f"[{i}] {content}\n\n"
-                        logger.info(
-                            f"Retrieved {len(kb_results)} results from Knowledge Base."
-                        )
-                    else:
-                        logger.info("No relevant results found in Knowledge Base.")
-                except Exception as e:
-                    logger.error(f"Error retrieving knowledge: {e}", exc_info=True)
+                        kb_lines = [
+                            "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**"
+                        ]
+                        for i, r in enumerate(kb_results, 1):
+                            kb_lines.append(f"[{i}] {r.get('content', '').strip()}\n")
+                        kb_context = "\n".join(kb_lines)
+                except Exception:
+                    kb_context = ""
 
-            # --- 6. Route Query ---
+            # 6) Route query (and fetch previous assistant message)
             agent_name = "default"
             prev_assistant = ""
+            routing_input = user_text
+            if self.memory_provider:
+                try:
+                    prev_docs = self.memory_provider.find(
+                        collection="conversations",
+                        query={"user_id": user_id},
+                        sort=[("timestamp", -1)],
+                        limit=1,
+                    )
+                    if prev_docs:
+                        prev_user_msg = (prev_docs[0] or {}).get(
+                            "user_message", ""
+                        ) or ""
+                        prev_assistant = (prev_docs[0] or {}).get(
+                            "assistant_message", ""
+                        ) or ""
+                        if prev_user_msg:
+                            routing_input = (
+                                f"previous_user_message: {prev_user_msg}\n"
+                                f"current_user_message: {user_text}"
+                            )
+                except Exception:
+                    pass
             try:
-                routing_input = user_text
-                if self.memory_provider:
-                    try:
-                        prev_docs = self.memory_provider.find(
-                            collection="conversations",
-                            query={"user_id": user_id},
-                            sort=[("timestamp", -1)],
-                            limit=1,
-                        )
-                        if prev_docs:
-                            prev_user = (prev_docs[0] or {}).get(
-                                "user_message", ""
-                            ) or ""
-                            prev_assistant = (prev_docs[0] or {}).get(
-                                "assistant_message", ""
-                            ) or ""
-                            if prev_user:
-                                routing_input = (
-                                    f"previous_user_message: {prev_user}\n"
-                                    f"current_user_message: {user_text}"
-                                )
-                    except Exception as e:
-                        logger.debug(f"Routing continuity lookup skipped: {e}")
-
                 if router:
                     agent_name = await router.route_query(routing_input)
                 else:
                     agent_name = await self.routing_service.route_query(routing_input)
-                logger.info(f"Routed query to agent: {agent_name}")
-            except Exception as e:
-                logger.error(
-                    f"Error during routing, falling back to default agent: {e}",
-                    exc_info=True,
-                )
+            except Exception:
+                agent_name = "default"
 
-            # --- 7. Combine Context ---
-            # 7a. Build Captured User Data context from Mongo (if available)
+            # 7) Captured data context + incremental save using previous assistant message
             capture_context = ""
             form_complete = False
+
+            # Helpers
+            def _non_empty(v: Any) -> bool:
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    return s not in {"", "null", "none", "n/a", "na", "undefined", "."}
+                if isinstance(v, (list, dict, tuple, set)):
+                    return len(v) > 0
+                return True
+
+            def _parse_numbers_list(s: str) -> List[str]:
+                nums = re.findall(r"\b(\d+)\b", s)
+                # dedupe keep order
+                seen, out = set(), []
+                for n in nums:
+                    if n not in seen:
+                        seen.add(n)
+                        out.append(n)
+                return out
+
+            def _extract_numbered_options(text: str) -> Dict[str, str]:
+                """Parse previous assistant message for lines like:
+                '1) Foo', '2. Bar', '- 3) Baz', '* 4. Buzz'
+                Returns mapping '1' -> 'Foo', etc.
+                """
+                options: Dict[str, str] = {}
+                if not text:
+                    return options
+                for raw in text.splitlines():
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    # Common Markdown patterns: "1. Label", "1) Label", "- 1) Label", "* 1. Label"
+                    m = re.match(r"^(?:[-*]\s*)?(\d+)[\.)]?\s+(.*)$", line)
+                    if m:
+                        idx, label = m.group(1), m.group(2).strip()
+                        # Strip trailing markdown soft-break spaces
+                        label = label.rstrip()
+                        # Ignore labels that are too short or look like continuations
+                        if len(label) >= 1:
+                            options[idx] = label
+                return options
+
+            def _detect_field_from_prev_question(
+                prev_text: str, schema: Optional[Dict[str, Any]]
+            ) -> Optional[str]:
+                if not prev_text or not isinstance(schema, dict):
+                    return None
+                t = prev_text.lower()
+                # Heuristic synonyms for your onboarding schema
+                patterns = [
+                    ("ideas", ["which ideas attract you", "ideas"]),
+                    ("description", ["please describe yourself", "describe yourself"]),
+                    ("myself", ["tell us about yourself", "about yourself"]),
+                    ("questions", ["do you have any questions"]),
+                    ("rating", ["rating", "1 to 5", "how satisfied", "how happy"]),
+                    ("email", ["email"]),
+                    ("phone", ["phone"]),
+                    ("name", ["name"]),
+                    ("city", ["city"]),
+                    ("state", ["state"]),
+                ]
+                candidates = set((schema.get("properties") or {}).keys())
+                for field, keys in patterns:
+                    if field in candidates and any(key in t for key in keys):
+                        return field
+                # Fallback: property name appears directly
+                for field in candidates:
+                    if field in t:
+                        return field
+                return None
+
+            # Resolve active capture from args or agent config
+            active_capture_name = capture_name
+            active_capture_schema = capture_schema
+            if not active_capture_name or not active_capture_schema:
+                try:
+                    cap_cfg = self.agent_service.get_agent_capture(agent_name)
+                    if cap_cfg:
+                        active_capture_name = active_capture_name or cap_cfg.get("name")
+                        active_capture_schema = active_capture_schema or cap_cfg.get(
+                            "schema"
+                        )
+                except Exception:
+                    pass
+
+            latest_by_name: Dict[str, Dict[str, Any]] = {}
             if self.memory_provider:
                 try:
                     docs = self.memory_provider.find(
@@ -261,7 +298,6 @@ class QueryService(QueryServiceInterface):
                         sort=[("timestamp", -1)],
                         limit=100,
                     )
-                    latest_by_name: Dict[str, Dict[str, Any]] = {}
                     for d in docs or []:
                         name = (d or {}).get("capture_name")
                         if not name or name in latest_by_name:
@@ -271,264 +307,175 @@ class QueryService(QueryServiceInterface):
                             "mode": (d or {}).get("mode", "once"),
                             "agent": (d or {}).get("agent_name"),
                         }
+                except Exception:
+                    pass
 
-                    # Determine the active capture config for this agent
-                    active_capture_name = capture_name
-                    active_capture_schema = capture_schema
-                    if not active_capture_name or not active_capture_schema:
-                        try:
-                            cap_cfg = self.agent_service.get_agent_capture(agent_name)
-                            if cap_cfg:
-                                active_capture_name = (
-                                    active_capture_name or cap_cfg.get("name")
-                                )
-                                active_capture_schema = (
-                                    active_capture_schema or cap_cfg.get("schema")
-                                )
-                        except Exception:
-                            pass
+            # Incremental save: use prev_assistant's numbered list to map numeric reply -> labels
+            incremental: Dict[str, Any] = {}
+            try:
+                if (
+                    self.memory_provider
+                    and active_capture_name
+                    and isinstance(active_capture_schema, dict)
+                ):
+                    props = (active_capture_schema or {}).get("properties", {})
+                    required_fields = list(
+                        (active_capture_schema or {}).get("required", []) or []
+                    )
+                    # Prefer a field detected from prev assistant; else if exactly one required missing, use it
+                    target_field: Optional[str] = _detect_field_from_prev_question(
+                        prev_assistant, active_capture_schema
+                    )
+                    active_data_existing = (
+                        latest_by_name.get(active_capture_name, {}) or {}
+                    ).get("data", {}) or {}
 
-                    # Helpers
-                    def _non_empty(v: Any) -> bool:
-                        if v is None:
-                            return False
-                        if isinstance(v, str):
-                            s = v.strip().lower()
-                            return s not in {
-                                "",
-                                "null",
-                                "none",
-                                "n/a",
-                                "na",
-                                "undefined",
-                                ".",
-                            }
-                        if isinstance(v, (list, dict, tuple, set)):
-                            return len(v) > 0
-                        return True
-
-                    def _parse_numbers_list(s: str) -> List[str]:
-                        nums = re.findall(r"\b(\d+)\b", s)
-                        seen = set()
-                        out: List[str] = []
-                        for n in nums:
-                            if n not in seen:
-                                seen.add(n)
-                                out.append(n)
-                        return out
-
-                    def _detect_field_from_prev_question(
-                        prev_text: str, schema: Dict[str, Any]
-                    ) -> Optional[str]:
-                        if not prev_text or not isinstance(schema, dict):
-                            return None
-                        t = prev_text.lower()
-                        patterns = [
-                            ("ideas", ["which ideas attract you", "ideas"]),
-                            (
-                                "description",
-                                ["please describe yourself", "describe yourself"],
-                            ),
-                            ("myself", ["tell us about yourself"]),
-                            ("questions", ["do you have any questions"]),
-                            (
-                                "rating",
-                                ["rating", "1 to 5", "how satisfied", "how happy"],
-                            ),
-                            ("email", ["email"]),
-                            ("phone", ["phone"]),
-                            ("name", ["name"]),
-                            ("city", ["city"]),
-                            ("state", ["state"]),
+                    def _missing_required() -> List[str]:
+                        return [
+                            f
+                            for f in required_fields
+                            if not _non_empty(active_data_existing.get(f))
                         ]
-                        candidates = {
-                            k for k in (schema.get("properties") or {}).keys()
-                        }
-                        for field, keys in patterns:
-                            if field in candidates and any(key in t for key in keys):
-                                return field
-                        for field in candidates:
-                            if field in t:
-                                return field
-                        return None
 
-                    def _parse_value_for_field(
-                        field: str, schema: Dict[str, Any], text: str
-                    ) -> Optional[Any]:
-                        props = (schema or {}).get("properties", {})
-                        f_schema = props.get(field, {})
+                    if not target_field:
+                        missing = _missing_required()
+                        if len(missing) == 1:
+                            target_field = missing[0]
+
+                    if target_field:
+                        f_schema = props.get(target_field, {}) or {}
                         f_type = f_schema.get("type")
-                        if f_type == "array":
-                            items = f_schema.get("items", {})
-                            if items.get("type") == "string":
-                                vals = _parse_numbers_list(text)
-                                return vals if vals else None
-                            parts = [
-                                p.strip()
-                                for p in re.split(r"[,\n;]+", text)
-                                if p.strip()
+                        number_to_label = _extract_numbered_options(prev_assistant)
+
+                        if number_to_label:
+                            # Map any numbers in user's reply to their labels
+                            nums = _parse_numbers_list(user_text)
+                            labels = [
+                                number_to_label[n] for n in nums if n in number_to_label
                             ]
-                            return parts or None
-                        if f_type == "number":
-                            m = re.search(r"\b([0-9]+(?:\.[0-9]+)?)\b", text)
-                            if m:
-                                try:
-                                    return float(m.group(1))
-                                except Exception:
-                                    return None
-                            return None
-                        if f_type == "string":
-                            if field == "email":
-                                m = re.search(
-                                    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I
+                            if labels:
+                                if f_type == "array":
+                                    incremental[target_field] = labels
+                                else:
+                                    incremental[target_field] = labels[0]
+
+                        # If we didn't map via options, fallback to type-based parse
+                        if target_field not in incremental:
+                            if f_type == "number":
+                                m = re.search(r"\b([0-9]+(?:\.[0-9]+)?)\b", user_text)
+                                if m:
+                                    try:
+                                        incremental[target_field] = float(m.group(1))
+                                    except Exception:
+                                        pass
+                            elif f_type == "array":
+                                # Accept CSV-style input as array of strings
+                                parts = [
+                                    p.strip()
+                                    for p in re.split(r"[,\n;]+", user_text)
+                                    if p.strip()
+                                ]
+                                if parts:
+                                    incremental[target_field] = parts
+                            else:  # string/default
+                                if user_text.strip():
+                                    incremental[target_field] = user_text.strip()
+
+                    # Filter out empty junk and save
+                    if incremental:
+                        cleaned = {
+                            k: v for k, v in incremental.items() if _non_empty(v)
+                        }
+                        if cleaned:
+                            try:
+                                await self.memory_provider.save_capture(
+                                    user_id=user_id,
+                                    capture_name=active_capture_name,
+                                    agent_name=agent_name,
+                                    data=cleaned,
+                                    schema=active_capture_schema,
                                 )
-                                return m.group(0) if m else None
-                            if field == "phone":
-                                digits = re.sub(r"\D", "", text)
-                                return digits if len(digits) >= 7 else None
-                            nums = _parse_numbers_list(text)
-                            if nums:
-                                return nums[0]
-                            return text.strip() or None
-                        return text.strip() or None
+                            except Exception as se:
+                                logger.error(f"Error saving incremental capture: {se}")
+            except Exception as e:
+                logger.debug(f"Incremental extraction skipped: {e}")
 
-                    # 7a.1 Incremental save based on current message and last assistant question (to avoid lag)
-                    incremental: Dict[str, Any] = {}
-                    try:
-                        if active_capture_name and isinstance(
-                            active_capture_schema, dict
-                        ):
-                            field = _detect_field_from_prev_question(
-                                prev_assistant, active_capture_schema
-                            )
-                            if field:
-                                val = _parse_value_for_field(
-                                    field, active_capture_schema, user_text
-                                )
-                                if _non_empty(val):
-                                    incremental[field] = val
+            # Build capture context, merging in incremental immediately (avoid read lag)
+            def _get_active_data(name: Optional[str]) -> Dict[str, Any]:
+                if not name:
+                    return {}
+                base = (latest_by_name.get(name, {}) or {}).get("data", {}) or {}
+                if incremental:
+                    base = {**base, **incremental}
+                return base
 
-                            if incremental:
-                                try:
-                                    await self.memory_provider.save_capture(
-                                        user_id=user_id,
-                                        capture_name=active_capture_name,
-                                        agent_name=agent_name,
-                                        data=incremental,
-                                        schema=active_capture_schema,
-                                    )
-                                except Exception as se:
-                                    logger.error(
-                                        f"Error saving incremental capture: {se}"
-                                    )
-                    except Exception as e:
-                        logger.debug(f"Incremental extraction skipped: {e}")
+            lines: List[str] = []
+            if active_capture_name and isinstance(active_capture_schema, dict):
+                active_data = _get_active_data(active_capture_name)
+                required_fields = list(
+                    (active_capture_schema or {}).get("required", []) or []
+                )
+                missing = [
+                    f for f in required_fields if not _non_empty(active_data.get(f))
+                ]
+                form_complete = len(missing) == 0 and len(required_fields) > 0
 
-                    # 7a.2 Build prompt context using latest Mongo plus the just-saved incremental values
-                    def _get_active_data(name: Optional[str]) -> Dict[str, Any]:
-                        if not name:
-                            return {}
-                        base = (latest_by_name.get(name, {}) or {}).get(
-                            "data", {}
-                        ) or {}
-                        if incremental:
-                            base = {**base, **incremental}
-                        return base
+                lines.append(
+                    "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
+                )
+                lines.append(f"- form_name: {active_capture_name}")
+                if active_data:
+                    pairs = [
+                        f"{k}: {v}" for k, v in active_data.items() if _non_empty(v)
+                    ]
+                    lines.append(
+                        f"- filled_fields: {', '.join(pairs) if pairs else '(none)'}"
+                    )
+                else:
+                    lines.append("- filled_fields: (none)")
+                lines.append(
+                    f"- missing_required_fields: {', '.join(missing) if missing else '(none)'}"
+                )
+                lines.append("")
 
-                    def _missing_required(
-                        schema: Optional[Dict[str, Any]], data: Dict[str, Any]
-                    ) -> List[str]:
-                        if not isinstance(schema, dict):
-                            return []
-                        required = schema.get("required", []) or []
-                        return [f for f in required if not _non_empty(data.get(f))]
-
-                    lines: List[str] = []
-                    if active_capture_name:
-                        active_data = _get_active_data(active_capture_name)
-                        missing_required = _missing_required(
-                            active_capture_schema, active_data
-                        )
-                        form_complete = not missing_required
-
+            if latest_by_name:
+                lines.append("OTHER CAPTURED USER DATA (for reference):")
+                for cname, info in latest_by_name.items():
+                    if cname == active_capture_name:
+                        continue
+                    data = info.get("data", {}) or {}
+                    if data:
+                        pairs = [f"{k}: {v}" for k, v in data.items() if _non_empty(v)]
                         lines.append(
-                            "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
+                            f"- {cname}: {', '.join(pairs) if pairs else '(none)'}"
                         )
-                        lines.append(f"- form_name: {active_capture_name}")
+                    else:
+                        lines.append(f"- {cname}: (none)")
 
-                        if isinstance(active_data, dict) and active_data:
-                            pretty_pairs = []
-                            for k, v in active_data.items():
-                                if _non_empty(v):
-                                    pretty_pairs.append(f"{k}: {v}")
-                            if pretty_pairs:
-                                lines.append(
-                                    f"- filled_fields: {', '.join(pretty_pairs)}"
-                                )
-                            else:
-                                lines.append("- filled_fields: (none)")
-                        else:
-                            lines.append("- filled_fields: (none)")
+            if lines:
+                capture_context = "\n".join(lines) + "\n\n"
 
-                        if missing_required:
-                            lines.append(
-                                f"- missing_required_fields: {', '.join(missing_required)}"
-                            )
-                        else:
-                            lines.append("- missing_required_fields: (none)")
-
-                        lines.append("")
-
-                    if latest_by_name:
-                        lines.append("OTHER CAPTURED USER DATA (for reference):")
-                        for cname, info in latest_by_name.items():
-                            if cname == active_capture_name:
-                                continue
-                            data = info.get("data", {})
-                            if isinstance(data, dict) and data:
-                                pairs = "; ".join(
-                                    [
-                                        f"{k}: {v}"
-                                        for k, v in data.items()
-                                        if _non_empty(v)
-                                    ]
-                                )
-                                lines.append(
-                                    f"- {cname}: {pairs if pairs else '(none)'}"
-                                )
-                            else:
-                                lines.append(f"- {cname}: (none)")
-
-                    if lines:
-                        capture_context = "\n".join(lines) + "\n\n"
-                except Exception as e:
-                    logger.debug(f"Capture lookup skipped: {e}")
-
-            # 7b. Merge contexts in priority-aware order
+            # Merge contexts
             combined_context = ""
             if capture_context:
                 combined_context += capture_context
             if memory_context:
-                combined_context += f"CONVERSATION HISTORY (Use for continuity and tone; not authoritative for factual values):\n{memory_context}\n\n"
+                combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
             if kb_context:
-                combined_context += f"{kb_context}\n"
-
-            if capture_context or memory_context or kb_context:
+                combined_context += kb_context + "\n"
+            if combined_context:
                 combined_context += (
                     "PRIORITIZATION GUIDE:\n"
-                    "- For user-specific fields, prefer Captured User Data when present.\n"
-                    "- For factual or current information, prioritize Knowledge Base and Tool results.\n"
-                    "- Use Conversation History for style and continuity, not authoritative facts.\n\n"
-                )
-                combined_context += (
+                    "- Prefer Captured User Data for user-specific fields.\n"
+                    "- Prefer KB/tools for facts.\n"
+                    "- History is for tone and continuity.\n\n"
                     "FORM FLOW RULES:\n"
                     "- Ask exactly one missing required field per turn.\n"
-                    "- Do NOT verify or re-ask any values present in Captured User Data; these are authoritative and auto-saved.\n"
+                    "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
                     "- If no required fields are missing, proceed without further capture questions.\n\n"
                 )
-            logger.debug(f"Combined context length: {len(combined_context)}")
 
-            # --- 8. Generate Response ---
+            # 8) Generate response
             if output_format == "audio":
                 async for audio_chunk in self.agent_service.generate_response(
                     agent_name=agent_name,
@@ -543,7 +490,6 @@ class QueryService(QueryServiceInterface):
                     prompt=prompt,
                 ):
                     yield audio_chunk
-
                 if self.memory_provider:
                     await self._store_conversation(
                         user_id=user_id,
@@ -554,7 +500,7 @@ class QueryService(QueryServiceInterface):
                 full_text_response = ""
                 capture_data: Optional[BaseModel] = None
 
-                # Resolve agent's default capture if not provided
+                # Resolve agent capture if not provided
                 if not capture_schema or not capture_name:
                     try:
                         cap = self.agent_service.get_agent_capture(agent_name)
@@ -564,7 +510,7 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                # Only run full structured capture when the form is complete
+                # If form is complete, ask for structured output JSON
                 if capture_schema and capture_name and form_complete:
                     try:
                         DynamicModel = self._build_model_from_json_schema(
@@ -613,7 +559,7 @@ class QueryService(QueryServiceInterface):
                         assistant_message=full_text_response,
                     )
 
-                # Persist final capture when available
+                # Save final capture data if the model returned it
                 if (
                     self.memory_provider
                     and capture_schema
@@ -622,9 +568,9 @@ class QueryService(QueryServiceInterface):
                 ):
                     try:
                         data_dict = (
-                            capture_data.model_dump()  # type: ignore[attr-defined]
+                            capture_data.model_dump()
                             if hasattr(capture_data, "model_dump")
-                            else capture_data.dict()  # type: ignore
+                            else capture_data.dict()
                         )
                         await self.memory_provider.save_capture(
                             user_id=user_id,
@@ -659,23 +605,14 @@ class QueryService(QueryServiceInterface):
                 yield error_msg
 
     async def delete_user_history(self, user_id: str) -> None:
-        """Delete all conversation history for a user.
-
-        Args:
-            user_id: User ID
-        """
+        """Delete all conversation history for a user."""
         if self.memory_provider:
             try:
                 await self.memory_provider.delete(user_id)
-                logger.info(f"Deleted conversation history for user: {user_id}")
             except Exception as e:
-                logger.error(
-                    f"Error deleting user history for {user_id}: {e}", exc_info=True
-                )
+                logger.error(f"Error deleting user history for {user_id}: {e}")
         else:
-            logger.warning(
-                "Attempted to delete user history, but no memory provider is configured."
-            )
+            logger.debug("No memory provider; skip delete_user_history")
 
     async def get_user_history(
         self,
@@ -686,9 +623,6 @@ class QueryService(QueryServiceInterface):
     ) -> Dict[str, Any]:
         """Get paginated message history for a user."""
         if not self.memory_provider:
-            logger.warning(
-                "Attempted to get user history, but no memory provider is configured."
-            )
             return {
                 "data": [],
                 "total": 0,
@@ -697,7 +631,6 @@ class QueryService(QueryServiceInterface):
                 "total_pages": 0,
                 "error": "Memory provider not available",
             }
-
         try:
             skip = (page_num - 1) * page_size
             total = self.memory_provider.count_documents(
@@ -713,34 +646,27 @@ class QueryService(QueryServiceInterface):
                 limit=page_size,
             )
 
-            formatted_conversations = []
+            formatted: List[Dict[str, Any]] = []
             for conv in conversations:
-                timestamp = (
-                    int(conv.get("timestamp").timestamp())
-                    if conv.get("timestamp")
-                    else None
-                )
-                formatted_conversations.append(
+                ts = conv.get("timestamp")
+                ts_epoch = int(ts.timestamp()) if ts else None
+                formatted.append(
                     {
                         "id": str(conv.get("_id")),
                         "user_message": conv.get("user_message"),
                         "assistant_message": conv.get("assistant_message"),
-                        "timestamp": timestamp,
+                        "timestamp": ts_epoch,
                     }
                 )
 
-            logger.info(
-                f"Retrieved page {page_num}/{total_pages} of history for user {user_id}"
-            )
             return {
-                "data": formatted_conversations,
+                "data": formatted,
                 "total": total,
                 "page": page_num,
                 "page_size": page_size,
                 "total_pages": total_pages,
                 "error": None,
             }
-
         except Exception as e:
             import traceback
 
@@ -760,33 +686,23 @@ class QueryService(QueryServiceInterface):
         self, user_id: str, user_message: str, assistant_message: str
     ) -> None:
         """Store conversation history in memory provider."""
-        if self.memory_provider:
-            try:
-                await self.memory_provider.store(
-                    user_id,
-                    [
-                        {"role": "user", "content": user_message},
-                        {"role": "assistant", "content": assistant_message},
-                    ],
-                )
-                logger.info(f"Stored conversation for user {user_id}")
-            except Exception as e:
-                logger.error(
-                    f"Error storing conversation for user {user_id}: {e}", exc_info=True
-                )
-        else:
-            logger.debug(
-                "Memory provider not configured, skipping conversation storage."
+        if not self.memory_provider:
+            return
+        try:
+            await self.memory_provider.store(
+                user_id,
+                [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": assistant_message},
+                ],
             )
+        except Exception as e:
+            logger.error(f"Store conversation error for {user_id}: {e}")
 
     def _build_model_from_json_schema(
         self, name: str, schema: Dict[str, Any]
     ) -> Type[BaseModel]:
-        """Create a Pydantic model dynamically from a JSON Schema subset.
-
-        Supports 'type' string, integer, number, boolean, object (flat), array (of simple types),
-        required fields, and default values. Nested objects/arrays can be extended later.
-        """
+        """Create a Pydantic model dynamically from a JSON Schema subset."""
         from pydantic import create_model
 
         def py_type(js: Dict[str, Any]):
@@ -814,7 +730,7 @@ class QueryService(QueryServiceInterface):
 
         properties: Dict[str, Any] = schema.get("properties", {})
         required = set(schema.get("required", []))
-        fields = {}
+        fields: Dict[str, Any] = {}
         for field_name, field_schema in properties.items():
             typ = py_type(field_schema)
             default = field_schema.get("default")
