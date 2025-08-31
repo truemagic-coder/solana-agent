@@ -133,12 +133,7 @@ class SolanaAgentFactory:
                 voice=org_config.get("voice", ""),
             )
 
-        # Build capture modes from agent config if provided
-        capture_modes: Dict[str, str] = {}
-        for agent in config.get("agents", []):
-            mode = agent.get("capture_mode")
-            if mode in {"once", "multiple"} and agent.get("name"):
-                capture_modes[agent["name"]] = mode
+        # capture_mode removed: repository now always upserts/merges per capture
 
         # Create repositories
         memory_provider = None
@@ -148,22 +143,16 @@ class SolanaAgentFactory:
                 "mongo_adapter": db_adapter,
                 "zep_api_key": config["zep"].get("api_key"),
             }
-            if capture_modes:  # pragma: no cover
-                mem_kwargs["capture_modes"] = capture_modes
             memory_provider = MemoryRepository(**mem_kwargs)
 
         if "mongo" in config and "zep" not in config:
             mem_kwargs = {"mongo_adapter": db_adapter}
-            if capture_modes:
-                mem_kwargs["capture_modes"] = capture_modes
             memory_provider = MemoryRepository(**mem_kwargs)
 
         if "zep" in config and "mongo" not in config:
             if "api_key" not in config["zep"]:
                 raise ValueError("Zep API key is required.")
             mem_kwargs = {"zep_api_key": config["zep"].get("api_key")}
-            if capture_modes:  # pragma: no cover
-                mem_kwargs["capture_modes"] = capture_modes
             memory_provider = MemoryRepository(**mem_kwargs)
 
         guardrail_config = config.get("guardrails", {})

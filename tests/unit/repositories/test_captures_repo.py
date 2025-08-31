@@ -44,26 +44,18 @@ class TestCaptures:
             await repo.save_capture("user", "name", "support", None)
 
     @pytest.mark.asyncio
-    async def test_save_capture_multiple_mode_inserts(self, mock_mongo_adapter):
-        # Set up adapter to simulate multiple inserts with different ids
-        mock_mongo_adapter.insert_one.side_effect = ["id1", "id2"]
-        # Configure repo to use multiple mode for this agent
-        repo = MemoryRepository(
-            mongo_adapter=mock_mongo_adapter, capture_modes={"donations": "multiple"}
-        )
-        id1 = await repo.save_capture(
+    async def test_save_capture_upsert_merges_data(self, mock_mongo_adapter):
+        # First call finds no existing doc, then returns with data after upsert
+        mock_mongo_adapter.find_one.side_effect = [
+            None,
+            {"_id": "cap_123", "data": {"a": 1}},
+        ]
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        cap_id = await repo.save_capture(
             user_id="u1",
-            capture_name="donation",
-            agent_name="donations",
-            data={"amount": 10},
+            capture_name="form",
+            agent_name="agentA",
+            data={"a": 1},
         )
-        id2 = await repo.save_capture(
-            user_id="u1",
-            capture_name="donation",
-            agent_name="donations",
-            data={"amount": 20},
-        )
-        assert id1 == "id1"
-        assert id2 == "id2"
-        assert mock_mongo_adapter.insert_one.call_count == 2
-        mock_mongo_adapter.update_one.assert_not_called()
+        assert cap_id == "cap_123"
+        mock_mongo_adapter.update_one.assert_called_once()

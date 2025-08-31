@@ -19,10 +19,7 @@ class MemoryRepository(MemoryProvider):
         self,
         mongo_adapter: Optional[MongoDBAdapter] = None,
         zep_api_key: Optional[str] = None,
-        capture_modes: Optional[Dict[str, str]] = None,
     ):
-        self.capture_modes: Dict[str, str] = capture_modes or {}
-
         # Mongo setup
         if not mongo_adapter:
             self.mongo = None
@@ -46,18 +43,15 @@ class MemoryRepository(MemoryProvider):
                 self.mongo.create_index(self.captures_collection, [("capture_name", 1)])
                 self.mongo.create_index(self.captures_collection, [("agent_name", 1)])
                 self.mongo.create_index(self.captures_collection, [("timestamp", 1)])
-                # Unique only when mode == 'once'
+                # Unique per user/agent/capture combo
                 try:
                     self.mongo.create_index(
                         self.captures_collection,
                         [("user_id", 1), ("agent_name", 1), ("capture_name", 1)],
                         unique=True,
-                        partialFilterExpression={"mode": "once"},
                     )
                 except Exception as e:
-                    logger.error(
-                        f"Error creating partial unique index for captures: {e}"
-                    )
+                    logger.error(f"Error creating unique index for captures: {e}")
             except Exception as e:
                 logger.error(f"Error initializing MongoDB captures collection: {e}")
                 self.captures_collection = "captures"
@@ -223,54 +217,39 @@ class MemoryRepository(MemoryProvider):
             raise ValueError("data must be a dictionary")
 
         try:
-            mode = self.capture_modes.get(agent_name, "once") if agent_name else "once"
             now = datetime.now(timezone.utc)
-            if mode == "multiple":
-                doc = {
+            key = {
+                "user_id": user_id,
+                "agent_name": agent_name,
+                "capture_name": capture_name,
+            }
+            existing = self.mongo.find_one(self.captures_collection, key)
+            merged_data: Dict[str, Any] = {}
+            if existing and isinstance(existing.get("data"), dict):
+                merged_data.update(existing.get("data", {}))
+            merged_data.update(data or {})
+            update_doc = {
+                "$set": {
                     "user_id": user_id,
                     "agent_name": agent_name,
                     "capture_name": capture_name,
-                    "data": data or {},
-                    "schema": schema or {},
-                    "mode": "multiple",
+                    "data": merged_data,
+                    "schema": (
+                        schema
+                        if schema is not None
+                        else existing.get("schema")
+                        if existing
+                        else {}
+                    ),
                     "timestamp": now,
-                    "created_at": now,
-                }
-                return self.mongo.insert_one(self.captures_collection, doc)
-            else:
-                key = {
-                    "user_id": user_id,
-                    "agent_name": agent_name,
-                    "capture_name": capture_name,
-                }
-                existing = self.mongo.find_one(self.captures_collection, key)
-                merged_data: Dict[str, Any] = {}
-                if existing and isinstance(existing.get("data"), dict):
-                    merged_data.update(existing.get("data", {}))
-                merged_data.update(data or {})
-                update_doc = {
-                    "$set": {
-                        "user_id": user_id,
-                        "agent_name": agent_name,
-                        "capture_name": capture_name,
-                        "data": merged_data,
-                        "schema": (
-                            schema
-                            if schema is not None
-                            else existing.get("schema")
-                            if existing
-                            else {}
-                        ),
-                        "mode": "once",
-                        "timestamp": now,
-                    },
-                    "$setOnInsert": {"created_at": now},
-                }
-                self.mongo.update_one(
-                    self.captures_collection, key, update_doc, upsert=True
-                )
-                doc = self.mongo.find_one(self.captures_collection, key)
-                return str(doc.get("_id")) if doc and doc.get("_id") else None
+                },
+                "$setOnInsert": {"created_at": now},
+            }
+            self.mongo.update_one(
+                self.captures_collection, key, update_doc, upsert=True
+            )
+            doc = self.mongo.find_one(self.captures_collection, key)
+            return str(doc.get("_id")) if doc and doc.get("_id") else None
         except Exception as e:  # pragma: no cover
             logger.error(f"MongoDB save_capture error: {e}")
             return None
