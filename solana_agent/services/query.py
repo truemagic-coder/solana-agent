@@ -276,7 +276,7 @@ class QueryService(QueryServiceInterface):
                                 prompt=user_prompt,
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
-                                model="gpt-4.1-nano",
+                                model="gpt-4.1-mini",
                             )
                         except TypeError:
                             # Provider may not accept 'model' kwarg
