@@ -80,7 +80,7 @@ class QueryService(QueryServiceInterface):
         router: Optional[RoutingServiceInterface] = None,
         output_model: Optional[Type[BaseModel]] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
-        capture_name: Optional[str] = None,
+        capture_name: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
@@ -241,31 +241,102 @@ class QueryService(QueryServiceInterface):
                             options[idx] = label
                 return options
 
-            def _detect_field_from_prev_question(
+            # LLM-backed field detection (gpt-4.1-mini) with graceful fallbacks
+            class _FieldDetect(BaseModel):
+                field: Optional[str] = None
+
+            async def _detect_field_from_prev_question(
                 prev_text: str, schema: Optional[Dict[str, Any]]
             ) -> Optional[str]:
                 if not prev_text or not isinstance(schema, dict):
                     return None
-                t = prev_text.lower()
-                patterns = [
-                    ("ideas", ["which ideas attract you", "ideas"]),
-                    ("description", ["please describe yourself", "describe yourself"]),
-                    ("myself", ["tell us about yourself", "about yourself"]),
-                    ("questions", ["do you have any questions"]),
-                    ("rating", ["rating", "1 to 5", "how satisfied", "how happy"]),
-                    ("email", ["email"]),
-                    ("phone", ["phone"]),
-                    ("name", ["name"]),
-                    ("city", ["city"]),
-                    ("state", ["state"]),
-                ]
-                candidates = set((schema.get("properties") or {}).keys())
-                for field, keys in patterns:
-                    if field in candidates and any(key in t for key in keys):
-                        return field
-                for field in candidates:
-                    if field in t:
-                        return field
+                props = list((schema.get("properties") or {}).keys())
+                if not props:
+                    return None
+
+                question = prev_text.strip()
+                instruction = (
+                    "You are a strict classifier. Given the assistant's last question and a list of "
+                    "permitted schema field keys, choose exactly one key that the question is asking the user to answer. "
+                    "If none apply, return null."
+                )
+                user_prompt = (
+                    f"Schema field keys (choose exactly one of these): {props}\n"
+                    f"Assistant question:\n{question}\n\n"
+                    'Return strictly JSON like: {"field": "<one_of_the_keys_or_null>"}'
+                )
+
+                # Try llm_provider.parse_structured_output with mini
+                try:
+                    if hasattr(
+                        self.agent_service.llm_provider, "parse_structured_output"
+                    ):
+                        try:
+                            result = await self.agent_service.llm_provider.parse_structured_output(
+                                prompt=user_prompt,
+                                system_prompt=instruction,
+                                model_class=_FieldDetect,
+                                model="gpt-4.1-nano",
+                            )
+                        except TypeError:
+                            # Provider may not accept 'model' kwarg
+                            result = await self.agent_service.llm_provider.parse_structured_output(
+                                prompt=user_prompt,
+                                system_prompt=instruction,
+                                model_class=_FieldDetect,
+                            )
+                        # Read result
+                        sel = None
+                        try:
+                            sel = getattr(result, "field", None)
+                        except Exception:
+                            sel = None
+                        if sel is None:
+                            try:
+                                d = result.model_dump()
+                                sel = d.get("field")
+                            except Exception:
+                                sel = None
+                        if sel in props:
+                            return sel
+                except Exception as e:
+                    logger.debug(
+                        f"LLM parse_structured_output field detection failed: {e}"
+                    )
+
+                # Fallback: use generate_response with output_model=_FieldDetect
+                try:
+                    async for r in self.agent_service.generate_response(
+                        agent_name=agent_name,
+                        user_id=user_id,
+                        query=user_text,
+                        images=images,
+                        memory_context="",
+                        output_format="text",
+                        prompt=f"{instruction}\n\n{user_prompt}",
+                        output_model=_FieldDetect,
+                    ):
+                        fd = r
+                        sel = None
+                        try:
+                            sel = fd.field  # type: ignore[attr-defined]
+                        except Exception:
+                            try:
+                                d = fd.model_dump()
+                                sel = d.get("field")
+                            except Exception:
+                                sel = None
+                        if sel in props:
+                            return sel
+                        break
+                except Exception as e:
+                    logger.debug(f"LLM generate_response field detection failed: {e}")
+
+                # Final heuristic fallback (keeps system working if LLM unavailable)
+                t = question.lower()
+                for key in props:
+                    if key in t:
+                        return key
                 return None
 
             # Resolve active capture from args or agent config
@@ -334,7 +405,9 @@ class QueryService(QueryServiceInterface):
                     missing_required = _missing(required_fields)
                     missing_optional = _missing(optional_fields)
 
-                    target_field: Optional[str] = _detect_field_from_prev_question(
+                    target_field: Optional[
+                        str
+                    ] = await _detect_field_from_prev_question(
                         prev_assistant, active_capture_schema
                     )
                     if not target_field:
@@ -758,5 +831,5 @@ class QueryService(QueryServiceInterface):
             else:
                 fields[field_name] = (typ, default)
 
-        Model = create_model(name, **fields)
+        Model = create_model(name, **fields)  # type: ignore
         return Model
