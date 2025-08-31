@@ -253,7 +253,6 @@ You can attach a JSON Schema to any agent in your config so it can collect struc
             "instructions": "You provide friendly, helpful customer support responses.",
             "specialization": "Customer inquiries",
             "capture_name": "contact_info",
-            "capture_mode": "once",
             "capture_schema": {
                "type": "object",
                "properties": {

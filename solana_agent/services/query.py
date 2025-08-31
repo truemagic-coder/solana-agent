@@ -8,7 +8,18 @@ clean separation of concerns.
 
 import logging
 import re
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Union
+import time
+from typing import (
+    Any,
+    AsyncGenerator,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+    Tuple,
+)
 
 from pydantic import BaseModel
 
@@ -50,6 +61,151 @@ class QueryService(QueryServiceInterface):
         self.knowledge_base = knowledge_base
         self.kb_results_count = kb_results_count
         self.input_guardrails = input_guardrails or []
+        # Per-user sticky sessions (in-memory)
+        # { user_id: { 'agent': str, 'started_at': float, 'last_updated': float, 'required_complete': bool } }
+        self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
+
+    def _get_sticky_agent(self, user_id: str) -> Optional[str]:
+        sess = self._sticky_sessions.get(user_id)
+        return sess.get("agent") if isinstance(sess, dict) else None
+
+    def _set_sticky_agent(
+        self, user_id: str, agent_name: str, required_complete: bool = False
+    ) -> None:
+        self._sticky_sessions[user_id] = {
+            "agent": agent_name,
+            "started_at": self._sticky_sessions.get(user_id, {}).get(
+                "started_at", time.time()
+            ),
+            "last_updated": time.time(),
+            "required_complete": required_complete,
+        }
+
+    def _update_sticky_required_complete(
+        self, user_id: str, required_complete: bool
+    ) -> None:
+        if user_id in self._sticky_sessions:
+            self._sticky_sessions[user_id]["required_complete"] = required_complete
+            self._sticky_sessions[user_id]["last_updated"] = time.time()
+
+    def _clear_sticky_agent(self, user_id: str) -> None:
+        if user_id in self._sticky_sessions:
+            del self._sticky_sessions[user_id]
+
+    # LLM-backed switch intent detection (gpt-4.1-mini)
+    class _SwitchIntentModel(BaseModel):
+        switch: bool = False
+        target_agent: Optional[str] = None
+        start_new: bool = False
+
+    async def _detect_switch_intent(
+        self, text: str, available_agents: List[str]
+    ) -> Tuple[bool, Optional[str], bool]:
+        """Detect if the user is asking to switch agents or start a new conversation.
+
+        Returns: (switch_requested, target_agent_name_or_none, start_new_conversation)
+        Implemented as an LLM call to gpt-4.1-mini with structured output.
+        """
+        if not text:
+            return (False, None, False)
+
+        # Instruction and user prompt for the classifier
+        instruction = (
+            "You are a strict intent classifier for agent routing. "
+            "Decide if the user's message requests switching to another agent or starting a new conversation. "
+            "Only return JSON with keys: switch (bool), target_agent (string|null), start_new (bool). "
+            "If a target agent is mentioned, it MUST be one of the provided agent names (case-insensitive). "
+            "If none clearly applies, set switch=false and start_new=false and target_agent=null."
+        )
+        user_prompt = (
+            f"Available agents (choose only from these if a target is specified): {available_agents}\n\n"
+            f"User message:\n{text}\n\n"
+            'Return JSON only, like: {"switch": true|false, "target_agent": "<one_of_available_or_null>", "start_new": true|false}'
+        )
+
+        # Primary: use llm_provider.parse_structured_output
+        try:
+            if hasattr(self.agent_service.llm_provider, "parse_structured_output"):
+                try:
+                    result = (
+                        await self.agent_service.llm_provider.parse_structured_output(
+                            prompt=user_prompt,
+                            system_prompt=instruction,
+                            model_class=QueryService._SwitchIntentModel,
+                            model="gpt-4.1-mini",
+                        )
+                    )
+                except TypeError:
+                    # Provider may not accept 'model' kwarg
+                    result = (
+                        await self.agent_service.llm_provider.parse_structured_output(
+                            prompt=user_prompt,
+                            system_prompt=instruction,
+                            model_class=QueryService._SwitchIntentModel,
+                        )
+                    )
+                switch = bool(getattr(result, "switch", False))
+                target = getattr(result, "target_agent", None)
+                start_new = bool(getattr(result, "start_new", False))
+                # Normalize target to available agent name
+                if target:
+                    target_lower = target.lower()
+                    norm = None
+                    for a in available_agents:
+                        if a.lower() == target_lower or target_lower in a.lower():
+                            norm = a
+                            break
+                    target = norm
+                if not switch:
+                    target = None
+                return (switch, target, start_new)
+        except Exception as e:
+            logger.debug(f"LLM switch intent parse_structured_output failed: {e}")
+
+        # Fallback: generate_response with output_model
+        try:
+            async for r in self.agent_service.generate_response(
+                agent_name="default",
+                user_id="router",
+                query="",
+                images=None,
+                memory_context="",
+                output_format="text",
+                prompt=f"{instruction}\n\n{user_prompt}",
+                output_model=QueryService._SwitchIntentModel,
+            ):
+                result = r
+                switch = False
+                target = None
+                start_new = False
+                try:
+                    switch = bool(result.switch)  # type: ignore[attr-defined]
+                    target = result.target_agent  # type: ignore[attr-defined]
+                    start_new = bool(result.start_new)  # type: ignore[attr-defined]
+                except Exception:
+                    try:
+                        d = result.model_dump()
+                        switch = bool(d.get("switch", False))
+                        target = d.get("target_agent")
+                        start_new = bool(d.get("start_new", False))
+                    except Exception:
+                        pass
+                if target:
+                    target_lower = str(target).lower()
+                    norm = None
+                    for a in available_agents:
+                        if a.lower() == target_lower or target_lower in a.lower():
+                            norm = a
+                            break
+                    target = norm
+                if not switch:
+                    target = None
+                return (switch, target, start_new)
+        except Exception as e:
+            logger.debug(f"LLM switch intent generate_response failed: {e}")
+
+        # Last resort: no switch
+        return (False, None, False)
 
     async def process(
         self,
@@ -80,7 +236,7 @@ class QueryService(QueryServiceInterface):
         router: Optional[RoutingServiceInterface] = None,
         output_model: Optional[Type[BaseModel]] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
-        capture_name: Optional[Dict[str, Any]] = None,
+        capture_name: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
@@ -164,7 +320,7 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     kb_context = ""
 
-            # 6) Route query (and fetch previous assistant message)
+            # 6) Determine agent (sticky session aware; allow explicit switch/new conversation)
             agent_name = "default"
             prev_assistant = ""
             routing_input = user_text
@@ -184,19 +340,52 @@ class QueryService(QueryServiceInterface):
                             "assistant_message", ""
                         ) or ""
                         if prev_user_msg:
-                            routing_input = (
-                                f"previous_user_message: {prev_user_msg}\n"
-                                f"current_user_message: {user_text}"
-                            )
+                            routing_input = f"previous_user_message: {prev_user_msg}\ncurrent_user_message: {user_text}"
                 except Exception:
                     pass
-            try:
-                if router:
-                    agent_name = await router.route_query(routing_input)
-                else:
-                    agent_name = await self.routing_service.route_query(routing_input)
-            except Exception:
-                agent_name = "default"
+
+            # Get available agents first so the LLM can select a valid target
+            agents = self.agent_service.get_all_ai_agents() or {}
+            available_agent_names = list(agents.keys())
+
+            # LLM detects switch intent
+            (
+                switch_requested,
+                requested_agent_raw,
+                start_new,
+            ) = await self._detect_switch_intent(user_text, available_agent_names)
+
+            # Normalize requested agent to an exact available key
+            requested_agent = None
+            if requested_agent_raw:
+                raw_lower = requested_agent_raw.lower()
+                for a in available_agent_names:
+                    if a.lower() == raw_lower or raw_lower in a.lower():
+                        requested_agent = a
+                        break
+
+            sticky_agent = self._get_sticky_agent(user_id)
+
+            if sticky_agent and not switch_requested:
+                agent_name = sticky_agent
+            else:
+                try:
+                    if start_new:
+                        # Start fresh
+                        self._clear_sticky_agent(user_id)
+                    if requested_agent:
+                        agent_name = requested_agent
+                    else:
+                        # Route if no explicit target
+                        if router:
+                            agent_name = await router.route_query(routing_input)
+                        else:
+                            agent_name = await self.routing_service.route_query(
+                                routing_input
+                            )
+                except Exception:
+                    agent_name = next(iter(agents.keys())) if agents else "default"
+                self._set_sticky_agent(user_id, agent_name, required_complete=False)
 
             # 7) Captured data context + incremental save using previous assistant message
             capture_context = ""
@@ -285,7 +474,6 @@ class QueryService(QueryServiceInterface):
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
                             )
-                        # Read result
                         sel = None
                         try:
                             sel = getattr(result, "field", None)
@@ -544,6 +732,11 @@ class QueryService(QueryServiceInterface):
 
             if lines:
                 capture_context = "\n".join(lines) + "\n\n"
+            # Update sticky session completion flag
+            try:
+                self._update_sticky_required_complete(user_id, required_complete)
+            except Exception:
+                pass
 
             # Merge contexts + flow rules
             combined_context = ""
