@@ -200,7 +200,9 @@ class QueryService(QueryServiceInterface):
 
             # 7) Captured data context + incremental save using previous assistant message
             capture_context = ""
-            form_complete = False
+            # Two completion flags:
+            required_complete = False
+            form_complete = False  # required + optional
 
             # Helpers
             def _non_empty(v: Any) -> bool:
@@ -215,7 +217,6 @@ class QueryService(QueryServiceInterface):
 
             def _parse_numbers_list(s: str) -> List[str]:
                 nums = re.findall(r"\b(\d+)\b", s)
-                # dedupe keep order
                 seen, out = set(), []
                 for n in nums:
                     if n not in seen:
@@ -225,9 +226,7 @@ class QueryService(QueryServiceInterface):
 
             def _extract_numbered_options(text: str) -> Dict[str, str]:
                 """Parse previous assistant message for lines like:
-                '1) Foo', '2. Bar', '- 3) Baz', '* 4. Buzz'
-                Returns mapping '1' -> 'Foo', etc.
-                """
+                '1) Foo', '1. Foo', '- 1) Foo', '* 1. Foo' -> {'1': 'Foo'}"""
                 options: Dict[str, str] = {}
                 if not text:
                     return options
@@ -235,13 +234,9 @@ class QueryService(QueryServiceInterface):
                     line = raw.strip()
                     if not line:
                         continue
-                    # Common Markdown patterns: "1. Label", "1) Label", "- 1) Label", "* 1. Label"
                     m = re.match(r"^(?:[-*]\s*)?(\d+)[\.)]?\s+(.*)$", line)
                     if m:
-                        idx, label = m.group(1), m.group(2).strip()
-                        # Strip trailing markdown soft-break spaces
-                        label = label.rstrip()
-                        # Ignore labels that are too short or look like continuations
+                        idx, label = m.group(1), m.group(2).strip().rstrip()
                         if len(label) >= 1:
                             options[idx] = label
                 return options
@@ -252,7 +247,6 @@ class QueryService(QueryServiceInterface):
                 if not prev_text or not isinstance(schema, dict):
                     return None
                 t = prev_text.lower()
-                # Heuristic synonyms for your onboarding schema
                 patterns = [
                     ("ideas", ["which ideas attract you", "ideas"]),
                     ("description", ["please describe yourself", "describe yourself"]),
@@ -269,7 +263,6 @@ class QueryService(QueryServiceInterface):
                 for field, keys in patterns:
                     if field in candidates and any(key in t for key in keys):
                         return field
-                # Fallback: property name appears directly
                 for field in candidates:
                     if field in t:
                         return field
@@ -322,33 +315,41 @@ class QueryService(QueryServiceInterface):
                     required_fields = list(
                         (active_capture_schema or {}).get("required", []) or []
                     )
-                    # Prefer a field detected from prev assistant; else if exactly one required missing, use it
-                    target_field: Optional[str] = _detect_field_from_prev_question(
-                        prev_assistant, active_capture_schema
-                    )
+                    all_fields = list(props.keys())
+                    optional_fields = [
+                        f for f in all_fields if f not in set(required_fields)
+                    ]
+
                     active_data_existing = (
                         latest_by_name.get(active_capture_name, {}) or {}
                     ).get("data", {}) or {}
 
-                    def _missing_required() -> List[str]:
+                    def _missing(fields: List[str]) -> List[str]:
                         return [
                             f
-                            for f in required_fields
+                            for f in fields
                             if not _non_empty(active_data_existing.get(f))
                         ]
 
-                    if not target_field:
-                        missing = _missing_required()
-                        if len(missing) == 1:
-                            target_field = missing[0]
+                    missing_required = _missing(required_fields)
+                    missing_optional = _missing(optional_fields)
 
-                    if target_field:
+                    target_field: Optional[str] = _detect_field_from_prev_question(
+                        prev_assistant, active_capture_schema
+                    )
+                    if not target_field:
+                        # If exactly one required missing, target it; else if none required missing and exactly one optional missing, target it.
+                        if len(missing_required) == 1:
+                            target_field = missing_required[0]
+                        elif len(missing_required) == 0 and len(missing_optional) == 1:
+                            target_field = missing_optional[0]
+
+                    if target_field and target_field in props:
                         f_schema = props.get(target_field, {}) or {}
                         f_type = f_schema.get("type")
                         number_to_label = _extract_numbered_options(prev_assistant)
 
                         if number_to_label:
-                            # Map any numbers in user's reply to their labels
                             nums = _parse_numbers_list(user_text)
                             labels = [
                                 number_to_label[n] for n in nums if n in number_to_label
@@ -359,7 +360,6 @@ class QueryService(QueryServiceInterface):
                                 else:
                                     incremental[target_field] = labels[0]
 
-                        # If we didn't map via options, fallback to type-based parse
                         if target_field not in incremental:
                             if f_type == "number":
                                 m = re.search(r"\b([0-9]+(?:\.[0-9]+)?)\b", user_text)
@@ -369,7 +369,6 @@ class QueryService(QueryServiceInterface):
                                     except Exception:
                                         pass
                             elif f_type == "array":
-                                # Accept CSV-style input as array of strings
                                 parts = [
                                     p.strip()
                                     for p in re.split(r"[,\n;]+", user_text)
@@ -377,11 +376,10 @@ class QueryService(QueryServiceInterface):
                                 ]
                                 if parts:
                                     incremental[target_field] = parts
-                            else:  # string/default
+                            else:
                                 if user_text.strip():
                                     incremental[target_field] = user_text.strip()
 
-                    # Filter out empty junk and save
                     if incremental:
                         cleaned = {
                             k: v for k, v in incremental.items() if _non_empty(v)
@@ -397,6 +395,7 @@ class QueryService(QueryServiceInterface):
                                 )
                             except Exception as se:
                                 logger.error(f"Error saving incremental capture: {se}")
+
             except Exception as e:
                 logger.debug(f"Incremental extraction skipped: {e}")
 
@@ -411,19 +410,33 @@ class QueryService(QueryServiceInterface):
 
             lines: List[str] = []
             if active_capture_name and isinstance(active_capture_schema, dict):
-                active_data = _get_active_data(active_capture_name)
+                props = (active_capture_schema or {}).get("properties", {})
                 required_fields = list(
                     (active_capture_schema or {}).get("required", []) or []
                 )
-                missing = [
-                    f for f in required_fields if not _non_empty(active_data.get(f))
+                all_fields = list(props.keys())
+                optional_fields = [
+                    f for f in all_fields if f not in set(required_fields)
                 ]
-                form_complete = len(missing) == 0 and len(required_fields) > 0
+
+                active_data = _get_active_data(active_capture_name)
+
+                def _missing_from(data: Dict[str, Any], fields: List[str]) -> List[str]:
+                    return [f for f in fields if not _non_empty(data.get(f))]
+
+                missing_required = _missing_from(active_data, required_fields)
+                missing_optional = _missing_from(active_data, optional_fields)
+
+                required_complete = (
+                    len(missing_required) == 0 and len(required_fields) > 0
+                )
+                form_complete = required_complete and len(missing_optional) == 0
 
                 lines.append(
                     "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
                 )
                 lines.append(f"- form_name: {active_capture_name}")
+
                 if active_data:
                     pairs = [
                         f"{k}: {v}" for k, v in active_data.items() if _non_empty(v)
@@ -433,8 +446,12 @@ class QueryService(QueryServiceInterface):
                     )
                 else:
                     lines.append("- filled_fields: (none)")
+
                 lines.append(
-                    f"- missing_required_fields: {', '.join(missing) if missing else '(none)'}"
+                    f"- missing_required_fields: {', '.join(missing_required) if missing_required else '(none)'}"
+                )
+                lines.append(
+                    f"- missing_optional_fields: {', '.join(missing_optional) if missing_optional else '(none)'}"
                 )
                 lines.append("")
 
@@ -455,7 +472,7 @@ class QueryService(QueryServiceInterface):
             if lines:
                 capture_context = "\n".join(lines) + "\n\n"
 
-            # Merge contexts
+            # Merge contexts + flow rules
             combined_context = ""
             if capture_context:
                 combined_context += capture_context
@@ -470,9 +487,11 @@ class QueryService(QueryServiceInterface):
                     "- Prefer KB/tools for facts.\n"
                     "- History is for tone and continuity.\n\n"
                     "FORM FLOW RULES:\n"
-                    "- Ask exactly one missing required field per turn.\n"
+                    "- Ask exactly one field per turn.\n"
+                    "- If any required fields are missing, ask the next missing required field.\n"
+                    "- If all required fields are filled but optional fields are missing, ask the next missing optional field.\n"
                     "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
-                    "- If no required fields are missing, proceed without further capture questions.\n\n"
+                    "- Do NOT provide summaries until no required or optional fields are missing.\n\n"
                 )
 
             # 8) Generate response
@@ -510,7 +529,7 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                # If form is complete, ask for structured output JSON
+                # Only run final structured output when no required or optional fields are missing
                 if capture_schema and capture_name and form_complete:
                     try:
                         DynamicModel = self._build_model_from_json_schema(
@@ -739,5 +758,5 @@ class QueryService(QueryServiceInterface):
             else:
                 fields[field_name] = (typ, default)
 
-        Model = create_model(name, **fields)  # type: ignore
+        Model = create_model(name, **fields)
         return Model
