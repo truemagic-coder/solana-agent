@@ -34,6 +34,23 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream chat completion deltas and tool call deltas.
+
+            Yields normalized events:
+            - {"type": "content", "delta": str}
+        - {"type": "tool_call_delta", "id": Optional[str], "index": Optional[int], "name": Optional[str], "arguments_delta": str}
+            - {"type": "message_end", "finish_reason": str}
+            - {"type": "error", "error": str}
+        """
+        pass
+
+    @abstractmethod
     async def parse_structured_output(
         self,
         prompt: str,

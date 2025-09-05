@@ -399,6 +399,77 @@ class OpenAIAdapter(LLMProvider):
             logger.exception(f"Error in generate_text_with_images: {e}")
             return f"I apologize, but I encountered an unexpected error: {e}"
 
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
+        """Stream chat completions with optional tool calls, yielding normalized events."""
+        try:
+            request_params: Dict[str, Any] = {
+                "messages": messages,
+                "model": model or self.text_model,
+                "stream": True,
+            }
+            if tools:
+                request_params["tools"] = tools
+
+            client = self.client
+            if self.logfire:
+                logfire.instrument_openai(client)
+
+            stream = await client.chat.completions.create(**request_params)
+            async for chunk in stream:
+                try:
+                    if not chunk or not getattr(chunk, "choices", None):
+                        continue
+                    ch = chunk.choices[0]
+                    delta = getattr(ch, "delta", None)
+                    if delta is None:
+                        # Some SDKs use 'message' instead of 'delta'
+                        delta = getattr(ch, "message", None)
+                    if delta is None:
+                        # Finish event
+                        finish = getattr(ch, "finish_reason", None)
+                        if finish:
+                            yield {"type": "message_end", "finish_reason": finish}
+                        continue
+
+                    # Content delta
+                    content_piece = getattr(delta, "content", None)
+                    if content_piece:
+                        yield {"type": "content", "delta": content_piece}
+
+                    # Tool call deltas
+                    tool_calls = getattr(delta, "tool_calls", None)
+                    if tool_calls:
+                        for idx, tc in enumerate(tool_calls):
+                            try:
+                                tc_id = getattr(tc, "id", None)
+                                func = getattr(tc, "function", None)
+                                name = getattr(func, "name", None) if func else None
+                                args_piece = (
+                                    getattr(func, "arguments", "") if func else ""
+                                )
+                                yield {
+                                    "type": "tool_call_delta",
+                                    "id": tc_id,
+                                    "index": getattr(tc, "index", idx),
+                                    "name": name,
+                                    "arguments_delta": args_piece or "",
+                                }
+                            except Exception:
+                                continue
+                except Exception as parse_err:
+                    logger.debug(f"Error parsing stream chunk: {parse_err}")
+                    continue
+            # End of stream (SDK may not emit finish event in all cases)
+            yield {"type": "message_end", "finish_reason": "end_of_stream"}
+        except Exception as e:
+            logger.exception(f"Error in chat_stream: {e}")
+            yield {"type": "error", "error": str(e)}
+
     async def parse_structured_output(
         self,
         prompt: str,

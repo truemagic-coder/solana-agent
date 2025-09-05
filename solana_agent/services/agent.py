@@ -265,56 +265,57 @@ class AgentService(AgentServiceInterface):
         prompt: Optional[str] = None,
         output_model: Optional[Type[BaseModel]] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
-        """Generate a response using OpenAI function calling (tools API) or structured output."""
-
-        agent = next((a for a in self.agents if a.name == agent_name), None)
-        if not agent:
-            error_msg = f"Agent '{agent_name}' not found."
-            logger.warning(error_msg)
-            if output_format == "audio":
-                async for chunk in self.llm_provider.tts(
-                    error_msg,
-                    instructions=audio_instructions,
-                    response_format=audio_output_format,
-                    voice=audio_voice,
-                ):
-                    yield chunk
-            else:
-                yield error_msg
-            return
-
-        # Build system prompt and messages
-        system_prompt = self.get_agent_system_prompt(agent_name)
-        user_content = str(query)
-        if images:
-            user_content += "\n\n[Images attached]"
-
-        # Compose the prompt for generate_text
-        full_prompt = ""
-        if memory_context:
-            full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n Always use your tools to perform actions and don't rely on your memory!\n\n"
-        if prompt:
-            full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
-        full_prompt += user_content
-        full_prompt += f"USER IDENTIFIER: {user_id}"
-
-        # Get OpenAI function schemas for this agent's tools
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("parameters", {}),
-                    "strict": True,
-                },
-            }
-            for tool in self.get_agent_tools(agent_name)
-        ]
+        """Generate a response using tool-calling with full streaming support."""
 
         try:
+            # Validate agent
+            agent = next((a for a in self.agents if a.name == agent_name), None)
+            if not agent:
+                error_msg = f"Agent '{agent_name}' not found."
+                logger.warning(error_msg)
+                if output_format == "audio":
+                    async for chunk in self.llm_provider.tts(
+                        error_msg,
+                        instructions=audio_instructions,
+                        response_format=audio_output_format,
+                        voice=audio_voice,
+                    ):
+                        yield chunk
+                else:
+                    yield error_msg
+                return
+
+            # Build system prompt and messages
+            system_prompt = self.get_agent_system_prompt(agent_name)
+            user_content = str(query)
+            if images:
+                user_content += "\n\n[Images attached]"
+
+            # Compose the prompt for generate_text
+            full_prompt = ""
+            if memory_context:
+                full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n Always use your tools to perform actions and don't rely on your memory!\n\n"
+            if prompt:
+                full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
+            full_prompt += user_content
+            full_prompt += f"USER IDENTIFIER: {user_id}"
+
+            # Get OpenAI function schemas for this agent's tools
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("parameters", {}),
+                        "strict": True,
+                    },
+                }
+                for tool in self.get_agent_tools(agent_name)
+            ]
+
+            # Structured output path
             if output_model is not None:
-                # --- Structured output with tool support ---
                 model_instance = await self.llm_provider.parse_structured_output(
                     prompt=full_prompt,
                     system_prompt=system_prompt,
@@ -327,83 +328,13 @@ class AgentService(AgentServiceInterface):
                 yield model_instance
                 return
 
-            # --- Streaming text/audio with tool support (as before) ---
-            response_text = ""
-            while True:
-                if not images:
-                    response = await self.llm_provider.generate_text(
-                        prompt=full_prompt,
-                        system_prompt=system_prompt,
-                        api_key=self.api_key,
-                        base_url=self.base_url,
-                        model=self.model,
-                        tools=tools if tools else None,
-                    )
-                else:
-                    response = await self.llm_provider.generate_text_with_images(
-                        prompt=full_prompt,
-                        system_prompt=system_prompt,
-                        api_key=self.api_key,
-                        base_url=self.base_url,
-                        model=self.model,
-                        tools=tools if tools else None,
-                        images=images,
-                    )
-                if (
-                    not response
-                    or not hasattr(response, "choices")
-                    or not response.choices
-                ):
-                    logger.error("No response or choices from LLM provider.")
-                    response_text = "I apologize, but I could not generate a response."
-                    break
-
-                choice = response.choices[0]
-                message = getattr(choice, "message", choice)
-
-                if hasattr(message, "tool_calls") and message.tool_calls:
-                    for tool_call in message.tool_calls:
-                        if tool_call.type == "function":
-                            function_name = tool_call.function.name
-                            arguments = json.loads(tool_call.function.arguments)
-                            logger.info(
-                                f"Model requested tool '{function_name}' with args: {arguments}"
-                            )
-                            # Execute the tool (async)
-                            tool_result = await self.execute_tool(
-                                agent_name, function_name, arguments
-                            )
-                            # Add the tool result to the prompt for the next round
-                            full_prompt += (
-                                f"\n\nTool '{function_name}' was called with arguments {arguments}.\n"
-                                f"Result: {tool_result}\n"
-                            )
-                    continue
-
-                # Otherwise, it's a normal message (final answer)
-                response_text = message.content
-                break
-
-            # Apply output guardrails if any
-            processed_final_text = response_text
-            if self.output_guardrails:
-                for guardrail in self.output_guardrails:
-                    try:
-                        processed_final_text = await guardrail.process(
-                            processed_final_text
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Error applying output guardrail {guardrail.__class__.__name__}: {e}"
-                        )
-
-            self.last_text_response = processed_final_text
-
-            if output_format == "text":
-                yield processed_final_text or ""
-            elif output_format == "audio":
-                cleaned_audio_buffer = self._clean_for_audio(processed_final_text)
-                if cleaned_audio_buffer:
+            # Vision fallback (non-streaming for now)
+            if images:
+                vision_text = await self.llm_provider.generate_text_with_images(
+                    prompt=full_prompt, images=images, system_prompt=system_prompt
+                )
+                if output_format == "audio":
+                    cleaned_audio_buffer = self._clean_for_audio(vision_text)
                     async for audio_chunk in self.llm_provider.tts(
                         text=cleaned_audio_buffer,
                         voice=audio_voice,
@@ -412,7 +343,128 @@ class AgentService(AgentServiceInterface):
                     ):
                         yield audio_chunk
                 else:
-                    yield ""
+                    yield vision_text
+                return
+
+            # Build initial messages for chat streaming
+            messages: List[Dict[str, Any]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": full_prompt})
+
+            accumulated_text = ""
+
+            # Loop to handle tool calls in streaming mode
+            while True:
+                # Aggregate tool calls by index and merge late IDs
+                tool_calls: Dict[int, Dict[str, Any]] = {}
+
+                async for event in self.llm_provider.chat_stream(
+                    messages=messages,
+                    model=self.model,
+                    tools=tools if tools else None,
+                ):
+                    etype = event.get("type")
+                    if etype == "content":
+                        delta = event.get("delta", "")
+                        accumulated_text += delta
+                        if output_format == "text":
+                            yield delta
+                    elif etype == "tool_call_delta":
+                        tc_id = event.get("id")
+                        index_raw = event.get("index")
+                        try:
+                            index = int(index_raw) if index_raw is not None else 0
+                        except Exception:
+                            index = 0
+                        name = event.get("name")
+                        args_piece = event.get("arguments_delta", "")
+                        entry = tool_calls.setdefault(
+                            index, {"id": None, "name": None, "arguments": ""}
+                        )
+                        if tc_id and not entry.get("id"):
+                            entry["id"] = tc_id
+                        if name and not entry.get("name"):
+                            entry["name"] = name
+                        entry["arguments"] += args_piece
+                    elif etype == "message_end":
+                        _ = event.get("finish_reason")
+
+                # If tool calls were requested, execute them and continue the loop
+                if tool_calls:
+                    assistant_tool_calls: List[Dict[str, Any]] = []
+                    call_id_map: Dict[int, str] = {}
+                    for idx, tc in tool_calls.items():
+                        name = (tc.get("name") or "").strip()
+                        if not name:
+                            logger.warning(
+                                f"Skipping unnamed tool call at index {idx}; cannot send empty function name."
+                            )
+                            continue
+                        norm_id = tc.get("id") or f"call_{idx}"
+                        call_id_map[idx] = norm_id
+                        assistant_tool_calls.append(
+                            {
+                                "id": norm_id,
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": tc.get("arguments") or "{}",
+                                },
+                            }
+                        )
+
+                    if assistant_tool_calls:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": assistant_tool_calls,
+                            }
+                        )
+
+                    # Execute each tool and append the tool result messages
+                    for idx, tc in tool_calls.items():
+                        func_name = (tc.get("name") or "").strip()
+                        if not func_name:
+                            continue
+                        try:
+                            args = json.loads(tc.get("arguments") or "{}")
+                        except Exception:
+                            args = {}
+                        logger.info(
+                            f"Streaming: executing tool '{func_name}' with args: {args}"
+                        )
+                        tool_result = await self.execute_tool(
+                            agent_name, func_name, args
+                        )
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call_id_map.get(idx, f"call_{idx}"),
+                                "content": json.dumps(tool_result),
+                            }
+                        )
+
+                    accumulated_text = ""
+                    continue
+
+                # No tool calls: we've streamed the final answer
+                final_text = accumulated_text
+                if output_format == "audio":
+                    cleaned_audio_buffer = self._clean_for_audio(final_text)
+                    async for audio_chunk in self.llm_provider.tts(
+                        text=cleaned_audio_buffer,
+                        voice=audio_voice,
+                        response_format=audio_output_format,
+                        instructions=audio_instructions,
+                    ):
+                        yield audio_chunk
+                else:
+                    if not final_text:
+                        yield ""
+                self.last_text_response = final_text
+                break
         except Exception as e:
             import traceback
 
