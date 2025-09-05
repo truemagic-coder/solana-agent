@@ -37,7 +37,6 @@ Build your AI agents in three lines of code!
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com)
-* Powers [Solana Agent Wallet](https://solana-agent.com)
 
 ## Unique Selling Proposition (USP) - Smart Workflows
 
