@@ -17,7 +17,7 @@ Build your AI agents in three lines of code!
 ## Why?
 * Three lines of code setup
 * Simple Agent Definition
-* Fast Responses
+* Fast & Streaming Responses
 * Solana Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
