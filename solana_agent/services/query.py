@@ -418,18 +418,29 @@ class QueryService(QueryServiceInterface):
         try:
             # Realtime request: HTTP STT for user + single WS for assistant audio
             if realtime:
-                # 1) STT via HTTP (known-good)
+                # 1) Launch HTTP STT in background when input is audio; don't block WS
+                is_audio_bytes = isinstance(query, (bytes, bytearray))
                 user_text = ""
-                if isinstance(query, (bytes, bytearray)):
-                    logger.info(
-                        f"Realtime(HTTP STT): transcribing format: {audio_input_format}"
-                    )
-                    async for (
-                        transcript
-                    ) in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
-                        query, audio_input_format
-                    ):
-                        user_text += transcript
+                stt_task = None
+                if is_audio_bytes:
+
+                    async def _stt_consume():
+                        txt = ""
+                        try:
+                            logger.info(
+                                f"Realtime(HTTP STT): transcribing format: {audio_input_format}"
+                            )
+                            async for (
+                                t
+                            ) in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
+                                query, audio_input_format
+                            ):
+                                txt += t
+                        except Exception as e:
+                            logger.error(f"HTTP STT error: {e}")
+                        return txt
+
+                    stt_task = asyncio.create_task(_stt_consume())
                 else:
                     user_text = str(query)
 
@@ -460,7 +471,7 @@ class QueryService(QueryServiceInterface):
                         required_complete,
                     ) = await self._build_combined_context(
                         user_id=user_id,
-                        user_text=user_text,
+                        user_text=(user_text if not is_audio_bytes else ""),
                         agent_name=agent_name,
                         capture_name=capture_name,
                         capture_schema=capture_schema,
@@ -632,12 +643,12 @@ class QueryService(QueryServiceInterface):
                     vad_enabled_value = bool(vad) if vad is not None else False
                     if not vad_enabled_value:
                         await rt.commit_input()
-                        await rt.create_response(
-                            {
-                                "modalities": ["audio"],
-                                "audio": {"voice": audio_voice, "format": "pcm16"},
-                            }
-                        )
+                    await rt.create_response(
+                        {
+                            "modalities": ["audio"],
+                            "audio": {"voice": audio_voice, "format": "pcm16"},
+                        }
+                    )
                 else:
                     await rt.create_response(
                         {
@@ -671,6 +682,13 @@ class QueryService(QueryServiceInterface):
                 finally:
                     in_task.cancel()
                     out_task.cancel()
+                    # If no WS input transcript was captured, fall back to HTTP STT result
+                    if not user_tr:
+                        try:
+                            if "stt_task" in locals() and stt_task is not None:
+                                user_tr = await stt_task
+                        except Exception:
+                            pass
                     if turn_id:
                         try:
                             if user_tr:
