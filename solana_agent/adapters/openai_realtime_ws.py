@@ -12,7 +12,6 @@ from solana_agent.interfaces.providers.realtime import (
     BaseRealtimeSession,
     RealtimeSessionOptions,
 )
-from solana_agent.utils.realtime_voice import normalize_realtime_voice
 
 logger = logging.getLogger(__name__)
 
