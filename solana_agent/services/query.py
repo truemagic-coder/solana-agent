@@ -536,7 +536,18 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     initial_tools = []
 
+                # Build realtime instructions: include full agent system prompt, context, and optional prompt (no user_text)
+                system_prompt = ""
+                try:
+                    system_prompt = self.agent_service.get_agent_system_prompt(
+                        agent_name
+                    )
+                except Exception:
+                    system_prompt = ""
+
                 parts: List[str] = []
+                if system_prompt:
+                    parts.append(system_prompt)
                 if combined_ctx:
                     parts.append(combined_ctx)
                 if prompt:
