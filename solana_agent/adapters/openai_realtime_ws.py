@@ -48,18 +48,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._pending_calls = {}
         self._active_tool_calls = 0
 
-        self._last_input_item_id = None
-        self._commit_evt = asyncio.Event()
-        # Session state tracking for ordering/logging
-        self._last_session_patch = {}
-        self._last_session_updated_payload = {}
-        self._session_updated_evt = asyncio.Event()
-        self._awaiting_session_updated = False
-        self._session_created_evt = asyncio.Event()
-        # Outgoing event tracking for error correlation
-        self._event_seq = 0
-        self._sent_events = {}
-
     async def connect(self) -> None:  # pragma: no cover
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
@@ -94,12 +82,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             )
 
         # Configure session (instructions, tools). VAD handled per-request or defaults.
-
-        vad_cfg = (
-            {"type": "semantic_vad", "create_response": True}
-            if self.options.vad_enabled
-            else None
-        )
+        # Server expects turn_detection at session root; omit entirely when disabled
+        vad_cfg = {"type": "server_vad"} if self.options.vad_enabled else None
 
         # Build optional prompt block
         prompt_block = None
@@ -113,6 +97,21 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 prompt_block["variables"] = self.options.prompt_variables
 
         # Build session.update per docs (nested audio object)
+        def _strip_tool_strict(tools_val):
+            try:
+                tools_list = list(tools_val or [])
+            except Exception:
+                return tools_val
+            cleaned = []
+            for t in tools_list:
+                try:
+                    t2 = dict(t)
+                    t2.pop("strict", None)
+                    cleaned.append(t2)
+                except Exception:
+                    cleaned.append(t)
+            return cleaned
+
         session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
@@ -125,7 +124,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             "rate": int(self.options.input_rate_hz or 24000),
                         }
                     },
-                    "turn_detection": vad_cfg if vad_cfg is not None else None,
                     "output": {
                         "format": {
                             "type": self.options.output_mime or "audio/pcm",
@@ -137,9 +135,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ),
                     },
                 },
+                **({"turn_detection": vad_cfg} if vad_cfg is not None else {}),
                 **({"prompt": prompt_block} if prompt_block else {}),
                 "instructions": self.options.instructions or "",
-                **({"tools": self.options.tools} if self.options.tools else {}),
+                **(
+                    {"tools": _strip_tool_strict(self.options.tools)}
+                    if self.options.tools
+                    else {}
+                ),
                 **(
                     {"tool_choice": self.options.tool_choice}
                     if getattr(self.options, "tool_choice", None)
@@ -370,7 +373,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         # Extra guardrails: warn if key fields absent/empty
                         try:
                             instr = sess.get("instructions")
-                            voice = sess.get("voice")
+                            voice = sess.get("voice") or (
+                                (sess.get("audio") or {}).get("output", {}).get("voice")
+                            )
                             if instr is None or (
                                 isinstance(instr, str) and instr.strip() == ""
                             ):
@@ -519,9 +524,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
         try:
             audio = dict(raw.get("audio") or {})
-            # Map top-level turn_detection to audio.turn_detection if provided
-            if "turn_detection" in raw and "turn_detection" not in audio:
-                audio["turn_detection"] = raw.get("turn_detection")
+            # Lift any nested audio.turn_detection to top-level session.turn_detection
+            # Accept top-level turn_detection from raw as well.
+            turn_det = None
+            if "turn_detection" in audio:
+                turn_det = audio.get("turn_detection")
+            if "turn_detection" in raw:
+                turn_det = raw.get("turn_detection")
 
             inp = dict(audio.get("input") or {})
             out = dict(audio.get("output") or {})
@@ -545,9 +554,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 if key in audio:
                     audio_patch[key] = audio.get(key)
 
-            # Turn detection
-            if "turn_detection" in audio:
-                audio_patch["turn_detection"] = audio.get("turn_detection")
+            # Do not set turn_detection under audio; handled at session level
 
             # Output format/voice/speed
             op: Dict[str, Any] = {}
@@ -580,9 +587,31 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if audio_patch:
             patch["audio"] = audio_patch
 
+        # Always include session.type in updates
+        patch["type"] = "realtime"
+
+        # Turn detection at session root; omit if None
+        if "turn_detection" in raw or "turn_det" in locals():
+            if turn_det is not None:
+                patch["turn_detection"] = turn_det
+
+        def _strip_tool_strict(tools_val):
+            try:
+                tools_list = list(tools_val or [])
+            except Exception:
+                return tools_val
+            cleaned = []
+            for t in tools_list:
+                try:
+                    t2 = dict(t)
+                    t2.pop("strict", None)
+                    cleaned.append(t2)
+                except Exception:
+                    cleaned.append(t)
+            return cleaned
+
         # Pass through other documented fields if present
         for k in (
-            "type",
             "model",
             "output_modalities",
             "prompt",
@@ -595,7 +624,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             "truncation",
         ):
             if k in raw:
-                patch[k] = raw[k]
+                if k == "tools":
+                    patch[k] = _strip_tool_strict(raw[k])
+                else:
+                    patch[k] = raw[k]
+
+        # Ensure tools are cleaned even if provided only under audio or elsewhere
+        if "tools" in patch:
+            patch["tools"] = _strip_tool_strict(patch["tools"])  # idempotent
 
         payload = {"type": "session.update", "session": patch}
         # Mark awaiting updated and store last patch
@@ -631,13 +667,33 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             {"type": "input_audio_buffer.append", "audio": b64},
             label="input_audio_buffer.append",
         )
+        try:
+            self._pending_input_bytes += len(pcm16_bytes)
+        except Exception:
+            pass
 
     async def commit_input(self) -> None:  # pragma: no cover
+        try:
+            # Require at least 100ms of audio (~4800 bytes at 24kHz mono 16-bit)
+            min_bytes = int(0.1 * int(self.options.output_rate_hz or 24000) * 2)
+        except Exception:
+            min_bytes = 4800
+        if int(getattr(self, "_pending_input_bytes", 0)) < min_bytes:
+            try:
+                logger.warning(
+                    "Realtime WS: skipping commit; buffer too small bytes=%d < %d",
+                    int(getattr(self, "_pending_input_bytes", 0)),
+                    min_bytes,
+                )
+            except Exception:
+                pass
+            return
         await self._send_tracked(
             {"type": "input_audio_buffer.commit"}, label="input_audio_buffer.commit"
         )
         try:
             logger.info("Realtime WS: input_audio_buffer.commit sent")
+            self._pending_input_bytes = 0
         except Exception:
             pass
 
@@ -692,7 +748,32 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             self._awaiting_session_updated = True
                             # Ensure required session.type on retry
                             _sess = dict(self._last_session_patch or {})
-                            _sess.setdefault("type", "realtime")
+                            _sess["type"] = "realtime"
+                            # Clean unsupported fields proactively
+                            if "tools" in _sess:
+                                try:
+                                    _sess["tools"] = [
+                                        {
+                                            k: v
+                                            for k, v in dict(t).items()
+                                            if k != "strict"
+                                        }
+                                        for t in (_sess.get("tools") or [])
+                                    ]
+                                except Exception:
+                                    pass
+                            # Ensure turn_detection is not under audio
+                            if (
+                                "audio" in _sess
+                                and isinstance(_sess.get("audio"), dict)
+                                and "turn_detection" in _sess["audio"]
+                            ):
+                                try:
+                                    td = _sess["audio"].pop("turn_detection", None)
+                                    if td is not None:
+                                        _sess["turn_detection"] = td
+                                except Exception:
+                                    pass
                             await self._send(
                                 {"type": "session.update", "session": _sess}
                             )
