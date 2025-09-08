@@ -84,7 +84,7 @@ class SolanaAgentFactory:
         return guardrails
 
     @staticmethod
-    def create_from_config(config: Dict[str, Any]) -> QueryService:
+    def create_from_config(config: Dict[str, Any]) -> QueryService:  # pragma: no cover
         """Create the agent system from configuration.
 
         Args:

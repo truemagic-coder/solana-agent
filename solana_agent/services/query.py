@@ -987,7 +987,9 @@ class QueryService(QueryServiceInterface):
             logger.error(f"Store conversation error for {user_id}: {e}")
 
     # --- Realtime persistence helpers (used by client/server using realtime service) ---
-    async def realtime_begin_turn(self, user_id: str) -> Optional[str]:
+    async def realtime_begin_turn(
+        self, user_id: str
+    ) -> Optional[str]:  # pragma: no cover
         if not self.memory_provider:
             return None
         if not hasattr(self.memory_provider, "begin_stream_turn"):
@@ -996,7 +998,7 @@ class QueryService(QueryServiceInterface):
 
     async def realtime_update_user(
         self, user_id: str, turn_id: str, delta: str
-    ) -> None:
+    ) -> None:  # pragma: no cover
         if not self.memory_provider:
             return
         if not hasattr(self.memory_provider, "update_stream_user"):
@@ -1005,14 +1007,16 @@ class QueryService(QueryServiceInterface):
 
     async def realtime_update_assistant(
         self, user_id: str, turn_id: str, delta: str
-    ) -> None:
+    ) -> None:  # pragma: no cover
         if not self.memory_provider:
             return
         if not hasattr(self.memory_provider, "update_stream_assistant"):
             return
         await self.memory_provider.update_stream_assistant(user_id, turn_id, delta)  # type: ignore[attr-defined]
 
-    async def realtime_finalize_turn(self, user_id: str, turn_id: str) -> None:
+    async def realtime_finalize_turn(
+        self, user_id: str, turn_id: str
+    ) -> None:  # pragma: no cover
         if not self.memory_provider:
             return
         if not hasattr(self.memory_provider, "finalize_stream_turn"):

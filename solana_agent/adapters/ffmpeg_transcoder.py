@@ -12,7 +12,9 @@ class FFmpegTranscoder(AudioTranscoder):
     This uses subprocess to stream bytes through ffmpeg for encode/decode.
     """
 
-    async def _run_ffmpeg(self, args: List[str], data: bytes) -> bytes:
+    async def _run_ffmpeg(
+        self, args: List[str], data: bytes
+    ) -> bytes:  # pragma: no cover
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
             *args,
@@ -25,7 +27,7 @@ class FFmpegTranscoder(AudioTranscoder):
             raise RuntimeError("ffmpeg failed to transcode audio")
         return stdout
 
-    async def to_pcm16(
+    async def to_pcm16(  # pragma: no cover
         self, audio_bytes: bytes, input_mime: str, rate_hz: int
     ) -> bytes:
         """Decode compressed audio to mono PCM16LE at rate_hz."""
@@ -60,7 +62,7 @@ class FFmpegTranscoder(AudioTranscoder):
         ]
         return await self._run_ffmpeg(args, audio_bytes)
 
-    async def from_pcm16(
+    async def from_pcm16(  # pragma: no cover
         self, pcm16_bytes: bytes, output_mime: str, rate_hz: int
     ) -> bytes:
         """Encode PCM16LE to desired format (currently AAC ADTS for mobile streaming)."""

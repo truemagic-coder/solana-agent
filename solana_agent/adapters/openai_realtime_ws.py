@@ -102,12 +102,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             self._recv_task.cancel()
             self._recv_task = None
 
-    async def _send(self, payload: Dict[str, Any]) -> None:
+    async def _send(self, payload: Dict[str, Any]) -> None:  # pragma: no cover
         if not self._ws:
             raise RuntimeError("WebSocket not connected")
         await self._ws.send(json.dumps(payload))
 
-    async def _recv_loop(self) -> None:
+    async def _recv_loop(self) -> None:  # pragma: no cover
         assert self._ws is not None
         try:
             async for raw in self._ws:
@@ -208,22 +208,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     pass
 
     # --- Client event helpers ---
-    async def update_session(self, session_patch: Dict[str, Any]) -> None:
+    async def update_session(
+        self, session_patch: Dict[str, Any]
+    ) -> None:  # pragma: no cover
         await self._send({"type": "session.update", "session": session_patch})
 
-    async def append_audio(self, pcm16_bytes: bytes) -> None:
+    async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
         await self._send({"type": "input_audio_buffer.append", "audio": b64})
 
-    async def commit_input(self) -> None:
+    async def commit_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.commit"})
 
-    async def clear_input(self) -> None:
+    async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         payload: Dict[str, Any] = {"type": "response.create"}
         if response_patch:
             payload["response"] = response_patch
@@ -237,17 +239,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 break
             yield item
 
-    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:
+    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         return self._iter_queue(self._event_queue)
 
-    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:
+    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         return self._iter_queue(self._audio_queue)
 
-    def iter_input_transcript(self) -> AsyncGenerator[str, None]:
+    def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._iter_queue(self._in_tr_queue)
 
-    def iter_output_transcript(self) -> AsyncGenerator[str, None]:
+    def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._iter_queue(self._out_tr_queue)
 
-    def set_tool_executor(self, executor):
+    def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor

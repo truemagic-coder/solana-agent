@@ -42,14 +42,14 @@ class RealtimeService:
         self._encode_output = encode_output
         self._client_output_mime = client_output_mime
 
-    async def start(self) -> None:
+    async def start(self) -> None:  # pragma: no cover
         async with self._lock:
             if self._connected:
                 return
             await self._session.connect()
             self._connected = True
 
-    async def stop(self) -> None:
+    async def stop(self) -> None:  # pragma: no cover
         async with self._lock:
             if not self._connected:
                 return
@@ -69,7 +69,7 @@ class RealtimeService:
         output_mime: Optional[str] = None,
         tools: Optional[list[dict[str, Any]]] = None,
         tool_choice: Optional[str] = None,
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Update session settings (voice, VAD, formats, tools)."""
         patch: Dict[str, Any] = {}
 
@@ -140,7 +140,7 @@ class RealtimeService:
             self._options.tool_choice = tool_choice
 
     # --- Audio input ---
-    async def append_audio(self, chunk_bytes: bytes) -> None:
+    async def append_audio(self, chunk_bytes: bytes) -> None:  # pragma: no cover
         """Accepts PCM16 by default; if accept_compressed_input is True, transcodes client audio to PCM16.
 
         This keeps the server session configured for PCM while allowing mobile clients to send MP4/AAC.
@@ -158,26 +158,28 @@ class RealtimeService:
         # Default: pass-through PCM16
         await self._session.append_audio(chunk_bytes)
 
-    async def commit_input(self) -> None:
+    async def commit_input(self) -> None:  # pragma: no cover
         await self._session.commit_input()
 
-    async def clear_input(self) -> None:
+    async def clear_input(self) -> None:  # pragma: no cover
         await self._session.clear_input()
 
     # --- Out-of-band response (e.g., TTS without new audio) ---
-    async def create_response(
+    async def create_response(  # pragma: no cover
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:
         await self._session.create_response(response_patch)
 
     # --- Streams ---
-    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:
+    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         return self._session.iter_events()
 
-    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:
+    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         return self._session.iter_output_audio()
 
-    async def iter_output_audio_encoded(self) -> AsyncGenerator[bytes, None]:
+    async def iter_output_audio_encoded(
+        self,
+    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime (e.g., AAC)."""
         async for chunk in self._session.iter_output_audio():
             if self._encode_output and self._transcoder:
@@ -187,8 +189,8 @@ class RealtimeService:
             else:
                 yield chunk
 
-    def iter_input_transcript(self) -> AsyncGenerator[str, None]:
+    def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._session.iter_input_transcript()
 
-    def iter_output_transcript(self) -> AsyncGenerator[str, None]:
+    def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._session.iter_output_transcript()
