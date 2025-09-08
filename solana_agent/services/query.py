@@ -562,9 +562,25 @@ class QueryService(QueryServiceInterface):
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
                     if not rt or not isinstance(rt, RealtimeService):
+                        # Normalize voice to realtime-supported set
+                        _rt_voices = {
+                            "alloy",
+                            "ash",
+                            "ballad",
+                            "cedar",
+                            "coral",
+                            "echo",
+                            "marin",
+                            "sage",
+                            "shimmer",
+                            "verse",
+                        }
+                        v_norm = (audio_voice or "").lower().strip()
+                        if v_norm not in _rt_voices:
+                            v_norm = "alloy"
                         opts = RealtimeSessionOptions(
                             model="gpt-realtime",
-                            voice=audio_voice,
+                            voice=v_norm,
                             vad_enabled=False,  # no input audio
                             input_rate_hz=24000,
                             output_rate_hz=24000,
@@ -573,6 +589,12 @@ class QueryService(QueryServiceInterface):
                             tools=None,
                             tool_choice="auto",
                         )
+                        # Ensure initial session.update carries instructions/voice
+                        try:
+                            opts.instructions = final_instructions
+                            opts.voice = audio_voice
+                        except Exception:
+                            pass
                         conv_session = OpenAIRealtimeWebSocketSession(
                             api_key=api_key, options=opts
                         )

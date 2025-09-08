@@ -54,6 +54,28 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._last_session_updated_payload = {}
         self._session_updated_evt = asyncio.Event()
         self._awaiting_session_updated = False
+        self._session_created_evt = asyncio.Event()
+
+        # Valid OpenAI Realtime voices (differs from TTS list); fallback to 'alloy'
+        self._realtime_voices = {
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        }
+
+    def _rt_voice(self, desired: Optional[str]) -> str:
+        try:
+            v = (desired or "").strip().lower()
+            return v if v in self._realtime_voices else "alloy"
+        except Exception:
+            return "alloy"
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -96,67 +118,67 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             if getattr(self.options, "prompt_variables", None):
                 prompt_block["variables"] = self.options.prompt_variables
 
-        # Note: keep output format as "pcm16" so downstream ffmpeg expects s16le input
-        session_payload: Dict[str, Any] = {
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "model": self.options.model or "gpt-realtime",
-                "output_modalities": ["audio", "text"],
-                "audio": {
-                    "input": {
-                        "format": "pcm16",
-                        "turn_detection": vad_cfg,  # null when VAD disabled
+            # Note: keep output format as "pcm16" so downstream ffmpeg expects s16le input
+            session_payload: Dict[str, Any] = {
+                "type": "session.update",
+                "session": {
+                    "type": "realtime",
+                    "model": self.options.model or "gpt-realtime",
+                    "output_modalities": ["audio", "text"],
+                    "audio": {
+                        "input": {
+                            "format": "pcm16",
+                            "turn_detection": vad_cfg,  # null when VAD disabled
+                        },
+                        "output": {
+                            "format": "pcm16",
+                            "voice": self._rt_voice(self.options.voice),
+                            "speed": float(
+                                getattr(self.options, "voice_speed", 1.0) or 1.0
+                            ),
+                        },
                     },
-                    "output": {
-                        "format": "pcm16",
-                        "voice": self.options.voice or "nova",
-                        "speed": float(
-                            getattr(self.options, "voice_speed", 1.0) or 1.0
-                        ),
-                    },
+                    # Optional server-stored prompt
+                    **({"prompt": prompt_block} if prompt_block else {}),
+                    # Direct overrides
+                    "instructions": self.options.instructions or "",
+                    "tools": self.options.tools or [],
+                    "tool_choice": self.options.tool_choice,
                 },
-                # Optional server-stored prompt
-                **({"prompt": prompt_block} if prompt_block else {}),
-                # Direct overrides
-                "instructions": self.options.instructions or "",
-                "tools": self.options.tools or [],
-                "tool_choice": self.options.tool_choice,
-            },
-        }
-        logger.info(
-            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
-            self.options.voice,
-            self.options.vad_enabled,
-            session_payload["session"]["audio"]["output"]["format"],
-        )
-        # Log exact session.update payload and mark awaiting session.updated
-        try:
+            }
             logger.info(
-                "Realtime WS: sending session.update payload=%s",
-                json.dumps(session_payload.get("session", {}), sort_keys=True),
+                "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
+                self.options.voice,
+                self.options.vad_enabled,
+                session_payload["session"]["audio"]["output"]["format"],
             )
-        except Exception:
-            pass
-        self._last_session_patch = session_payload.get("session", {})
-        self._session_updated_evt = asyncio.Event()
-        self._awaiting_session_updated = True
-        # Quick sanity warnings
-        try:
-            sess = self._last_session_patch
-            instr = sess.get("instructions")
-            voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
-            if instr is None or (isinstance(instr, str) and instr.strip() == ""):
-                logger.warning(
-                    "Realtime WS: instructions missing/empty in session.update"
+            # Log exact session.update payload and mark awaiting session.updated
+            try:
+                logger.info(
+                    "Realtime WS: sending session.update payload=%s",
+                    json.dumps(session_payload.get("session", {}), sort_keys=True),
                 )
-            if not voice:
-                logger.warning(
-                    "Realtime WS: voice missing in session.update audio.output"
-                )
-        except Exception:
-            pass
-        await self._send(session_payload)
+            except Exception:
+                pass
+            self._last_session_patch = session_payload.get("session", {})
+            self._session_updated_evt = asyncio.Event()
+            self._awaiting_session_updated = True
+            # Quick sanity warnings
+            try:
+                sess = self._last_session_patch
+                instr = sess.get("instructions")
+                voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
+                if instr is None or (isinstance(instr, str) and instr.strip() == ""):
+                    logger.warning(
+                        "Realtime WS: instructions missing/empty in session.update"
+                    )
+                if not voice:
+                    logger.warning(
+                        "Realtime WS: voice missing in session.update audio.output"
+                    )
+            except Exception:
+                pass
+            await self._send(session_payload)
 
     async def close(self) -> None:  # pragma: no cover
         if self._ws:
@@ -324,6 +346,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             pass
                     elif etype == "session.created":
                         logger.info("Realtime WS: session created")
+                        try:
+                            self._session_created_evt.set()
+                        except Exception:
+                            pass
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
@@ -413,9 +439,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def update_session(
         self, session_patch: Dict[str, Any]
     ) -> None:  # pragma: no cover
-        payload = {"type": "session.update", "session": session_patch}
+        # Normalize voice if provided in audio.output
+        patch = dict(session_patch or {})
+        try:
+            audio = dict((patch.get("audio") or {}))
+            output = dict((audio.get("output") or {}))
+            if "voice" in output:
+                output["voice"] = self._rt_voice(output.get("voice"))
+            if output:
+                audio["output"] = output
+            if audio:
+                patch["audio"] = audio
+        except Exception:
+            pass
+        payload = {"type": "session.update", "session": patch}
         # Mark awaiting updated and store last patch
-        self._last_session_patch = session_patch or {}
+        self._last_session_patch = patch or {}
         self._session_updated_evt = asyncio.Event()
         self._awaiting_session_updated = True
         # Log payload and warn if potentially clearing/omitting critical fields
@@ -485,14 +524,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Ensure the latest session.update (if any) has been applied before responding
         if self._awaiting_session_updated:
             try:
-                await asyncio.wait_for(self._session_updated_evt.wait(), timeout=2.0)
-                logger.info(
-                    "Realtime WS: response.create proceeding after session.updated"
+                done, _ = await asyncio.wait(
+                    {
+                        asyncio.create_task(self._session_updated_evt.wait()),
+                        asyncio.create_task(self._session_created_evt.wait()),
+                    },
+                    timeout=5.0,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Realtime WS: response.create proceeding without session.updated (timeout)"
-                )
+                if done:
+                    logger.info(
+                        "Realtime WS: response.create proceeding after session event (created/updated)"
+                    )
+                else:
+                    logger.warning(
+                        "Realtime WS: response.create proceeding without session event (timeout)"
+                    )
+            except Exception:
+                pass
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
@@ -505,7 +554,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         rp.setdefault(
             "modalities", ["audio"]
         )  # lock to audio-only unless client requests text
-        rp.setdefault("audio", {"voice": self.options.voice, "format": "pcm16"})
+        rp.setdefault(
+            "audio", {"voice": self._rt_voice(self.options.voice), "format": "pcm16"}
+        )
         rp.setdefault("metadata", {"type": "response"})
         # Attach input reference so the model links this response to last audio
         if self._last_input_item_id and "input" not in rp:
@@ -593,7 +644,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     "response": {
                         "modalities": ["audio"],
                         "audio": {
-                            "voice": self.options.voice or "nova",
+                            "voice": self._rt_voice(self.options.voice),
                             "format": "pcm16",
                         },
                         "metadata": {"type": "response"},
@@ -619,7 +670,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response": {
                             "modalities": ["audio"],
                             "audio": {
-                                "voice": self.options.voice or "nova",
+                                "voice": self._rt_voice(self.options.voice),
                                 "format": "pcm16",
                             },
                             "metadata": {"type": "response"},
