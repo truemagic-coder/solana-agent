@@ -49,6 +49,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._active_tool_calls = 0
         # Map call_id -> asyncio.Event set when the server has created the function_call item
         self._call_ready_events = {}
+        # Track call_ids already executed to avoid duplicates across overlapping events
+        self._executed_call_ids = set()
+        # Ack events for our posted function_call_output items (by call_id)
+        self._fco_ack_events = {}
 
         # Input/response state
         self._pending_input_bytes = 0
@@ -530,6 +534,18 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         "Call ready via item.created: call_id=%s",
                                         call_id,
                                     )
+                            elif item.get("type") == "function_call_output":
+                                call_id = item.get("call_id")
+                                if call_id:
+                                    ev = self._fco_ack_events.get(call_id)
+                                    if not ev:
+                                        ev = asyncio.Event()
+                                        self._fco_ack_events[call_id] = ev
+                                    ev.set()
+                                    logger.debug(
+                                        "Ack for function_call_output via item.created: call_id=%s",
+                                        call_id,
+                                    )
                         except Exception:
                             pass
                     if etype in (
@@ -559,7 +575,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             len(pc.get("args", "")),
                         )
                     elif etype == "response.function_call":
-                        # Finalize and execute (legacy summary event)
+                        # Legacy summary event: record but do not execute; wait for response.done
                         call = data.get("function_call", {})
                         call_id = call.get("id") or data.get("id")
                         if not hasattr(self, "_pending_calls"):
@@ -571,7 +587,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 "args": call.get("arguments", ""),
                             },
                         )
-                        await self._execute_pending_call(call_id)
                     elif etype in (
                         "response.done",
                         "response.completed",
@@ -585,6 +600,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     call_id = item.get("call_id") or item.get("id")
                                     name = item.get("name")
                                     args = item.get("arguments") or "{}"
+                                    status = item.get("status")
+                                    if call_id in self._executed_call_ids:
+                                        continue
+                                    if status and str(status).lower() not in (
+                                        "completed",
+                                        "complete",
+                                        "done",
+                                    ):
+                                        # Wait for completion in a later event
+                                        continue
                                     if not hasattr(self, "_pending_calls"):
                                         self._pending_calls = {}
                                     self._pending_calls[call_id] = {
@@ -601,6 +626,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         "Call ready via response.done: call_id=%s",
                                         call_id,
                                     )
+                                    self._executed_call_ids.add(call_id)
                                     await self._execute_pending_call(call_id)
                         except Exception:
                             pass
@@ -1081,7 +1107,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 )
             else:
                 # Provide tool result back using GA-supported conversation item; let server continue
-                await self._send(
+                # Send with tracking and wait for ack (item.created) briefly; retry once if needed
+                eid = await self._send_tracked(
                     {
                         "type": "conversation.item.create",
                         "item": {
@@ -1089,12 +1116,57 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             "call_id": call_id,
                             "output": json.dumps(result),
                         },
-                    }
+                    },
+                    label="function_call_output",
                 )
-                logger.info("Tool result delivered via conversation.item.create")
+                logger.info(
+                    "Tool result delivered via conversation.item.create (event_id=%s)",
+                    eid,
+                )
+                # wait for ack
+                try:
+                    ev_ack = self._fco_ack_events.get(call_id)
+                    if not ev_ack:
+                        ev_ack = asyncio.Event()
+                        self._fco_ack_events[call_id] = ev_ack
+                    await asyncio.wait_for(ev_ack.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "No ack for function_call_output; retrying once: call_id=%s",
+                        call_id,
+                    )
+                    eid2 = await self._send_tracked(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps(result),
+                            },
+                        },
+                        label="function_call_output:retry",
+                    )
+                    logger.info(
+                        "Retry function_call_output sent (event_id=%s) call_id=%s",
+                        eid2,
+                        call_id,
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            self._fco_ack_events[call_id].wait(), timeout=0.5
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "No ack observed after retry for function_call_output: call_id=%s",
+                            call_id,
+                        )
             # Cleanup readiness event
             try:
                 self._call_ready_events.pop(call_id, None)
+            except Exception:
+                pass
+            try:
+                self._fco_ack_events.pop(call_id, None)
             except Exception:
                 pass
             # Per docs, trigger the model to respond using the tool result
@@ -1116,7 +1188,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             logger.info("Follow-up response.create sent after tool output")
         except Exception:
             try:
-                await self._send(
+                await self._send_tracked(
                     {
                         "type": "conversation.item.create",
                         "item": {
@@ -1124,7 +1196,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             "call_id": call_id,
                             "output": json.dumps({"error": "tool_execution_failed"}),
                         },
-                    }
+                    },
+                    label="function_call_output:error",
                 )
                 logger.warning(
                     "Tool execution failed; delivered error output via conversation.item.create"
