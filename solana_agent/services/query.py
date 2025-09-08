@@ -723,6 +723,8 @@ class QueryService(QueryServiceInterface):
 
                 user_tr_seen = False
                 user_tr_buf = ""
+                asst_tr_seen = False
+                asst_tr_buf = ""
                 trans_done_evt = asyncio.Event()
 
                 async def _watch_events():
@@ -750,19 +752,20 @@ class QueryService(QueryServiceInterface):
                         logger.info(
                             "Realtime process: input transcript delta %r", text[:120]
                         )
-                        if turn_id and text:
+                        if text:
                             nonlocal user_tr_seen, user_tr_buf
                             user_tr_seen = True
                             user_tr_buf += text
-                            await self.realtime_update_user(user_id, turn_id, text)
 
                 async def _drain_out_tr():
                     async for text in rt.iter_output_transcript():
                         logger.debug(
                             "Realtime process: output transcript delta %r", text[:120]
                         )
-                        if turn_id and text:
-                            await self.realtime_update_assistant(user_id, turn_id, text)
+                        if text:
+                            nonlocal asst_tr_seen, asst_tr_buf
+                            asst_tr_seen = True
+                            asst_tr_buf += text
 
                 # Run both transcript drains in background while yielding audio
                 in_task = asyncio.create_task(_drain_in_tr())
@@ -781,7 +784,19 @@ class QueryService(QueryServiceInterface):
                     in_task.cancel()
                     out_task.cancel()
                     ev_task.cancel()
+                    # Save final transcripts once per turn (no per-delta saves)
                     if turn_id:
+                        try:
+                            if user_tr_seen and user_tr_buf:
+                                await self.realtime_update_user(
+                                    user_id, turn_id, user_tr_buf
+                                )
+                            if asst_tr_seen and asst_tr_buf:
+                                await self.realtime_update_assistant(
+                                    user_id, turn_id, asst_tr_buf
+                                )
+                        except Exception:
+                            pass
                         try:
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:
