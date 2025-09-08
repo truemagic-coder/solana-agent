@@ -1,13 +1,24 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, Optional, Awaitable, Callable
+from typing import Any, AsyncGenerator, Dict, Literal, Optional, Awaitable, Callable
 
 
 @dataclass
 class RealtimeSessionOptions:
     model: Optional[str] = None
-    voice: str = "alloy"
+    voice: Literal[
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "onyx",
+        "nova",
+        "sage",
+        "shimmer",
+    ] = "nova"
     vad_enabled: bool = True
     input_rate_hz: int = 24000
     output_rate_hz: int = 24000
