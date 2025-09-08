@@ -401,6 +401,32 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 )
                                 sess = self._last_session_patch or {}
                                 # Build legacy nested payload
+                                # Build object-shaped formats for legacy schema
+                                in_fmt = sess.get("input_audio_format") or "pcm16"
+                                out_fmt = sess.get("output_audio_format") or "pcm16"
+                                # If already objects, pass through; otherwise wrap into expected object shape
+                                if not isinstance(in_fmt, dict):
+                                    in_fmt = {
+                                        "type": in_fmt,
+                                        "sample_rate_hz": int(
+                                            getattr(
+                                                self.options, "input_rate_hz", 24000
+                                            )
+                                            or 24000
+                                        ),
+                                        "channels": 1,
+                                    }
+                                if not isinstance(out_fmt, dict):
+                                    out_fmt = {
+                                        "type": out_fmt,
+                                        "sample_rate_hz": int(
+                                            getattr(
+                                                self.options, "output_rate_hz", 24000
+                                            )
+                                            or 24000
+                                        ),
+                                        "channels": 1,
+                                    }
                                 legacy_payload = {
                                     "type": "session.update",
                                     "session": {
@@ -409,17 +435,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         "output_modalities": ["audio", "text"],
                                         "audio": {
                                             "input": {
-                                                "format": sess.get(
-                                                    "input_audio_format", "pcm16"
-                                                ),
+                                                "format": in_fmt,
                                                 "turn_detection": sess.get(
                                                     "turn_detection"
                                                 ),
                                             },
                                             "output": {
-                                                "format": sess.get(
-                                                    "output_audio_format", "pcm16"
-                                                ),
+                                                "format": out_fmt,
                                                 **(
                                                     {"voice": sess.get("voice")}
                                                     if sess.get("voice")
@@ -457,7 +479,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 # Reset awaiting flag and attempt fallback
                                 self._session_updated_evt = asyncio.Event()
                                 self._awaiting_session_updated = True
-                                await self._ws.send(json.dumps(legacy_payload))
+                                await self._send_tracked(
+                                    legacy_payload, label="session.update:fallback"
+                                )
                                 logger.info(
                                     "Realtime WS: legacy session.update sent as fallback"
                                 )
@@ -717,15 +741,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         payload: Dict[str, Any] = {"type": "response.create"}
         if response_patch:
             payload["response"] = response_patch
-        # Ensure default audio modality and voice are present if not explicitly set
+        # Ensure response object exists; rely on session defaults for modalities/audio
         if "response" not in payload:
             payload["response"] = {}
         rp = payload["response"]
-        rp.setdefault(
-            "modalities", ["audio"]
-        )  # lock to audio-only unless client requests text
-        # Do not set per-response voice; rely on session voice
-        rp.setdefault("audio", {"format": "pcm16"})
         rp.setdefault("metadata", {"type": "response"})
         # Attach input reference so the model links this response to last audio
         if self._last_input_item_id and "input" not in rp:
@@ -733,10 +752,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         try:
             has_ref = bool(self._last_input_item_id)
             logger.info(
-                "Realtime WS: sending response.create (input_ref=%s) modalities=%s audio=%s",
+                "Realtime WS: sending response.create (input_ref=%s)",
                 has_ref,
-                rp.get("modalities"),
-                rp.get("audio"),
             )
         except Exception:
             pass
@@ -834,8 +851,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 {
                     "type": "response.create",
                     "response": {
-                        "modalities": ["audio"],
-                        "audio": {"format": "pcm16"},
                         "metadata": {"type": "response"},
                     },
                 }
@@ -857,8 +872,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     {
                         "type": "response.create",
                         "response": {
-                            "modalities": ["audio"],
-                            "audio": {"format": "pcm16"},
                             "metadata": {"type": "response"},
                         },
                     }
