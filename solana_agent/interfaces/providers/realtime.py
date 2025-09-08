@@ -11,14 +11,14 @@ class RealtimeSessionOptions:
         "alloy",
         "ash",
         "ballad",
+        "cedar",
         "coral",
         "echo",
-        "fable",
-        "onyx",
-        "nova",
+        "marin",
         "sage",
         "shimmer",
-    ] = "nova"
+        "verse",
+    ] = "marin"
     vad_enabled: bool = True
     input_rate_hz: int = 24000
     output_rate_hz: int = 24000

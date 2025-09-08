@@ -247,19 +247,37 @@ class QueryService(QueryServiceInterface):
             combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
         if kb_context:
             combined_context += kb_context + "\n"
+
+        guide = (
+            "PRIORITIZATION GUIDE:\n"
+            "- Prefer Captured User Data for user-specific fields.\n"
+            "- Prefer KB/tools for facts.\n"
+            "- History is for tone and continuity.\n\n"
+            "FORM FLOW RULES:\n"
+            "- Ask exactly one field per turn.\n"
+            "- If any required fields are missing, ask the next missing required field.\n"
+            "- If all required fields are filled but optional fields are missing, ask the next missing optional field.\n"
+            "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
+            "- Do NOT provide summaries until no required or optional fields are missing.\n\n"
+        )
+
         if combined_context:
-            combined_context += (
-                "PRIORITIZATION GUIDE:\n"
-                "- Prefer Captured User Data for user-specific fields.\n"
-                "- Prefer KB/tools for facts.\n"
-                "- History is for tone and continuity.\n\n"
-                "FORM FLOW RULES:\n"
-                "- Ask exactly one field per turn.\n"
-                "- If any required fields are missing, ask the next missing required field.\n"
-                "- If all required fields are filled but optional fields are missing, ask the next missing optional field.\n"
-                "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
-                "- Do NOT provide summaries until no required or optional fields are missing.\n\n"
-            )
+            combined_context += guide
+        else:
+            # Diagnostics for why the context is empty
+            try:
+                logger.debug(
+                    "_build_combined_context: empty sources — memory_provider=%s, knowledge_base=%s, active_capture=%s",
+                    bool(self.memory_provider),
+                    bool(self.knowledge_base),
+                    bool(
+                        active_capture_name and isinstance(active_capture_schema, dict)
+                    ),
+                )
+            except Exception:
+                pass
+            # Provide minimal guide so realtime instructions are not blank
+            combined_context = guide
 
         return combined_context, required_complete
 
@@ -456,7 +474,13 @@ class QueryService(QueryServiceInterface):
                     user_text = str(query)
 
                 # 2) Single agent selection (no multi-agent routing in realtime path)
-                agent_name = self._get_sticky_agent(user_id) or "default"
+                agent_name = self._get_sticky_agent(user_id)
+                if not agent_name:
+                    try:
+                        agents = self.agent_service.get_all_ai_agents() or {}
+                        agent_name = next(iter(agents.keys())) if agents else "default"
+                    except Exception:
+                        agent_name = "default"
                 prev_assistant = ""
                 if self.memory_provider:
                     try:

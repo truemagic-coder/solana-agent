@@ -274,12 +274,42 @@ class MemoryRepository(MemoryProvider):
 
     async def retrieve(self, user_id: str) -> str:
         try:
+            # Preferred: Zep user context
             memories = ""
             if self.zep:
-                memory = await self.zep.thread.get_user_context(thread_id=user_id)
-                if memory and memory.context:
-                    memories = memory.context
-            return memories
+                try:
+                    memory = await self.zep.thread.get_user_context(thread_id=user_id)
+                    if memory and memory.context:
+                        memories = memory.context
+                except Exception as e:  # pragma: no cover
+                    logger.error(f"Zep retrieval error: {e}")
+
+            # Fallback: Build lightweight conversation history from Mongo if available
+            if not memories and self.mongo:
+                try:
+                    # Fetch last 10 conversations for this user in ascending time order
+                    docs = self.mongo.find(
+                        self.collection,
+                        {"user_id": user_id},
+                        sort=[("timestamp", 1)],
+                        limit=10,
+                    )
+                    if docs:
+                        parts: List[str] = []
+                        for d in docs:
+                            u = (d or {}).get("user_message") or ""
+                            a = (d or {}).get("assistant_message") or ""
+                            if u:
+                                parts.append(f"User: {u}")
+                            if a:
+                                parts.append(f"Assistant: {a}")
+                            if u or a:
+                                parts.append("")  # blank line between turns
+                        memories = "\n".join(parts).strip()
+                except Exception as e:  # pragma: no cover
+                    logger.error(f"Mongo fallback retrieval error: {e}")
+
+            return memories or ""
         except Exception as e:  # pragma: no cover
             logger.error(f"Error retrieving memories: {e}")
             return ""
