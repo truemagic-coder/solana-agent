@@ -162,7 +162,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.debug("Audio delta bytes=%d", len(chunk))
                             except Exception:
                                 pass
-                    elif etype in ("response.text.delta", "response.output_text.delta"):
+                    elif etype == "response.text.delta":
+                        # Some servers emit generic text deltas with metadata marking transcription
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
                             delta = data.get("delta") or ""
@@ -171,6 +172,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.info("Input transcript delta: %r", delta[:120])
                             else:
                                 logger.debug("Input transcript delta: empty")
+                    elif etype == "response.output_text.delta":
+                        # Assistant text stream (not used for audio, but useful as transcript)
+                        delta = data.get("delta") or ""
+                        if delta:
+                            self._out_tr_queue.put_nowait(delta)
+                            logger.debug("Assistant text delta: %r", delta[:120])
                     elif etype == "conversation.item.input_audio_transcription.delta":
                         delta = data.get("delta") or ""
                         if delta:
@@ -217,17 +224,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response.complete",
                         "response.done",
                     ):
+                        # Do not terminate audio stream here; completion may be for a function_call
                         metadata = data.get("response", {}).get("metadata", {})
-                        if metadata.get("type") == "response":
-                            logger.info(
-                                "Realtime WS: main response completed; ending audio stream"
-                            )
-                            try:
-                                self._audio_queue.put_nowait(None)
-                            except Exception:
-                                pass
-                        elif metadata.get("type") == "transcription":
-                            # Transcription completed
+                        if metadata.get("type") == "transcription":
                             logger.info("Realtime WS: transcription response completed")
                     elif etype in ("response.text.done", "response.output_text.done"):
                         metadata = data.get("response", {}).get("metadata", {})
