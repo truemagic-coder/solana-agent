@@ -1009,69 +1009,25 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 dur,
                 result_summary,
             )
-            # Provide tool result back as conversation.item.create per GA, then resume with audio response
+            # Provide tool result back using GA event, let the server continue the same response
             await self._send(
                 {
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps(result),
-                    },
+                    "type": "response.function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
                 }
             )
-            # Wait for any active response audio to finish before creating the next one
-            try:
-                t0 = asyncio.get_event_loop().time()
-                while (
-                    bool(getattr(self, "_response_active", False))
-                    and (asyncio.get_event_loop().time() - t0) < 8.0
-                ):
-                    await asyncio.sleep(0.1)
-            except Exception:
-                pass
-            await self._send(
-                {
-                    "type": "response.create",
-                    "response": {
-                        "metadata": {"type": "response"},
-                    },
-                }
-            )
-            logger.info("Tool result delivered; continuing response (audio)")
+            logger.info("Tool result delivered via response.function_call_output")
         except Exception:
             try:
                 await self._send(
                     {
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({"error": "tool_execution_failed"}),
-                        },
+                        "type": "response.function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"error": "tool_execution_failed"}),
                     }
                 )
-                # Delay follow-up response until current audio completes
-                try:
-                    t0 = asyncio.get_event_loop().time()
-                    while (
-                        bool(getattr(self, "_response_active", False))
-                        and (asyncio.get_event_loop().time() - t0) < 8.0
-                    ):
-                        await asyncio.sleep(0.1)
-                except Exception:
-                    pass
-                await self._send(
-                    {
-                        "type": "response.create",
-                        "response": {
-                            "metadata": {"type": "response"},
-                        },
-                    }
-                )
-                logger.warning(
-                    "Tool execution failed; sent error output and resumed response"
-                )
+                logger.warning("Tool execution failed; delivered error output")
             except Exception:
                 pass
         finally:
