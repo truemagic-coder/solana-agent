@@ -109,11 +109,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             )
 
         # Configure session (instructions, tools). VAD handled per-request.
-        # Explicitly include turn_detection at session root; use JSON null when disabled (per GA docs).
-        vad_cfg = (
+        # Per server schema, turn_detection belongs under audio.input; set to None to disable.
+        td_input = (
             {"type": "server_vad", "create_response": True}
             if self.options.vad_enabled
-            else None
+            else {"type": "none"}
         )
 
         # Build optional prompt block
@@ -153,7 +153,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "format": {
                             "type": self.options.input_mime or "audio/pcm",
                             "rate": int(self.options.input_rate_hz or 24000),
-                        }
+                        },
+                        "turn_detection": td_input,
                     },
                     "output": {
                         "format": {
@@ -166,8 +167,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ),
                     },
                 },
-                # Always include key; None disables server VAD + auto-create
-                "turn_detection": vad_cfg,
+                # Note: no top-level turn_detection; nested under audio.input
                 **({"prompt": prompt_block} if prompt_block else {}),
                 "instructions": self.options.instructions or "",
                 **(
@@ -412,9 +412,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 .get("turn_detection")
                             )
                             td = td_root if td_root is not None else td_input
-                            self._server_auto_create_enabled = bool(
-                                isinstance(td, dict) and bool(td.get("create_response"))
-                            )
+                            # If local VAD is disabled, force auto-create disabled
+                            if not bool(getattr(self.options, "vad_enabled", False)):
+                                self._server_auto_create_enabled = False
+                            else:
+                                self._server_auto_create_enabled = bool(
+                                    isinstance(td, dict)
+                                    and bool(td.get("create_response"))
+                                )
                             logger.debug(
                                 "Realtime WS: server_auto_create_enabled=%s",
                                 self._server_auto_create_enabled,
@@ -590,9 +595,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
         try:
             audio = dict(raw.get("audio") or {})
-            # Lift any nested audio.turn_detection to top-level session.turn_detection
-            # Accept top-level turn_detection from raw as well. If provided explicitly,
-            # include it even when value is None to DISABLE VAD per GA docs.
+            # Normalize turn_detection to audio.input per server schema
             include_td = False
             turn_det = None
             if "turn_detection" in audio:
@@ -624,7 +627,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 if key in audio:
                     audio_patch[key] = audio.get(key)
 
-            # Do not set turn_detection under audio; handled at session level
+            # Apply turn_detection under audio.input if provided (allow None to disable)
+            if include_td:
+                audio_patch.setdefault("input", {})["turn_detection"] = turn_det
 
             # Output format/voice/speed
             op: Dict[str, Any] = {}
@@ -660,10 +665,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Always include session.type in updates
         patch["type"] = "realtime"
 
-        # Turn detection at session root
-        if include_td:
-            # Note: may be None to disable VAD
-            patch["turn_detection"] = turn_det
+        # No top-level turn_detection
 
         def _strip_tool_strict(tools_val):
             try:
