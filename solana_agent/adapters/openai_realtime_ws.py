@@ -69,6 +69,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._last_session_patch = {}
         self._last_session_updated_payload = {}
         self._last_input_item_id = None
+        # Response generation tracking to bind tool outputs to the active response
+        self._response_generation = 0
 
         # Outbound event correlation
         self._event_seq = 0
@@ -302,6 +304,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 self._audio_queue.put_nowait(chunk)
                                 logger.info("Audio delta bytes=%d", len(chunk))
                                 try:
+                                    # New response detected if we were previously inactive
+                                    if not getattr(self, "_response_active", False):
+                                        self._response_generation = (
+                                            int(
+                                                getattr(self, "_response_generation", 0)
+                                            )
+                                            + 1
+                                        )
                                     self._response_active = True
                                 except Exception:
                                     pass
@@ -518,7 +528,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         self._event_queue.put_nowait(data)
                     except Exception:
                         pass
-                    # Handle tool/function calls (support GA and legacy shapes)
+                    # Handle tool/function calls (GA-only triggers)
                     if etype == "conversation.item.created":
                         try:
                             item = data.get("item") or {}
@@ -548,45 +558,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     )
                         except Exception:
                             pass
-                    if etype in (
-                        "response.function_call.delta",
-                        "response.function_call_arguments.delta",
-                    ):
-                        # Accumulate arguments by call id
-                        call = data.get("function_call", {})
-                        call_id = call.get("id") or data.get("id")
-                        name = call.get("name")
-                        arguments_delta = call.get("arguments_delta", "") or call.get(
-                            "arguments", ""
-                        )
-                        if not hasattr(self, "_pending_calls"):
-                            self._pending_calls = {}
-                        pc = self._pending_calls.setdefault(
-                            call_id, {"name": name, "args": ""}
-                        )
-                        if name:
-                            pc["name"] = name
-                        if arguments_delta:
-                            pc["args"] += arguments_delta
-                        logger.debug(
-                            "Function call args delta: id=%s name=%s args_len=%d",
-                            call_id,
-                            name,
-                            len(pc.get("args", "")),
-                        )
-                    elif etype == "response.function_call":
-                        # Legacy summary event: record but do not execute; wait for response.done
-                        call = data.get("function_call", {})
-                        call_id = call.get("id") or data.get("id")
-                        if not hasattr(self, "_pending_calls"):
-                            self._pending_calls = {}
-                        self._pending_calls.setdefault(
-                            call_id,
-                            {
-                                "name": call.get("name"),
-                                "args": call.get("arguments", ""),
-                            },
-                        )
                     elif etype in (
                         "response.done",
                         "response.completed",
@@ -615,6 +586,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     self._pending_calls[call_id] = {
                                         "name": name,
                                         "args": args,
+                                        # Bind this call to the current response generation
+                                        "gen": int(
+                                            getattr(self, "_response_generation", 0)
+                                        ),
                                     }
                                     # Mark this call as ready (server has produced the item)
                                     ev = self._call_ready_events.get(call_id)
@@ -981,6 +956,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             )
         except Exception:
             pass
+        # Increment response generation when we intentionally start a new response
+        try:
+            if not getattr(self, "_response_active", False):
+                self._response_generation = (
+                    int(getattr(self, "_response_generation", 0)) + 1
+                )
+        except Exception:
+            pass
         await self._send_tracked(payload, label="response.create")
         try:
             self._response_active = True
@@ -1029,6 +1012,21 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if not pc or not self._tool_executor or not pc.get("name"):
             return
         try:
+            # Drop if this call was bound to a previous response generation
+            try:
+                call_gen = int(pc.get("gen", 0))
+                cur_gen = int(getattr(self, "_response_generation", 0))
+                if call_gen and call_gen != cur_gen:
+                    logger.warning(
+                        "Skipping stale tool call: id=%s name=%s call_gen=%d cur_gen=%d",
+                        call_id,
+                        pc.get("name"),
+                        call_gen,
+                        cur_gen,
+                    )
+                    return
+            except Exception:
+                pass
             # Mark as active to keep timeouts from firing while tool runs
             try:
                 self._active_tool_calls += 1
@@ -1123,13 +1121,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     "Tool result delivered via conversation.item.create (event_id=%s)",
                     eid,
                 )
-                # wait for ack
+                # wait for ack unconditionally before continuing
+                acked = False
                 try:
                     ev_ack = self._fco_ack_events.get(call_id)
                     if not ev_ack:
                         ev_ack = asyncio.Event()
                         self._fco_ack_events[call_id] = ev_ack
-                    await asyncio.wait_for(ev_ack.wait(), timeout=1.0)
+                    await asyncio.wait_for(ev_ack.wait(), timeout=1.5)
+                    acked = True
                 except asyncio.TimeoutError:
                     logger.warning(
                         "No ack for function_call_output; retrying once: call_id=%s",
@@ -1153,11 +1153,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     )
                     try:
                         await asyncio.wait_for(
-                            self._fco_ack_events[call_id].wait(), timeout=0.5
+                            self._fco_ack_events[call_id].wait(), timeout=1.0
                         )
+                        acked = True
                     except asyncio.TimeoutError:
-                        logger.warning(
-                            "No ack observed after retry for function_call_output: call_id=%s",
+                        logger.error(
+                            "No ack observed after retry for function_call_output: call_id=%s; aborting response continuation",
                             call_id,
                         )
             # Cleanup readiness event
@@ -1169,23 +1170,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 self._fco_ack_events.pop(call_id, None)
             except Exception:
                 pass
-            # Per docs, trigger the model to respond using the tool result
-            try:
-                t0 = asyncio.get_event_loop().time()
-                while (
-                    bool(getattr(self, "_response_active", False))
-                    and (asyncio.get_event_loop().time() - t0) < 2.0
-                ):
-                    await asyncio.sleep(0.05)
-            except Exception:
-                pass
-            await self._send(
-                {
-                    "type": "response.create",
-                    "response": {"metadata": {"type": "response"}},
-                }
-            )
-            logger.info("Follow-up response.create sent after tool output")
+            # Per docs, trigger the model to respond using the tool result, but only after ack
+            if acked:
+                try:
+                    t0 = asyncio.get_event_loop().time()
+                    while (
+                        bool(getattr(self, "_response_active", False))
+                        and (asyncio.get_event_loop().time() - t0) < 2.0
+                    ):
+                        await asyncio.sleep(0.05)
+                except Exception:
+                    pass
+                await self._send(
+                    {
+                        "type": "response.create",
+                        "response": {"metadata": {"type": "response"}},
+                    }
+                )
+                logger.info("Follow-up response.create sent after tool output (acked)")
         except Exception:
             try:
                 await self._send_tracked(
