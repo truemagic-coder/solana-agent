@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Optional, Awaitable, Callable
 
 
 @dataclass
@@ -71,4 +71,13 @@ class BaseRealtimeSession(ABC):
 
     @abstractmethod
     def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
+        pass
+
+    # --- Optional tool execution hook ---
+    @abstractmethod
+    def set_tool_executor(
+        self,
+        executor: Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]],
+    ) -> None:  # pragma: no cover
+        """Register a coroutine that executes a tool by name with arguments and returns a result dict."""
         pass

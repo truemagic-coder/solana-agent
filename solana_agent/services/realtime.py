@@ -7,6 +7,7 @@ from solana_agent.interfaces.providers.realtime import (
     BaseRealtimeSession,
     RealtimeSessionOptions,
 )
+from solana_agent.interfaces.providers.audio import AudioTranscoder
 
 
 class RealtimeService:
@@ -24,11 +25,22 @@ class RealtimeService:
         self,
         session: BaseRealtimeSession,
         options: Optional[RealtimeSessionOptions] = None,
+        transcoder: Optional[AudioTranscoder] = None,
+        accept_compressed_input: bool = False,
+        client_input_mime: str = "audio/mp4",
+        encode_output: bool = False,
+        client_output_mime: str = "audio/aac",
     ) -> None:
         self._session = session
         self._options = options or RealtimeSessionOptions()
         self._connected = False
         self._lock = asyncio.Lock()
+        self._transcoder = transcoder
+        # Client-side transport controls (do not affect OpenAI session formats)
+        self._accept_compressed_input = accept_compressed_input
+        self._client_input_mime = client_input_mime
+        self._encode_output = encode_output
+        self._client_output_mime = client_output_mime
 
     async def start(self) -> None:
         async with self._lock:
@@ -128,8 +140,23 @@ class RealtimeService:
             self._options.tool_choice = tool_choice
 
     # --- Audio input ---
-    async def append_audio(self, pcm16_bytes: bytes) -> None:
-        await self._session.append_audio(pcm16_bytes)
+    async def append_audio(self, chunk_bytes: bytes) -> None:
+        """Accepts PCM16 by default; if accept_compressed_input is True, transcodes client audio to PCM16.
+
+        This keeps the server session configured for PCM while allowing mobile clients to send MP4/AAC.
+        """
+        if self._accept_compressed_input:
+            if not self._transcoder:
+                raise ValueError(
+                    "Compressed input enabled but no transcoder configured"
+                )
+            pcm16 = await self._transcoder.to_pcm16(
+                chunk_bytes, self._client_input_mime, self._options.input_rate_hz
+            )
+            await self._session.append_audio(pcm16)
+            return
+        # Default: pass-through PCM16
+        await self._session.append_audio(chunk_bytes)
 
     async def commit_input(self) -> None:
         await self._session.commit_input()
@@ -149,6 +176,16 @@ class RealtimeService:
 
     def iter_output_audio(self) -> AsyncGenerator[bytes, None]:
         return self._session.iter_output_audio()
+
+    async def iter_output_audio_encoded(self) -> AsyncGenerator[bytes, None]:
+        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime (e.g., AAC)."""
+        async for chunk in self._session.iter_output_audio():
+            if self._encode_output and self._transcoder:
+                yield await self._transcoder.from_pcm16(
+                    chunk, self._client_output_mime, self._options.output_rate_hz
+                )
+            else:
+                yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:
         return self._session.iter_input_transcript()

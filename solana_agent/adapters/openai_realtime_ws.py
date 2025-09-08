@@ -41,12 +41,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._in_tr_queue = asyncio.Queue()
         self._out_tr_queue = asyncio.Queue()
         self._recv_task = None
+        self._tool_executor = None
+        self._pending_calls = {}
 
     async def connect(self) -> None:  # pragma: no cover
-        headers = [
-            ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
-        ]
+        headers = [("Authorization", f"Bearer {self.api_key}")]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
         self._ws = await websockets.connect(uri, extra_headers=headers, max_size=None)
@@ -136,6 +135,61 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         self._event_queue.put_nowait(data)
                     except Exception:
                         pass
+                    # Handle tool/function calls automatically if provided by server events
+                    if etype == "response.function_call.delta":
+                        # Accumulate arguments by call id
+                        # The OpenAI Realtime server emits function call deltas; we buffer by call_id
+                        call = data.get("function_call", {})
+                        call_id = call.get("id") or data.get("id")
+                        name = call.get("name")
+                        arguments_delta = call.get("arguments_delta", "")
+                        if not hasattr(self, "_pending_calls"):
+                            self._pending_calls = {}
+                        pc = self._pending_calls.setdefault(
+                            call_id, {"name": name, "args": ""}
+                        )
+                        if name:
+                            pc["name"] = name
+                        if arguments_delta:
+                            pc["args"] += arguments_delta
+                    elif etype == "response.function_call":
+                        # Finalize call and execute
+                        call = data.get("function_call", {})
+                        call_id = call.get("id") or data.get("id")
+                        pc = getattr(self, "_pending_calls", {}).pop(call_id, None)
+                        if pc and self._tool_executor and pc.get("name"):
+                            try:
+                                args = pc.get("args") or "{}"
+                                try:
+                                    parsed = json.loads(args)
+                                except Exception:
+                                    parsed = {}
+                                result = await self._tool_executor(pc["name"], parsed)
+                                await self._send(
+                                    {
+                                        "type": "response.function_call.output",
+                                        "function_call": {
+                                            "id": call_id,
+                                            "output": json.dumps(result),
+                                        },
+                                    }
+                                )
+                            except Exception:
+                                # Send minimal failure output to avoid stalling the stream
+                                try:
+                                    await self._send(
+                                        {
+                                            "type": "response.function_call.output",
+                                            "function_call": {
+                                                "id": call_id,
+                                                "output": json.dumps(
+                                                    {"error": "tool_execution_failed"}
+                                                ),
+                                            },
+                                        }
+                                    )
+                                except Exception:
+                                    pass
                 except Exception:
                     continue
         except Exception:
@@ -194,3 +248,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     def iter_output_transcript(self) -> AsyncGenerator[str, None]:
         return self._iter_queue(self._out_tr_queue)
+
+    def set_tool_executor(self, executor):
+        self._tool_executor = executor
