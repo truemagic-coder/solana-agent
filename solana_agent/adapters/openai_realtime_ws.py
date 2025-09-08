@@ -47,9 +47,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._tool_executor = None
         self._pending_calls = {}
         self._active_tool_calls = 0
+
         # Input/response state
         self._pending_input_bytes = 0
         self._commit_evt = asyncio.Event()
+        self._commit_inflight = False
         self._response_active = False
         self._server_auto_create_enabled = False
         self._last_commit_ts = 0.0
@@ -110,10 +112,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
         # Configure session (instructions, tools). VAD handled per-request.
         # Per server schema, turn_detection belongs under audio.input; set to None to disable.
+        # When VAD is disabled, explicitly set create_response to False if the server honors it
         td_input = (
             {"type": "server_vad", "create_response": True}
             if self.options.vad_enabled
-            else {"type": "none"}
+            else {"type": "server_vad", "create_response": False}
         )
 
         # Build optional prompt block
@@ -342,6 +345,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 "Realtime WS: input_audio_buffer committed: item_id=%s",
                                 item_id,
                             )
+                            # Clear commit in-flight flag on ack and signal waiters
+                            try:
+                                self._commit_inflight = False
+                            except Exception:
+                                pass
                             try:
                                 self._commit_evt.set()
                             except Exception:
@@ -598,6 +606,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             # Normalize turn_detection to audio.input per server schema
             include_td = False
             turn_det = None
+            inp = dict(audio.get("input") or {})
+            if "turn_detection" in inp:
+                include_td = True
+                turn_det = inp.get("turn_detection")
             if "turn_detection" in audio:
                 include_td = True
                 turn_det = audio.get("turn_detection")
@@ -750,13 +762,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             if bool(getattr(self, "_response_active", False)):
                 logger.warning("Realtime WS: skipping commit; response active")
                 return
+            # Avoid overlapping commits while awaiting server ack
+            if bool(getattr(self, "_commit_inflight", False)):
+                logger.warning("Realtime WS: skipping commit; commit in-flight")
+                return
             # Avoid rapid duplicate commits
             last_commit = float(getattr(self, "_last_commit_ts", 0.0))
             if last_commit and (asyncio.get_event_loop().time() - last_commit) < 1.0:
                 logger.warning("Realtime WS: skipping commit; committed recently")
                 return
             # Require at least 100ms of audio (~4800 bytes at 24kHz mono 16-bit)
-            min_bytes = int(0.1 * int(self.options.output_rate_hz or 24000) * 2)
+            min_bytes = int(0.1 * int(self.options.input_rate_hz or 24000) * 2)
         except Exception:
             min_bytes = 4800
         if int(getattr(self, "_pending_input_bytes", 0)) < min_bytes:
@@ -769,6 +785,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             except Exception:
                 pass
             return
+        # Reset commit event before sending a new commit and mark as in-flight
+        try:
+            self._commit_evt = asyncio.Event()
+            self._commit_inflight = True
+        except Exception:
+            pass
         await self._send_tracked(
             {"type": "input_audio_buffer.commit"}, label="input_audio_buffer.commit"
         )
@@ -849,31 +871,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             # Ensure required session.type on retry
                             _sess = dict(self._last_session_patch or {})
                             _sess["type"] = "realtime"
-                            # Clean unsupported fields proactively
-                            if "tools" in _sess:
-                                try:
-                                    _sess["tools"] = [
-                                        {
-                                            k: v
-                                            for k, v in dict(t).items()
-                                            if k != "strict"
-                                        }
-                                        for t in (_sess.get("tools") or [])
-                                    ]
-                                except Exception:
-                                    pass
-                            # Ensure turn_detection is not under audio
-                            if (
-                                "audio" in _sess
-                                and isinstance(_sess.get("audio"), dict)
-                                and "turn_detection" in _sess["audio"]
-                            ):
-                                try:
-                                    td = _sess["audio"].pop("turn_detection", None)
-                                    if td is not None:
-                                        _sess["turn_detection"] = td
-                                except Exception:
-                                    pass
                             await self._send(
                                 {"type": "session.update", "session": _sess}
                             )
