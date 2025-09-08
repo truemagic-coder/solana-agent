@@ -28,6 +28,12 @@ class RealtimeSessionOptions:
     # Optional: tools payload compatible with OpenAI Realtime session.update
     tools: Optional[list[dict[str, Any]]] = None
     tool_choice: str = "auto"
+    # Tool execution behavior
+    # Max time to allow a tool to run before timing out (seconds)
+    tool_timeout_s: float = 300.0
+    # Optional guard: if a tool takes longer than this to complete, skip sending
+    # function_call_output to avoid stale/expired call_id issues. Set to None to always send.
+    tool_result_max_age_s: Optional[float] = None
 
 
 class BaseRealtimeSession(ABC):

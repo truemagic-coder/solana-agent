@@ -299,11 +299,10 @@ class MemoryRepository(MemoryProvider):
                         for d in docs:
                             u = (d or {}).get("user_message") or ""
                             a = (d or {}).get("assistant_message") or ""
-                            if u:
+                            # Only include complete turns to avoid partial/ambiguous history
+                            if u and a:
                                 parts.append(f"User: {u}")
-                            if a:
                                 parts.append(f"Assistant: {a}")
-                            if u or a:
                                 parts.append("")  # blank line between turns
                         memories = "\n".join(parts).strip()
                 except Exception as e:  # pragma: no cover

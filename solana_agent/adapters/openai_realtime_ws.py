@@ -992,7 +992,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             except Exception:
                 parsed = {}
             start_ts = asyncio.get_event_loop().time()
-            result = await self._tool_executor(pc["name"], parsed)
+            timeout_s = float(getattr(self.options, "tool_timeout_s", 300.0) or 300.0)
+            try:
+                result = await asyncio.wait_for(
+                    self._tool_executor(pc["name"], parsed), timeout=timeout_s
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool timeout: id=%s name=%s exceeded %.1fs",
+                    call_id,
+                    pc.get("name"),
+                    timeout_s,
+                )
+                result = {"error": "tool_timeout"}
             dur = asyncio.get_event_loop().time() - start_ts
             try:
                 result_summary = (
@@ -1009,18 +1021,31 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 dur,
                 result_summary,
             )
-            # Provide tool result back using GA-supported conversation item; let server continue
-            await self._send(
-                {
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps(result),
-                    },
-                }
-            )
-            logger.info("Tool result delivered via conversation.item.create")
+            # If configured, skip sending output when tool exceeded a freshness window
+            max_age = getattr(self.options, "tool_result_max_age_s", None)
+            if (
+                isinstance(max_age, (int, float))
+                and max_age is not None
+                and dur > float(max_age)
+            ):
+                logger.warning(
+                    "Skipping function_call_output; duration %.2fs exceeds max_age %.2fs",
+                    dur,
+                    float(max_age),
+                )
+            else:
+                # Provide tool result back using GA-supported conversation item; let server continue
+                await self._send(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps(result),
+                        },
+                    }
+                )
+                logger.info("Tool result delivered via conversation.item.create")
             # Per docs, trigger the model to respond using the tool result
             try:
                 t0 = asyncio.get_event_loop().time()
