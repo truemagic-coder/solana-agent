@@ -81,7 +81,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         session_patch = {
             "type": "session.update",
             "session": {
-                "type": "realtime",
                 "instructions": self.options.instructions or "",
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,

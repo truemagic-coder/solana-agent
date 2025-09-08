@@ -363,6 +363,7 @@ class QueryService(QueryServiceInterface):
                 await rt.configure(
                     voice=opts.voice,
                     vad_enabled=opts.vad_enabled,
+                    instructions=audio_instructions,
                 )
 
                 # Persist a streaming turn if memory available
@@ -387,7 +388,12 @@ class QueryService(QueryServiceInterface):
                         logger.info(
                             "Realtime process: sending response.create (VAD disabled)"
                         )
-                        await rt.create_response({"modalities": ["audio"]})
+                        await rt.create_response(
+                            {
+                                "modalities": ["audio"],
+                                "instructions": audio_instructions,
+                            }
+                        )
 
                 # Fan-in: output audio and transcripts
                 # Yield audio to caller; persist transcripts if memory configured

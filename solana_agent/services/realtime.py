@@ -198,18 +198,48 @@ class RealtimeService:
     async def iter_output_audio_encoded(
         self,
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
-        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime using a single continuous encoder."""
-        if self._encode_output and self._transcoder:
-            async def pcm_iter():
-                async for c in self._session.iter_output_audio():
-                    yield c
+        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime using a single continuous encoder.
 
+        To prevent hangs when the realtime session yields no audio, we wait for the
+        first PCM chunk with a timeout. If nothing arrives, we close the session and
+        end the stream gracefully.
+        """
+        pcm_gen = self._session.iter_output_audio()
+
+        # Try to get the first chunk with a timeout to avoid indefinite blocking
+        try:
+            first_chunk = await asyncio.wait_for(pcm_gen.__anext__(), timeout=12.0)
+        except StopAsyncIteration:
+            logger.warning(
+                "RealtimeService: no PCM produced (generator ended immediately)"
+            )
+            return
+        except asyncio.TimeoutError:
+            logger.warning(
+                "RealtimeService: no PCM produced within timeout; closing session"
+            )
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+            return
+
+        async def _pcm_iter():
+            # Yield the first chunk, then the rest
+            if first_chunk:
+                yield first_chunk
+            async for c in pcm_gen:
+                if not c:
+                    continue
+                yield c
+
+        if self._encode_output and self._transcoder:
             async for out in self._transcoder.stream_from_pcm16(
-                pcm_iter(), self._client_output_mime, self._options.output_rate_hz
+                _pcm_iter(), self._client_output_mime, self._options.output_rate_hz
             ):
                 yield out
         else:
-            async for chunk in self._session.iter_output_audio():
+            async for chunk in _pcm_iter():
                 yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover

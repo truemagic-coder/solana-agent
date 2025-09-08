@@ -261,6 +261,8 @@ class FFmpegTranscoder(AudioTranscoder):
                 code = await proc.wait()
                 if code != 0:
                     err = (stderr or b"").decode("utf-8", errors="ignore")
-                    logger.error("FFmpeg(stream) failed (code=%s): %s", code, err[:2000])
+                    logger.error(
+                        "FFmpeg(stream) failed (code=%s): %s", code, err[:2000]
+                    )
             except Exception:
                 pass
