@@ -38,6 +38,7 @@ logfire = "4.3.6"
 typer = "0.17.3"
 rich = ">=13,<14.0"
 pillow = "11.3.0"
+websockets = ">=13,<16"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.2"
