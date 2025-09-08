@@ -54,7 +54,7 @@ class SolanaAgent(SolanaAgentInterface):
         output_format: Literal["text", "audio"] = "text",
         # Realtime (WebSocket) options — used when realtime=True
         realtime: bool = False,
-        vad: Optional[bool] = None,
+        vad: Optional[bool] = False,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
         audio_voice: Literal[
