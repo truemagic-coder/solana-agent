@@ -541,6 +541,12 @@ class QueryService(QueryServiceInterface):
                 encode_out = bool(
                     rt_encode_output or (audio_output_format.lower() != "pcm")
                 )
+                # Choose input transcoding when compressed input is provided (or explicitly requested)
+                is_audio_bytes = isinstance(query, (bytes, bytearray))
+                encode_in = bool(
+                    rt_encode_input
+                    or (is_audio_bytes and audio_input_format.lower() != "pcm")
+                )
 
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
@@ -559,12 +565,15 @@ class QueryService(QueryServiceInterface):
                         conv_session = OpenAIRealtimeWebSocketSession(
                             api_key=api_key, options=opts
                         )
-                        transcoder = FFmpegTranscoder() if encode_out else None
+                        transcoder = (
+                            FFmpegTranscoder() if (encode_in or encode_out) else None
+                        )
                         rt = RealtimeService(
                             session=conv_session,
                             options=opts,
                             transcoder=transcoder,
-                            accept_compressed_input=False,
+                            accept_compressed_input=encode_in,
+                            client_input_mime=_mime_from(audio_input_format),
                             encode_output=encode_out,
                             client_output_mime=_mime_from(audio_output_format),
                         )
@@ -591,11 +600,17 @@ class QueryService(QueryServiceInterface):
                     await rt.start()
                 await rt.configure(
                     voice=audio_voice,
-                    vad_enabled=False,
+                    vad_enabled=bool(vad) if vad is not None else False,
                     instructions=final_instructions,
                     tools=initial_tools or None,
                     tool_choice="auto",
                 )
+
+                # Ensure clean input buffers for this turn
+                try:
+                    await rt.clear_input()
+                except Exception:
+                    pass
 
                 # Persist once per turn
                 turn_id = await self.realtime_begin_turn(user_id)
@@ -605,17 +620,42 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                # Request assistant audio using user's text as input
-                await rt.create_response(
-                    {
-                        "modalities": ["audio"],
-                        "audio": {"voice": audio_voice, "format": "pcm16"},
-                        "input": [{"type": "input_text", "text": user_text or ""}],
-                    }
-                )
+                # Feed audio into WS if audio bytes provided; else use input_text
+                if is_audio_bytes:
+                    bq = bytes(query)
+                    logger.info(
+                        "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
+                        len(bq),
+                        audio_input_format,
+                    )
+                    await rt.append_audio(bq)
+                    vad_enabled_value = bool(vad) if vad is not None else False
+                    if not vad_enabled_value:
+                        await rt.commit_input()
+                        await rt.create_response(
+                            {
+                                "modalities": ["audio"],
+                                "audio": {"voice": audio_voice, "format": "pcm16"},
+                            }
+                        )
+                else:
+                    await rt.create_response(
+                        {
+                            "modalities": ["audio"],
+                            "audio": {"voice": audio_voice, "format": "pcm16"},
+                            "input": [{"type": "input_text", "text": user_text or ""}],
+                        }
+                    )
 
-                # Collect audio and assistant transcript
+                # Collect audio and transcripts
+                user_tr = ""
                 asst_tr = ""
+
+                async def _drain_in_tr():
+                    nonlocal user_tr
+                    async for t in rt.iter_input_transcript():
+                        if t:
+                            user_tr += t
 
                 async def _drain_out_tr():
                     nonlocal asst_tr
@@ -623,23 +663,35 @@ class QueryService(QueryServiceInterface):
                         if t:
                             asst_tr += t
 
+                in_task = asyncio.create_task(_drain_in_tr())
                 out_task = asyncio.create_task(_drain_out_tr())
                 try:
                     async for audio_chunk in rt.iter_output_audio_encoded():
                         yield audio_chunk
                 finally:
+                    in_task.cancel()
                     out_task.cancel()
-                    if turn_id and asst_tr:
+                    if turn_id:
                         try:
-                            await self.realtime_update_assistant(
-                                user_id, turn_id, asst_tr
-                            )
+                            if user_tr:
+                                await self.realtime_update_user(
+                                    user_id, turn_id, user_tr
+                                )
+                            if asst_tr:
+                                await self.realtime_update_assistant(
+                                    user_id, turn_id, asst_tr
+                                )
                         except Exception:
                             pass
                         try:
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:
                             pass
+                    # Clear input buffer for next turn reuse
+                    try:
+                        await rt.clear_input()
+                    except Exception:
+                        pass
                 return
 
             # 1) Transcribe audio or accept text
