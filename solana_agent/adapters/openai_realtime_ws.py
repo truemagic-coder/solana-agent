@@ -36,6 +36,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self.url = url
         self.options = options or RealtimeSessionOptions()
 
+        # Queues and state
         self._ws = None
         self._event_queue = asyncio.Queue()
         self._audio_queue = asyncio.Queue()
@@ -44,8 +45,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._recv_task = None
         self._tool_executor = None
         self._pending_calls = {}
-        self._last_input_item_id: Optional[str] = None
-        self._commit_evt: asyncio.Event = asyncio.Event()
+        self._active_tool_calls = 0
+        self._last_input_item_id = None
+        self._commit_evt = asyncio.Event()
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -426,14 +428,30 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor
 
+    # Expose whether a function/tool call is currently pending
+    def has_pending_tool_call(self) -> bool:  # pragma: no cover
+        try:
+            return (
+                bool(getattr(self, "_pending_calls", {}))
+                or int(getattr(self, "_active_tool_calls", 0)) > 0
+            )
+        except Exception:
+            return False
+
     # --- Internal helpers for GA tool execution ---
     async def _execute_pending_call(self, call_id: Optional[str]) -> None:
         if not call_id:
             return
-        pc = getattr(self, "_pending_calls", {}).pop(call_id, None)
+        # Peek without popping so we remain in a "pending/active" state
+        pc = getattr(self, "_pending_calls", {}).get(call_id)
         if not pc or not self._tool_executor or not pc.get("name"):
             return
         try:
+            # Mark as active to keep timeouts from firing while tool runs
+            try:
+                self._active_tool_calls += 1
+            except Exception:
+                pass
             logger.info("Executing tool: id=%s name=%s", call_id, pc.get("name"))
             args = pc.get("args") or "{}"
             try:
@@ -494,6 +512,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning(
                     "Tool execution failed; sent error output and resumed response"
                 )
+            except Exception:
+                pass
+        finally:
+            # Clear pending state and decrement active count
+            try:
+                getattr(self, "_pending_calls", {}).pop(call_id, None)
+            except Exception:
+                pass
+            try:
+                self._active_tool_calls = max(0, int(self._active_tool_calls) - 1)
             except Exception:
                 pass
 

@@ -188,53 +188,75 @@ class RealtimeService:
     async def iter_output_audio_encoded(
         self,
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
-        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime using a single continuous encoder.
+        """Stream PCM16 audio, tolerating long tool executions by waiting while calls are pending.
 
-        To prevent hangs when the realtime session yields no audio, we wait for the
-        first PCM chunk with a timeout. If nothing arrives, we close the session and
-        end the stream gracefully.
+        - If no audio arrives immediately, we keep waiting as long as a function/tool call is pending.
+        - Bridge across multiple audio segments (e.g., pre-call and post-call responses).
+        - Only end the stream when no audio is available and no pending tool call remains.
         """
-        pcm_gen = self._session.iter_output_audio()
 
-        # Try to get the first chunk with a timeout to avoid indefinite blocking
-        try:
-            first_chunk = await asyncio.wait_for(pcm_gen.__anext__(), timeout=12.0)
-        except StopAsyncIteration:
-            logger.warning(
-                "RealtimeService: no PCM produced (generator ended immediately)"
-            )
-            return
-        except asyncio.TimeoutError:
-            logger.warning(
-                "RealtimeService: no PCM produced within timeout; closing session"
-            )
+        def _has_pending_tool() -> bool:
             try:
-                await self._session.close()
+                return bool(
+                    getattr(self._session, "has_pending_tool_call", lambda: False)()
+                )
             except Exception:
-                pass
-            # Mark disconnected so caller can reconnect on next turn
-            try:
-                self._connected = False
-            except Exception:
-                pass
-            return
+                return False
 
-        async def _pcm_iter():
-            # Yield the first chunk, then the rest
-            if first_chunk:
-                yield first_chunk
-            async for c in pcm_gen:
-                if not c:
-                    continue
-                yield c
+        async def _produce_pcm():
+            max_wait_pending_sec = 600.0  # allow up to 10 minutes while tools run
+            waited_while_pending = 0.0
+            base_idle_timeout = 12.0
+            idle_slice = 1.0
+
+            while True:
+                gen = self._session.iter_output_audio()
+                try:
+                    # Inner loop for one segment until generator ends
+                    while True:
+                        try:
+                            chunk = await asyncio.wait_for(
+                                gen.__anext__(), timeout=idle_slice
+                            )
+                        except asyncio.TimeoutError:
+                            if _has_pending_tool():
+                                waited_while_pending += idle_slice
+                                if waited_while_pending <= max_wait_pending_sec:
+                                    continue
+                                else:
+                                    logger.warning(
+                                        "RealtimeService: exceeded max pending-tool wait; ending stream"
+                                    )
+                                    return
+                            else:
+                                # No pending tool: accumulate idle time; stop after base timeout
+                                waited_while_pending += idle_slice
+                                if waited_while_pending >= base_idle_timeout:
+                                    logger.warning(
+                                        "RealtimeService: idle with no pending tool; ending stream"
+                                    )
+                                    return
+                                continue
+                        # Got a chunk; reset idle counter and yield
+                        waited_while_pending = 0.0
+                        if not chunk:
+                            continue
+                        yield chunk
+                except StopAsyncIteration:
+                    # Segment ended; if a tool is pending, continue to next segment
+                    if _has_pending_tool():
+                        await asyncio.sleep(0.25)
+                        continue
+                    # Otherwise, no more audio segments expected
+                    return
 
         if self._encode_output and self._transcoder:
             async for out in self._transcoder.stream_from_pcm16(
-                _pcm_iter(), self._client_output_mime, self._options.output_rate_hz
+                _produce_pcm(), self._client_output_mime, self._options.output_rate_hz
             ):
                 yield out
         else:
-            async for chunk in _pcm_iter():
+            async for chunk in _produce_pcm():
                 yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
