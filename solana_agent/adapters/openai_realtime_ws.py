@@ -66,28 +66,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         logger.info("Connected to OpenAI Realtime WS: %s", uri)
         self._recv_task = asyncio.create_task(self._recv_loop())
 
-        # Configure session (voice, VAD, formats)
-        turn_detection = (
-            {
-                "type": "semantic_vad",
-                "create_response": True,
-            }
-            if self.options.vad_enabled
-            else None
-        )
+        # Configure session (instructions, tools). VAD handled per-request or defaults.
 
         session_patch = {
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "modalities": ["text", "audio"],
+                # Keep session-level config minimal per GA docs
                 "instructions": self.options.instructions or "",
-                "voice": self.options.voice,
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "temperature": self.options.temperature,
-                "max_response_output_tokens": self.options.max_response_output_tokens,
-                "turn_detection": turn_detection,
+                # voice may be set at session init (only valid before first audio output)
+                **({"voice": self.options.voice} if self.options.voice else {}),
+                # Tools config
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,
             },
