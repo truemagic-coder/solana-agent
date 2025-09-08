@@ -407,6 +407,21 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             logger.error(
                                 "Realtime WS error event (payload dump failed)"
                             )
+                        # Correlate to the originating client event by event_id
+                        try:
+                            eid = data.get("event_id") or data.get("error", {}).get(
+                                "event_id"
+                            )
+                            if eid and eid in self._sent_events:
+                                sent = self._sent_events.get(eid) or {}
+                                logger.error(
+                                    "Realtime WS error correlated: event_id=%s sent_label=%s sent_type=%s",
+                                    eid,
+                                    sent.get("label"),
+                                    sent.get("type"),
+                                )
+                        except Exception:
+                            pass
                         # No legacy fallback; rely on current config/state.
                     # Always also publish raw events
                     try:
@@ -675,11 +690,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             # Reset awaiting flag and wait briefly again
                             self._session_updated_evt = asyncio.Event()
                             self._awaiting_session_updated = True
+                            # Ensure required session.type on retry
+                            _sess = dict(self._last_session_patch or {})
+                            _sess.setdefault("type", "realtime")
                             await self._send(
-                                {
-                                    "type": "session.update",
-                                    "session": self._last_session_patch,
-                                }
+                                {"type": "session.update", "session": _sess}
                             )
                             try:
                                 await asyncio.wait_for(
@@ -715,6 +730,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if "response" not in payload:
             payload["response"] = {}
         rp = payload["response"]
+        # Sanitize unsupported fields that servers may reject
+        try:
+            rp.pop("modalities", None)
+            rp.pop("audio", None)
+        except Exception:
+            pass
         rp.setdefault("metadata", {"type": "response"})
         # Attach input reference so the model links this response to last audio
         if self._last_input_item_id and "input" not in rp:
