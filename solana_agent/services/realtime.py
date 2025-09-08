@@ -9,6 +9,7 @@ from solana_agent.interfaces.providers.realtime import (
     RealtimeSessionOptions,
 )
 from solana_agent.interfaces.providers.audio import AudioTranscoder
+from solana_agent.utils.realtime_voice import normalize_realtime_voice
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,8 @@ class RealtimeService:
         """Update session settings (voice, VAD, formats, tools)."""
         patch: Dict[str, Any] = {}
 
-        audio_patch: Dict[str, Any] = {}
-        if input_mime or input_rate_hz is not None or vad_enabled is not None:
+    audio_patch: Dict[str, Any] = {}
+    if input_mime or input_rate_hz is not None or vad_enabled is not None:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
@@ -97,7 +98,7 @@ class RealtimeService:
         if output_mime or output_rate_hz is not None or voice is not None:
             audio_patch["output"] = {
                 "format": "pcm16",  # session is fixed to PCM16 server-side
-                "voice": voice or self._options.voice,
+                "voice": normalize_realtime_voice(voice or self._options.voice),
                 "speed": 1.0,
             }
 
@@ -117,7 +118,7 @@ class RealtimeService:
 
         # Update local options snapshot
         if voice is not None:
-            self._options.voice = voice
+            self._options.voice = normalize_realtime_voice(voice)
         if vad_enabled is not None:
             self._options.vad_enabled = vad_enabled
         if instructions is not None:

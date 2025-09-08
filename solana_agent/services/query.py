@@ -521,6 +521,7 @@ class QueryService(QueryServiceInterface):
                 )
                 from solana_agent.services.realtime import RealtimeService
                 from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+                from solana_agent.utils.realtime_voice import normalize_realtime_voice
 
                 api_key = None
                 try:
@@ -562,22 +563,8 @@ class QueryService(QueryServiceInterface):
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
                     if not rt or not isinstance(rt, RealtimeService):
-                        # Normalize voice to realtime-supported set
-                        _rt_voices = {
-                            "alloy",
-                            "ash",
-                            "ballad",
-                            "cedar",
-                            "coral",
-                            "echo",
-                            "marin",
-                            "sage",
-                            "shimmer",
-                            "verse",
-                        }
-                        v_norm = (audio_voice or "").lower().strip()
-                        if v_norm not in _rt_voices:
-                            v_norm = "alloy"
+                        # Normalize voice to realtime-supported set (internal)
+                        v_norm = normalize_realtime_voice(audio_voice)
                         opts = RealtimeSessionOptions(
                             model="gpt-realtime",
                             voice=v_norm,

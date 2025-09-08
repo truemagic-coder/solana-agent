@@ -12,6 +12,7 @@ from solana_agent.interfaces.providers.realtime import (
     BaseRealtimeSession,
     RealtimeSessionOptions,
 )
+from solana_agent.utils.realtime_voice import normalize_realtime_voice
 
 logger = logging.getLogger(__name__)
 
@@ -56,26 +57,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._awaiting_session_updated = False
         self._session_created_evt = asyncio.Event()
 
-        # Valid OpenAI Realtime voices (differs from TTS list); fallback to 'alloy'
-        self._realtime_voices = {
-            "alloy",
-            "ash",
-            "ballad",
-            "cedar",
-            "coral",
-            "echo",
-            "marin",
-            "sage",
-            "shimmer",
-            "verse",
-        }
-
     def _rt_voice(self, desired: Optional[str]) -> str:
-        try:
-            v = (desired or "").strip().lower()
-            return v if v in self._realtime_voices else "alloy"
-        except Exception:
-            return "alloy"
+        return normalize_realtime_voice(desired)
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
