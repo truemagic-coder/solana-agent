@@ -410,7 +410,7 @@ class QueryService(QueryServiceInterface):
 
                 async def _drain_in_tr():
                     async for text in rt.iter_input_transcript():
-                        logger.debug(
+                        logger.info(
                             "Realtime process: input transcript delta %r", text[:120]
                         )
                         if turn_id and text:
@@ -448,24 +448,19 @@ class QueryService(QueryServiceInterface):
                             and original_audio_bytes is not None
                             and original_audio_fmt is not None
                         ):
-                            try:
-                                logger.info(
-                                    "Realtime process: no realtime input transcript; running fallback transcription"
-                                )
-                                fallback_text = ""
-                                async for (
-                                    frag
-                                ) in self.agent_service.llm_provider.transcribe_audio(
-                                    original_audio_bytes, original_audio_fmt
-                                ):
-                                    fallback_text += frag
-                                if fallback_text:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, fallback_text
-                                    )
-                            except Exception as e:
-                                logger.debug(
-                                    "Fallback transcription failed: %s", str(e)
+                            logger.warning(
+                                "Realtime process: no realtime input transcript deltas received; running fallback transcription"
+                            )
+                            fallback_text = ""
+                            async for (
+                                frag
+                            ) in self.agent_service.llm_provider.transcribe_audio(
+                                original_audio_bytes, original_audio_fmt
+                            ):
+                                fallback_text += frag
+                            if fallback_text:
+                                await self.realtime_update_user(
+                                    user_id, turn_id, fallback_text
                                 )
                         try:
                             await self.realtime_finalize_turn(user_id, turn_id)

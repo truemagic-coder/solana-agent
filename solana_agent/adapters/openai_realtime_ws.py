@@ -47,7 +47,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def connect(self) -> None:  # pragma: no cover
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
         ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
@@ -84,6 +83,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 "model": model,
                 "output_modalities": ["audio"],
                 "instructions": self.options.instructions or "",
+                "input_audio_transcription": {
+                    "model": "gpt-4o-mini-transcribe",
+                    # don't force language; let model auto-detect
+                },
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,
                 "audio": {
@@ -147,7 +150,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
-                            logger.debug("Input transcript delta: %r", delta[:120])
+                            logger.info("Input transcript delta: %r", delta[:120])
+                        else:
+                            logger.debug("Input transcript delta: empty")
                     elif etype in (
                         "response.output_audio_transcript.delta",
                         "response.audio_transcript.delta",
@@ -193,6 +198,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.debug("Input transcript completed: %r", tr[:120])
                             except Exception:
                                 pass
+                    elif etype == "session.updated":
+                        sess = data.get("session", {})
+                        voice = sess.get("audio", {}).get("output", {}).get("voice")
+                        instr = sess.get("instructions")
+                        logger.info(
+                            "Realtime WS: session updated: voice=%s, instructions=%s",
+                            voice,
+                            instr[:100] if instr else None,
+                        )
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
