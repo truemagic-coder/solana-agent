@@ -42,6 +42,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._audio_queue = asyncio.Queue()
         self._in_tr_queue = asyncio.Queue()
         self._out_tr_queue = asyncio.Queue()
+
         self._recv_task = None
         self._tool_executor = None
         self._pending_calls = {}
@@ -55,6 +56,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._session_updated_evt = asyncio.Event()
         self._awaiting_session_updated = False
         self._session_created_evt = asyncio.Event()
+        # Outgoing event tracking for error correlation
+        self._event_seq = 0
+        self._sent_events = {}
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -77,6 +81,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         )
         logger.info("Connected to OpenAI Realtime WS: %s", uri)
         self._recv_task = asyncio.create_task(self._recv_loop())
+
+        # Optionally wait briefly for session.created; some servers ignore pre-created updates
+        try:
+            await asyncio.wait_for(self._session_created_evt.wait(), timeout=1.0)
+            logger.info(
+                "Realtime WS: session.created observed before first session.update"
+            )
+        except asyncio.TimeoutError:
+            logger.info(
+                "Realtime WS: no session.created within 1.0s; sending session.update anyway"
+            )
 
         # Configure session (instructions, tools). VAD handled per-request or defaults.
 
@@ -101,20 +116,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
-                "type": "realtime",
-                "model": self.options.model or "gpt-realtime",
                 "modalities": ["text", "audio"],
                 "voice": self.options.voice,
                 "speed": float(getattr(self.options, "voice_speed", 1.0) or 1.0),
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
-                "turn_detection": vad_cfg,  # null when VAD disabled
+                **({"turn_detection": vad_cfg} if vad_cfg is not None else {}),
                 # Optional server-stored prompt
                 **({"prompt": prompt_block} if prompt_block else {}),
                 # Direct overrides
                 "instructions": self.options.instructions or "",
-                "tools": self.options.tools or [],
-                "tool_choice": self.options.tool_choice,
+                **({"tools": self.options.tools} if self.options.tools else {}),
+                **(
+                    {"tool_choice": self.options.tool_choice}
+                    if getattr(self.options, "tool_choice", None)
+                    else {}
+                ),
             },
         }
         logger.info(
@@ -147,7 +164,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning("Realtime WS: voice missing in session.update")
         except Exception:
             pass
-        await self._send(session_payload)
+        await self._send_tracked(session_payload, label="session.update:init")
 
     async def close(self) -> None:  # pragma: no cover
         if self._ws:
@@ -181,6 +198,34 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             except Exception:
                 ptype = str(type(payload))
             logger.debug("WS send: %s", ptype)
+
+    def _next_event_id(self) -> str:
+        try:
+            self._event_seq += 1
+            return f"evt-{self._event_seq}"
+        except Exception:
+            # Fallback to random when counters fail
+            import uuid as _uuid
+
+            return str(_uuid.uuid4())
+
+    async def _send_tracked(
+        self, payload: Dict[str, Any], label: Optional[str] = None
+    ) -> str:
+        """Attach an event_id and retain a snapshot for correlating error events."""
+        try:
+            eid = payload.get("event_id") or self._next_event_id()
+            payload["event_id"] = eid
+            self._sent_events[eid] = {
+                "label": label or (payload.get("type") or "client.event"),
+                "type": payload.get("type"),
+                "payload": payload.copy(),
+                "ts": asyncio.get_event_loop().time(),
+            }
+        except Exception:
+            eid = payload.get("event_id") or ""
+        await self._send(payload)
+        return eid
 
     async def _recv_loop(self) -> None:  # pragma: no cover
         assert self._ws is not None
@@ -330,6 +375,94 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             self._session_created_evt.set()
                         except Exception:
                             pass
+                    elif etype == "error" or (
+                        isinstance(etype, str)
+                        and (
+                            etype.endswith(".error")
+                            or ("error" in etype)
+                            or ("failed" in etype)
+                        )
+                    ):
+                        # Surface server errors explicitly
+                        try:
+                            logger.error(
+                                "Realtime WS error event: %s",
+                                json.dumps(data, sort_keys=True),
+                            )
+                        except Exception:
+                            logger.error(
+                                "Realtime WS error event (payload dump failed)"
+                            )
+                        # If we're awaiting a session.updated, try a fallback legacy schema once
+                        try:
+                            if self._awaiting_session_updated:
+                                logger.warning(
+                                    "Realtime WS: session.update may have failed; attempting legacy schema fallback"
+                                )
+                                sess = self._last_session_patch or {}
+                                # Build legacy nested payload
+                                legacy_payload = {
+                                    "type": "session.update",
+                                    "session": {
+                                        "type": "realtime",
+                                        "model": self.options.model or "gpt-realtime",
+                                        "output_modalities": ["audio", "text"],
+                                        "audio": {
+                                            "input": {
+                                                "format": sess.get(
+                                                    "input_audio_format", "pcm16"
+                                                ),
+                                                "turn_detection": sess.get(
+                                                    "turn_detection"
+                                                ),
+                                            },
+                                            "output": {
+                                                "format": sess.get(
+                                                    "output_audio_format", "pcm16"
+                                                ),
+                                                **(
+                                                    {"voice": sess.get("voice")}
+                                                    if sess.get("voice")
+                                                    else {}
+                                                ),
+                                                **(
+                                                    {"speed": sess.get("speed")}
+                                                    if sess.get("speed") is not None
+                                                    else {}
+                                                ),
+                                            },
+                                        },
+                                        **(
+                                            {"prompt": sess.get("prompt")}
+                                            if sess.get("prompt")
+                                            else {}
+                                        ),
+                                        **(
+                                            {"instructions": sess.get("instructions")}
+                                            if sess.get("instructions") is not None
+                                            else {}
+                                        ),
+                                        **(
+                                            {"tools": sess.get("tools")}
+                                            if sess.get("tools")
+                                            else {}
+                                        ),
+                                        **(
+                                            {"tool_choice": sess.get("tool_choice")}
+                                            if sess.get("tool_choice") is not None
+                                            else {}
+                                        ),
+                                    },
+                                }
+                                # Reset awaiting flag and attempt fallback
+                                self._session_updated_evt = asyncio.Event()
+                                self._awaiting_session_updated = True
+                                await self._ws.send(json.dumps(legacy_payload))
+                                logger.info(
+                                    "Realtime WS: legacy session.update sent as fallback"
+                                )
+                        except Exception:
+                            pass
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
@@ -445,7 +578,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             "instructions",
             "tools",
             "tool_choice",
-            "model",
             "modalities",
             "voice",
             "speed",
@@ -486,17 +618,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
-        await self._send({"type": "input_audio_buffer.append", "audio": b64})
+        await self._send_tracked(
+            {"type": "input_audio_buffer.append", "audio": b64},
+            label="input_audio_buffer.append",
+        )
 
     async def commit_input(self) -> None:  # pragma: no cover
-        await self._send({"type": "input_audio_buffer.commit"})
+        await self._send_tracked(
+            {"type": "input_audio_buffer.commit"}, label="input_audio_buffer.commit"
+        )
         try:
             logger.info("Realtime WS: input_audio_buffer.commit sent")
         except Exception:
             pass
 
     async def clear_input(self) -> None:  # pragma: no cover
-        await self._send({"type": "input_audio_buffer.clear"})
+        await self._send_tracked(
+            {"type": "input_audio_buffer.clear"}, label="input_audio_buffer.clear"
+        )
         # Reset last input reference and commit event to avoid stale references
         try:
             self._last_input_item_id = None
@@ -601,7 +740,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             )
         except Exception:
             pass
-        await self._send(payload)
+        await self._send_tracked(payload, label="response.create")
 
     # --- Streams ---
     async def _iter_queue(self, q) -> AsyncGenerator[Any, None]:
