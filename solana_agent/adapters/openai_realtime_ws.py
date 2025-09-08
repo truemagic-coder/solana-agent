@@ -1009,25 +1009,57 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 dur,
                 result_summary,
             )
-            # Provide tool result back using GA event, let the server continue the same response
+            # Provide tool result back using GA-supported conversation item; let server continue
             await self._send(
                 {
-                    "type": "response.function_call_output",
-                    "call_id": call_id,
-                    "output": json.dumps(result),
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps(result),
+                    },
                 }
             )
-            logger.info("Tool result delivered via response.function_call_output")
+            logger.info("Tool result delivered via conversation.item.create")
+            # Per docs, trigger the model to respond using the tool result
+            try:
+                t0 = asyncio.get_event_loop().time()
+                while (
+                    bool(getattr(self, "_response_active", False))
+                    and (asyncio.get_event_loop().time() - t0) < 2.0
+                ):
+                    await asyncio.sleep(0.05)
+            except Exception:
+                pass
+            await self._send(
+                {
+                    "type": "response.create",
+                    "response": {"metadata": {"type": "response"}},
+                }
+            )
+            logger.info("Follow-up response.create sent after tool output")
         except Exception:
             try:
                 await self._send(
                     {
-                        "type": "response.function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps({"error": "tool_execution_failed"}),
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({"error": "tool_execution_failed"}),
+                        },
                     }
                 )
-                logger.warning("Tool execution failed; delivered error output")
+                logger.warning(
+                    "Tool execution failed; delivered error output via conversation.item.create"
+                )
+                # Still ask the model to respond so it can handle/report the error
+                await self._send(
+                    {
+                        "type": "response.create",
+                        "response": {"metadata": {"type": "response"}},
+                    }
+                )
             except Exception:
                 pass
         finally:
