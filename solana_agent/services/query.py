@@ -554,11 +554,12 @@ class QueryService(QueryServiceInterface):
                 # Late import to avoid hard dependency when unused
                 from solana_agent.adapters.openai_realtime_ws import (
                     OpenAIRealtimeWebSocketSession,
+                    OpenAITranscriptionWebSocketSession,
                 )
                 from solana_agent.interfaces.providers.realtime import (
                     RealtimeSessionOptions,
                 )
-                from solana_agent.services.realtime import RealtimeService
+                from solana_agent.services.realtime import TwinRealtimeService
                 from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
 
                 # Resolve API key from the LLM adapter
@@ -618,7 +619,26 @@ class QueryService(QueryServiceInterface):
                     tools=initial_tools or None,
                     tool_choice="auto",
                 )
-                session = OpenAIRealtimeWebSocketSession(api_key=api_key, options=opts)
+                # Dedicated transcription options
+                trans_opts = RealtimeSessionOptions(
+                    model="gpt-realtime",  # URL model param; transcription configured in session.update
+                    vad_enabled=opts.vad_enabled,
+                    input_rate_hz=24000,
+                    input_mime="audio/pcm",
+                )
+                # Prefer GA transcribe models; fallback to whisper-1
+                try:
+                    setattr(trans_opts, "transcribe_model", "whisper-1")
+                except Exception:
+                    pass
+
+                # Create two sessions
+                conv_session = OpenAIRealtimeWebSocketSession(
+                    api_key=api_key, options=opts
+                )
+                trans_session = OpenAITranscriptionWebSocketSession(
+                    api_key=api_key, options=trans_opts
+                )
                 logger.info(
                     "Realtime process: user_id=%s, voice=%s, vad=%s, rt_encode_in=%s, rt_encode_out=%s, in_fmt=%s, out_fmt=%s",
                     user_id,
@@ -635,9 +655,12 @@ class QueryService(QueryServiceInterface):
                 if rt_encode_input or rt_encode_output:
                     transcoder = FFmpegTranscoder()
 
-                rt = RealtimeService(
-                    session=session,
-                    options=opts,
+                # Twin orchestrator feeds both sessions and emits audio from conversation
+                rt = TwinRealtimeService(
+                    conversation=conv_session,
+                    transcription=trans_session,
+                    conv_options=opts,
+                    trans_options=trans_opts,
                     transcoder=transcoder,
                     accept_compressed_input=rt_encode_input,
                     client_input_mime=_mime_from(audio_input_format),
@@ -654,7 +677,7 @@ class QueryService(QueryServiceInterface):
                     except Exception as e:
                         return {"status": "error", "message": str(e)}
 
-                session.set_tool_executor(_exec)
+                conv_session.set_tool_executor(_exec)
 
                 # Start session
                 await rt.start()
@@ -707,6 +730,26 @@ class QueryService(QueryServiceInterface):
 
                 user_tr_seen = False
                 user_tr_buf = ""
+                trans_done_evt = asyncio.Event()
+
+                async def _watch_events():
+                    async for ev in rt.iter_events():
+                        try:
+                            et = ev.get("type")
+                            if (
+                                et
+                                == "conversation.item.input_audio_transcription.completed"
+                            ):
+                                trans_done_evt.set()
+                            elif et in (
+                                "response.text.done",
+                                "response.output_text.done",
+                            ):
+                                meta = ev.get("response", {}).get("metadata", {})
+                                if meta.get("type") == "transcription":
+                                    trans_done_evt.set()
+                        except Exception:
+                            continue
 
                 async def _drain_in_tr():
                     async for text in rt.iter_input_transcript():
@@ -730,17 +773,20 @@ class QueryService(QueryServiceInterface):
                 # Run both transcript drains in background while yielding audio
                 in_task = asyncio.create_task(_drain_in_tr())
                 out_task = asyncio.create_task(_drain_out_tr())
+                ev_task = asyncio.create_task(_watch_events())
                 try:
                     async for audio_chunk in _drain_io():
                         yield audio_chunk
                 finally:
                     # Give a short grace period for transcription completion events
                     try:
-                        await asyncio.sleep(0.4)
+                        # Wait briefly for explicit transcription completion
+                        await asyncio.wait_for(trans_done_evt.wait(), timeout=2.0)
                     except Exception:
                         pass
                     in_task.cancel()
                     out_task.cancel()
+                    ev_task.cancel()
                     if turn_id:
                         # Fallback transcription if no realtime input transcript arrived
                         if (

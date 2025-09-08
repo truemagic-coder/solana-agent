@@ -437,3 +437,172 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor
+
+
+class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
+    """OpenAI Realtime Transcription WebSocket session.
+
+    This session is transcription-only per GA docs. It accepts PCM16 input and emits
+    conversation.item.input_audio_transcription.* events.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        url: str = "wss://api.openai.com/v1/realtime",
+        options: Optional[RealtimeSessionOptions] = None,
+    ) -> None:
+        self.api_key = api_key
+        self.url = url
+        self.options = options or RealtimeSessionOptions()
+        self._ws = None
+        self._event_queue = asyncio.Queue()
+        self._in_tr_queue = asyncio.Queue()
+        self._recv_task = None
+        self._last_input_item_id: Optional[str] = None
+
+    async def connect(self) -> None:  # pragma: no cover
+        headers = [("Authorization", f"Bearer {self.api_key}")]
+        # Model is for TTS session; transcription model is set in session update
+        model = self.options.model or "gpt-realtime"
+        uri = f"{self.url}?model={model}"
+        logger.info("Transcription WS connecting: uri=%s", uri)
+        self._ws = await websockets.connect(
+            uri, additional_headers=headers, max_size=None
+        )
+        self._recv_task = asyncio.create_task(self._recv_loop())
+
+        # Transcription session config per GA
+        ts_payload: Dict[str, Any] = {
+            "type": "transcription_session.update",
+            "input_audio_format": "pcm16",
+            "input_audio_transcription": {
+                "model": getattr(self.options, "transcribe_model", None) or "whisper-1",
+                **(
+                    {"prompt": getattr(self.options, "transcribe_prompt", "")}
+                    if getattr(self.options, "transcribe_prompt", None) is not None
+                    else {}
+                ),
+                **(
+                    {"language": getattr(self.options, "transcribe_language", "")}
+                    if getattr(self.options, "transcribe_language", None) is not None
+                    else {}
+                ),
+            },
+            "turn_detection": (
+                {"type": "server_vad"} if self.options.vad_enabled else None
+            ),
+            # Optionally include extra properties (e.g., logprobs)
+            # "include": ["item.input_audio_transcription.logprobs"],
+        }
+        logger.info("Transcription WS: sending transcription_session.update")
+        await self._send(ts_payload)
+
+    async def close(self) -> None:  # pragma: no cover
+        if self._ws:
+            await self._ws.close()
+            self._ws = None
+        if self._recv_task:
+            self._recv_task.cancel()
+            self._recv_task = None
+
+    async def _send(self, payload: Dict[str, Any]) -> None:  # pragma: no cover
+        if not self._ws:
+            raise RuntimeError("WebSocket not connected")
+        await self._ws.send(json.dumps(payload))
+
+    async def _recv_loop(self) -> None:  # pragma: no cover
+        assert self._ws is not None
+        try:
+            async for raw in self._ws:
+                try:
+                    data = json.loads(raw)
+                    etype = data.get("type")
+                    logger.debug("Transcription WS recv: %s", etype)
+                    if etype == "input_audio_buffer.committed":
+                        self._last_input_item_id = data.get("item_id") or data.get("id")
+                    elif etype == "conversation.item.input_audio_transcription.delta":
+                        delta = data.get("delta") or ""
+                        if delta:
+                            self._in_tr_queue.put_nowait(delta)
+                            logger.info("Transcription delta: %r", delta[:120])
+                    elif (
+                        etype == "conversation.item.input_audio_transcription.completed"
+                    ):
+                        tr = data.get("transcript") or ""
+                        if tr:
+                            self._in_tr_queue.put_nowait(tr)
+                            logger.debug("Transcription completed: %r", tr[:120])
+                    # Always publish raw events
+                    try:
+                        self._event_queue.put_nowait(data)
+                    except Exception:
+                        pass
+                except Exception:
+                    continue
+        except Exception:
+            logger.exception("Transcription WS receive loop error")
+        finally:
+            for q in (self._in_tr_queue, self._event_queue):
+                try:
+                    q.put_nowait(None)  # type: ignore
+                except Exception:
+                    pass
+
+    # --- Client events ---
+    async def update_session(
+        self, session_patch: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        # Allow updating transcription session fields
+        patch = {"type": "transcription_session.update", **session_patch}
+        await self._send(patch)
+
+    async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
+        b64 = base64.b64encode(pcm16_bytes).decode("ascii")
+        await self._send({"type": "input_audio_buffer.append", "audio": b64})
+
+    async def commit_input(self) -> None:  # pragma: no cover
+        await self._send({"type": "input_audio_buffer.commit"})
+
+    async def clear_input(self) -> None:  # pragma: no cover
+        await self._send({"type": "input_audio_buffer.clear"})
+
+    async def create_response(
+        self, response_patch: Optional[Dict[str, Any]] = None
+    ) -> None:  # pragma: no cover
+        # No responses in transcription session
+        return
+
+    # --- Streams ---
+    async def _iter_queue(self, q) -> AsyncGenerator[Any, None]:
+        while True:
+            item = await q.get()
+            if item is None:
+                break
+            yield item
+
+    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
+        return self._iter_queue(self._event_queue)
+
+    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+        # No audio in transcription session
+        async def _empty():
+            if False:
+                yield b""
+
+        return _empty()
+
+    def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
+        return self._iter_queue(self._in_tr_queue)
+
+    def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
+        # No assistant transcript in transcription-only mode
+        async def _empty():
+            if False:
+                yield ""
+
+        return _empty()
+
+    def set_tool_executor(self, executor):  # pragma: no cover
+        # Not applicable for transcription-only
+        return

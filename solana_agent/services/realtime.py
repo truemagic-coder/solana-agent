@@ -237,3 +237,210 @@ class RealtimeService:
 
     def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._session.iter_output_transcript()
+
+
+class TwinRealtimeService:
+    """Orchestrates two realtime sessions in parallel:
+
+    - conversation: full duplex (audio out + assistant transcript, tools, etc.)
+    - transcription: transcription-only session per GA (input transcript deltas)
+
+    Audio input is fanned out to both sessions. Output audio is sourced from the
+    conversation session only. Input transcript is sourced from the transcription
+    session only. This aligns with the GA guidance to use a dedicated
+    transcription session for reliable realtime STT, while the conversation
+    session handles assistant speech.
+    """
+
+    def __init__(
+        self,
+        conversation: BaseRealtimeSession,
+        transcription: BaseRealtimeSession,
+        *,
+        conv_options: Optional[RealtimeSessionOptions] = None,
+        trans_options: Optional[RealtimeSessionOptions] = None,
+        transcoder: Optional[AudioTranscoder] = None,
+        accept_compressed_input: bool = False,
+        client_input_mime: str = "audio/mp4",
+        encode_output: bool = False,
+        client_output_mime: str = "audio/aac",
+    ) -> None:
+        self._conv = conversation
+        self._trans = transcription
+        self._conv_opts = conv_options or RealtimeSessionOptions()
+        self._trans_opts = trans_options or RealtimeSessionOptions()
+        self._transcoder = transcoder
+        self._accept_compressed_input = accept_compressed_input
+        self._client_input_mime = client_input_mime
+        self._encode_output = encode_output
+        self._client_output_mime = client_output_mime
+        self._connected = False
+        self._lock = asyncio.Lock()
+
+    async def start(self) -> None:  # pragma: no cover
+        async with self._lock:
+            if self._connected:
+                return
+            logger.info("TwinRealtimeService: starting conversation + transcription")
+            await asyncio.gather(self._conv.connect(), self._trans.connect())
+            self._connected = True
+
+    async def stop(self) -> None:  # pragma: no cover
+        async with self._lock:
+            if not self._connected:
+                return
+            logger.info("TwinRealtimeService: stopping both sessions")
+            await asyncio.gather(self._conv.close(), self._trans.close())
+            self._connected = False
+
+    async def configure(
+        self,
+        *,
+        voice: Optional[str] = None,
+        vad_enabled: Optional[bool] = None,
+        instructions: Optional[str] = None,
+        input_rate_hz: Optional[int] = None,
+        output_rate_hz: Optional[int] = None,
+        input_mime: Optional[str] = None,
+        output_mime: Optional[str] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+    ) -> None:  # pragma: no cover
+        # Only the conversation session needs voice/tools; transcription session
+        # already has its own VAD model configured at connect-time.
+        patch: Dict[str, Any] = {}
+        audio_patch: Dict[str, Any] = {}
+        if (
+            vad_enabled is not None
+            or input_rate_hz is not None
+            or input_mime is not None
+        ):
+            turn_detection = None
+            if vad_enabled is not None:
+                if vad_enabled:
+                    turn_detection = {"type": "semantic_vad", "create_response": True}
+                else:
+                    turn_detection = None
+            audio_patch["input"] = {"format": "pcm16", "turn_detection": turn_detection}
+        if output_rate_hz is not None or output_mime is not None or voice is not None:
+            audio_patch["output"] = {
+                "format": "pcm16",
+                "voice": voice or self._conv_opts.voice,
+                "speed": 1.0,
+            }
+        if audio_patch:
+            patch["audio"] = audio_patch
+        if instructions is not None:
+            patch["instructions"] = instructions
+        if tools is not None:
+            patch["tools"] = tools
+        if tool_choice is not None:
+            patch["tool_choice"] = tool_choice
+
+        if patch:
+            logger.debug("TwinRealtimeService.configure patch (conv): %s", patch)
+            await self._conv.update_session(patch)
+
+        # Update local snapshots
+        if voice is not None:
+            self._conv_opts.voice = voice
+        if vad_enabled is not None:
+            self._conv_opts.vad_enabled = vad_enabled
+            self._trans_opts.vad_enabled = vad_enabled
+        if instructions is not None:
+            self._conv_opts.instructions = instructions
+        if input_rate_hz is not None:
+            self._conv_opts.input_rate_hz = input_rate_hz
+            self._trans_opts.input_rate_hz = input_rate_hz
+        if output_rate_hz is not None:
+            self._conv_opts.output_rate_hz = output_rate_hz
+        if input_mime is not None:
+            self._conv_opts.input_mime = input_mime
+            self._trans_opts.input_mime = input_mime
+        if output_mime is not None:
+            self._conv_opts.output_mime = output_mime
+        if tools is not None:
+            self._conv_opts.tools = tools
+        if tool_choice is not None:
+            self._conv_opts.tool_choice = tool_choice
+
+    async def append_audio(self, chunk_bytes: bytes) -> None:  # pragma: no cover
+        # Transcode once if needed, then fan out to both
+        if self._accept_compressed_input:
+            if not self._transcoder:
+                raise ValueError(
+                    "Compressed input enabled but no transcoder configured"
+                )
+            pcm16 = await self._transcoder.to_pcm16(
+                chunk_bytes, self._client_input_mime, self._conv_opts.input_rate_hz
+            )
+            await asyncio.gather(
+                self._conv.append_audio(pcm16), self._trans.append_audio(pcm16)
+            )
+            return
+        await asyncio.gather(
+            self._conv.append_audio(chunk_bytes),
+            self._trans.append_audio(chunk_bytes),
+        )
+
+    async def commit_input(self) -> None:  # pragma: no cover
+        await asyncio.gather(self._conv.commit_input(), self._trans.commit_input())
+
+    async def clear_input(self) -> None:  # pragma: no cover
+        await asyncio.gather(self._conv.clear_input(), self._trans.clear_input())
+
+    async def create_response(
+        self, response_patch: Optional[Dict[str, Any]] = None
+    ) -> None:  # pragma: no cover
+        # Only conversation session creates assistant responses
+        await self._conv.create_response(response_patch)
+
+    # --- Streams ---
+    def iter_events(self) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
+        # Prefer conversation events; caller can listen to transcription via iter_input_transcript
+        return self._conv.iter_events()
+
+    def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+        return self._conv.iter_output_audio()
+
+    async def iter_output_audio_encoded(
+        self,
+    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+        # Reuse the same encoding pipeline as RealtimeService but source from conversation
+        pcm_gen = self._conv.iter_output_audio()
+
+        try:
+            first_chunk = await asyncio.wait_for(pcm_gen.__anext__(), timeout=12.0)
+        except StopAsyncIteration:
+            logger.warning("TwinRealtimeService: no PCM produced (ended immediately)")
+            return
+        except asyncio.TimeoutError:
+            logger.warning("TwinRealtimeService: no PCM within timeout; closing conv")
+            try:
+                await self._conv.close()
+            except Exception:
+                pass
+            return
+
+        async def _pcm_iter():
+            if first_chunk:
+                yield first_chunk
+            async for c in pcm_gen:
+                if not c:
+                    continue
+                yield c
+
+        if self._encode_output and self._transcoder:
+            async for out in self._transcoder.stream_from_pcm16(
+                _pcm_iter(), self._client_output_mime, self._conv_opts.output_rate_hz
+            ):
+                yield out
+        else:
+            async for chunk in _pcm_iter():
+                yield chunk
+
+    def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
+        return self._trans.iter_input_transcript()
+
+    def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
+        return self._conv.iter_output_transcript()
