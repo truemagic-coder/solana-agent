@@ -400,7 +400,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if "response" not in payload:
             payload["response"] = {}
         rp = payload["response"]
-        rp.setdefault("conversation", "none")
         rp.setdefault(
             "modalities", ["audio"]
         )  # lock to audio-only unless client requests text

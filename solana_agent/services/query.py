@@ -537,6 +537,11 @@ class QueryService(QueryServiceInterface):
                         "pcm": "audio/pcm",
                     }.get(f, "audio/pcm")
 
+                # Choose output encoding automatically when non-PCM output is requested
+                encode_out = bool(
+                    rt_encode_output or (audio_output_format.lower() != "pcm")
+                )
+
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
                     if not rt or not isinstance(rt, RealtimeService):
@@ -554,13 +559,13 @@ class QueryService(QueryServiceInterface):
                         conv_session = OpenAIRealtimeWebSocketSession(
                             api_key=api_key, options=opts
                         )
-                        transcoder = FFmpegTranscoder() if rt_encode_output else None
+                        transcoder = FFmpegTranscoder() if encode_out else None
                         rt = RealtimeService(
                             session=conv_session,
                             options=opts,
                             transcoder=transcoder,
                             accept_compressed_input=False,
-                            encode_output=rt_encode_output,
+                            encode_output=encode_out,
                             client_output_mime=_mime_from(audio_output_format),
                         )
                         self._rt_services[user_id] = rt
@@ -603,7 +608,6 @@ class QueryService(QueryServiceInterface):
                 # Request assistant audio using user's text as input
                 await rt.create_response(
                     {
-                        "conversation": "default",
                         "modalities": ["audio"],
                         "audio": {"voice": audio_voice, "format": "pcm16"},
                         "input": [{"type": "input_text", "text": user_text or ""}],
