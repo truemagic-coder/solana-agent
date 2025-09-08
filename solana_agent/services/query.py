@@ -690,8 +690,13 @@ class QueryService(QueryServiceInterface):
                     vad_enabled_value = bool(vad) if vad is not None else False
                     if not vad_enabled_value:
                         await rt.commit_input()
-                    # Do not override session voice at response level; rely on session voice
-                    await rt.create_response({"modalities": ["audio"]})
+                        # Manually trigger response when VAD is disabled
+                        await rt.create_response({})
+                    else:
+                        # With server VAD enabled, the model will auto-create a response at end of speech
+                        logger.debug(
+                            "Realtime: VAD enabled — skipping manual response.create"
+                        )
                 else:
                     # Rely on configured session voice; attach input_text only
                     await rt.create_response(

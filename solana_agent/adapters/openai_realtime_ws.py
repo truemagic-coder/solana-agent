@@ -47,6 +47,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._tool_executor = None
         self._pending_calls = {}
         self._active_tool_calls = 0
+        # Input/response state
+        self._pending_input_bytes = 0
+        self._commit_evt = asyncio.Event()
+        self._response_active = False
+        self._server_auto_create_enabled = False
+        self._last_commit_ts = 0.0
+
+        # Session/event tracking
+        self._session_created_evt = asyncio.Event()
+        self._session_updated_evt = asyncio.Event()
+        self._awaiting_session_updated = False
+        self._last_session_patch = {}
+        self._last_session_updated_payload = {}
+        self._last_input_item_id = None
+
+        # Outbound event correlation
+        self._event_seq = 0
+        self._sent_events = {}
 
     async def connect(self) -> None:  # pragma: no cover
         # Defensive: ensure session events exist even if __init__ didn’t set them (older builds)
@@ -90,9 +108,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 "Realtime WS: no session.created within 1.0s; sending session.update anyway"
             )
 
-        # Configure session (instructions, tools). VAD handled per-request or defaults.
-        # Server expects turn_detection at session root; omit entirely when disabled
-        vad_cfg = {"type": "server_vad"} if self.options.vad_enabled else None
+        # Configure session (instructions, tools). VAD handled per-request.
+        # Explicitly include turn_detection at session root; use {type: none} to disable server-VAD auto-create.
+        vad_cfg = (
+            {"type": "server_vad", "create_response": True}
+            if self.options.vad_enabled
+            else {"type": "none"}
+        )
 
         # Build optional prompt block
         prompt_block = None
@@ -144,7 +166,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ),
                     },
                 },
-                **({"turn_detection": vad_cfg} if vad_cfg is not None else {}),
+                # Always include key; None disables server defaults
+                "turn_detection": vad_cfg,
                 **({"prompt": prompt_block} if prompt_block else {}),
                 "instructions": self.options.instructions or "",
                 **(
@@ -269,6 +292,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 chunk = base64.b64decode(b64)
                                 self._audio_queue.put_nowait(chunk)
                                 logger.info("Audio delta bytes=%d", len(chunk))
+                                try:
+                                    self._response_active = True
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                     elif etype == "response.text.delta":
@@ -307,6 +334,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         item_id = data.get("item_id") or data.get("id")
                         if item_id:
                             self._last_input_item_id = item_id
+                            try:
+                                self._last_commit_ts = asyncio.get_event_loop().time()
+                            except Exception:
+                                pass
                             logger.info(
                                 "Realtime WS: input_audio_buffer committed: item_id=%s",
                                 item_id,
@@ -327,6 +358,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             self._audio_queue.put_nowait(None)
                         except Exception:
                             pass
+                        try:
+                            self._response_active = False
+                        except Exception:
+                            pass
                         # Don't break; we still want to receive input transcription events
                     elif etype in (
                         "response.completed",
@@ -337,6 +372,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
                             logger.info("Realtime WS: transcription response completed")
+                        try:
+                            self._response_active = False
+                        except Exception:
+                            pass
                     elif etype in ("response.text.done", "response.output_text.done"):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
@@ -364,6 +403,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     elif etype == "session.updated":
                         sess = data.get("session", {})
                         self._last_session_updated_payload = sess
+                        # Track server auto-create enablement (turn_detection.create_response)
+                        try:
+                            td_root = sess.get("turn_detection")
+                            td_input = (
+                                (sess.get("audio") or {})
+                                .get("input", {})
+                                .get("turn_detection")
+                            )
+                            td = td_root if td_root is not None else td_input
+                            self._server_auto_create_enabled = bool(
+                                isinstance(td, dict) and bool(td.get("create_response"))
+                            )
+                            logger.debug(
+                                "Realtime WS: server_auto_create_enabled=%s",
+                                self._server_auto_create_enabled,
+                            )
+                        except Exception:
+                            pass
                         # Mark that the latest update has been applied
                         try:
                             self._awaiting_session_updated = False
@@ -534,11 +591,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         try:
             audio = dict(raw.get("audio") or {})
             # Lift any nested audio.turn_detection to top-level session.turn_detection
-            # Accept top-level turn_detection from raw as well.
+            # Accept top-level turn_detection from raw as well. If provided explicitly,
+            # include it even when value is None to DISABLE VAD per GA docs.
+            include_td = False
             turn_det = None
             if "turn_detection" in audio:
+                include_td = True
                 turn_det = audio.get("turn_detection")
             if "turn_detection" in raw:
+                include_td = True
                 turn_det = raw.get("turn_detection")
 
             inp = dict(audio.get("input") or {})
@@ -599,10 +660,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Always include session.type in updates
         patch["type"] = "realtime"
 
-        # Turn detection at session root; omit if None
-        if "turn_detection" in raw or "turn_det" in locals():
-            if turn_det is not None:
-                patch["turn_detection"] = turn_det
+        # Turn detection at session root
+        if include_td:
+            # Note: may be None to disable VAD
+            patch["turn_detection"] = turn_det
 
         def _strip_tool_strict(tools_val):
             try:
@@ -720,6 +781,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
+        # Avoid duplicate responses: if server auto-creates after commit or one is already active, don't send.
+        try:
+            if getattr(self, "_response_active", False):
+                logger.warning(
+                    "Realtime WS: response.create suppressed — response already active"
+                )
+                return
+            auto = bool(getattr(self, "_server_auto_create_enabled", False))
+            last_commit = float(getattr(self, "_last_commit_ts", 0.0))
+            if auto and last_commit:
+                # If we committed very recently (<1.0s), assume server will auto-create
+                if (asyncio.get_event_loop().time() - last_commit) < 1.0:
+                    logger.info(
+                        "Realtime WS: response.create skipped — server auto-create expected"
+                    )
+                    return
+        except Exception:
+            pass
         # Wait briefly for commit event so we can reference the latest audio item when applicable
         if not self._last_input_item_id:
             try:
@@ -839,6 +918,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         except Exception:
             pass
         await self._send_tracked(payload, label="response.create")
+        try:
+            self._response_active = True
+        except Exception:
+            pass
 
     # --- Streams ---
     async def _iter_queue(self, q) -> AsyncGenerator[Any, None]:
