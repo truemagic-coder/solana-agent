@@ -56,9 +56,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._awaiting_session_updated = False
         self._session_created_evt = asyncio.Event()
 
-    def _rt_voice(self, desired: Optional[str]) -> str:
-        return normalize_realtime_voice(desired)
-
     async def connect(self) -> None:  # pragma: no cover
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),

@@ -97,7 +97,7 @@ class RealtimeService:
         if output_mime or output_rate_hz is not None or voice is not None:
             audio_patch["output"] = {
                 "format": "pcm16",  # session is fixed to PCM16 server-side
-                "voice": normalize_realtime_voice(voice or self._options.voice),
+                "voice": voice or self._options.voice,
                 "speed": 1.0,
             }
 
@@ -117,7 +117,7 @@ class RealtimeService:
 
         # Update local options snapshot
         if voice is not None:
-            self._options.voice = normalize_realtime_voice(voice)
+            self._options.voice = voice
         if vad_enabled is not None:
             self._options.vad_enabled = vad_enabled
         if instructions is not None:
