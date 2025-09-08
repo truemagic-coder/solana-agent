@@ -35,16 +35,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self.api_key = api_key
         self.url = url
         self.options = options or RealtimeSessionOptions()
+
         self._ws = None
         self._event_queue = asyncio.Queue()
         self._audio_queue = asyncio.Queue()
-
         self._in_tr_queue = asyncio.Queue()
         self._out_tr_queue = asyncio.Queue()
         self._recv_task = None
         self._tool_executor = None
         self._pending_calls = {}
         self._last_input_item_id: Optional[str] = None
+        self._commit_evt: asyncio.Event = asyncio.Event()
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -93,7 +94,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             "session": {
                 "type": "realtime",
                 "model": self.options.model or "gpt-realtime",
-                "output_modalities": ["audio"],
+                "output_modalities": ["audio", "text"],
                 "audio": {
                     "input": {
                         "format": "pcm16",
@@ -170,6 +171,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.info("Input transcript delta: %r", delta[:120])
                             else:
                                 logger.debug("Input transcript delta: empty")
+                    elif etype == "conversation.item.input_audio_transcription.delta":
+                        delta = data.get("delta") or ""
+                        if delta:
+                            self._in_tr_queue.put_nowait(delta)
+                            logger.info("Input transcript delta (GA): %r", delta[:120])
+                        else:
+                            logger.debug("Input transcript delta (GA): empty")
                     elif etype in (
                         "response.output_audio_transcript.delta",
                         "response.audio_transcript.delta",
@@ -187,6 +195,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 "Realtime WS: input_audio_buffer committed: item_id=%s",
                                 item_id,
                             )
+                            try:
+                                self._commit_evt.set()
+                            except Exception:
+                                pass
                     elif etype in (
                         "response.output_audio.done",
                         "response.audio.done",
@@ -229,6 +241,18 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     )
                                 except Exception:
                                     pass
+                    elif (
+                        etype == "conversation.item.input_audio_transcription.completed"
+                    ):
+                        tr = data.get("transcript") or ""
+                        if tr:
+                            try:
+                                self._in_tr_queue.put_nowait(tr)
+                                logger.debug(
+                                    "Input transcript completed (GA): %r", tr[:120]
+                                )
+                            except Exception:
+                                pass
                     elif etype == "session.updated":
                         sess = data.get("session", {})
                         voice = sess.get("voice")
@@ -350,14 +374,20 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
-        # First, create transcription response (out-of-band)
+        # Wait briefly for commit event so we can reference the audio item
+        if not self._last_input_item_id:
+            try:
+                await asyncio.wait_for(self._commit_evt.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
         input_arr = []
         if self._last_input_item_id:
             input_arr.append({"type": "item_reference", "id": self._last_input_item_id})
         transcription_payload = {
             "type": "response.create",
             "response": {
-                "conversation": "none",
+                # Prefer out-of-band, but if no item id yet, allow default conversation
+                **({"conversation": "none"} if input_arr else {}),
                 "metadata": {"type": "transcription"},
                 "modalities": ["text"],
                 "instructions": "Transcribe the user's input audio accurately.",
