@@ -46,8 +46,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._tool_executor = None
         self._pending_calls = {}
         self._active_tool_calls = 0
+
         self._last_input_item_id = None
         self._commit_evt = asyncio.Event()
+        # Session state tracking for ordering/logging
+        self._last_session_patch = {}
+        self._last_session_updated_payload = {}
+        self._session_updated_evt = asyncio.Event()
+        self._awaiting_session_updated = False
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -124,6 +130,32 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             self.options.vad_enabled,
             session_payload["session"]["audio"]["output"]["format"],
         )
+        # Log exact session.update payload and mark awaiting session.updated
+        try:
+            logger.info(
+                "Realtime WS: sending session.update payload=%s",
+                json.dumps(session_payload.get("session", {}), sort_keys=True),
+            )
+        except Exception:
+            pass
+        self._last_session_patch = session_payload.get("session", {})
+        self._session_updated_evt = asyncio.Event()
+        self._awaiting_session_updated = True
+        # Quick sanity warnings
+        try:
+            sess = self._last_session_patch
+            instr = sess.get("instructions")
+            voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
+            if instr is None or (isinstance(instr, str) and instr.strip() == ""):
+                logger.warning(
+                    "Realtime WS: instructions missing/empty in session.update"
+                )
+            if not voice:
+                logger.warning(
+                    "Realtime WS: voice missing in session.update audio.output"
+                )
+        except Exception:
+            pass
         await self._send(session_payload)
 
     async def close(self) -> None:  # pragma: no cover
@@ -256,13 +288,40 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 pass
                     elif etype == "session.updated":
                         sess = data.get("session", {})
-                        voice = sess.get("voice")
-                        instr = sess.get("instructions")
-                        logger.info(
-                            "Realtime WS: session updated: voice=%s, instructions=%s",
-                            voice,
-                            instr[:100] if instr else None,
-                        )
+                        self._last_session_updated_payload = sess
+                        # Mark that the latest update has been applied
+                        try:
+                            self._awaiting_session_updated = False
+                            self._session_updated_evt.set()
+                        except Exception:
+                            pass
+                        try:
+                            logger.info(
+                                "Realtime WS: session.updated payload=%s",
+                                json.dumps(sess, sort_keys=True),
+                            )
+                        except Exception:
+                            logger.info(
+                                "Realtime WS: session updated (payload dump failed)"
+                            )
+                        # Extra guardrails: warn if key fields absent/empty
+                        try:
+                            instr = sess.get("instructions")
+                            voice = ((sess.get("audio") or {}).get("output") or {}).get(
+                                "voice"
+                            ) or sess.get("voice")
+                            if instr is None or (
+                                isinstance(instr, str) and instr.strip() == ""
+                            ):
+                                logger.warning(
+                                    "Realtime WS: session.updated has empty/missing instructions"
+                                )
+                            if not voice:
+                                logger.warning(
+                                    "Realtime WS: session.updated missing voice in audio.output"
+                                )
+                        except Exception:
+                            pass
                     elif etype == "session.created":
                         logger.info("Realtime WS: session created")
                     # Always also publish raw events
@@ -354,7 +413,45 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def update_session(
         self, session_patch: Dict[str, Any]
     ) -> None:  # pragma: no cover
-        await self._send({"type": "session.update", "session": session_patch})
+        payload = {"type": "session.update", "session": session_patch}
+        # Mark awaiting updated and store last patch
+        self._last_session_patch = session_patch or {}
+        self._session_updated_evt = asyncio.Event()
+        self._awaiting_session_updated = True
+        # Log payload and warn if potentially clearing/omitting critical fields
+        try:
+            logger.info(
+                "Realtime WS: sending session.update payload=%s",
+                json.dumps(self._last_session_patch, sort_keys=True),
+            )
+            if "instructions" in self._last_session_patch and (
+                (self._last_session_patch.get("instructions") or "").strip() == ""
+            ):
+                logger.warning(
+                    "Realtime WS: session.update sets empty instructions; this clears them"
+                )
+            audio_out = (self._last_session_patch.get("audio") or {}).get(
+                "output"
+            ) or {}
+            if "voice" in audio_out and not audio_out.get("voice"):
+                logger.warning(
+                    "Realtime WS: session.update provides empty voice in audio.output"
+                )
+            if (
+                "audio" in self._last_session_patch
+                and "output" in (self._last_session_patch.get("audio") or {})
+                and "voice" not in audio_out
+            ):
+                logger.warning(
+                    "Realtime WS: session.update audio.output provided without voice; relying on previous voice"
+                )
+            if "instructions" not in self._last_session_patch:
+                logger.warning(
+                    "Realtime WS: session.update omits instructions; relying on previous instructions"
+                )
+        except Exception:
+            pass
+        await self._send(payload)
 
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
@@ -362,6 +459,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def commit_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.commit"})
+        try:
+            logger.info("Realtime WS: input_audio_buffer.commit sent")
+        except Exception:
+            pass
 
     async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})
@@ -381,6 +482,17 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 await asyncio.wait_for(self._commit_evt.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
+        # Ensure the latest session.update (if any) has been applied before responding
+        if self._awaiting_session_updated:
+            try:
+                await asyncio.wait_for(self._session_updated_evt.wait(), timeout=2.0)
+                logger.info(
+                    "Realtime WS: response.create proceeding after session.updated"
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Realtime WS: response.create proceeding without session.updated (timeout)"
+                )
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
@@ -400,7 +512,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             rp["input"] = [{"type": "item_reference", "id": self._last_input_item_id}]
         try:
             has_ref = bool(self._last_input_item_id)
-            logger.info("Realtime WS: sending response.create (input_ref=%s)", has_ref)
+            logger.info(
+                "Realtime WS: sending response.create (input_ref=%s) modalities=%s audio=%s",
+                has_ref,
+                rp.get("modalities"),
+                rp.get("audio"),
+            )
         except Exception:
             pass
         await self._send(payload)
