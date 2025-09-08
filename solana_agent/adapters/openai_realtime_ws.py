@@ -161,6 +161,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         if delta:
                             self._out_tr_queue.put_nowait(delta)
                             logger.debug("Output transcript delta: %r", delta[:120])
+                    elif etype in ("response.completed", "response.complete"):
+                        # End of current response; close the session to finish the turn
+                        logger.info("Realtime WS: response completed; closing session")
+                        try:
+                            await self.close()
+                        except Exception:
+                            pass
+                        break
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
