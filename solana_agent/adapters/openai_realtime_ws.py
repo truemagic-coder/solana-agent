@@ -109,11 +109,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             )
 
         # Configure session (instructions, tools). VAD handled per-request.
-        # Explicitly include turn_detection at session root; use {type: none} to disable server-VAD auto-create.
+        # Explicitly include turn_detection at session root; use JSON null when disabled (per GA docs).
         vad_cfg = (
             {"type": "server_vad", "create_response": True}
             if self.options.vad_enabled
-            else {"type": "none"}
+            else None
         )
 
         # Build optional prompt block
@@ -166,7 +166,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ),
                     },
                 },
-                # Always include key; None disables server defaults
+                # Always include key; None disables server VAD + auto-create
                 "turn_detection": vad_cfg,
                 **({"prompt": prompt_block} if prompt_block else {}),
                 "instructions": self.options.instructions or "",
@@ -744,6 +744,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def commit_input(self) -> None:  # pragma: no cover
         try:
+            # Skip commits while a response is active to avoid server errors
+            if bool(getattr(self, "_response_active", False)):
+                logger.warning("Realtime WS: skipping commit; response active")
+                return
+            # Avoid rapid duplicate commits
+            last_commit = float(getattr(self, "_last_commit_ts", 0.0))
+            if last_commit and (asyncio.get_event_loop().time() - last_commit) < 1.0:
+                logger.warning("Realtime WS: skipping commit; committed recently")
+                return
             # Require at least 100ms of audio (~4800 bytes at 24kHz mono 16-bit)
             min_bytes = int(0.1 * int(self.options.output_rate_hz or 24000) * 2)
         except Exception:
@@ -764,6 +773,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         try:
             logger.info("Realtime WS: input_audio_buffer.commit sent")
             self._pending_input_bytes = 0
+            self._last_commit_ts = asyncio.get_event_loop().time()
         except Exception:
             pass
 
@@ -1011,6 +1021,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     },
                 }
             )
+            # Wait for any active response audio to finish before creating the next one
+            try:
+                t0 = asyncio.get_event_loop().time()
+                while (
+                    bool(getattr(self, "_response_active", False))
+                    and (asyncio.get_event_loop().time() - t0) < 8.0
+                ):
+                    await asyncio.sleep(0.1)
+            except Exception:
+                pass
             await self._send(
                 {
                     "type": "response.create",
@@ -1032,6 +1052,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         },
                     }
                 )
+                # Delay follow-up response until current audio completes
+                try:
+                    t0 = asyncio.get_event_loop().time()
+                    while (
+                        bool(getattr(self, "_response_active", False))
+                        and (asyncio.get_event_loop().time() - t0) < 8.0
+                    ):
+                        await asyncio.sleep(0.1)
+                except Exception:
+                    pass
                 await self._send(
                     {
                         "type": "response.create",
