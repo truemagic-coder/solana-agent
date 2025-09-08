@@ -377,6 +377,12 @@ class QueryService(QueryServiceInterface):
                     await rt.append_audio(bq)
                     await rt.commit_input()
                     logger.debug("Realtime process: committed input")
+                    # When VAD is disabled, we must explicitly request a response
+                    if not opts.vad_enabled:
+                        logger.info(
+                            "Realtime process: sending response.create (VAD disabled)"
+                        )
+                        await rt.create_response({"modalities": ["audio"]})
 
                 # Fan-in: output audio and transcripts
                 # Yield audio to caller; persist transcripts if memory configured

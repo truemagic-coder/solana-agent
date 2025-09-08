@@ -45,10 +45,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._pending_calls = {}
 
     async def connect(self) -> None:  # pragma: no cover
-        headers = [
-            ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
-        ]
+        headers = [("Authorization", f"Bearer {self.api_key}")]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
         logger.info(
@@ -139,7 +136,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     etype = data.get("type")
                     logger.debug("WS recv: %s", etype)
                     # Demux streams
-                    if etype == "response.output_audio.delta":
+                    if etype in ("response.output_audio.delta", "response.audio.delta"):
                         b64 = data.get("delta") or ""
                         if b64:
                             try:
@@ -148,12 +145,18 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.debug("Audio delta bytes=%d", len(chunk))
                             except Exception:
                                 pass
-                    elif etype == "conversation.item.input_audio_transcription.delta":
+                    elif etype in (
+                        "conversation.item.input_audio_transcription.delta",
+                        "response.input_audio_transcription.delta",
+                    ):
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
                             logger.debug("Input transcript delta: %r", delta[:120])
-                    elif etype == "response.output_audio_transcript.delta":
+                    elif etype in (
+                        "response.output_audio_transcript.delta",
+                        "response.audio_transcript.delta",
+                    ):
                         delta = data.get("delta") or ""
                         if delta:
                             self._out_tr_queue.put_nowait(delta)
