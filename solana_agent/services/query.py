@@ -611,7 +611,7 @@ class QueryService(QueryServiceInterface):
                             output_rate_hz=24000,
                             input_mime="audio/pcm",
                             output_mime="audio/pcm",
-                            tools=None,
+                            tools=initial_tools or None,
                             tool_choice="auto",
                         )
                         # Ensure initial session.update carries instructions/voice

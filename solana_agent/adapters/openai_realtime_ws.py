@@ -515,20 +515,36 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 pass
         # Ensure the latest session.update (if any) has been applied before responding
         if self._awaiting_session_updated:
-            wait_task = asyncio.create_task(self._session_updated_evt.wait())
+            # Prefer an explicit session.updated; if absent, accept session.created
             try:
-                await asyncio.wait_for(wait_task, timeout=5.0)
-                logger.info(
-                    "Realtime WS: response.create proceeding after session.updated"
-                )
+                if self._session_updated_evt.is_set():
+                    logger.info(
+                        "Realtime WS: response.create proceeding after session.updated (pre-set)"
+                    )
+                else:
+                    await asyncio.wait_for(
+                        self._session_updated_evt.wait(), timeout=2.5
+                    )
+                    logger.info(
+                        "Realtime WS: response.create proceeding after session.updated"
+                    )
             except asyncio.TimeoutError:
-                logger.warning(
-                    "Realtime WS: no session.updated received in time; proceeding anyway"
-                )
-            finally:
-                # Ensure waiter task does not linger
-                if not wait_task.done():
-                    wait_task.cancel()
+                if self._session_created_evt.is_set():
+                    logger.info(
+                        "Realtime WS: response.create proceeding after session.created (no session.updated observed)"
+                    )
+                else:
+                    try:
+                        await asyncio.wait_for(
+                            self._session_created_evt.wait(), timeout=2.5
+                        )
+                        logger.info(
+                            "Realtime WS: response.create proceeding after session.created"
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Realtime WS: neither session.updated nor session.created received in time; proceeding"
+                        )
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
