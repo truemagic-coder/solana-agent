@@ -64,6 +64,8 @@ class QueryService(QueryServiceInterface):
         # Per-user sticky sessions (in-memory)
         # { user_id: { 'agent': str, 'started_at': float, 'last_updated': float, 'required_complete': bool } }
         self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
+        # Optional realtime service attached by factory (populated in factory)
+        self.realtime = None  # type: ignore[attr-defined]
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -983,6 +985,39 @@ class QueryService(QueryServiceInterface):
             )
         except Exception as e:
             logger.error(f"Store conversation error for {user_id}: {e}")
+
+    # --- Realtime persistence helpers (used by client/server using realtime service) ---
+    async def realtime_begin_turn(self, user_id: str) -> Optional[str]:
+        if not self.memory_provider:
+            return None
+        if not hasattr(self.memory_provider, "begin_stream_turn"):
+            return None
+        return await self.memory_provider.begin_stream_turn(user_id)  # type: ignore[attr-defined]
+
+    async def realtime_update_user(
+        self, user_id: str, turn_id: str, delta: str
+    ) -> None:
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "update_stream_user"):
+            return
+        await self.memory_provider.update_stream_user(user_id, turn_id, delta)  # type: ignore[attr-defined]
+
+    async def realtime_update_assistant(
+        self, user_id: str, turn_id: str, delta: str
+    ) -> None:
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "update_stream_assistant"):
+            return
+        await self.memory_provider.update_stream_assistant(user_id, turn_id, delta)  # type: ignore[attr-defined]
+
+    async def realtime_finalize_turn(self, user_id: str, turn_id: str) -> None:
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "finalize_stream_turn"):
+            return
+        await self.memory_provider.finalize_stream_turn(user_id, turn_id)  # type: ignore[attr-defined]
 
     def _build_model_from_json_schema(
         self, name: str, schema: Dict[str, Any]
