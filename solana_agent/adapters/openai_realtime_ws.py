@@ -47,6 +47,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._tool_executor = None
         self._pending_calls = {}
         self._active_tool_calls = 0
+        # Map call_id -> asyncio.Event set when the server has created the function_call item
+        self._call_ready_events = {}
 
         # Input/response state
         self._pending_input_bytes = 0
@@ -513,6 +515,23 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     except Exception:
                         pass
                     # Handle tool/function calls (support GA and legacy shapes)
+                    if etype == "conversation.item.created":
+                        try:
+                            item = data.get("item") or {}
+                            if item.get("type") == "function_call":
+                                call_id = item.get("call_id") or item.get("id")
+                                if call_id:
+                                    ev = self._call_ready_events.get(call_id)
+                                    if not ev:
+                                        ev = asyncio.Event()
+                                        self._call_ready_events[call_id] = ev
+                                    ev.set()
+                                    logger.debug(
+                                        "Call ready via item.created: call_id=%s",
+                                        call_id,
+                                    )
+                        except Exception:
+                            pass
                     if etype in (
                         "response.function_call.delta",
                         "response.function_call_arguments.delta",
@@ -572,6 +591,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         "name": name,
                                         "args": args,
                                     }
+                                    # Mark this call as ready (server has produced the item)
+                                    ev = self._call_ready_events.get(call_id)
+                                    if not ev:
+                                        ev = asyncio.Event()
+                                        self._call_ready_events[call_id] = ev
+                                    ev.set()
+                                    logger.debug(
+                                        "Call ready via response.done: call_id=%s",
+                                        call_id,
+                                    )
                                     await self._execute_pending_call(call_id)
                         except Exception:
                             pass
@@ -1021,13 +1050,30 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 dur,
                 result_summary,
             )
+            # Ensure the server has created the function_call item before we post output
+            try:
+                ev = self._call_ready_events.get(call_id)
+                if ev:
+                    try:
+                        await asyncio.wait_for(ev.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        logger.debug(
+                            "Call ready wait timed out; proceeding anyway: call_id=%s",
+                            call_id,
+                        )
+                # Tiny jitter to help ordering on the server
+                await asyncio.sleep(0.03)
+            except Exception:
+                pass
+
             # If configured, skip sending output when tool exceeded a freshness window
             max_age = getattr(self.options, "tool_result_max_age_s", None)
-            if (
+            skip_output = (
                 isinstance(max_age, (int, float))
                 and max_age is not None
                 and dur > float(max_age)
-            ):
+            )
+            if skip_output:
                 logger.warning(
                     "Skipping function_call_output; duration %.2fs exceeds max_age %.2fs",
                     dur,
@@ -1046,6 +1092,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     }
                 )
                 logger.info("Tool result delivered via conversation.item.create")
+            # Cleanup readiness event
+            try:
+                self._call_ready_events.pop(call_id, None)
+            except Exception:
+                pass
             # Per docs, trigger the model to respond using the tool result
             try:
                 t0 = asyncio.get_event_loop().time()
