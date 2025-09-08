@@ -583,7 +583,7 @@ class QueryService(QueryServiceInterface):
                         # Ensure initial session.update carries instructions/voice
                         try:
                             opts.instructions = final_instructions
-                            opts.voice = audio_voice
+                            opts.voice = rt_voice
                         except Exception:
                             pass
                         conv_session = OpenAIRealtimeWebSocketSession(
@@ -623,7 +623,7 @@ class QueryService(QueryServiceInterface):
                 if not getattr(rt, "_connected", False):
                     await rt.start()
                 await rt.configure(
-                    voice=audio_voice,
+                    voice=rt_voice,
                     vad_enabled=bool(vad) if vad is not None else False,
                     instructions=final_instructions,
                     tools=initial_tools or None,
