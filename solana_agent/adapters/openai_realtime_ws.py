@@ -166,6 +166,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if self._recv_task:
             self._recv_task.cancel()
             self._recv_task = None
+        # Unblock any pending waiters to avoid dangling tasks
+        try:
+            self._commit_evt.set()
+        except Exception:
+            pass
+        try:
+            self._session_created_evt.set()
+        except Exception:
+            pass
+        try:
+            self._session_updated_evt.set()
+        except Exception:
+            pass
 
     async def _send(self, payload: Dict[str, Any]) -> None:  # pragma: no cover
         if not self._ws:
@@ -502,25 +515,20 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 pass
         # Ensure the latest session.update (if any) has been applied before responding
         if self._awaiting_session_updated:
+            wait_task = asyncio.create_task(self._session_updated_evt.wait())
             try:
-                done, _ = await asyncio.wait(
-                    {
-                        asyncio.create_task(self._session_updated_evt.wait()),
-                        asyncio.create_task(self._session_created_evt.wait()),
-                    },
-                    timeout=5.0,
-                    return_when=asyncio.FIRST_COMPLETED,
+                await asyncio.wait_for(wait_task, timeout=5.0)
+                logger.info(
+                    "Realtime WS: response.create proceeding after session.updated"
                 )
-                if done:
-                    logger.info(
-                        "Realtime WS: response.create proceeding after session event (created/updated)"
-                    )
-                else:
-                    logger.warning(
-                        "Realtime WS: response.create proceeding without session event (timeout)"
-                    )
-            except Exception:
-                pass
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Realtime WS: no session.updated received in time; proceeding anyway"
+                )
+            finally:
+                # Ensure waiter task does not linger
+                if not wait_task.done():
+                    wait_task.cancel()
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
@@ -597,13 +605,36 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 self._active_tool_calls += 1
             except Exception:
                 pass
-            logger.info("Executing tool: id=%s name=%s", call_id, pc.get("name"))
+            args_preview_len = len((pc.get("args") or ""))
+            logger.info(
+                "Executing tool: id=%s name=%s args_len=%d",
+                call_id,
+                pc.get("name"),
+                args_preview_len,
+            )
             args = pc.get("args") or "{}"
             try:
                 parsed = json.loads(args)
             except Exception:
                 parsed = {}
+            start_ts = asyncio.get_event_loop().time()
             result = await self._tool_executor(pc["name"], parsed)
+            dur = asyncio.get_event_loop().time() - start_ts
+            try:
+                result_summary = (
+                    f"keys={list(result.keys())[:5]}"
+                    if isinstance(result, dict)
+                    else type(result).__name__
+                )
+            except Exception:
+                result_summary = "<unavailable>"
+            logger.info(
+                "Tool done: id=%s name=%s dur=%.2fs result=%s",
+                call_id,
+                pc.get("name"),
+                dur,
+                result_summary,
+            )
             # Provide tool result back as conversation.item.create per GA, then resume with audio response
             await self._send(
                 {
@@ -667,6 +698,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 pass
             try:
                 self._active_tool_calls = max(0, int(self._active_tool_calls) - 1)
+                logger.debug(
+                    "Pending tool calls decremented; active=%d", self._active_tool_calls
+                )
             except Exception:
                 pass
 
