@@ -376,27 +376,21 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
-        # Wait briefly for commit event so we can reference the audio item
-        if not self._last_input_item_id:
-            try:
-                await asyncio.wait_for(self._commit_evt.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
-        input_arr = []
+        # If we have input audio, create an out-of-band transcription response first.
+        # Otherwise, skip (e.g., when using HTTP STT and conversation-only WS).
         if self._last_input_item_id:
-            input_arr.append({"type": "item_reference", "id": self._last_input_item_id})
-        transcription_payload = {
-            "type": "response.create",
-            "response": {
-                # Prefer out-of-band, but if no item id yet, allow default conversation
-                **({"conversation": "none"} if input_arr else {}),
-                "metadata": {"type": "transcription"},
-                "modalities": ["text"],
-                "instructions": "Transcribe the user's input audio accurately.",
-                **({"input": input_arr} if input_arr else {}),
-            },
-        }
-        await self._send(transcription_payload)
+            input_arr = [{"type": "item_reference", "id": self._last_input_item_id}]
+            transcription_payload = {
+                "type": "response.create",
+                "response": {
+                    "conversation": "none",
+                    "metadata": {"type": "transcription"},
+                    "modalities": ["text"],
+                    "instructions": "Transcribe the user's input audio accurately.",
+                    "input": input_arr,
+                },
+            }
+            await self._send(transcription_payload)
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}

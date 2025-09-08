@@ -416,13 +416,24 @@ class QueryService(QueryServiceInterface):
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
-            # Shortcut: realtime path (model = gpt-realtime) with WS session per call
+            # Realtime request: HTTP STT for user + single WS for assistant audio
             if realtime:
-                # Realtime mode: no HTTP STT, no multi-agent routing. Single agent only.
-                # If query is text, we can pass it as context; for audio, rely on WS transcription only.
-                user_text_ctx = query if isinstance(query, str) else ""
+                # 1) STT via HTTP (known-good)
+                user_text = ""
+                if isinstance(query, (bytes, bytearray)):
+                    logger.info(
+                        f"Realtime(HTTP STT): transcribing format: {audio_input_format}"
+                    )
+                    async for (
+                        transcript
+                    ) in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
+                        query, audio_input_format
+                    ):
+                        user_text += transcript
+                else:
+                    user_text = str(query)
 
-                # Pick a single agent without LLM routing. Prefer sticky, else 'default'.
+                # 2) Single agent selection (no multi-agent routing in realtime path)
                 agent_name = self._get_sticky_agent(user_id) or "default"
                 prev_assistant = ""
                 if self.memory_provider:
@@ -440,79 +451,66 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                # Compute context/instructions and tools in the background to avoid blocking WS start
-                ctx_ready = asyncio.Event()
-                ctx_result: Dict[str, Any] = {
-                    "final_instructions": audio_instructions or "",
-                    "initial_tools": [],
-                }
-
-                async def _compute_ctx_and_tools():
-                    try:
-                        (
-                            combined_ctx,
-                            required_complete,
-                        ) = await self._build_combined_context(
-                            user_id=user_id,
-                            user_text=user_text_ctx,
-                            agent_name=agent_name,
-                            capture_name=capture_name,
-                            capture_schema=capture_schema,
-                            prev_assistant=prev_assistant,
-                        )
-                        try:
-                            self._update_sticky_required_complete(
-                                user_id, required_complete
-                            )
-                        except Exception:
-                            pass
-                    except Exception:
-                        combined_ctx = ""
-                    # Gather initial tools (can be done lazily)
-                    try:
-                        initial_tools = [
-                            {
-                                "type": "function",
-                                "function": {
-                                    "name": t["name"],
-                                    "description": t.get("description", ""),
-                                    "parameters": t.get("parameters", {}),
-                                    "strict": True,
-                                },
-                            }
-                            for t in self.agent_service.get_agent_tools(agent_name)
-                        ]
-                    except Exception:
-                        initial_tools = []
-
-                    parts: List[str] = []
-                    if combined_ctx:
-                        parts.append(combined_ctx)
-                    if prompt:
-                        parts.append(str(prompt))
-                    if audio_instructions:
-                        parts.append(str(audio_instructions))
-                    fi = "\n\n".join([p for p in parts if p]) or (
-                        audio_instructions or ""
+                # 3) Build context + tools
+                combined_ctx = ""
+                required_complete = False
+                try:
+                    (
+                        combined_ctx,
+                        required_complete,
+                    ) = await self._build_combined_context(
+                        user_id=user_id,
+                        user_text=user_text,
+                        agent_name=agent_name,
+                        capture_name=capture_name,
+                        capture_schema=capture_schema,
+                        prev_assistant=prev_assistant,
                     )
-                    ctx_result["final_instructions"] = fi
-                    ctx_result["initial_tools"] = initial_tools
-                    ctx_ready.set()
+                    try:
+                        self._update_sticky_required_complete(
+                            user_id, required_complete
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    combined_ctx = ""
+                try:
+                    initial_tools = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": t["name"],
+                                "description": t.get("description", ""),
+                                "parameters": t.get("parameters", {}),
+                                "strict": True,
+                            },
+                        }
+                        for t in self.agent_service.get_agent_tools(agent_name)
+                    ]
+                except Exception:
+                    initial_tools = []
 
-                asyncio.create_task(_compute_ctx_and_tools())
+                parts: List[str] = []
+                if combined_ctx:
+                    parts.append(combined_ctx)
+                if prompt:
+                    parts.append(str(prompt))
+                if audio_instructions:
+                    parts.append(str(audio_instructions))
+                final_instructions = "\n\n".join([p for p in parts if p]) or (
+                    audio_instructions or ""
+                )
 
-                # Late import to avoid hard dependency when unused
+                # 4) Open a single WS session for assistant audio
                 from solana_agent.adapters.openai_realtime_ws import (
                     OpenAIRealtimeWebSocketSession,
-                    OpenAITranscriptionWebSocketSession,
                 )
                 from solana_agent.interfaces.providers.realtime import (
                     RealtimeSessionOptions,
                 )
-                from solana_agent.services.realtime import TwinRealtimeService
+                from solana_agent.services.realtime import RealtimeService
                 from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
 
-                # Resolve API key from the LLM adapter
                 api_key = None
                 try:
                     api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
@@ -521,9 +519,7 @@ class QueryService(QueryServiceInterface):
                 if not api_key:
                     raise ValueError("OpenAI API key is required for realtime")
 
-                # (Realtime) Tool schemas will be gathered in background alongside context
-
-                # Map audio_* formats to MIME for client transport when encoding is requested
+                # Per-user persistent WS (single session)
                 def _mime_from(fmt: str) -> str:
                     f = (fmt or "").lower()
                     return {
@@ -541,79 +537,35 @@ class QueryService(QueryServiceInterface):
                         "pcm": "audio/pcm",
                     }.get(f, "audio/pcm")
 
-                vad_enabled_value = True if vad is None else vad
-
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
-                    if not rt:
-                        # Build fresh options
+                    if not rt or not isinstance(rt, RealtimeService):
                         opts = RealtimeSessionOptions(
                             model="gpt-realtime",
                             voice=audio_voice,
-                            instructions="",  # set later via configure when ctx is ready
-                            vad_enabled=vad_enabled_value,
+                            vad_enabled=False,  # no input audio
                             input_rate_hz=24000,
                             output_rate_hz=24000,
                             input_mime="audio/pcm",
                             output_mime="audio/pcm",
-                            tools=None,  # set later when ctx/tools computed
+                            tools=None,
                             tool_choice="auto",
                         )
-                        # Dedicated transcription options
-                        trans_opts = RealtimeSessionOptions(
-                            model="gpt-realtime",  # URL model param; transcription configured in session.update
-                            vad_enabled=vad_enabled_value,
-                            input_rate_hz=24000,
-                            input_mime="audio/pcm",
-                        )
-                        # Prefer GA transcribe models and language
-                        try:
-                            setattr(
-                                trans_opts, "transcribe_model", "gpt-4o-mini-transcribe"
-                            )
-                            setattr(trans_opts, "transcribe_language", "en")
-                        except Exception:
-                            pass
-
-                        # Create two sessions
                         conv_session = OpenAIRealtimeWebSocketSession(
                             api_key=api_key, options=opts
                         )
-                        trans_session = OpenAITranscriptionWebSocketSession(
-                            api_key=api_key, options=trans_opts
-                        )
-
-                        # Optional transcoder sidecar for client transport
-                        transcoder = None
-                        if rt_encode_input or rt_encode_output:
-                            transcoder = FFmpegTranscoder()
-
-                        # Twin orchestrator feeds both sessions and emits audio from conversation
-                        rt = TwinRealtimeService(
-                            conversation=conv_session,
-                            transcription=trans_session,
-                            conv_options=opts,
-                            trans_options=trans_opts,
+                        transcoder = FFmpegTranscoder() if rt_encode_output else None
+                        rt = RealtimeService(
+                            session=conv_session,
+                            options=opts,
                             transcoder=transcoder,
-                            accept_compressed_input=rt_encode_input,
-                            client_input_mime=_mime_from(audio_input_format),
+                            accept_compressed_input=False,
                             encode_output=rt_encode_output,
                             client_output_mime=_mime_from(audio_output_format),
                         )
                         self._rt_services[user_id] = rt
 
-                logger.info(
-                    "Realtime process: user_id=%s, voice=%s, vad=%s, rt_encode_in=%s, rt_encode_out=%s, in_fmt=%s, out_fmt=%s",
-                    user_id,
-                    audio_voice,
-                    vad_enabled_value,
-                    rt_encode_input,
-                    rt_encode_output,
-                    audio_input_format,
-                    audio_output_format,
-                )
-
-                # Bind auto tool execution to agent_service
+                # Tool executor
                 async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
                     try:
                         return await self.agent_service.execute_tool(
@@ -622,191 +574,68 @@ class QueryService(QueryServiceInterface):
                     except Exception as e:
                         return {"status": "error", "message": str(e)}
 
-                # Bind to the twin service (forwards to conversation session)
-                if hasattr(rt, "set_tool_executor"):
-                    rt.set_tool_executor(_exec)
-
-                # Start sessions ASAP, then apply context when ready
-                # Start sessions if not already connected
-                if not getattr(rt, "is_connected", lambda: False)():
-                    await rt.start()
-                logger.debug("Realtime process: session started")
-
-                async def _with_reconnect(coro_factory):
-                    try:
-                        return await coro_factory()
-                    except RuntimeError as e:
-                        if "WebSocket not connected" in str(e):
-                            # Attempt a fresh start once
-                            try:
-                                await rt.stop()
-                            except Exception:
-                                pass
-                            await rt.start()
-                            return await coro_factory()
-                        raise
-
-                await _with_reconnect(
-                    lambda: rt.configure(
-                        voice=audio_voice,
-                        vad_enabled=vad_enabled_value,
-                    )
-                )
-
-                async def _apply_ctx_when_ready():
-                    await ctx_ready.wait()
-                    try:
-                        await rt.configure(
-                            instructions=ctx_result.get("final_instructions") or "",
-                            tools=ctx_result.get("initial_tools") or None,
-                            tool_choice="auto",
-                        )
-                        logger.info(
-                            "Realtime process: applied context instructions and tools to session"
-                        )
-                    except Exception:
-                        pass
-
-                asyncio.create_task(_apply_ctx_when_ready())
-
-                # Ensure clean input buffers for this turn
+                # If possible, set on underlying session
                 try:
-                    await rt.clear_input()
+                    if hasattr(rt, "_session"):
+                        getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
                 except Exception:
                     pass
 
-                # Persist a streaming turn if memory available
+                # Connect/configure
+                if not getattr(rt, "_connected", False):
+                    await rt.start()
+                await rt.configure(
+                    voice=audio_voice,
+                    vad_enabled=False,
+                    instructions=final_instructions,
+                    tools=initial_tools or None,
+                    tool_choice="auto",
+                )
+
+                # Persist once per turn
                 turn_id = await self.realtime_begin_turn(user_id)
-                logger.debug("Realtime process: began turn id=%s", turn_id)
-
-                # Send audio
-                if isinstance(query, (bytes, bytearray)):
-                    # If rt_encode_input=True, service will transcode using client_input_mime
-                    bq = bytes(query)
-                    logger.info("Realtime process: appending audio len=%d", len(bq))
-                    await _with_reconnect(lambda: rt.append_audio(bq))
-                    # Commit both sessions only when VAD is disabled
-                    if not vad_enabled_value:
-                        await _with_reconnect(lambda: rt.commit_input())
-                        logger.debug("Realtime process: committed input")
-                    # When VAD is disabled, we must explicitly request a response
-                    if not vad_enabled_value:
-                        # Wait a short time for context; fall back to audio_instructions if not ready
-                        try:
-                            await asyncio.wait_for(ctx_ready.wait(), timeout=1.0)
-                        except Exception:
-                            pass
-                        instr = ctx_result.get("final_instructions") or (
-                            audio_instructions or ""
-                        )
-                        logger.info(
-                            "Realtime process: sending response.create (VAD disabled)"
-                        )
-                        await _with_reconnect(
-                            lambda: rt.create_response(
-                                {
-                                    "modalities": ["audio"],
-                                    "instructions": instr,
-                                    "audio": {"voice": audio_voice, "format": "pcm16"},
-                                }
-                            )
-                        )
-
-                # Fan-in: output audio and transcripts
-                # Yield audio to caller; persist transcripts if memory configured
-                async def _drain_io():
-                    async for out in rt.iter_output_audio_encoded():
-                        logger.debug(
-                            "Realtime process: yielding audio chunk len=%d", len(out)
-                        )
-                        yield out
-
-                user_tr_seen = False
-                user_tr_buf = ""
-                asst_tr_seen = False
-                asst_tr_buf = ""
-                trans_done_evt = asyncio.Event()
-
-                async def _watch_events():
-                    # Listen on transcription events to detect completion
-                    async for ev in rt.iter_transcription_events():
-                        try:
-                            et = ev.get("type")
-                            if (
-                                et
-                                == "conversation.item.input_audio_transcription.completed"
-                            ):
-                                trans_done_evt.set()
-                            elif et in (
-                                "response.text.done",
-                                "response.output_text.done",
-                            ):
-                                meta = ev.get("response", {}).get("metadata", {})
-                                if meta.get("type") == "transcription":
-                                    trans_done_evt.set()
-                        except Exception:
-                            continue
-
-                async def _drain_in_tr():
-                    async for text in rt.iter_input_transcript():
-                        logger.info(
-                            "Realtime process: input transcript delta %r", text[:120]
-                        )
-                        if text:
-                            nonlocal user_tr_seen, user_tr_buf
-                            user_tr_seen = True
-                            user_tr_buf += text
-
-                async def _drain_out_tr():
-                    async for text in rt.iter_output_transcript():
-                        logger.debug(
-                            "Realtime process: output transcript delta %r", text[:120]
-                        )
-                        if text:
-                            nonlocal asst_tr_seen, asst_tr_buf
-                            asst_tr_seen = True
-                            asst_tr_buf += text
-
-                # Run both transcript drains in background while yielding audio
-                in_task = asyncio.create_task(_drain_in_tr())
-                out_task = asyncio.create_task(_drain_out_tr())
-                ev_task = asyncio.create_task(_watch_events())
-                try:
-                    async for audio_chunk in _drain_io():
-                        yield audio_chunk
-                finally:
-                    # Give a short grace period for transcription completion events
+                if turn_id and user_text:
                     try:
-                        # Wait briefly for explicit transcription completion
-                        await asyncio.wait_for(trans_done_evt.wait(), timeout=2.0)
+                        await self.realtime_update_user(user_id, turn_id, user_text)
                     except Exception:
                         pass
-                    in_task.cancel()
+
+                # Request assistant audio using user's text as input
+                await rt.create_response(
+                    {
+                        "conversation": "default",
+                        "modalities": ["audio"],
+                        "audio": {"voice": audio_voice, "format": "pcm16"},
+                        "input": [{"type": "input_text", "text": user_text or ""}],
+                    }
+                )
+
+                # Collect audio and assistant transcript
+                asst_tr = ""
+
+                async def _drain_out_tr():
+                    nonlocal asst_tr
+                    async for t in rt.iter_output_transcript():
+                        if t:
+                            asst_tr += t
+
+                out_task = asyncio.create_task(_drain_out_tr())
+                try:
+                    async for audio_chunk in rt.iter_output_audio_encoded():
+                        yield audio_chunk
+                finally:
                     out_task.cancel()
-                    ev_task.cancel()
-                    # Save final transcripts once per turn (no per-delta saves)
-                    if turn_id:
+                    if turn_id and asst_tr:
                         try:
-                            if user_tr_seen and user_tr_buf:
-                                await self.realtime_update_user(
-                                    user_id, turn_id, user_tr_buf
-                                )
-                            if asst_tr_seen and asst_tr_buf:
-                                await self.realtime_update_assistant(
-                                    user_id, turn_id, asst_tr_buf
-                                )
+                            await self.realtime_update_assistant(
+                                user_id, turn_id, asst_tr
+                            )
                         except Exception:
                             pass
                         try:
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:
                             pass
-                    # Clear inputs for next push-to-talk; keep WS persistent
-                    try:
-                        await rt.clear_input()
-                    except Exception:
-                        pass
-                    logger.debug("Realtime process: finalized turn (persistent WS)")
                 return
 
             # 1) Transcribe audio or accept text

@@ -212,6 +212,11 @@ class RealtimeService:
                 await self._session.close()
             except Exception:
                 pass
+            # Mark disconnected so caller can reconnect on next turn
+            try:
+                self._connected = False
+            except Exception:
+                pass
             return
 
         async def _pcm_iter():
