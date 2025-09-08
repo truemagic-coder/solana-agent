@@ -272,7 +272,7 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
-## Realtime Audio
+### Realtime Audio Streaming
 
 ```python
 from solana_agent import SolanaAgent
@@ -298,7 +298,7 @@ async for audio_chunk in solana_agent.process(
     handle_audio(audio_chunk)
 ```
 
-### Mobile tips (Expo/React Native)
+#### Mobile tips (Expo)
 - Use `rt_encode_input=True` with `audio_input_format="mp4"` to send MP4/AAC from mobile; the server transcodes to PCM16 automatically.
 - Use `rt_encode_output=True` with `audio_output_format="aac"` to stream AAC back to mobile devices.
 - Ensure `ffmpeg` is installed on the server when transcoding is enabled.
