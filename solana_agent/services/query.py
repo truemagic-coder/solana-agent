@@ -392,6 +392,7 @@ class QueryService(QueryServiceInterface):
                             {
                                 "modalities": ["audio"],
                                 "instructions": audio_instructions,
+                                "audio": {"voice": audio_voice, "format": "pcm16"},
                             }
                         )
 
@@ -433,6 +434,11 @@ class QueryService(QueryServiceInterface):
                     async for audio_chunk in _drain_io():
                         yield audio_chunk
                 finally:
+                    # Give a short grace period for transcription completion events
+                    try:
+                        await asyncio.sleep(0.4)
+                    except Exception:
+                        pass
                     in_task.cancel()
                     out_task.cancel()
                     if turn_id:

@@ -84,29 +84,19 @@ class RealtimeService:
             if vad_enabled is not None:
                 if vad_enabled:
                     turn_detection = {
-                        "type": "server_vad",
-                        "threshold": 0.5,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 200,
+                        "type": "semantic_vad",
                         "create_response": True,
-                        "interrupt_response": True,
                     }
                 else:
                     turn_detection = None
             audio_patch["input"] = {
-                "format": {
-                    "type": input_mime or self._options.input_mime,
-                    "rate": input_rate_hz or self._options.input_rate_hz,
-                },
+                "format": "pcm16",  # session is fixed to PCM16 server-side
                 "turn_detection": turn_detection,
             }
 
         if output_mime or output_rate_hz is not None or voice is not None:
             audio_patch["output"] = {
-                "format": {
-                    "type": output_mime or self._options.output_mime,
-                    "rate": output_rate_hz or self._options.output_rate_hz,
-                },
+                "format": "pcm16",  # session is fixed to PCM16 server-side
                 "voice": voice or self._options.voice,
                 "speed": 1.0,
             }

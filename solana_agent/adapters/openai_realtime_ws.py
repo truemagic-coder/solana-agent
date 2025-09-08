@@ -45,7 +45,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._pending_calls = {}
 
     async def connect(self) -> None:  # pragma: no cover
-        headers = [("Authorization", f"Bearer {self.api_key}")]
+        headers = [
+            ("Authorization", f"Bearer {self.api_key}"),
+            ("OpenAI-Beta", "realtime=v1"),
+        ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
         logger.info(
@@ -67,12 +70,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Configure session (voice, VAD, formats)
         turn_detection = (
             {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 200,
+                "type": "semantic_vad",
                 "create_response": True,
-                "interrupt_response": True,
             }
             if self.options.vad_enabled
             else None
@@ -81,22 +80,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         session_patch = {
             "type": "session.update",
             "session": {
+                "type": "realtime",
+                "model": model,
+                "output_modalities": ["audio"],
                 "instructions": self.options.instructions or "",
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,
                 "audio": {
                     "input": {
-                        "format": {
-                            "type": self.options.input_mime,
-                            "rate": self.options.input_rate_hz,
-                        },
+                        "format": "pcm16",
                         "turn_detection": turn_detection,
                     },
                     "output": {
-                        "format": {
-                            "type": self.options.output_mime,
-                            "rate": self.options.output_rate_hz,
-                        },
+                        "format": "pcm16",
                         "voice": self.options.voice,
                         "speed": 1.0,
                     },
@@ -161,18 +157,42 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             self._out_tr_queue.put_nowait(delta)
                             logger.debug("Output transcript delta: %r", delta[:120])
                     elif etype in (
-                        "response.completed",
-                        "response.complete",
                         "response.output_audio.done",
                         "response.audio.done",
                     ):
-                        # End of current response; close the session to finish the turn
-                        logger.info("Realtime WS: response completed; closing session")
+                        # End of audio stream for the response; stop audio iterator but keep WS open for transcripts
+                        logger.info(
+                            "Realtime WS: output audio done; ending audio stream"
+                        )
                         try:
-                            await self.close()
+                            self._audio_queue.put_nowait(None)
                         except Exception:
                             pass
-                        break
+                        # Don't break; we still want to receive input transcription events
+                    elif etype in (
+                        "response.completed",
+                        "response.complete",
+                    ):
+                        # Whole response completed; audio has likely finished, but transcripts may still arrive
+                        logger.info(
+                            "Realtime WS: response completed; awaiting any remaining transcription events"
+                        )
+                        try:
+                            self._audio_queue.put_nowait(None)
+                        except Exception:
+                            pass
+                        # Do not close here; allow outer code to close after draining
+                    elif (
+                        etype == "conversation.item.input_audio_transcription.completed"
+                    ):
+                        # Push final transcript string if present
+                        tr = data.get("transcript") or ""
+                        if tr:
+                            try:
+                                self._in_tr_queue.put_nowait(tr)
+                                logger.debug("Input transcript completed: %r", tr[:120])
+                            except Exception:
+                                pass
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
@@ -288,6 +308,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         payload: Dict[str, Any] = {"type": "response.create"}
         if response_patch:
             payload["response"] = response_patch
+        # Ensure default audio modality and voice are present if not explicitly set
+        if "response" not in payload:
+            payload["response"] = {}
+        rp = payload["response"]
+        rp.setdefault(
+            "modalities", ["audio"]
+        )  # lock to audio-only unless client requests text
+        rp.setdefault("audio", {"voice": self.options.voice, "format": "pcm16"})
         await self._send(payload)
 
     # --- Streams ---
