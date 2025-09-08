@@ -51,7 +51,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
-        self._ws = await websockets.connect(uri, extra_headers=headers, max_size=None)
+        self._ws = await websockets.connect(
+            uri, additional_headers=headers, max_size=None
+        )
         logger.info("Connected to OpenAI Realtime WS: %s", uri)
         self._recv_task = asyncio.create_task(self._recv_loop())
 
