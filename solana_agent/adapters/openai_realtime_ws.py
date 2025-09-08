@@ -49,6 +49,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._active_tool_calls = 0
 
     async def connect(self) -> None:  # pragma: no cover
+        # Defensive: ensure session events exist even if __init__ didn’t set them (older builds)
+        if not hasattr(self, "_session_created_evt") or not isinstance(
+            getattr(self, "_session_created_evt", None), asyncio.Event
+        ):
+            self._session_created_evt = asyncio.Event()
+        if not hasattr(self, "_session_updated_evt") or not isinstance(
+            getattr(self, "_session_updated_evt", None), asyncio.Event
+        ):
+            self._session_updated_evt = asyncio.Event()
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
         ]
