@@ -85,7 +85,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 "instructions": self.options.instructions or "",
                 "input_audio_transcription": {
                     "model": "gpt-4o-mini-transcribe",
-                    # don't force language; let model auto-detect
+                    "language": "en",
                 },
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,

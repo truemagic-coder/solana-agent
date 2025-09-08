@@ -91,9 +91,174 @@ class QueryService(QueryServiceInterface):
             self._sticky_sessions[user_id]["required_complete"] = required_complete
             self._sticky_sessions[user_id]["last_updated"] = time.time()
 
-    def _clear_sticky_agent(self, user_id: str) -> None:
-        if user_id in self._sticky_sessions:
-            del self._sticky_sessions[user_id]
+    async def _build_combined_context(
+        self,
+        user_id: str,
+        user_text: str,
+        agent_name: str,
+        capture_name: Optional[str] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
+        prev_assistant: str = "",
+    ) -> Tuple[str, bool]:
+        """Build combined context string and return required_complete flag."""
+        # Memory context
+        memory_context = ""
+        if self.memory_provider:
+            try:
+                memory_context = await self.memory_provider.retrieve(user_id)
+            except Exception:
+                memory_context = ""
+
+        # KB context
+        kb_context = ""
+        if self.knowledge_base:
+            try:
+                kb_results = await self.knowledge_base.query(
+                    query_text=user_text,
+                    top_k=self.kb_results_count,
+                    include_content=True,
+                    include_metadata=False,
+                )
+                if kb_results:
+                    kb_lines = [
+                        "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**"
+                    ]
+                    for i, r in enumerate(kb_results, 1):
+                        kb_lines.append(f"[{i}] {r.get('content', '').strip()}\n")
+                    kb_context = "\n".join(kb_lines)
+            except Exception:
+                kb_context = ""
+
+        # Capture context
+        capture_context = ""
+        required_complete = False
+
+        active_capture_name = capture_name
+        active_capture_schema = capture_schema
+        if not active_capture_name or not active_capture_schema:
+            try:
+                cap_cfg = self.agent_service.get_agent_capture(agent_name)
+                if cap_cfg:
+                    active_capture_name = active_capture_name or cap_cfg.get("name")
+                    active_capture_schema = active_capture_schema or cap_cfg.get(
+                        "schema"
+                    )
+            except Exception:
+                pass
+
+        if active_capture_name and isinstance(active_capture_schema, dict):
+            latest_by_name: Dict[str, Dict[str, Any]] = {}
+            if self.memory_provider:
+                try:
+                    docs = self.memory_provider.find(
+                        collection="captures",
+                        query={"user_id": user_id},
+                        sort=[("timestamp", -1)],
+                        limit=100,
+                    )
+                    for d in docs or []:
+                        name = (d or {}).get("capture_name")
+                        if not name or name in latest_by_name:
+                            continue
+                        latest_by_name[name] = {
+                            "data": (d or {}).get("data", {}) or {},
+                            "mode": (d or {}).get("mode", "once"),
+                            "agent": (d or {}).get("agent_name"),
+                        }
+                except Exception:
+                    pass
+
+            active_data = (latest_by_name.get(active_capture_name, {}) or {}).get(
+                "data", {}
+            ) or {}
+
+            def _non_empty(v: Any) -> bool:
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    return s not in {"", "null", "none", "n/a", "na", "undefined", "."}
+                if isinstance(v, (list, dict, tuple, set)):
+                    return len(v) > 0
+                return True
+
+            props = (active_capture_schema or {}).get("properties", {})
+            required_fields = list(
+                (active_capture_schema or {}).get("required", []) or []
+            )
+            all_fields = list(props.keys())
+            optional_fields = [f for f in all_fields if f not in set(required_fields)]
+
+            def _missing_from(data: Dict[str, Any], fields: List[str]) -> List[str]:
+                return [f for f in fields if not _non_empty(data.get(f))]
+
+            missing_required = _missing_from(active_data, required_fields)
+            missing_optional = _missing_from(active_data, optional_fields)
+
+            required_complete = len(missing_required) == 0 and len(required_fields) > 0
+
+            lines: List[str] = []
+            lines.append(
+                "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
+            )
+            lines.append(f"- form_name: {active_capture_name}")
+
+            if active_data:
+                pairs = [f"{k}: {v}" for k, v in active_data.items() if _non_empty(v)]
+                lines.append(
+                    f"- filled_fields: {', '.join(pairs) if pairs else '(none)'}"
+                )
+            else:
+                lines.append("- filled_fields: (none)")
+
+            lines.append(
+                f"- missing_required_fields: {', '.join(missing_required) if missing_required else '(none)'}"
+            )
+            lines.append(
+                f"- missing_optional_fields: {', '.join(missing_optional) if missing_optional else '(none)'}"
+            )
+            lines.append("")
+
+            if latest_by_name:
+                lines.append("OTHER CAPTURED USER DATA (for reference):")
+                for cname, info in latest_by_name.items():
+                    if cname == active_capture_name:
+                        continue
+                    data = info.get("data", {}) or {}
+                    if data:
+                        pairs = [f"{k}: {v}" for k, v in data.items() if _non_empty(v)]
+                        lines.append(
+                            f"- {cname}: {', '.join(pairs) if pairs else '(none)'}"
+                        )
+                    else:
+                        lines.append(f"- {cname}: (none)")
+
+            if lines:
+                capture_context = "\n".join(lines) + "\n\n"
+
+        # Merge contexts
+        combined_context = ""
+        if capture_context:
+            combined_context += capture_context
+        if memory_context:
+            combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
+        if kb_context:
+            combined_context += kb_context + "\n"
+        if combined_context:
+            combined_context += (
+                "PRIORITIZATION GUIDE:\n"
+                "- Prefer Captured User Data for user-specific fields.\n"
+                "- Prefer KB/tools for facts.\n"
+                "- History is for tone and continuity.\n\n"
+                "FORM FLOW RULES:\n"
+                "- Ask exactly one field per turn.\n"
+                "- If any required fields are missing, ask the next missing required field.\n"
+                "- If all required fields are filled but optional fields are missing, ask the next missing optional field.\n"
+                "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
+                "- Do NOT provide summaries until no required or optional fields are missing.\n\n"
+            )
+
+        return combined_context, required_complete
 
     # LLM-backed switch intent detection (gpt-4.1-mini)
     class _SwitchIntentModel(BaseModel):
@@ -250,6 +415,142 @@ class QueryService(QueryServiceInterface):
         try:
             # Shortcut: realtime path (model = gpt-realtime) with WS session per call
             if realtime:
+                # Build full context first (transcribe if needed, guardrails, memory, KB, routing, capture context)
+                user_text_ctx = ""
+                if not isinstance(query, str):
+                    logger.info(
+                        f"Realtime: received audio input, pre-transcribing for context (format: {audio_input_format})"
+                    )
+                    try:
+                        async for (
+                            frag
+                        ) in self.agent_service.llm_provider.transcribe_audio(
+                            query, audio_input_format
+                        ):
+                            user_text_ctx += frag
+                    except Exception as te:
+                        logger.warning(f"Realtime: pre-transcription failed: {te}")
+                        user_text_ctx = ""
+                else:
+                    user_text_ctx = query
+
+                # Input guardrails for context text
+                original_ctx_text = user_text_ctx
+                for guardrail in self.input_guardrails:
+                    try:
+                        user_text_ctx = await guardrail.process(user_text_ctx)
+                    except Exception as e:
+                        logger.debug(f"Realtime guardrail error: {e}")
+                if user_text_ctx != original_ctx_text:
+                    logger.info(
+                        "Realtime: guardrails modified context text length from %d to %d",
+                        len(original_ctx_text or ""),
+                        len(user_text_ctx or ""),
+                    )
+
+                # Determine agent (sticky/routing)
+                agent_name = "default"
+                prev_assistant = ""
+                routing_input = user_text_ctx or (
+                    query if isinstance(query, str) else ""
+                )
+                if self.memory_provider:
+                    try:
+                        prev_docs = self.memory_provider.find(
+                            collection="conversations",
+                            query={"user_id": user_id},
+                            sort=[("timestamp", -1)],
+                            limit=1,
+                        )
+                        if prev_docs:
+                            prev_user_msg = (prev_docs[0] or {}).get(
+                                "user_message", ""
+                            ) or ""
+                            prev_assistant = (prev_docs[0] or {}).get(
+                                "assistant_message", ""
+                            ) or ""
+                            if prev_user_msg and (user_text_ctx or routing_input):
+                                base = user_text_ctx or routing_input
+                                routing_input = f"previous_user_message: {prev_user_msg}\ncurrent_user_message: {base}"
+                    except Exception:
+                        pass
+
+                agents = self.agent_service.get_all_ai_agents() or {}
+                available_agent_names = list(agents.keys())
+                try:
+                    (
+                        switch_requested,
+                        requested_agent_raw,
+                        start_new,
+                    ) = await self._detect_switch_intent(
+                        routing_input, available_agent_names
+                    )
+                except Exception:
+                    switch_requested, requested_agent_raw, start_new = (
+                        False,
+                        None,
+                        False,
+                    )
+
+                requested_agent = None
+                if requested_agent_raw:
+                    raw_lower = requested_agent_raw.lower()
+                    for a in available_agent_names:
+                        if a.lower() == raw_lower or raw_lower in a.lower():
+                            requested_agent = a
+                            break
+
+                sticky_agent = self._get_sticky_agent(user_id)
+                if sticky_agent and not switch_requested:
+                    agent_name = sticky_agent
+                else:
+                    try:
+                        if start_new:
+                            self._clear_sticky_agent(user_id)
+                        if requested_agent:
+                            agent_name = requested_agent
+                        else:
+                            if router:
+                                agent_name = await router.route_query(routing_input)
+                            else:
+                                agent_name = await self.routing_service.route_query(
+                                    routing_input
+                                )
+                    except Exception:
+                        agent_name = next(iter(agents.keys())) if agents else "default"
+                    self._set_sticky_agent(user_id, agent_name, required_complete=False)
+
+                # Build combined context
+                (
+                    combined_context,
+                    required_complete,
+                ) = await self._build_combined_context(
+                    user_id=user_id,
+                    user_text=user_text_ctx,
+                    agent_name=agent_name,
+                    capture_name=capture_name,
+                    capture_schema=capture_schema,
+                    prev_assistant=prev_assistant,
+                )
+
+                # Update sticky session completion flag
+                try:
+                    self._update_sticky_required_complete(user_id, required_complete)
+                except Exception:
+                    pass
+
+                # Build final instructions: context first, then optional prompt override, then audio style guidance
+                final_instructions_parts: List[str] = []
+                if combined_context:
+                    final_instructions_parts.append(combined_context)
+                if prompt:
+                    final_instructions_parts.append(str(prompt))
+                if audio_instructions:
+                    final_instructions_parts.append(str(audio_instructions))
+                final_instructions = "\n\n".join(
+                    [p for p in final_instructions_parts if p]
+                ) or (audio_instructions or "")
+
                 # Late import to avoid hard dependency when unused
                 from solana_agent.adapters.openai_realtime_ws import (
                     OpenAIRealtimeWebSocketSession,
@@ -269,9 +570,7 @@ class QueryService(QueryServiceInterface):
                 if not api_key:
                     raise ValueError("OpenAI API key is required for realtime")
 
-                # Gather initial tool schemas from target/default agent
-                agents = self.agent_service.get_all_ai_agents() or {}
-                agent_name = next(iter(agents.keys())) if agents else "default"
+                # Gather initial tool schemas from selected agent
                 initial_tools: List[Dict[str, Any]] = []
                 try:
                     initial_tools = [
@@ -310,6 +609,7 @@ class QueryService(QueryServiceInterface):
                 opts = RealtimeSessionOptions(
                     model="gpt-realtime",
                     voice=audio_voice,
+                    instructions=final_instructions,
                     vad_enabled=True if vad is None else vad,
                     input_rate_hz=24000,
                     output_rate_hz=24000,
@@ -361,9 +661,9 @@ class QueryService(QueryServiceInterface):
                 logger.debug("Realtime process: session started")
                 # Update session voice/VAD if provided
                 await rt.configure(
-                    voice=opts.voice,
+                    voice=audio_voice,
                     vad_enabled=opts.vad_enabled,
-                    instructions=audio_instructions,
+                    instructions=final_instructions,
                 )
 
                 # Persist a streaming turn if memory available
@@ -391,7 +691,7 @@ class QueryService(QueryServiceInterface):
                         await rt.create_response(
                             {
                                 "modalities": ["audio"],
-                                "instructions": audio_instructions,
+                                "instructions": final_instructions,
                                 "audio": {"voice": audio_voice, "format": "pcm16"},
                             }
                         )
