@@ -272,6 +272,81 @@ async for response in solana_agent.process("user123", audio_content, audio_input
     print(response, end="")
 ```
 
+## Realtime Audio (WebSocket)
+
+Stream live audio in/out with transcripts, voice selection, VAD, and automatic tool calls. Mobile clients (e.g., expo-audio) can send MP4/AAC; the server can transcode and optionally emit AAC back.
+
+### Config
+
+Add a `realtime` section to your config. Voice can be set via `openai.voice` or `business.voice`.
+
+```json
+{
+    "openai": { "api_key": "your-openai-api-key", "voice": "nova" },
+    "realtime": {
+        "enabled": true,
+        "model": "gpt-4o-realtime-preview-2024-12-17",
+        "vad": true,
+        "input_rate_hz": 24000,
+        "output_rate_hz": 24000,
+        "input_mime": "audio/pcm",
+        "output_mime": "audio/pcm",
+        "accept_compressed_input": true,
+        "client_input_mime": "audio/mp4",   
+        "encode_output": true,
+        "client_output_mime": "audio/aac"   
+    },
+    "mongo": { "connection_string": "...", "database": "..." },
+    "agents": [ { "name": "default_agent", "instructions": "You are helpful.", "specialization": "general" } ]
+}
+```
+
+Notes:
+- If `accept_compressed_input` or `encode_output` is true, the server requires `ffmpeg` on PATH.
+- Supported voices include: alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer.
+- Tools assigned to the default agent are exposed to realtime and executed mid-stream automatically.
+- When MongoDB is configured, streaming turns and partial input/output transcripts are persisted automatically.
+
+### Usage
+
+```python
+from solana_agent import SolanaAgent
+
+solana_agent = SolanaAgent(config=config)
+rt = solana_agent.query_service.realtime  # RealtimeService
+
+# Start session and configure (optional: change voice/VAD/formats at runtime)
+await rt.start()
+await rt.configure(voice="nova", vad_enabled=True)
+
+# Send audio chunks
+# - If accept_compressed_input=True, send MP4/AAC bytes from clients (e.g., expo-audio)
+# - Otherwise send PCM16 bytes matching input_rate_hz
+await rt.append_audio(audio_chunk_bytes)
+await rt.commit_input()  # let the model know to respond now
+
+# Read streams (run concurrently):
+async for text in rt.iter_input_transcript():
+        print("USER:", text)
+
+async for text in rt.iter_output_transcript():
+        print("ASSISTANT:", text)
+
+# Audio out: raw PCM16 or encoded AAC depending on config
+async for audio in rt.iter_output_audio_encoded():
+        handle_audio(audio)
+
+# Optionally create a response without new audio
+await rt.create_response()
+
+await rt.stop()
+```
+
+### Mobile tips (Expo/React Native)
+- Use `accept_compressed_input=true` and `client_input_mime=audio/mp4` to send recorded MP4/AAC from mobile; the server transcodes to PCM16.
+- Use `encode_output=true` and `client_output_mime=audio/aac` to stream AAC back to mobile devices.
+- Ensure `ffmpeg` is installed on the server when transcoding is enabled.
+
 ### Image/Text Streaming
 
 ```python
