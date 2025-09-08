@@ -38,11 +38,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._ws = None
         self._event_queue = asyncio.Queue()
         self._audio_queue = asyncio.Queue()
+
         self._in_tr_queue = asyncio.Queue()
         self._out_tr_queue = asyncio.Queue()
         self._recv_task = None
         self._tool_executor = None
         self._pending_calls = {}
+        self._last_input_item_id: Optional[str] = None
 
     async def connect(self) -> None:  # pragma: no cover
         headers = [
@@ -68,21 +70,58 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
         # Configure session (instructions, tools). VAD handled per-request or defaults.
 
-        session_patch = {
+        vad_cfg = (
+            {"type": "semantic_vad", "create_response": True}
+            if self.options.vad_enabled
+            else None
+        )
+
+        # Build optional prompt block
+        prompt_block = None
+        if getattr(self.options, "prompt_id", None):
+            prompt_block = {
+                "id": self.options.prompt_id,
+            }
+            if getattr(self.options, "prompt_version", None):
+                prompt_block["version"] = self.options.prompt_version
+            if getattr(self.options, "prompt_variables", None):
+                prompt_block["variables"] = self.options.prompt_variables
+
+        # Note: keep output format as "pcm16" so downstream ffmpeg expects s16le input
+        session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                # Keep session-level config minimal per GA docs
+                "model": self.options.model or "gpt-realtime",
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": "pcm16",
+                        "turn_detection": vad_cfg,  # null when VAD disabled
+                    },
+                    "output": {
+                        "format": "pcm16",
+                        "voice": self.options.voice or "nova",
+                        "speed": float(
+                            getattr(self.options, "voice_speed", 1.0) or 1.0
+                        ),
+                    },
+                },
+                # Optional server-stored prompt
+                **({"prompt": prompt_block} if prompt_block else {}),
+                # Direct overrides
                 "instructions": self.options.instructions or "",
-                # voice may be set at session init (only valid before first audio output)
-                **({"voice": self.options.voice} if self.options.voice else {}),
-                # Tools config
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,
             },
         }
-        logger.info("Realtime WS: sending session.update")
-        await self._send(session_patch)
+        logger.info(
+            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
+            self.options.voice,
+            self.options.vad_enabled,
+            session_payload["session"]["audio"]["output"]["format"],
+        )
+        await self._send(session_payload)
 
     async def close(self) -> None:  # pragma: no cover
         if self._ws:
@@ -122,7 +161,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.debug("Audio delta bytes=%d", len(chunk))
                             except Exception:
                                 pass
-                    elif etype == "response.text.delta":
+                    elif etype in ("response.text.delta", "response.output_text.delta"):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
                             delta = data.get("delta") or ""
@@ -139,6 +178,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         if delta:
                             self._out_tr_queue.put_nowait(delta)
                             logger.debug("Output transcript delta: %r", delta[:120])
+                    elif etype == "input_audio_buffer.committed":
+                        # Track the committed audio item id for OOB transcription referencing
+                        item_id = data.get("item_id") or data.get("id")
+                        if item_id:
+                            self._last_input_item_id = item_id
+                            logger.info(
+                                "Realtime WS: input_audio_buffer committed: item_id=%s",
+                                item_id,
+                            )
                     elif etype in (
                         "response.output_audio.done",
                         "response.audio.done",
@@ -155,10 +203,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     elif etype in (
                         "response.completed",
                         "response.complete",
+                        "response.done",
                     ):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "response":
-                            # Whole response completed; audio has likely finished
                             logger.info(
                                 "Realtime WS: main response completed; ending audio stream"
                             )
@@ -169,7 +217,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         elif metadata.get("type") == "transcription":
                             # Transcription completed
                             logger.info("Realtime WS: transcription response completed")
-                    elif etype == "response.text.done":
+                    elif etype in ("response.text.done", "response.output_text.done"):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
                             tr = data.get("text") or ""
@@ -302,7 +350,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
-        # First, create transcription response
+        # First, create transcription response (out-of-band)
+        input_arr = []
+        if self._last_input_item_id:
+            input_arr.append({"type": "item_reference", "id": self._last_input_item_id})
         transcription_payload = {
             "type": "response.create",
             "response": {
@@ -310,6 +361,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 "metadata": {"type": "transcription"},
                 "modalities": ["text"],
                 "instructions": "Transcribe the user's input audio accurately.",
+                **({"input": input_arr} if input_arr else {}),
             },
         }
         await self._send(transcription_payload)
@@ -328,6 +380,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         )  # lock to audio-only unless client requests text
         rp.setdefault("audio", {"voice": self.options.voice, "format": "pcm16"})
         rp.setdefault("metadata", {"type": "response"})
+        # Attach input reference so the model links this response to last audio
+        if self._last_input_item_id and "input" not in rp:
+            rp["input"] = [{"type": "item_reference", "id": self._last_input_item_id}]
         await self._send(payload)
 
     # --- Streams ---
