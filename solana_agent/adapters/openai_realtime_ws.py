@@ -262,6 +262,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             voice,
                             instr[:100] if instr else None,
                         )
+                    elif etype == "session.created":
+                        logger.info("Realtime WS: session created")
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)

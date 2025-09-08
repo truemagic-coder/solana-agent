@@ -631,9 +631,26 @@ class QueryService(QueryServiceInterface):
                 if not getattr(rt, "is_connected", lambda: False)():
                     await rt.start()
                 logger.debug("Realtime process: session started")
-                await rt.configure(
-                    voice=audio_voice,
-                    vad_enabled=vad_enabled_value,
+
+                async def _with_reconnect(coro_factory):
+                    try:
+                        return await coro_factory()
+                    except RuntimeError as e:
+                        if "WebSocket not connected" in str(e):
+                            # Attempt a fresh start once
+                            try:
+                                await rt.stop()
+                            except Exception:
+                                pass
+                            await rt.start()
+                            return await coro_factory()
+                        raise
+
+                await _with_reconnect(
+                    lambda: rt.configure(
+                        voice=audio_voice,
+                        vad_enabled=vad_enabled_value,
+                    )
                 )
 
                 async def _apply_ctx_when_ready():
@@ -667,10 +684,10 @@ class QueryService(QueryServiceInterface):
                     # If rt_encode_input=True, service will transcode using client_input_mime
                     bq = bytes(query)
                     logger.info("Realtime process: appending audio len=%d", len(bq))
-                    await rt.append_audio(bq)
+                    await _with_reconnect(lambda: rt.append_audio(bq))
                     # Commit both sessions only when VAD is disabled
                     if not vad_enabled_value:
-                        await rt.commit_input()
+                        await _with_reconnect(lambda: rt.commit_input())
                         logger.debug("Realtime process: committed input")
                     # When VAD is disabled, we must explicitly request a response
                     if not vad_enabled_value:
@@ -685,12 +702,14 @@ class QueryService(QueryServiceInterface):
                         logger.info(
                             "Realtime process: sending response.create (VAD disabled)"
                         )
-                        await rt.create_response(
-                            {
-                                "modalities": ["audio"],
-                                "instructions": instr,
-                                "audio": {"voice": audio_voice, "format": "pcm16"},
-                            }
+                        await _with_reconnect(
+                            lambda: rt.create_response(
+                                {
+                                    "modalities": ["audio"],
+                                    "instructions": instr,
+                                    "audio": {"voice": audio_voice, "format": "pcm16"},
+                                }
+                            )
                         )
 
                 # Fan-in: output audio and transcripts

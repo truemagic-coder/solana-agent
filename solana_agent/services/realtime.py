@@ -290,8 +290,19 @@ class TwinRealtimeService:
             if not self._connected:
                 return
             logger.info("TwinRealtimeService: stopping both sessions")
-            await asyncio.gather(self._conv.close(), self._trans.close())
+            try:
+                await asyncio.gather(self._conv.close(), self._trans.close())
+            finally:
+                self._connected = False
+
+    async def reconnect(self) -> None:  # pragma: no cover
+        async with self._lock:
+            try:
+                await asyncio.gather(self._conv.close(), self._trans.close())
+            except Exception:
+                pass
             self._connected = False
+            await self.start()
 
     async def configure(
         self,
@@ -423,7 +434,9 @@ class TwinRealtimeService:
         except asyncio.TimeoutError:
             logger.warning("TwinRealtimeService: no PCM within timeout; closing conv")
             try:
-                await self._conv.close()
+                # Close both sessions to ensure clean restart on next turn
+                await asyncio.gather(self._conv.close(), self._trans.close())
+                self._connected = False
             except Exception:
                 pass
             return
