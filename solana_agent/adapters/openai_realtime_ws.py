@@ -1200,6 +1200,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             cid,
                         )
                         # wait for ack or explicit error for this cid
+                        # Wait for either an ack (conversation.item.* for this call_id)
+                        # or an explicit invalid_tool_call_id error mapped to this id.
                         try:
                             ev_ack = self._fco_ack_events.get(cid)
                             if not ev_ack:
@@ -1209,24 +1211,44 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             if not ev_err:
                                 ev_err = asyncio.Event()
                                 self._fco_error_events[cid] = ev_err
-                            done, _ = await asyncio.wait(
-                                {ev_ack.wait(), ev_err.wait()},
-                                timeout=1.5 if attempt == 1 else 1.0,
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
-                            if ev_ack.is_set():
-                                acked = True
-                                break
-                            # If error fired, break to try next candidate id (if any)
-                            if ev_err.is_set():
-                                logger.error(
-                                    "Server rejected function_call_output for id=%s (invalid_tool_call_id)",
-                                    cid,
+
+                            ack_task = asyncio.create_task(ev_ack.wait())
+                            err_task = asyncio.create_task(ev_err.wait())
+                            try:
+                                done, pending = await asyncio.wait(
+                                    {ack_task, err_task},
+                                    timeout=2.0 if attempt == 1 else 1.5,
+                                    return_when=asyncio.FIRST_COMPLETED,
                                 )
-                                break
+                                if ack_task in done and bool(ack_task.result()):
+                                    acked = True
+                                    # Cancel the other waiter if still pending
+                                    if err_task in pending:
+                                        err_task.cancel()
+                                    break
+                                if err_task in done and bool(err_task.result()):
+                                    logger.error(
+                                        "Server rejected function_call_output for id=%s (invalid_tool_call_id)",
+                                        cid,
+                                    )
+                                    if ack_task in pending:
+                                        ack_task.cancel()
+                                    break
+                                # Timeout: will retry or try next candidate
+                            finally:
+                                for t in (ack_task, err_task):
+                                    if not t.done():
+                                        t.cancel()
                         except asyncio.TimeoutError:
-                            # Loop will retry or move to next candidate
+                            # Loop will retry or move to next candidate on timeout
                             pass
+                        except Exception:
+                            # Do not escalate to outer handler; log and allow retry/fallback
+                            logger.exception(
+                                "Ack/error wait raised; will retry or fallback (id=%s, attempt=%d)",
+                                cid,
+                                attempt,
+                            )
                     if acked:
                         break
                 if not acked:
