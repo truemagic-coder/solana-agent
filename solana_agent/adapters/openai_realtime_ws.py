@@ -111,7 +111,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         },
                         "output": {
                             "format": "pcm16",
-                            "voice": self._rt_voice(self.options.voice),
+                            "voice": self.options.voice,
                             "speed": float(
                                 getattr(self.options, "voice_speed", 1.0) or 1.0
                             ),
@@ -424,7 +424,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             audio = dict((patch.get("audio") or {}))
             output = dict((audio.get("output") or {}))
             if "voice" in output:
-                output["voice"] = self._rt_voice(output.get("voice"))
+                output["voice"] = output.get("voice")
             if output:
                 audio["output"] = output
             if audio:
@@ -533,9 +533,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         rp.setdefault(
             "modalities", ["audio"]
         )  # lock to audio-only unless client requests text
-        rp.setdefault(
-            "audio", {"voice": self._rt_voice(self.options.voice), "format": "pcm16"}
-        )
+        rp.setdefault("audio", {"voice": self.options.voice, "format": "pcm16"})
         rp.setdefault("metadata", {"type": "response"})
         # Attach input reference so the model links this response to last audio
         if self._last_input_item_id and "input" not in rp:
@@ -623,7 +621,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     "response": {
                         "modalities": ["audio"],
                         "audio": {
-                            "voice": self._rt_voice(self.options.voice),
+                            "voice": self.options.voice,
                             "format": "pcm16",
                         },
                         "metadata": {"type": "response"},
@@ -649,7 +647,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response": {
                             "modalities": ["audio"],
                             "audio": {
-                                "voice": self._rt_voice(self.options.voice),
+                                "voice": self.options.voice,
                                 "format": "pcm16",
                             },
                             "metadata": {"type": "response"},
