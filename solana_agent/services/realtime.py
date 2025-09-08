@@ -399,6 +399,11 @@ class TwinRealtimeService:
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
         # Only conversation session creates assistant responses
+        # Request transcription text on the transcription session first, then the main audio response on conversation
+        try:
+            await self._trans.create_response({"modalities": ["text"]})
+        except Exception:
+            pass
         await self._conv.create_response(response_patch)
 
     # --- Streams ---
@@ -450,3 +455,9 @@ class TwinRealtimeService:
 
     def iter_output_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._conv.iter_output_transcript()
+
+    def iter_transcription_events(
+        self,
+    ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
+        # Expose transcription session events for completion detection
+        return self._trans.iter_events()

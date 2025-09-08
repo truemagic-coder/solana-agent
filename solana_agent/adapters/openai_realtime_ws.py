@@ -477,14 +477,15 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
             "type": "transcription_session.update",
             "input_audio_format": "pcm16",
             "input_audio_transcription": {
-                "model": getattr(self.options, "transcribe_model", None) or "whisper-1",
+                "model": getattr(self.options, "transcribe_model", None)
+                or "gpt-4o-mini-transcribe",
                 **(
                     {"prompt": getattr(self.options, "transcribe_prompt", "")}
                     if getattr(self.options, "transcribe_prompt", None) is not None
                     else {}
                 ),
                 **(
-                    {"language": getattr(self.options, "transcribe_language", "")}
+                    {"language": getattr(self.options, "transcribe_language", "en")}
                     if getattr(self.options, "transcribe_language", None) is not None
                     else {}
                 ),
@@ -526,13 +527,25 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
                                 "Transcription WS: input_audio_buffer committed: item_id=%s",
                                 self._last_input_item_id,
                             )
-                    elif etype == "conversation.item.input_audio_transcription.delta":
+                    elif (
+                        etype == "conversation.item.input_audio_transcription.delta"
+                        or etype == "input_audio_transcription.delta"
+                        or (
+                            isinstance(etype, str)
+                            and etype.endswith("input_audio_transcription.delta")
+                        )
+                    ):
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
                             logger.info("Transcription delta: %r", delta[:120])
                     elif (
                         etype == "conversation.item.input_audio_transcription.completed"
+                        or etype == "input_audio_transcription.completed"
+                        or (
+                            isinstance(etype, str)
+                            and etype.endswith("input_audio_transcription.completed")
+                        )
                     ):
                         tr = data.get("transcript") or ""
                         if tr:
@@ -565,7 +578,7 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
         await self._send({"type": "input_audio_buffer.append", "audio": b64})
-        logger.debug("Transcription WS: appended bytes=%d", len(pcm16_bytes))
+        logger.info("Transcription WS: appended bytes=%d", len(pcm16_bytes))
 
     async def commit_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.commit"})
