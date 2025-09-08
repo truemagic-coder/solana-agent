@@ -269,14 +269,18 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         self._event_queue.put_nowait(data)
                     except Exception:
                         pass
-                    # Handle tool/function calls automatically if provided by server events
-                    if etype == "response.function_call.delta":
+                    # Handle tool/function calls (support GA and legacy shapes)
+                    if etype in (
+                        "response.function_call.delta",
+                        "response.function_call_arguments.delta",
+                    ):
                         # Accumulate arguments by call id
-                        # The OpenAI Realtime server emits function call deltas; we buffer by call_id
                         call = data.get("function_call", {})
                         call_id = call.get("id") or data.get("id")
                         name = call.get("name")
-                        arguments_delta = call.get("arguments_delta", "")
+                        arguments_delta = call.get("arguments_delta", "") or call.get(
+                            "arguments", ""
+                        )
                         if not hasattr(self, "_pending_calls"):
                             self._pending_calls = {}
                         pc = self._pending_calls.setdefault(
@@ -287,59 +291,47 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         if arguments_delta:
                             pc["args"] += arguments_delta
                         logger.debug(
-                            "Function call delta: id=%s name=%s args_len=%d",
+                            "Function call args delta: id=%s name=%s args_len=%d",
                             call_id,
                             name,
                             len(pc.get("args", "")),
                         )
                     elif etype == "response.function_call":
-                        # Finalize call and execute
+                        # Finalize and execute (legacy summary event)
                         call = data.get("function_call", {})
                         call_id = call.get("id") or data.get("id")
-                        pc = getattr(self, "_pending_calls", {}).pop(call_id, None)
-                        if pc and self._tool_executor and pc.get("name"):
-                            try:
-                                logger.info(
-                                    "Executing tool: id=%s name=%s",
-                                    call_id,
-                                    pc.get("name"),
-                                )
-                                args = pc.get("args") or "{}"
-                                try:
-                                    parsed = json.loads(args)
-                                except Exception:
-                                    parsed = {}
-                                result = await self._tool_executor(pc["name"], parsed)
-                                await self._send(
-                                    {
-                                        "type": "response.function_call.output",
-                                        "function_call": {
-                                            "id": call_id,
-                                            "output": json.dumps(result),
-                                        },
+                        if not hasattr(self, "_pending_calls"):
+                            self._pending_calls = {}
+                        self._pending_calls.setdefault(
+                            call_id,
+                            {
+                                "name": call.get("name"),
+                                "args": call.get("arguments", ""),
+                            },
+                        )
+                        await self._execute_pending_call(call_id)
+                    elif etype in (
+                        "response.done",
+                        "response.completed",
+                        "response.complete",
+                    ):
+                        # Also detect GA function_call items in response.output
+                        try:
+                            out_items = data.get("response", {}).get("output", [])
+                            for item in out_items:
+                                if item.get("type") == "function_call":
+                                    call_id = item.get("call_id") or item.get("id")
+                                    name = item.get("name")
+                                    args = item.get("arguments") or "{}"
+                                    if not hasattr(self, "_pending_calls"):
+                                        self._pending_calls = {}
+                                    self._pending_calls[call_id] = {
+                                        "name": name,
+                                        "args": args,
                                     }
-                                )
-                                logger.info("Tool result sent: id=%s", call_id)
-                            except Exception:
-                                # Send minimal failure output to avoid stalling the stream
-                                try:
-                                    await self._send(
-                                        {
-                                            "type": "response.function_call.output",
-                                            "function_call": {
-                                                "id": call_id,
-                                                "output": json.dumps(
-                                                    {"error": "tool_execution_failed"}
-                                                ),
-                                            },
-                                        }
-                                    )
-                                    logger.warning(
-                                        "Tool execution failed; failure output sent: id=%s",
-                                        call_id,
-                                    )
-                                except Exception:
-                                    pass
+                                    await self._execute_pending_call(call_id)
+                        except Exception:
+                            pass
                 except Exception:
                     continue
         except Exception:
@@ -434,6 +426,77 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor
+
+    # --- Internal helpers for GA tool execution ---
+    async def _execute_pending_call(self, call_id: Optional[str]) -> None:
+        if not call_id:
+            return
+        pc = getattr(self, "_pending_calls", {}).pop(call_id, None)
+        if not pc or not self._tool_executor or not pc.get("name"):
+            return
+        try:
+            logger.info("Executing tool: id=%s name=%s", call_id, pc.get("name"))
+            args = pc.get("args") or "{}"
+            try:
+                parsed = json.loads(args)
+            except Exception:
+                parsed = {}
+            result = await self._tool_executor(pc["name"], parsed)
+            # Provide tool result back as conversation.item.create per GA, then resume with audio response
+            await self._send(
+                {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps(result),
+                    },
+                }
+            )
+            await self._send(
+                {
+                    "type": "response.create",
+                    "response": {
+                        "modalities": ["audio"],
+                        "audio": {
+                            "voice": self.options.voice or "nova",
+                            "format": "pcm16",
+                        },
+                        "metadata": {"type": "response"},
+                    },
+                }
+            )
+            logger.info("Tool result delivered; continuing response (audio)")
+        except Exception:
+            try:
+                await self._send(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({"error": "tool_execution_failed"}),
+                        },
+                    }
+                )
+                await self._send(
+                    {
+                        "type": "response.create",
+                        "response": {
+                            "modalities": ["audio"],
+                            "audio": {
+                                "voice": self.options.voice or "nova",
+                                "format": "pcm16",
+                            },
+                            "metadata": {"type": "response"},
+                        },
+                    }
+                )
+                logger.warning(
+                    "Tool execution failed; sent error output and resumed response"
+                )
+            except Exception:
+                pass
 
 
 class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
