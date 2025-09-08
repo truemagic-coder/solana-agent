@@ -521,6 +521,11 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
                     logger.debug("Transcription WS recv: %s", etype)
                     if etype == "input_audio_buffer.committed":
                         self._last_input_item_id = data.get("item_id") or data.get("id")
+                        if self._last_input_item_id:
+                            logger.info(
+                                "Transcription WS: input_audio_buffer committed: item_id=%s",
+                                self._last_input_item_id,
+                            )
                     elif etype == "conversation.item.input_audio_transcription.delta":
                         delta = data.get("delta") or ""
                         if delta:
@@ -560,9 +565,11 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
         await self._send({"type": "input_audio_buffer.append", "audio": b64})
+        logger.debug("Transcription WS: appended bytes=%d", len(pcm16_bytes))
 
     async def commit_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.commit"})
+        logger.info("Transcription WS: input_audio_buffer.commit sent")
 
     async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})

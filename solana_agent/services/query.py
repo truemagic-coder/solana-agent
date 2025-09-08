@@ -415,45 +415,13 @@ class QueryService(QueryServiceInterface):
         try:
             # Shortcut: realtime path (model = gpt-realtime) with WS session per call
             if realtime:
-                # Build full context first (transcribe if needed, guardrails, memory, KB, routing, capture context)
-                user_text_ctx = ""
-                if not isinstance(query, str):
-                    logger.info(
-                        f"Realtime: received audio input, pre-transcribing for context (format: {audio_input_format})"
-                    )
-                    try:
-                        async for (
-                            frag
-                        ) in self.agent_service.llm_provider.transcribe_audio(
-                            query, audio_input_format
-                        ):
-                            user_text_ctx += frag
-                    except Exception as te:
-                        logger.warning(f"Realtime: pre-transcription failed: {te}")
-                        user_text_ctx = ""
-                else:
-                    user_text_ctx = query
+                # Realtime mode: no HTTP STT, no multi-agent routing. Single agent only.
+                # If query is text, we can pass it as context; for audio, rely on WS transcription only.
+                user_text_ctx = query if isinstance(query, str) else ""
 
-                # Input guardrails for context text
-                original_ctx_text = user_text_ctx
-                for guardrail in self.input_guardrails:
-                    try:
-                        user_text_ctx = await guardrail.process(user_text_ctx)
-                    except Exception as e:
-                        logger.debug(f"Realtime guardrail error: {e}")
-                if user_text_ctx != original_ctx_text:
-                    logger.info(
-                        "Realtime: guardrails modified context text length from %d to %d",
-                        len(original_ctx_text or ""),
-                        len(user_text_ctx or ""),
-                    )
-
-                # Determine agent (sticky/routing)
-                agent_name = "default"
+                # Pick a single agent without LLM routing. Prefer sticky, else 'default'.
+                agent_name = self._get_sticky_agent(user_id) or "default"
                 prev_assistant = ""
-                routing_input = user_text_ctx or (
-                    query if isinstance(query, str) else ""
-                )
                 if self.memory_provider:
                     try:
                         prev_docs = self.memory_provider.find(
@@ -463,93 +431,72 @@ class QueryService(QueryServiceInterface):
                             limit=1,
                         )
                         if prev_docs:
-                            prev_user_msg = (prev_docs[0] or {}).get(
-                                "user_message", ""
-                            ) or ""
                             prev_assistant = (prev_docs[0] or {}).get(
                                 "assistant_message", ""
                             ) or ""
-                            if prev_user_msg and (user_text_ctx or routing_input):
-                                base = user_text_ctx or routing_input
-                                routing_input = f"previous_user_message: {prev_user_msg}\ncurrent_user_message: {base}"
                     except Exception:
                         pass
 
-                agents = self.agent_service.get_all_ai_agents() or {}
-                available_agent_names = list(agents.keys())
-                try:
-                    (
-                        switch_requested,
-                        requested_agent_raw,
-                        start_new,
-                    ) = await self._detect_switch_intent(
-                        routing_input, available_agent_names
-                    )
-                except Exception:
-                    switch_requested, requested_agent_raw, start_new = (
-                        False,
-                        None,
-                        False,
-                    )
+                # Compute context/instructions and tools in the background to avoid blocking WS start
+                ctx_ready = asyncio.Event()
+                ctx_result: Dict[str, Any] = {
+                    "final_instructions": audio_instructions or "",
+                    "initial_tools": [],
+                }
 
-                requested_agent = None
-                if requested_agent_raw:
-                    raw_lower = requested_agent_raw.lower()
-                    for a in available_agent_names:
-                        if a.lower() == raw_lower or raw_lower in a.lower():
-                            requested_agent = a
-                            break
-
-                sticky_agent = self._get_sticky_agent(user_id)
-                if sticky_agent and not switch_requested:
-                    agent_name = sticky_agent
-                else:
+                async def _compute_ctx_and_tools():
                     try:
-                        if start_new:
-                            self._clear_sticky_agent(user_id)
-                        if requested_agent:
-                            agent_name = requested_agent
-                        else:
-                            if router:
-                                agent_name = await router.route_query(routing_input)
-                            else:
-                                agent_name = await self.routing_service.route_query(
-                                    routing_input
-                                )
+                        (
+                            combined_ctx,
+                            required_complete,
+                        ) = await self._build_combined_context(
+                            user_id=user_id,
+                            user_text=user_text_ctx,
+                            agent_name=agent_name,
+                            capture_name=capture_name,
+                            capture_schema=capture_schema,
+                            prev_assistant=prev_assistant,
+                        )
+                        try:
+                            self._update_sticky_required_complete(
+                                user_id, required_complete
+                            )
+                        except Exception:
+                            pass
                     except Exception:
-                        agent_name = next(iter(agents.keys())) if agents else "default"
-                    self._set_sticky_agent(user_id, agent_name, required_complete=False)
+                        combined_ctx = ""
+                    # Gather initial tools (can be done lazily)
+                    try:
+                        initial_tools = [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": t["name"],
+                                    "description": t.get("description", ""),
+                                    "parameters": t.get("parameters", {}),
+                                    "strict": True,
+                                },
+                            }
+                            for t in self.agent_service.get_agent_tools(agent_name)
+                        ]
+                    except Exception:
+                        initial_tools = []
 
-                # Build combined context
-                (
-                    combined_context,
-                    required_complete,
-                ) = await self._build_combined_context(
-                    user_id=user_id,
-                    user_text=user_text_ctx,
-                    agent_name=agent_name,
-                    capture_name=capture_name,
-                    capture_schema=capture_schema,
-                    prev_assistant=prev_assistant,
-                )
+                    parts: List[str] = []
+                    if combined_ctx:
+                        parts.append(combined_ctx)
+                    if prompt:
+                        parts.append(str(prompt))
+                    if audio_instructions:
+                        parts.append(str(audio_instructions))
+                    fi = "\n\n".join([p for p in parts if p]) or (
+                        audio_instructions or ""
+                    )
+                    ctx_result["final_instructions"] = fi
+                    ctx_result["initial_tools"] = initial_tools
+                    ctx_ready.set()
 
-                # Update sticky session completion flag
-                try:
-                    self._update_sticky_required_complete(user_id, required_complete)
-                except Exception:
-                    pass
-
-                # Build final instructions: context first, then optional prompt override, then audio style guidance
-                final_instructions_parts: List[str] = []
-                if combined_context:
-                    final_instructions_parts.append(combined_context)
-                if prompt:
-                    final_instructions_parts.append(str(prompt))
-                if audio_instructions:
-                    final_instructions_parts.append(str(audio_instructions))
-                final_instructions = "\n\n".join(
-                    [p for p in final_instructions_parts if p]
-                ) or (audio_instructions or "")
+                asyncio.create_task(_compute_ctx_and_tools())
 
                 # Late import to avoid hard dependency when unused
                 from solana_agent.adapters.openai_realtime_ws import (
@@ -571,23 +518,7 @@ class QueryService(QueryServiceInterface):
                 if not api_key:
                     raise ValueError("OpenAI API key is required for realtime")
 
-                # Gather initial tool schemas from selected agent
-                initial_tools: List[Dict[str, Any]] = []
-                try:
-                    initial_tools = [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": t["name"],
-                                "description": t.get("description", ""),
-                                "parameters": t.get("parameters", {}),
-                                "strict": True,
-                            },
-                        }
-                        for t in self.agent_service.get_agent_tools(agent_name)
-                    ]
-                except Exception:
-                    initial_tools = []
+                # (Realtime) Tool schemas will be gathered in background alongside context
 
                 # Map audio_* formats to MIME for client transport when encoding is requested
                 def _mime_from(fmt: str) -> str:
@@ -610,13 +541,13 @@ class QueryService(QueryServiceInterface):
                 opts = RealtimeSessionOptions(
                     model="gpt-realtime",
                     voice=audio_voice,
-                    instructions=final_instructions,
+                    instructions="",  # set later via configure when ctx is ready
                     vad_enabled=True if vad is None else vad,
                     input_rate_hz=24000,
                     output_rate_hz=24000,
                     input_mime="audio/pcm",
                     output_mime="audio/pcm",
-                    tools=initial_tools or None,
+                    tools=None,  # set later when ctx/tools computed
                     tool_choice="auto",
                 )
                 # Dedicated transcription options
@@ -679,42 +610,61 @@ class QueryService(QueryServiceInterface):
 
                 conv_session.set_tool_executor(_exec)
 
-                # Start session
+                # Start sessions ASAP, then apply context when ready
                 await rt.start()
                 logger.debug("Realtime process: session started")
-                # Update session voice/VAD if provided
                 await rt.configure(
                     voice=audio_voice,
                     vad_enabled=opts.vad_enabled,
-                    instructions=final_instructions,
                 )
+
+                async def _apply_ctx_when_ready():
+                    await ctx_ready.wait()
+                    try:
+                        await rt.configure(
+                            instructions=ctx_result.get("final_instructions") or "",
+                            tools=ctx_result.get("initial_tools") or None,
+                            tool_choice="auto",
+                        )
+                        logger.info(
+                            "Realtime process: applied context instructions and tools to session"
+                        )
+                    except Exception:
+                        pass
+
+                asyncio.create_task(_apply_ctx_when_ready())
 
                 # Persist a streaming turn if memory available
                 turn_id = await self.realtime_begin_turn(user_id)
                 logger.debug("Realtime process: began turn id=%s", turn_id)
 
                 # Send audio
-                # Keep a copy for optional fallback transcription if no realtime input transcript arrives
-                original_audio_bytes: Optional[bytes] = None
-                original_audio_fmt: Optional[str] = None
                 if isinstance(query, (bytes, bytearray)):
-                    # If rt_encode_input=True, RealtimeService will transcode using client_input_mime
+                    # If rt_encode_input=True, service will transcode using client_input_mime
                     bq = bytes(query)
-                    original_audio_bytes = bq
-                    original_audio_fmt = audio_input_format
                     logger.info("Realtime process: appending audio len=%d", len(bq))
                     await rt.append_audio(bq)
-                    await rt.commit_input()
-                    logger.debug("Realtime process: committed input")
+                    # Commit both sessions only when VAD is disabled
+                    if not opts.vad_enabled:
+                        await rt.commit_input()
+                        logger.debug("Realtime process: committed input")
                     # When VAD is disabled, we must explicitly request a response
                     if not opts.vad_enabled:
+                        # Wait a short time for context; fall back to audio_instructions if not ready
+                        try:
+                            await asyncio.wait_for(ctx_ready.wait(), timeout=1.0)
+                        except Exception:
+                            pass
+                        instr = ctx_result.get("final_instructions") or (
+                            audio_instructions or ""
+                        )
                         logger.info(
                             "Realtime process: sending response.create (VAD disabled)"
                         )
                         await rt.create_response(
                             {
                                 "modalities": ["audio"],
-                                "instructions": final_instructions,
+                                "instructions": instr,
                                 "audio": {"voice": audio_voice, "format": "pcm16"},
                             }
                         )
@@ -788,26 +738,6 @@ class QueryService(QueryServiceInterface):
                     out_task.cancel()
                     ev_task.cancel()
                     if turn_id:
-                        # Fallback transcription if no realtime input transcript arrived
-                        if (
-                            not user_tr_seen
-                            and original_audio_bytes is not None
-                            and original_audio_fmt is not None
-                        ):
-                            logger.warning(
-                                "Realtime process: no realtime input transcript deltas received; running fallback transcription"
-                            )
-                            fallback_text = ""
-                            async for (
-                                frag
-                            ) in self.agent_service.llm_provider.transcribe_audio(
-                                original_audio_bytes, original_audio_fmt
-                            ):
-                                fallback_text += frag
-                            if fallback_text:
-                                await self.realtime_update_user(
-                                    user_id, turn_id, fallback_text
-                                )
                         try:
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:

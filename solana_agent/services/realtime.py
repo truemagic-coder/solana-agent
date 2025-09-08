@@ -386,6 +386,12 @@ class TwinRealtimeService:
     async def commit_input(self) -> None:  # pragma: no cover
         await asyncio.gather(self._conv.commit_input(), self._trans.commit_input())
 
+    async def commit_conversation(self) -> None:  # pragma: no cover
+        await self._conv.commit_input()
+
+    async def commit_transcription(self) -> None:  # pragma: no cover
+        await self._trans.commit_input()
+
     async def clear_input(self) -> None:  # pragma: no cover
         await asyncio.gather(self._conv.clear_input(), self._trans.clear_input())
 
