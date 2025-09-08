@@ -16,6 +16,24 @@ class SolanaAgent(ABC):
         message: Union[str, bytes],
         prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
+        capture_schema: Optional[Dict[str, Any]] = None,
+        capture_name: Optional[str] = None,
+        realtime: bool = False,
+        vad: bool = False,
+        rt_encode_input: bool = False,
+        rt_encode_output: bool = False,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -28,7 +46,6 @@ class SolanaAgent(ABC):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",

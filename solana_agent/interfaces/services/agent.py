@@ -41,7 +41,6 @@ class AgentService(ABC):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",

@@ -258,7 +258,6 @@ class AgentService(AgentServiceInterface):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
@@ -276,7 +275,6 @@ class AgentService(AgentServiceInterface):
                 if output_format == "audio":
                     async for chunk in self.llm_provider.tts(
                         error_msg,
-                        instructions=audio_instructions,
                         response_format=audio_output_format,
                         voice=audio_voice,
                     ):
@@ -339,7 +337,6 @@ class AgentService(AgentServiceInterface):
                         text=cleaned_audio_buffer,
                         voice=audio_voice,
                         response_format=audio_output_format,
-                        instructions=audio_instructions,
                     ):
                         yield audio_chunk
                 else:
@@ -457,7 +454,6 @@ class AgentService(AgentServiceInterface):
                         text=cleaned_audio_buffer,
                         voice=audio_voice,
                         response_format=audio_output_format,
-                        instructions=audio_instructions,
                     ):
                         yield audio_chunk
                 else:
@@ -479,7 +475,6 @@ class AgentService(AgentServiceInterface):
                     error_msg,
                     voice=audio_voice,
                     response_format=audio_output_format,
-                    instructions=audio_instructions,
                 ):
                     yield chunk
             else:

@@ -15,6 +15,18 @@ class QueryService(ABC):
         user_id: str,
         query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -27,7 +39,6 @@ class QueryService(ABC):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",

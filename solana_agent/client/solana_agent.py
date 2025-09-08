@@ -57,6 +57,18 @@ class SolanaAgent(SolanaAgentInterface):
         vad: Optional[bool] = False,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -69,7 +81,6 @@ class SolanaAgent(SolanaAgentInterface):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
@@ -87,8 +98,14 @@ class SolanaAgent(SolanaAgentInterface):
             message: Text message or audio bytes
             prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
+            capture_schema: Optional Pydantic schema for structured output
+            capture_name: Optional name for structured output capture
+            realtime: Whether to use realtime (WebSocket) processing
+            vad: Whether to use voice activity detection (for audio input)
+            rt_encode_input: Whether to re-encode input audio for compatibility
+            rt_encode_output: Whether to re-encode output audio for compatibility
+            rt_voice: Voice to use for realtime audio output
             audio_voice: Voice to use for audio output
-            audio_instructions: Not used in this version
             audio_output_format: Audio output format
             audio_input_format: Audio input format
             router: Optional routing service for processing
@@ -107,8 +124,8 @@ class SolanaAgent(SolanaAgentInterface):
             vad=vad,
             rt_encode_input=rt_encode_input,
             rt_encode_output=rt_encode_output,
+            rt_voice=rt_voice,
             audio_voice=audio_voice,
-            audio_instructions=audio_instructions,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
             prompt=prompt,

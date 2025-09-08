@@ -389,6 +389,18 @@ class QueryService(QueryServiceInterface):
         vad: Optional[bool] = None,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -401,7 +413,6 @@ class QueryService(QueryServiceInterface):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
@@ -506,11 +517,7 @@ class QueryService(QueryServiceInterface):
                     parts.append(combined_ctx)
                 if prompt:
                     parts.append(str(prompt))
-                if audio_instructions:
-                    parts.append(str(audio_instructions))
-                final_instructions = "\n\n".join([p for p in parts if p]) or (
-                    audio_instructions or ""
-                )
+                final_instructions = "\n\n".join([p for p in parts if p])
 
                 # 4) Open a single WS session for assistant audio
                 from solana_agent.adapters.openai_realtime_ws import (
@@ -521,7 +528,6 @@ class QueryService(QueryServiceInterface):
                 )
                 from solana_agent.services.realtime import RealtimeService
                 from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
-                from solana_agent.utils.realtime_voice import normalize_realtime_voice
 
                 api_key = None
                 try:
@@ -563,11 +569,9 @@ class QueryService(QueryServiceInterface):
                 async with self._rt_lock:
                     rt = self._rt_services.get(user_id)
                     if not rt or not isinstance(rt, RealtimeService):
-                        # Normalize voice to realtime-supported set (internal)
-                        v_norm = normalize_realtime_voice(audio_voice)
                         opts = RealtimeSessionOptions(
                             model="gpt-realtime",
-                            voice=v_norm,
+                            voice=rt_voice,
                             vad_enabled=False,  # no input audio
                             input_rate_hz=24000,
                             output_rate_hz=24000,
@@ -764,7 +768,6 @@ class QueryService(QueryServiceInterface):
                         text=greeting,
                         voice=audio_voice,
                         response_format=audio_output_format,
-                        instructions=audio_instructions,
                     ):
                         yield chunk
                 else:
@@ -1252,7 +1255,6 @@ class QueryService(QueryServiceInterface):
                     output_format="audio",
                     audio_voice=audio_voice,
                     audio_output_format=audio_output_format,
-                    audio_instructions=audio_instructions,
                     prompt=prompt,
                 ):
                     yield audio_chunk
