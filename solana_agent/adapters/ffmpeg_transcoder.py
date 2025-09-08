@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List
+from typing import List, AsyncGenerator
 
 from solana_agent.interfaces.providers.audio import AudioTranscoder
 
@@ -91,6 +91,33 @@ class FFmpegTranscoder(AudioTranscoder):
             rate_hz,
             len(pcm16_bytes),
         )
+        if output_mime in ("audio/mpeg", "audio/mp3"):
+            # Encode to MP3 (often better streaming compatibility on mobile)
+            args = [
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(rate_hz),
+                "-i",
+                "pipe:0",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "128k",
+                "-f",
+                "mp3",
+                "pipe:1",
+            ]
+            out = await self._run_ffmpeg(args, pcm16_bytes)
+            logger.info(
+                "Encoded from PCM16 to %s: output_len=%d", output_mime, len(out)
+            )
+            return out
         if output_mime in ("audio/aac", "audio/mp4", "audio/m4a"):
             # Encode to AAC in ADTS stream; clients can play it as AAC.
             args = [
@@ -121,3 +148,119 @@ class FFmpegTranscoder(AudioTranscoder):
         # Default: passthrough
         logger.info("Encode passthrough (no change), output_len=%d", len(pcm16_bytes))
         return pcm16_bytes
+
+    async def stream_from_pcm16(  # pragma: no cover
+        self,
+        pcm_iter: AsyncGenerator[bytes, None],
+        output_mime: str,
+        rate_hz: int,
+        read_chunk_size: int = 4096,
+    ) -> AsyncGenerator[bytes, None]:
+        """Start a single continuous encoder and stream encoded audio chunks.
+
+        - Launches one ffmpeg subprocess for the entire response.
+        - Feeds PCM16LE mono bytes from pcm_iter into stdin.
+        - Yields encoded bytes from stdout as they become available.
+        """
+        if output_mime in ("audio/mpeg", "audio/mp3"):
+            args = [
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(rate_hz),
+                "-i",
+                "pipe:0",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "128k",
+                "-f",
+                "mp3",
+                "pipe:1",
+            ]
+        elif output_mime in ("audio/aac", "audio/mp4", "audio/m4a"):
+            args = [
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(rate_hz),
+                "-i",
+                "pipe:0",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-f",
+                "adts",
+                "pipe:1",
+            ]
+        else:
+            # Passthrough streaming: just yield input
+            async for chunk in pcm_iter:
+                yield chunk
+            return
+
+        logger.info("FFmpeg(stream): starting args=%s", args)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        assert proc.stdin is not None and proc.stdout is not None
+
+        async def _writer():
+            try:
+                async for pcm in pcm_iter:
+                    if not pcm:
+                        continue
+                    proc.stdin.write(pcm)
+                    # Backpressure
+                    await proc.stdin.drain()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug("FFmpeg(stream) writer error: %s", str(e))
+            finally:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+
+        writer_task = asyncio.create_task(_writer())
+
+        try:
+            while True:
+                chunk = await proc.stdout.read(read_chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            # Ensure writer is done
+            if not writer_task.done():
+                writer_task.cancel()
+                try:
+                    await writer_task
+                except Exception:
+                    pass
+            # Drain remaining stderr and check return code
+            try:
+                stderr = await proc.stderr.read() if proc.stderr else b""
+                code = await proc.wait()
+                if code != 0:
+                    err = (stderr or b"").decode("utf-8", errors="ignore")
+                    logger.error("FFmpeg(stream) failed (code=%s): %s", code, err[:2000])
+            except Exception:
+                pass

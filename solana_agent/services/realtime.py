@@ -198,19 +198,18 @@ class RealtimeService:
     async def iter_output_audio_encoded(
         self,
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
-        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime (e.g., AAC)."""
-        async for chunk in self._session.iter_output_audio():
-            if self._encode_output and self._transcoder:
-                encoded = await self._transcoder.from_pcm16(
-                    chunk, self._client_output_mime, self._options.output_rate_hz
-                )
-                logger.debug(
-                    "RealtimeService.iter_output_audio_encoded: encoded %d -> %d",
-                    len(chunk),
-                    len(encoded),
-                )
-                yield encoded
-            else:
+        """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime using a single continuous encoder."""
+        if self._encode_output and self._transcoder:
+            async def pcm_iter():
+                async for c in self._session.iter_output_audio():
+                    yield c
+
+            async for out in self._transcoder.stream_from_pcm16(
+                pcm_iter(), self._client_output_mime, self._options.output_rate_hz
+            ):
+                yield out
+        else:
+            async for chunk in self._session.iter_output_audio():
                 yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
