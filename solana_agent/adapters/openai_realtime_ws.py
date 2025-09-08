@@ -372,25 +372,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})
+        # Reset last input reference and commit event to avoid stale references
+        try:
+            self._last_input_item_id = None
+            self._commit_evt = asyncio.Event()
+        except Exception:
+            pass
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
-        # If we have input audio, create an out-of-band transcription response first.
-        # Otherwise, skip (e.g., when using HTTP STT and conversation-only WS).
-        if self._last_input_item_id:
-            input_arr = [{"type": "item_reference", "id": self._last_input_item_id}]
-            transcription_payload = {
-                "type": "response.create",
-                "response": {
-                    "conversation": "none",
-                    "metadata": {"type": "transcription"},
-                    "modalities": ["text"],
-                    "instructions": "Transcribe the user's input audio accurately.",
-                    "input": input_arr,
-                },
-            }
-            await self._send(transcription_payload)
+        # Wait briefly for commit event so we can reference the latest audio item when applicable
+        if not self._last_input_item_id:
+            try:
+                await asyncio.wait_for(self._commit_evt.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
 
         # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
@@ -408,6 +405,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Attach input reference so the model links this response to last audio
         if self._last_input_item_id and "input" not in rp:
             rp["input"] = [{"type": "item_reference", "id": self._last_input_item_id}]
+        try:
+            has_ref = bool(self._last_input_item_id)
+            logger.info("Realtime WS: sending response.create (input_ref=%s)", has_ref)
+        except Exception:
+            pass
         await self._send(payload)
 
     # --- Streams ---
