@@ -19,10 +19,7 @@ from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.services.knowledge_base import KnowledgeBaseService
-from solana_agent.services.realtime import RealtimeService
-from solana_agent.adapters.openai_realtime_ws import OpenAIRealtimeWebSocketSession
-from solana_agent.interfaces.providers.realtime import RealtimeSessionOptions
-from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+# Realtime is now managed per-call in QueryService.process; no factory wiring
 
 # Repository imports
 from solana_agent.repositories.memory import MemoryRepository
@@ -316,119 +313,6 @@ class SolanaAgentFactory:
                 logger.exception(f"Failed to initialize Knowledge Base: {e}")
                 knowledge_base = None  # Ensure KB is None if init fails
 
-        # Optional: Realtime setup
-        realtime_service = None
-        rt_cfg = config.get("realtime") or {}
-        if isinstance(rt_cfg, dict) and rt_cfg.get("enabled"):
-            # Validate voice support when realtime enabled
-            supported_voices = {
-                "alloy",
-                "ash",
-                "ballad",
-                "coral",
-                "echo",
-                "fable",
-                "onyx",
-                "nova",
-                "sage",
-                "shimmer",
-            }
-            desired_voice = (
-                config.get("business", {}).get("voice")
-                or config.get("openai", {}).get("voice")
-                or "nova"
-            )
-            if desired_voice not in supported_voices:
-                raise ValueError(
-                    f"Realtime enabled but unsupported voice '{desired_voice}'. Supported: {sorted(supported_voices)}"
-                )
-
-            api_key = config.get("openai", {}).get("api_key")
-            if not api_key:
-                raise ValueError(
-                    "Realtime requires OpenAI API key in config.openai.api_key"
-                )
-
-            # Build initial tools for the default agent (if present)
-            default_agent_name = None
-            try:
-                default_agent_name = next(
-                    (a.get("name") for a in config.get("agents", []) if a.get("name")),
-                    None,
-                )
-            except Exception:
-                default_agent_name = None
-
-            initial_tools = []
-            if default_agent_name:
-                try:
-                    initial_tools = [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": t["name"],
-                                "description": t.get("description", ""),
-                                "parameters": t.get("parameters", {}),
-                                "strict": True,
-                            },
-                        }
-                        for t in agent_service.get_agent_tools(default_agent_name)
-                    ]
-                except Exception:
-                    initial_tools = []
-
-            session_opts = RealtimeSessionOptions(
-                model=rt_cfg.get("model") or "gpt-4o-realtime-preview-2024-12-17",
-                voice=desired_voice,
-                vad_enabled=bool(rt_cfg.get("vad", True)),
-                input_rate_hz=int(rt_cfg.get("input_rate_hz", 24000)),
-                output_rate_hz=int(rt_cfg.get("output_rate_hz", 24000)),
-                input_mime=rt_cfg.get("input_mime", "audio/pcm"),
-                output_mime=rt_cfg.get("output_mime", "audio/pcm"),
-                instructions=config.get("business", {}).get("mission") or None,
-                tools=initial_tools or None,
-                tool_choice="auto",
-            )
-            session = OpenAIRealtimeWebSocketSession(
-                api_key=api_key, options=session_opts
-            )
-            # Optional transcoder for mobile input/output
-            transcoder = None
-            accept_compressed_input = bool(rt_cfg.get("accept_compressed_input", False))
-            client_input_mime = rt_cfg.get("client_input_mime", "audio/mp4")
-            encode_output = bool(rt_cfg.get("encode_output", False))
-            client_output_mime = rt_cfg.get("client_output_mime", "audio/aac")
-            if accept_compressed_input or encode_output:
-                transcoder = FFmpegTranscoder()
-
-            realtime_service = RealtimeService(
-                session=session,
-                options=session_opts,
-                transcoder=transcoder,
-                accept_compressed_input=accept_compressed_input,
-                client_input_mime=client_input_mime,
-                encode_output=encode_output,
-                client_output_mime=client_output_mime,
-            )
-
-            # Auto-wire tool executor to run mid-stream function calls
-            async def _rt_tool_exec(
-                tool_name: str, args: Dict[str, Any]
-            ) -> Dict[str, Any]:
-                # Use default agent for permissions; fall back to first or 'default'
-                agent_name = default_agent_name or "default"
-                try:
-                    return await agent_service.execute_tool(
-                        agent_name, tool_name, args or {}
-                    )
-                except Exception as e:
-                    return {"status": "error", "message": str(e)}
-
-            try:
-                session.set_tool_executor(_rt_tool_exec)
-            except Exception:
-                pass
-
         # Create and return the query service
         query_service = QueryService(
             agent_service=agent_service,
@@ -438,9 +322,5 @@ class SolanaAgentFactory:
             kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
             input_guardrails=input_guardrails,
         )
-
-        # Attach realtime service if created
-        if realtime_service:
-            setattr(query_service, "realtime", realtime_service)
 
         return query_service

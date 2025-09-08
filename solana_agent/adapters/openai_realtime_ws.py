@@ -45,7 +45,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._pending_calls = {}
 
     async def connect(self) -> None:  # pragma: no cover
-        headers = [("Authorization", f"Bearer {self.api_key}")]
+        headers = [
+            ("Authorization", f"Bearer {self.api_key}"),
+            ("OpenAI-Beta", "realtime=v1"),
+        ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
         self._ws = await websockets.connect(uri, extra_headers=headers, max_size=None)

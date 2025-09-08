@@ -56,6 +56,7 @@ class OpenAIAdapter(LLMProvider):
     """OpenAI implementation of LLMProvider with web search capabilities."""
 
     def __init__(self, api_key: str, logfire_api_key: Optional[str] = None):
+        self.api_key = api_key
         self.client = AsyncOpenAI(api_key=api_key)
 
         self.logfire = False
@@ -75,6 +76,10 @@ class OpenAIAdapter(LLMProvider):
         self.tts_model = DEFAULT_TTS_MODEL
         self.embedding_model = DEFAULT_EMBEDDING_MODEL
         self.embedding_dimensions = DEFAULT_EMBEDDING_DIMENSIONS
+
+    def get_api_key(self) -> Optional[str]:  # pragma: no cover
+        """Return the API key used to configure the OpenAI client."""
+        return getattr(self, "api_key", None)
 
     async def tts(
         self,

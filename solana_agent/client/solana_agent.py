@@ -52,6 +52,11 @@ class SolanaAgent(SolanaAgentInterface):
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
+        # Realtime (WebSocket) options — used when realtime=True
+        realtime: bool = False,
+        vad: Optional[bool] = None,
+        rt_encode_input: bool = False,
+        rt_encode_output: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -98,6 +103,10 @@ class SolanaAgent(SolanaAgentInterface):
             query=message,
             images=images,
             output_format=output_format,
+            realtime=realtime,
+            vad=vad,
+            rt_encode_input=rt_encode_input,
+            rt_encode_output=rt_encode_output,
             audio_voice=audio_voice,
             audio_instructions=audio_instructions,
             audio_output_format=audio_output_format,

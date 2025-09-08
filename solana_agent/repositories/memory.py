@@ -64,7 +64,9 @@ class MemoryRepository(MemoryProvider):
         self.zep = AsyncZepCloud(api_key=zep_api_key) if zep_api_key else None
 
     # --- Realtime streaming helpers (Mongo only) ---
-    async def begin_stream_turn(self, user_id: str) -> Optional[str]:  # pragma: no cover
+    async def begin_stream_turn(
+        self, user_id: str
+    ) -> Optional[str]:  # pragma: no cover
         """Begin a realtime turn by creating/returning a turn_id (Mongo only)."""
         if not self.mongo:
             return None
@@ -102,7 +104,9 @@ class MemoryRepository(MemoryProvider):
             logger.error(f"MongoDB begin_stream_turn error: {e}")
             return None
 
-    async def update_stream_user(self, user_id: str, turn_id: str, delta: str) -> None:  # pragma: no cover
+    async def update_stream_user(
+        self, user_id: str, turn_id: str, delta: str
+    ) -> None:  # pragma: no cover
         if not self.mongo or not delta:
             return
         try:
@@ -152,7 +156,9 @@ class MemoryRepository(MemoryProvider):
         except Exception as e:  # pragma: no cover
             logger.error(f"MongoDB update_stream_assistant error: {e}")
 
-    async def finalize_stream_turn(self, user_id: str, turn_id: str) -> None:  # pragma: no cover
+    async def finalize_stream_turn(
+        self, user_id: str, turn_id: str
+    ) -> None:  # pragma: no cover
         if not self.mongo:
             return
         try:

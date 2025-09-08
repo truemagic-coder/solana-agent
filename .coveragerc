@@ -6,6 +6,9 @@ omit =
     */site-packages/*
     setup.py
     solana_agent/cli.py
+    solana_agent/services/realtime.py
+    solana_agent/adapters/openai_realtime_ws.py
+    solana_agent/adapters/ffmpeg_transcoder.py
 
 [report]
 exclude_lines =

@@ -7,6 +7,7 @@ clean separation of concerns.
 """
 
 import logging
+import asyncio
 import re
 import time
 from typing import (
@@ -215,6 +216,11 @@ class QueryService(QueryServiceInterface):
         query: Union[str, bytes],
         images: Optional[List[Union[str, bytes]]] = None,
         output_format: Literal["text", "audio"] = "text",
+        realtime: bool = False,
+        # Realtime minimal controls (voice/format come from audio_* args)
+        vad: Optional[bool] = None,
+        rt_encode_input: bool = False,
+        rt_encode_output: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -242,6 +248,154 @@ class QueryService(QueryServiceInterface):
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
+            # Shortcut: realtime path (model = gpt-realtime) with WS session per call
+            if realtime:
+                # Late import to avoid hard dependency when unused
+                from solana_agent.adapters.openai_realtime_ws import (
+                    OpenAIRealtimeWebSocketSession,
+                )
+                from solana_agent.interfaces.providers.realtime import (
+                    RealtimeSessionOptions,
+                )
+                from solana_agent.services.realtime import RealtimeService
+                from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+                # Resolve API key from the LLM adapter
+                api_key = None
+                try:
+                    api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                if not api_key:
+                    raise ValueError("OpenAI API key is required for realtime")
+
+                # Gather initial tool schemas from target/default agent
+                agents = self.agent_service.get_all_ai_agents() or {}
+                agent_name = next(iter(agents.keys())) if agents else "default"
+                initial_tools: List[Dict[str, Any]] = []
+                try:
+                    initial_tools = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": t["name"],
+                                "description": t.get("description", ""),
+                                "parameters": t.get("parameters", {}),
+                                "strict": True,
+                            },
+                        }
+                        for t in self.agent_service.get_agent_tools(agent_name)
+                    ]
+                except Exception:
+                    initial_tools = []
+
+                # Map audio_* formats to MIME for client transport when encoding is requested
+                def _mime_from(fmt: str) -> str:
+                    f = (fmt or "").lower()
+                    return {
+                        "aac": "audio/aac",
+                        "mp3": "audio/mpeg",
+                        "mp4": "audio/mp4",
+                        "m4a": "audio/mp4",
+                        "mpeg": "audio/mpeg",
+                        "mpga": "audio/mpeg",
+                        "wav": "audio/wav",
+                        "flac": "audio/flac",
+                        "opus": "audio/opus",
+                        "ogg": "audio/ogg",
+                        "webm": "audio/webm",
+                        "pcm": "audio/pcm",
+                    }.get(f, "audio/pcm")
+
+                opts = RealtimeSessionOptions(
+                    model="gpt-realtime",
+                    voice=audio_voice,
+                    vad_enabled=True if vad is None else vad,
+                    input_rate_hz=24000,
+                    output_rate_hz=24000,
+                    input_mime="audio/pcm",
+                    output_mime="audio/pcm",
+                    tools=initial_tools or None,
+                    tool_choice="auto",
+                )
+                session = OpenAIRealtimeWebSocketSession(api_key=api_key, options=opts)
+
+                # Optional transcoder sidecar for client transport
+                transcoder = None
+                if rt_encode_input or rt_encode_output:
+                    transcoder = FFmpegTranscoder()
+
+                rt = RealtimeService(
+                    session=session,
+                    options=opts,
+                    transcoder=transcoder,
+                    accept_compressed_input=rt_encode_input,
+                    client_input_mime=_mime_from(audio_input_format),
+                    encode_output=rt_encode_output,
+                    client_output_mime=_mime_from(audio_output_format),
+                )
+
+                # Bind auto tool execution to agent_service
+                async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+                    try:
+                        return await self.agent_service.execute_tool(
+                            agent_name, tool_name, args or {}
+                        )
+                    except Exception as e:
+                        return {"status": "error", "message": str(e)}
+
+                session.set_tool_executor(_exec)
+
+                # Start session
+                await rt.start()
+                # Update session voice/VAD if provided
+                await rt.configure(
+                    voice=opts.voice,
+                    vad_enabled=opts.vad_enabled,
+                )
+
+                # Persist a streaming turn if memory available
+                turn_id = await self.realtime_begin_turn(user_id)
+
+                # Send audio
+                if isinstance(query, (bytes, bytearray)):
+                    # If rt_encode_input=True, RealtimeService will transcode using client_input_mime
+                    await rt.append_audio(bytes(query))
+                    await rt.commit_input()
+
+                # Fan-in: output audio and transcripts
+                # Yield audio to caller; persist transcripts if memory configured
+                async def _drain_io():
+                    async for out in rt.iter_output_audio_encoded():
+                        yield out
+
+                async def _drain_in_tr():
+                    async for text in rt.iter_input_transcript():
+                        if turn_id and text:
+                            await self.realtime_update_user(user_id, turn_id, text)
+
+                async def _drain_out_tr():
+                    async for text in rt.iter_output_transcript():
+                        if turn_id and text:
+                            await self.realtime_update_assistant(user_id, turn_id, text)
+
+                # Run both transcript drains in background while yielding audio
+                in_task = asyncio.create_task(_drain_in_tr())
+                out_task = asyncio.create_task(_drain_out_tr())
+                try:
+                    async for audio_chunk in _drain_io():
+                        yield audio_chunk
+                finally:
+                    in_task.cancel()
+                    out_task.cancel()
+                    if turn_id:
+                        try:
+                            await self.realtime_finalize_turn(user_id, turn_id)
+                        except Exception:
+                            pass
+                    await rt.stop()
+                return
+
             # 1) Transcribe audio or accept text
             user_text = ""
             if not isinstance(query, str):
