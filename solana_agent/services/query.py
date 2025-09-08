@@ -521,15 +521,14 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     combined_ctx = ""
                 try:
+                    # GA Realtime expects flattened tool definitions (no nested "function" object)
                     initial_tools = [
                         {
                             "type": "function",
-                            "function": {
-                                "name": t["name"],
-                                "description": t.get("description", ""),
-                                "parameters": t.get("parameters", {}),
-                                "strict": True,
-                            },
+                            "name": t["name"],
+                            "description": t.get("description", ""),
+                            "parameters": t.get("parameters", {}),
+                            "strict": True,
                         }
                         for t in self.agent_service.get_agent_tools(agent_name)
                     ]
@@ -691,17 +690,13 @@ class QueryService(QueryServiceInterface):
                     vad_enabled_value = bool(vad) if vad is not None else False
                     if not vad_enabled_value:
                         await rt.commit_input()
-                    await rt.create_response(
-                        {
-                            "modalities": ["audio"],
-                            "audio": {"voice": audio_voice, "format": "pcm16"},
-                        }
-                    )
+                    # Do not override session voice at response level; rely on session voice
+                    await rt.create_response({"modalities": ["audio"]})
                 else:
+                    # Rely on configured session voice; attach input_text only
                     await rt.create_response(
                         {
                             "modalities": ["audio"],
-                            "audio": {"voice": audio_voice, "format": "pcm16"},
                             "input": [{"type": "input_text", "text": user_text or ""}],
                         }
                     )

@@ -97,67 +97,67 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             if getattr(self.options, "prompt_variables", None):
                 prompt_block["variables"] = self.options.prompt_variables
 
-            # Note: keep output format as "pcm16" so downstream ffmpeg expects s16le input
-            session_payload: Dict[str, Any] = {
-                "type": "session.update",
-                "session": {
-                    "type": "realtime",
-                    "model": self.options.model or "gpt-realtime",
-                    "output_modalities": ["audio", "text"],
-                    "audio": {
-                        "input": {
-                            "format": "pcm16",
-                            "turn_detection": vad_cfg,  # null when VAD disabled
-                        },
-                        "output": {
-                            "format": "pcm16",
-                            "voice": self.options.voice,
-                            "speed": float(
-                                getattr(self.options, "voice_speed", 1.0) or 1.0
-                            ),
-                        },
+        # Note: keep output format as "pcm16" so downstream ffmpeg expects s16le input
+        session_payload: Dict[str, Any] = {
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "model": self.options.model or "gpt-realtime",
+                "output_modalities": ["audio", "text"],
+                "audio": {
+                    "input": {
+                        "format": "pcm16",
+                        "turn_detection": vad_cfg,  # null when VAD disabled
                     },
-                    # Optional server-stored prompt
-                    **({"prompt": prompt_block} if prompt_block else {}),
-                    # Direct overrides
-                    "instructions": self.options.instructions or "",
-                    "tools": self.options.tools or [],
-                    "tool_choice": self.options.tool_choice,
+                    "output": {
+                        "format": "pcm16",
+                        "voice": self.options.voice,
+                        "speed": float(
+                            getattr(self.options, "voice_speed", 1.0) or 1.0
+                        ),
+                    },
                 },
-            }
+                # Optional server-stored prompt
+                **({"prompt": prompt_block} if prompt_block else {}),
+                # Direct overrides
+                "instructions": self.options.instructions or "",
+                "tools": self.options.tools or [],
+                "tool_choice": self.options.tool_choice,
+            },
+        }
+        logger.info(
+            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
+            self.options.voice,
+            self.options.vad_enabled,
+            session_payload["session"]["audio"]["output"]["format"],
+        )
+        # Log exact session.update payload and mark awaiting session.updated
+        try:
             logger.info(
-                "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
-                self.options.voice,
-                self.options.vad_enabled,
-                session_payload["session"]["audio"]["output"]["format"],
+                "Realtime WS: sending session.update payload=%s",
+                json.dumps(session_payload.get("session", {}), sort_keys=True),
             )
-            # Log exact session.update payload and mark awaiting session.updated
-            try:
-                logger.info(
-                    "Realtime WS: sending session.update payload=%s",
-                    json.dumps(session_payload.get("session", {}), sort_keys=True),
+        except Exception:
+            pass
+        self._last_session_patch = session_payload.get("session", {})
+        self._session_updated_evt = asyncio.Event()
+        self._awaiting_session_updated = True
+        # Quick sanity warnings
+        try:
+            sess = self._last_session_patch
+            instr = sess.get("instructions")
+            voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
+            if instr is None or (isinstance(instr, str) and instr.strip() == ""):
+                logger.warning(
+                    "Realtime WS: instructions missing/empty in session.update"
                 )
-            except Exception:
-                pass
-            self._last_session_patch = session_payload.get("session", {})
-            self._session_updated_evt = asyncio.Event()
-            self._awaiting_session_updated = True
-            # Quick sanity warnings
-            try:
-                sess = self._last_session_patch
-                instr = sess.get("instructions")
-                voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
-                if instr is None or (isinstance(instr, str) and instr.strip() == ""):
-                    logger.warning(
-                        "Realtime WS: instructions missing/empty in session.update"
-                    )
-                if not voice:
-                    logger.warning(
-                        "Realtime WS: voice missing in session.update audio.output"
-                    )
-            except Exception:
-                pass
-            await self._send(session_payload)
+            if not voice:
+                logger.warning(
+                    "Realtime WS: voice missing in session.update audio.output"
+                )
+        except Exception:
+            pass
+        await self._send(session_payload)
 
     async def close(self) -> None:  # pragma: no cover
         if self._ws:
