@@ -80,29 +80,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "model": model,
-                "output_modalities": ["audio"],
+                "modalities": ["text", "audio"],
                 "instructions": self.options.instructions or "",
-                "input_audio_transcription": {
-                    "model": "gpt-4o-mini-transcribe",
-                    "language": "en",
-                },
+                "voice": self.options.voice,
+                "input_audio_format": "pcm16",
+                "output_audio_format": "pcm16",
+                "temperature": self.options.temperature,
+                "max_response_output_tokens": self.options.max_response_output_tokens,
+                "turn_detection": turn_detection,
                 "tools": self.options.tools or [],
                 "tool_choice": self.options.tool_choice,
-                "audio": {
-                    "input": {
-                        "format": "pcm16",
-                        "turn_detection": turn_detection,
-                    },
-                    "output": {
-                        "format": "pcm16",
-                        "voice": self.options.voice,
-                        "speed": 1.0,
-                    },
-                },
             },
         }
-        logger.debug("Sending session.update: %s", session_patch)
+        logger.info("Realtime WS: sending session.update")
         await self._send(session_patch)
 
     async def close(self) -> None:  # pragma: no cover
@@ -143,16 +133,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 logger.debug("Audio delta bytes=%d", len(chunk))
                             except Exception:
                                 pass
-                    elif etype in (
-                        "conversation.item.input_audio_transcription.delta",
-                        "response.input_audio_transcription.delta",
-                    ):
-                        delta = data.get("delta") or ""
-                        if delta:
-                            self._in_tr_queue.put_nowait(delta)
-                            logger.info("Input transcript delta: %r", delta[:120])
-                        else:
-                            logger.debug("Input transcript delta: empty")
+                    elif etype == "response.text.delta":
+                        metadata = data.get("response", {}).get("metadata", {})
+                        if metadata.get("type") == "transcription":
+                            delta = data.get("delta") or ""
+                            if delta:
+                                self._in_tr_queue.put_nowait(delta)
+                                logger.info("Input transcript delta: %r", delta[:120])
+                            else:
+                                logger.debug("Input transcript delta: empty")
                     elif etype in (
                         "response.output_audio_transcript.delta",
                         "response.audio_transcript.delta",
@@ -178,29 +167,34 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response.completed",
                         "response.complete",
                     ):
-                        # Whole response completed; audio has likely finished, but transcripts may still arrive
-                        logger.info(
-                            "Realtime WS: response completed; awaiting any remaining transcription events"
-                        )
-                        try:
-                            self._audio_queue.put_nowait(None)
-                        except Exception:
-                            pass
-                        # Do not close here; allow outer code to close after draining
-                    elif (
-                        etype == "conversation.item.input_audio_transcription.completed"
-                    ):
-                        # Push final transcript string if present
-                        tr = data.get("transcript") or ""
-                        if tr:
+                        metadata = data.get("response", {}).get("metadata", {})
+                        if metadata.get("type") == "response":
+                            # Whole response completed; audio has likely finished
+                            logger.info(
+                                "Realtime WS: main response completed; ending audio stream"
+                            )
                             try:
-                                self._in_tr_queue.put_nowait(tr)
-                                logger.debug("Input transcript completed: %r", tr[:120])
+                                self._audio_queue.put_nowait(None)
                             except Exception:
                                 pass
+                        elif metadata.get("type") == "transcription":
+                            # Transcription completed
+                            logger.info("Realtime WS: transcription response completed")
+                    elif etype == "response.text.done":
+                        metadata = data.get("response", {}).get("metadata", {})
+                        if metadata.get("type") == "transcription":
+                            tr = data.get("text") or ""
+                            if tr:
+                                try:
+                                    self._in_tr_queue.put_nowait(tr)
+                                    logger.debug(
+                                        "Input transcript completed: %r", tr[:120]
+                                    )
+                                except Exception:
+                                    pass
                     elif etype == "session.updated":
                         sess = data.get("session", {})
-                        voice = sess.get("audio", {}).get("output", {}).get("voice")
+                        voice = sess.get("voice")
                         instr = sess.get("instructions")
                         logger.info(
                             "Realtime WS: session updated: voice=%s, instructions=%s",
@@ -319,6 +313,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
+        # First, create transcription response
+        transcription_payload = {
+            "type": "response.create",
+            "response": {
+                "conversation": "none",
+                "metadata": {"type": "transcription"},
+                "modalities": ["text"],
+                "instructions": "Transcribe the user's input audio accurately.",
+            },
+        }
+        await self._send(transcription_payload)
+
+        # Then, create main response
         payload: Dict[str, Any] = {"type": "response.create"}
         if response_patch:
             payload["response"] = response_patch
@@ -326,10 +333,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if "response" not in payload:
             payload["response"] = {}
         rp = payload["response"]
+        rp.setdefault("conversation", "none")
         rp.setdefault(
             "modalities", ["audio"]
         )  # lock to audio-only unless client requests text
         rp.setdefault("audio", {"voice": self.options.voice, "format": "pcm16"})
+        rp.setdefault("metadata", {"type": "response"})
         await self._send(payload)
 
     # --- Streams ---
