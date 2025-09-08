@@ -319,6 +319,16 @@ class QueryService(QueryServiceInterface):
                     tool_choice="auto",
                 )
                 session = OpenAIRealtimeWebSocketSession(api_key=api_key, options=opts)
+                logger.info(
+                    "Realtime process: user_id=%s, voice=%s, vad=%s, rt_encode_in=%s, rt_encode_out=%s, in_fmt=%s, out_fmt=%s",
+                    user_id,
+                    audio_voice,
+                    opts.vad_enabled,
+                    rt_encode_input,
+                    rt_encode_output,
+                    audio_input_format,
+                    audio_output_format,
+                )
 
                 # Optional transcoder sidecar for client transport
                 transcoder = None
@@ -348,6 +358,7 @@ class QueryService(QueryServiceInterface):
 
                 # Start session
                 await rt.start()
+                logger.debug("Realtime process: session started")
                 # Update session voice/VAD if provided
                 await rt.configure(
                     voice=opts.voice,
@@ -356,26 +367,39 @@ class QueryService(QueryServiceInterface):
 
                 # Persist a streaming turn if memory available
                 turn_id = await self.realtime_begin_turn(user_id)
+                logger.debug("Realtime process: began turn id=%s", turn_id)
 
                 # Send audio
                 if isinstance(query, (bytes, bytearray)):
                     # If rt_encode_input=True, RealtimeService will transcode using client_input_mime
-                    await rt.append_audio(bytes(query))
+                    bq = bytes(query)
+                    logger.info("Realtime process: appending audio len=%d", len(bq))
+                    await rt.append_audio(bq)
                     await rt.commit_input()
+                    logger.debug("Realtime process: committed input")
 
                 # Fan-in: output audio and transcripts
                 # Yield audio to caller; persist transcripts if memory configured
                 async def _drain_io():
                     async for out in rt.iter_output_audio_encoded():
+                        logger.debug(
+                            "Realtime process: yielding audio chunk len=%d", len(out)
+                        )
                         yield out
 
                 async def _drain_in_tr():
                     async for text in rt.iter_input_transcript():
+                        logger.debug(
+                            "Realtime process: input transcript delta %r", text[:120]
+                        )
                         if turn_id and text:
                             await self.realtime_update_user(user_id, turn_id, text)
 
                 async def _drain_out_tr():
                     async for text in rt.iter_output_transcript():
+                        logger.debug(
+                            "Realtime process: output transcript delta %r", text[:120]
+                        )
                         if turn_id and text:
                             await self.realtime_update_assistant(user_id, turn_id, text)
 
@@ -393,6 +417,9 @@ class QueryService(QueryServiceInterface):
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:
                             pass
+                    logger.debug(
+                        "Realtime process: finalized turn and stopping session"
+                    )
                     await rt.stop()
                 return
 

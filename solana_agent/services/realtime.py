@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from solana_agent.interfaces.providers.realtime import (
@@ -8,6 +9,8 @@ from solana_agent.interfaces.providers.realtime import (
     RealtimeSessionOptions,
 )
 from solana_agent.interfaces.providers.audio import AudioTranscoder
+
+logger = logging.getLogger(__name__)
 
 
 class RealtimeService:
@@ -46,6 +49,7 @@ class RealtimeService:
         async with self._lock:
             if self._connected:
                 return
+            logger.info("RealtimeService: starting session")
             await self._session.connect()
             self._connected = True
 
@@ -53,6 +57,7 @@ class RealtimeService:
         async with self._lock:
             if not self._connected:
                 return
+            logger.info("RealtimeService: stopping session")
             await self._session.close()
             self._connected = False
 
@@ -117,6 +122,7 @@ class RealtimeService:
             patch["tool_choice"] = tool_choice
 
         if patch:
+            logger.debug("RealtimeService.configure patch: %s", patch)
             await self._session.update_session(patch)
 
         # Update local options snapshot
@@ -145,6 +151,12 @@ class RealtimeService:
 
         This keeps the server session configured for PCM while allowing mobile clients to send MP4/AAC.
         """
+        logger.debug(
+            "RealtimeService.append_audio: len=%d, accept_compressed_input=%s, client_input_mime=%s",
+            len(chunk_bytes),
+            self._accept_compressed_input,
+            self._client_input_mime,
+        )
         if self._accept_compressed_input:
             if not self._transcoder:
                 raise ValueError(
@@ -154,14 +166,20 @@ class RealtimeService:
                 chunk_bytes, self._client_input_mime, self._options.input_rate_hz
             )
             await self._session.append_audio(pcm16)
+            logger.debug("RealtimeService.append_audio: sent PCM16 len=%d", len(pcm16))
             return
         # Default: pass-through PCM16
         await self._session.append_audio(chunk_bytes)
+        logger.debug(
+            "RealtimeService.append_audio: sent passthrough len=%d", len(chunk_bytes)
+        )
 
     async def commit_input(self) -> None:  # pragma: no cover
+        logger.debug("RealtimeService.commit_input")
         await self._session.commit_input()
 
     async def clear_input(self) -> None:  # pragma: no cover
+        logger.debug("RealtimeService.clear_input")
         await self._session.clear_input()
 
     # --- Out-of-band response (e.g., TTS without new audio) ---
@@ -183,9 +201,15 @@ class RealtimeService:
         """If encode_output is True and a transcoder exists, encode PCM16 to client_output_mime (e.g., AAC)."""
         async for chunk in self._session.iter_output_audio():
             if self._encode_output and self._transcoder:
-                yield await self._transcoder.from_pcm16(
+                encoded = await self._transcoder.from_pcm16(
                     chunk, self._client_output_mime, self._options.output_rate_hz
                 )
+                logger.debug(
+                    "RealtimeService.iter_output_audio_encoded: encoded %d -> %d",
+                    len(chunk),
+                    len(encoded),
+                )
+                yield encoded
             else:
                 yield chunk
 

@@ -51,6 +51,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
+        logger.info(
+            "Realtime WS connecting: uri=%s, input=%s@%sHz, output=%s@%sHz, voice=%s, vad=%s",
+            uri,
+            self.options.input_mime,
+            self.options.input_rate_hz,
+            self.options.output_mime,
+            self.options.output_rate_hz,
+            self.options.voice,
+            self.options.vad_enabled,
+        )
         self._ws = await websockets.connect(
             uri, additional_headers=headers, max_size=None
         )
@@ -97,6 +107,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 },
             },
         }
+        logger.debug("Sending session.update: %s", session_patch)
         await self._send(session_patch)
 
     async def close(self) -> None:  # pragma: no cover
@@ -110,7 +121,14 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def _send(self, payload: Dict[str, Any]) -> None:  # pragma: no cover
         if not self._ws:
             raise RuntimeError("WebSocket not connected")
-        await self._ws.send(json.dumps(payload))
+        try:
+            await self._ws.send(json.dumps(payload))
+        finally:
+            try:
+                ptype = payload.get("type")
+            except Exception:
+                ptype = str(type(payload))
+            logger.debug("WS send: %s", ptype)
 
     async def _recv_loop(self) -> None:  # pragma: no cover
         assert self._ws is not None
@@ -119,22 +137,27 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 try:
                     data = json.loads(raw)
                     etype = data.get("type")
+                    logger.debug("WS recv: %s", etype)
                     # Demux streams
                     if etype == "response.output_audio.delta":
                         b64 = data.get("delta") or ""
                         if b64:
                             try:
-                                self._audio_queue.put_nowait(base64.b64decode(b64))
+                                chunk = base64.b64decode(b64)
+                                self._audio_queue.put_nowait(chunk)
+                                logger.debug("Audio delta bytes=%d", len(chunk))
                             except Exception:
                                 pass
                     elif etype == "conversation.item.input_audio_transcription.delta":
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
+                            logger.debug("Input transcript delta: %r", delta[:120])
                     elif etype == "response.output_audio_transcript.delta":
                         delta = data.get("delta") or ""
                         if delta:
                             self._out_tr_queue.put_nowait(delta)
+                            logger.debug("Output transcript delta: %r", delta[:120])
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
@@ -157,6 +180,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             pc["name"] = name
                         if arguments_delta:
                             pc["args"] += arguments_delta
+                        logger.debug(
+                            "Function call delta: id=%s name=%s args_len=%d",
+                            call_id,
+                            name,
+                            len(pc.get("args", "")),
+                        )
                     elif etype == "response.function_call":
                         # Finalize call and execute
                         call = data.get("function_call", {})
@@ -164,6 +193,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         pc = getattr(self, "_pending_calls", {}).pop(call_id, None)
                         if pc and self._tool_executor and pc.get("name"):
                             try:
+                                logger.info(
+                                    "Executing tool: id=%s name=%s",
+                                    call_id,
+                                    pc.get("name"),
+                                )
                                 args = pc.get("args") or "{}"
                                 try:
                                     parsed = json.loads(args)
@@ -179,6 +213,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         },
                                     }
                                 )
+                                logger.info("Tool result sent: id=%s", call_id)
                             except Exception:
                                 # Send minimal failure output to avoid stalling the stream
                                 try:
@@ -192,6 +227,10 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                                 ),
                                             },
                                         }
+                                    )
+                                    logger.warning(
+                                        "Tool execution failed; failure output sent: id=%s",
+                                        call_id,
                                     )
                                 except Exception:
                                     pass
