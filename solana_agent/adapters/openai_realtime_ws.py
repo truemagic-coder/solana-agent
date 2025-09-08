@@ -519,7 +519,8 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
                 try:
                     data = json.loads(raw)
                     etype = data.get("type")
-                    logger.debug("Transcription WS recv: %s", etype)
+                    # Temporarily log at INFO to diagnose missing events
+                    logger.info("Transcription WS recv: %s", etype)
                     if etype == "input_audio_buffer.committed":
                         self._last_input_item_id = data.get("item_id") or data.get("id")
                         if self._last_input_item_id:
@@ -527,25 +528,25 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
                                 "Transcription WS: input_audio_buffer committed: item_id=%s",
                                 self._last_input_item_id,
                             )
-                    elif (
-                        etype == "conversation.item.input_audio_transcription.delta"
-                        or etype == "input_audio_transcription.delta"
-                        or (
-                            isinstance(etype, str)
-                            and etype.endswith("input_audio_transcription.delta")
-                        )
+                    elif etype in (
+                        "conversation.item.input_audio_transcription.delta",
+                        "input_audio_transcription.delta",
+                        "response.input_audio_transcription.delta",
+                    ) or (
+                        isinstance(etype, str)
+                        and etype.endswith("input_audio_transcription.delta")
                     ):
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
                             logger.info("Transcription delta: %r", delta[:120])
-                    elif (
-                        etype == "conversation.item.input_audio_transcription.completed"
-                        or etype == "input_audio_transcription.completed"
-                        or (
-                            isinstance(etype, str)
-                            and etype.endswith("input_audio_transcription.completed")
-                        )
+                    elif etype in (
+                        "conversation.item.input_audio_transcription.completed",
+                        "input_audio_transcription.completed",
+                        "response.input_audio_transcription.completed",
+                    ) or (
+                        isinstance(etype, str)
+                        and etype.endswith("input_audio_transcription.completed")
                     ):
                         tr = data.get("transcript") or ""
                         if tr:

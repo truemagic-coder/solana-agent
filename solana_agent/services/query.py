@@ -67,6 +67,9 @@ class QueryService(QueryServiceInterface):
         self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
         # Optional realtime service attached by factory (populated in factory)
         self.realtime = None  # type: ignore[attr-defined]
+        # Persistent realtime WS per user for push-to-talk reuse
+        self._rt_services = {}
+        self._rt_lock = asyncio.Lock()
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -538,65 +541,76 @@ class QueryService(QueryServiceInterface):
                         "pcm": "audio/pcm",
                     }.get(f, "audio/pcm")
 
-                opts = RealtimeSessionOptions(
-                    model="gpt-realtime",
-                    voice=audio_voice,
-                    instructions="",  # set later via configure when ctx is ready
-                    vad_enabled=True if vad is None else vad,
-                    input_rate_hz=24000,
-                    output_rate_hz=24000,
-                    input_mime="audio/pcm",
-                    output_mime="audio/pcm",
-                    tools=None,  # set later when ctx/tools computed
-                    tool_choice="auto",
-                )
-                # Dedicated transcription options
-                trans_opts = RealtimeSessionOptions(
-                    model="gpt-realtime",  # URL model param; transcription configured in session.update
-                    vad_enabled=opts.vad_enabled,
-                    input_rate_hz=24000,
-                    input_mime="audio/pcm",
-                )
-                # Prefer GA transcribe models; fallback to whisper-1
-                try:
-                    setattr(trans_opts, "transcribe_model", "whisper-1")
-                except Exception:
-                    pass
+                vad_enabled_value = True if vad is None else vad
 
-                # Create two sessions
-                conv_session = OpenAIRealtimeWebSocketSession(
-                    api_key=api_key, options=opts
-                )
-                trans_session = OpenAITranscriptionWebSocketSession(
-                    api_key=api_key, options=trans_opts
-                )
+                async with self._rt_lock:
+                    rt = self._rt_services.get(user_id)
+                    if not rt:
+                        # Build fresh options
+                        opts = RealtimeSessionOptions(
+                            model="gpt-realtime",
+                            voice=audio_voice,
+                            instructions="",  # set later via configure when ctx is ready
+                            vad_enabled=vad_enabled_value,
+                            input_rate_hz=24000,
+                            output_rate_hz=24000,
+                            input_mime="audio/pcm",
+                            output_mime="audio/pcm",
+                            tools=None,  # set later when ctx/tools computed
+                            tool_choice="auto",
+                        )
+                        # Dedicated transcription options
+                        trans_opts = RealtimeSessionOptions(
+                            model="gpt-realtime",  # URL model param; transcription configured in session.update
+                            vad_enabled=vad_enabled_value,
+                            input_rate_hz=24000,
+                            input_mime="audio/pcm",
+                        )
+                        # Prefer GA transcribe models and language
+                        try:
+                            setattr(
+                                trans_opts, "transcribe_model", "gpt-4o-mini-transcribe"
+                            )
+                            setattr(trans_opts, "transcribe_language", "en")
+                        except Exception:
+                            pass
+
+                        # Create two sessions
+                        conv_session = OpenAIRealtimeWebSocketSession(
+                            api_key=api_key, options=opts
+                        )
+                        trans_session = OpenAITranscriptionWebSocketSession(
+                            api_key=api_key, options=trans_opts
+                        )
+
+                        # Optional transcoder sidecar for client transport
+                        transcoder = None
+                        if rt_encode_input or rt_encode_output:
+                            transcoder = FFmpegTranscoder()
+
+                        # Twin orchestrator feeds both sessions and emits audio from conversation
+                        rt = TwinRealtimeService(
+                            conversation=conv_session,
+                            transcription=trans_session,
+                            conv_options=opts,
+                            trans_options=trans_opts,
+                            transcoder=transcoder,
+                            accept_compressed_input=rt_encode_input,
+                            client_input_mime=_mime_from(audio_input_format),
+                            encode_output=rt_encode_output,
+                            client_output_mime=_mime_from(audio_output_format),
+                        )
+                        self._rt_services[user_id] = rt
+
                 logger.info(
                     "Realtime process: user_id=%s, voice=%s, vad=%s, rt_encode_in=%s, rt_encode_out=%s, in_fmt=%s, out_fmt=%s",
                     user_id,
                     audio_voice,
-                    opts.vad_enabled,
+                    vad_enabled_value,
                     rt_encode_input,
                     rt_encode_output,
                     audio_input_format,
                     audio_output_format,
-                )
-
-                # Optional transcoder sidecar for client transport
-                transcoder = None
-                if rt_encode_input or rt_encode_output:
-                    transcoder = FFmpegTranscoder()
-
-                # Twin orchestrator feeds both sessions and emits audio from conversation
-                rt = TwinRealtimeService(
-                    conversation=conv_session,
-                    transcription=trans_session,
-                    conv_options=opts,
-                    trans_options=trans_opts,
-                    transcoder=transcoder,
-                    accept_compressed_input=rt_encode_input,
-                    client_input_mime=_mime_from(audio_input_format),
-                    encode_output=rt_encode_output,
-                    client_output_mime=_mime_from(audio_output_format),
                 )
 
                 # Bind auto tool execution to agent_service
@@ -608,14 +622,18 @@ class QueryService(QueryServiceInterface):
                     except Exception as e:
                         return {"status": "error", "message": str(e)}
 
-                conv_session.set_tool_executor(_exec)
+                # Bind to the twin service (forwards to conversation session)
+                if hasattr(rt, "set_tool_executor"):
+                    rt.set_tool_executor(_exec)
 
                 # Start sessions ASAP, then apply context when ready
-                await rt.start()
+                # Start sessions if not already connected
+                if not getattr(rt, "is_connected", lambda: False)():
+                    await rt.start()
                 logger.debug("Realtime process: session started")
                 await rt.configure(
                     voice=audio_voice,
-                    vad_enabled=opts.vad_enabled,
+                    vad_enabled=vad_enabled_value,
                 )
 
                 async def _apply_ctx_when_ready():
@@ -634,6 +652,12 @@ class QueryService(QueryServiceInterface):
 
                 asyncio.create_task(_apply_ctx_when_ready())
 
+                # Ensure clean input buffers for this turn
+                try:
+                    await rt.clear_input()
+                except Exception:
+                    pass
+
                 # Persist a streaming turn if memory available
                 turn_id = await self.realtime_begin_turn(user_id)
                 logger.debug("Realtime process: began turn id=%s", turn_id)
@@ -645,11 +669,11 @@ class QueryService(QueryServiceInterface):
                     logger.info("Realtime process: appending audio len=%d", len(bq))
                     await rt.append_audio(bq)
                     # Commit both sessions only when VAD is disabled
-                    if not opts.vad_enabled:
+                    if not vad_enabled_value:
                         await rt.commit_input()
                         logger.debug("Realtime process: committed input")
                     # When VAD is disabled, we must explicitly request a response
-                    if not opts.vad_enabled:
+                    if not vad_enabled_value:
                         # Wait a short time for context; fall back to audio_instructions if not ready
                         try:
                             await asyncio.wait_for(ctx_ready.wait(), timeout=1.0)
@@ -683,7 +707,8 @@ class QueryService(QueryServiceInterface):
                 trans_done_evt = asyncio.Event()
 
                 async def _watch_events():
-                    async for ev in rt.iter_events():
+                    # Listen on transcription events to detect completion
+                    async for ev in rt.iter_transcription_events():
                         try:
                             et = ev.get("type")
                             if (
@@ -742,10 +767,12 @@ class QueryService(QueryServiceInterface):
                             await self.realtime_finalize_turn(user_id, turn_id)
                         except Exception:
                             pass
-                    logger.debug(
-                        "Realtime process: finalized turn and stopping session"
-                    )
-                    await rt.stop()
+                    # Clear inputs for next push-to-talk; keep WS persistent
+                    try:
+                        await rt.clear_input()
+                    except Exception:
+                        pass
+                    logger.debug("Realtime process: finalized turn (persistent WS)")
                 return
 
             # 1) Transcribe audio or accept text
