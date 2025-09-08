@@ -20,7 +20,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     """OpenAI Realtime WebSocket session (server-to-server) with audio in/out.
 
     Notes:
-    - Expects PCM16 audio at configured sample rate (default 24kHz).
+    - Expects 24kHz audio.
     - Emits raw PCM16 bytes for output audio deltas.
     - Provides separate async generators for input/output transcripts.
     - You can toggle VAD via session.update and manually commit when disabled.
@@ -112,19 +112,32 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             if getattr(self.options, "prompt_variables", None):
                 prompt_block["variables"] = self.options.prompt_variables
 
-        # Note: use GA top-level schema so downstream ffmpeg expects s16le input
+        # Build session.update per docs (nested audio object)
         session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
-                "modalities": ["text", "audio"],
-                "voice": self.options.voice,
-                "speed": float(getattr(self.options, "voice_speed", 1.0) or 1.0),
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                **({"turn_detection": vad_cfg} if vad_cfg is not None else {}),
-                # Optional server-stored prompt
+                "type": "realtime",
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": self.options.input_mime or "audio/pcm",
+                            "rate": int(self.options.input_rate_hz or 24000),
+                        }
+                    },
+                    "turn_detection": vad_cfg if vad_cfg is not None else None,
+                    "output": {
+                        "format": {
+                            "type": self.options.output_mime or "audio/pcm",
+                            "rate": int(self.options.output_rate_hz or 24000),
+                        },
+                        "voice": self.options.voice,
+                        "speed": float(
+                            getattr(self.options, "voice_speed", 1.0) or 1.0
+                        ),
+                    },
+                },
                 **({"prompt": prompt_block} if prompt_block else {}),
-                # Direct overrides
                 "instructions": self.options.instructions or "",
                 **({"tools": self.options.tools} if self.options.tools else {}),
                 **(
@@ -135,10 +148,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             },
         }
         logger.info(
-            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s)",
+            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
             self.options.voice,
             self.options.vad_enabled,
-            session_payload["session"]["output_audio_format"],
+            (self.options.output_mime or "audio/pcm"),
+            int(self.options.output_rate_hz or 24000),
         )
         # Log exact session.update payload and mark awaiting session.updated
         try:
@@ -155,7 +169,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         try:
             sess = self._last_session_patch
             instr = sess.get("instructions")
-            voice = sess.get("voice")
+            voice = ((sess.get("audio") or {}).get("output") or {}).get("voice")
             if instr is None or (isinstance(instr, str) and instr.strip() == ""):
                 logger.warning(
                     "Realtime WS: instructions missing/empty in session.update"
@@ -393,8 +407,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             logger.error(
                                 "Realtime WS error event (payload dump failed)"
                             )
-                        # Legacy fallback disabled by request; do not send legacy schema
-                        # We'll rely on GA session.update and proceed based on session.created/timeouts.
+                        # No legacy fallback; rely on current config/state.
                     # Always also publish raw events
                     try:
                         self._event_queue.put_nowait(data)
@@ -484,41 +497,91 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     async def update_session(
         self, session_patch: Dict[str, Any]
     ) -> None:  # pragma: no cover
-        # Translate nested audio.* to GA top-level fields
+        # Build nested session.update per docs. Only include provided fields.
         raw = dict(session_patch or {})
         patch: Dict[str, Any] = {}
+        audio_patch: Dict[str, Any] = {}
+
         try:
-            audio = dict((raw.get("audio") or {}))
-            inp = dict((audio.get("input") or {}))
-            out = dict((audio.get("output") or {}))
-            if inp:
-                if inp.get("format"):
-                    patch["input_audio_format"] = inp.get("format")
-                if "turn_detection" in inp:
-                    patch["turn_detection"] = inp.get("turn_detection")
-            if out:
-                if out.get("format"):
-                    patch["output_audio_format"] = out.get("format")
-                if out.get("voice"):
-                    patch["voice"] = out.get("voice")
-                if out.get("speed") is not None:
-                    patch["speed"] = out.get("speed")
+            audio = dict(raw.get("audio") or {})
+            # Map top-level turn_detection to audio.turn_detection if provided
+            if "turn_detection" in raw and "turn_detection" not in audio:
+                audio["turn_detection"] = raw.get("turn_detection")
+
+            inp = dict(audio.get("input") or {})
+            out = dict(audio.get("output") or {})
+
+            # Input format
+            fmt_in = inp.get("format", raw.get("input_audio_format"))
+            if fmt_in is not None:
+                if isinstance(fmt_in, dict):
+                    audio_patch.setdefault("input", {})["format"] = fmt_in
+                else:
+                    ftype = str(fmt_in)
+                    if ftype == "pcm16":
+                        ftype = "audio/pcm"
+                    audio_patch.setdefault("input", {})["format"] = {
+                        "type": ftype,
+                        "rate": int(self.options.input_rate_hz or 24000),
+                    }
+
+            # Optional input extras
+            for key in ("noise_reduction", "transcription"):
+                if key in audio:
+                    audio_patch[key] = audio.get(key)
+
+            # Turn detection
+            if "turn_detection" in audio:
+                audio_patch["turn_detection"] = audio.get("turn_detection")
+
+            # Output format/voice/speed
+            op: Dict[str, Any] = {}
+            fmt_out = out.get("format", raw.get("output_audio_format"))
+            if fmt_out is not None:
+                if isinstance(fmt_out, dict):
+                    op["format"] = fmt_out
+                else:
+                    ftype = str(fmt_out)
+                    if ftype == "pcm16":
+                        ftype = "audio/pcm"
+                    op["format"] = {
+                        "type": ftype,
+                        "rate": int(self.options.output_rate_hz or 24000),
+                    }
+            if "voice" in out:
+                op["voice"] = out.get("voice")
+            if "speed" in out:
+                op["speed"] = out.get("speed")
+            # Convenience: allow top-level overrides
+            if "voice" in raw and "voice" not in op:
+                op["voice"] = raw.get("voice")
+            if "speed" in raw and "speed" not in op:
+                op["speed"] = raw.get("speed")
+            if op:
+                audio_patch.setdefault("output", {}).update(op)
         except Exception:
             pass
-        # Pass through known top-level fields directly
+
+        if audio_patch:
+            patch["audio"] = audio_patch
+
+        # Pass through other documented fields if present
         for k in (
+            "type",
+            "model",
+            "output_modalities",
+            "prompt",
             "instructions",
             "tools",
             "tool_choice",
-            "modalities",
-            "voice",
-            "speed",
-            "input_audio_format",
-            "output_audio_format",
-            "turn_detection",
+            "include",
+            "max_output_tokens",
+            "tracing",
+            "truncation",
         ):
-            if k in raw and raw.get(k) is not None:
+            if k in raw:
                 patch[k] = raw[k]
+
         payload = {"type": "session.update", "session": patch}
         # Mark awaiting updated and store last patch
         self._last_session_patch = patch or {}
@@ -536,9 +599,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning(
                     "Realtime WS: session.update sets empty instructions; this clears them"
                 )
-            if "voice" in self._last_session_patch and not self._last_session_patch.get(
-                "voice"
-            ):
+            out_cfg = (self._last_session_patch.get("audio") or {}).get("output") or {}
+            if "voice" in out_cfg and not out_cfg.get("voice"):
                 logger.warning("Realtime WS: session.update provides empty voice")
             if "instructions" not in self._last_session_patch:
                 logger.warning(
