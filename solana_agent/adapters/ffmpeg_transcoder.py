@@ -49,10 +49,13 @@ class FFmpegTranscoder(AudioTranscoder):
             rate_hz,
             len(audio_bytes),
         )
-        # Prefer to hint format for MP4/AAC; ffmpeg can still autodetect if hint is wrong.
+        # Prefer to hint format for common containers/codecs; ffmpeg can still autodetect if hint is wrong.
         hinted_format = None
-        if input_mime in ("audio/mp4", "audio/aac", "audio/m4a"):
+        if input_mime in ("audio/mp4", "audio/m4a"):
             hinted_format = "mp4"
+        elif input_mime in ("audio/aac",):
+            # Raw AAC is typically in ADTS stream format
+            hinted_format = "adts"
         elif input_mime in ("audio/ogg", "audio/webm"):
             hinted_format = None  # container detection is decent here
         elif input_mime in ("audio/wav", "audio/x-wav"):
