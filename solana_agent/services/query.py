@@ -7,6 +7,7 @@ clean separation of concerns.
 """
 
 import logging
+import asyncio
 import re
 import time
 from typing import (
@@ -64,6 +65,11 @@ class QueryService(QueryServiceInterface):
         # Per-user sticky sessions (in-memory)
         # { user_id: { 'agent': str, 'started_at': float, 'last_updated': float, 'required_complete': bool } }
         self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
+        # Optional realtime service attached by factory (populated in factory)
+        self.realtime = None  # type: ignore[attr-defined]
+        # Persistent realtime WS per user for push-to-talk reuse
+        self._rt_services = {}
+        self._rt_lock = asyncio.Lock()
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -88,9 +94,192 @@ class QueryService(QueryServiceInterface):
             self._sticky_sessions[user_id]["required_complete"] = required_complete
             self._sticky_sessions[user_id]["last_updated"] = time.time()
 
-    def _clear_sticky_agent(self, user_id: str) -> None:
-        if user_id in self._sticky_sessions:
-            del self._sticky_sessions[user_id]
+    async def _build_combined_context(
+        self,
+        user_id: str,
+        user_text: str,
+        agent_name: str,
+        capture_name: Optional[str] = None,
+        capture_schema: Optional[Dict[str, Any]] = None,
+        prev_assistant: str = "",
+    ) -> Tuple[str, bool]:
+        """Build combined context string and return required_complete flag."""
+        # Memory context
+        memory_context = ""
+        if self.memory_provider:
+            try:
+                memory_context = await self.memory_provider.retrieve(user_id)
+            except Exception:
+                memory_context = ""
+
+        # KB context
+        kb_context = ""
+        if self.knowledge_base:
+            try:
+                kb_results = await self.knowledge_base.query(
+                    query_text=user_text,
+                    top_k=self.kb_results_count,
+                    include_content=True,
+                    include_metadata=False,
+                )
+                if kb_results:
+                    kb_lines = [
+                        "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**"
+                    ]
+                    for i, r in enumerate(kb_results, 1):
+                        kb_lines.append(f"[{i}] {r.get('content', '').strip()}\n")
+                    kb_context = "\n".join(kb_lines)
+            except Exception:
+                kb_context = ""
+
+        # Capture context
+        capture_context = ""
+        required_complete = False
+
+        active_capture_name = capture_name
+        active_capture_schema = capture_schema
+        if not active_capture_name or not active_capture_schema:
+            try:
+                cap_cfg = self.agent_service.get_agent_capture(agent_name)
+                if cap_cfg:
+                    active_capture_name = active_capture_name or cap_cfg.get("name")
+                    active_capture_schema = active_capture_schema or cap_cfg.get(
+                        "schema"
+                    )
+            except Exception:
+                pass
+
+        if active_capture_name and isinstance(active_capture_schema, dict):
+            latest_by_name: Dict[str, Dict[str, Any]] = {}
+            if self.memory_provider:
+                try:
+                    docs = self.memory_provider.find(
+                        collection="captures",
+                        query={"user_id": user_id},
+                        sort=[("timestamp", -1)],
+                        limit=100,
+                    )
+                    for d in docs or []:
+                        name = (d or {}).get("capture_name")
+                        if not name or name in latest_by_name:
+                            continue
+                        latest_by_name[name] = {
+                            "data": (d or {}).get("data", {}) or {},
+                            "mode": (d or {}).get("mode", "once"),
+                            "agent": (d or {}).get("agent_name"),
+                        }
+                except Exception:
+                    pass
+
+            active_data = (latest_by_name.get(active_capture_name, {}) or {}).get(
+                "data", {}
+            ) or {}
+
+            def _non_empty(v: Any) -> bool:
+                if v is None:
+                    return False
+                if isinstance(v, str):
+                    s = v.strip().lower()
+                    return s not in {"", "null", "none", "n/a", "na", "undefined", "."}
+                if isinstance(v, (list, dict, tuple, set)):
+                    return len(v) > 0
+                return True
+
+            props = (active_capture_schema or {}).get("properties", {})
+            required_fields = list(
+                (active_capture_schema or {}).get("required", []) or []
+            )
+            all_fields = list(props.keys())
+            optional_fields = [f for f in all_fields if f not in set(required_fields)]
+
+            def _missing_from(data: Dict[str, Any], fields: List[str]) -> List[str]:
+                return [f for f in fields if not _non_empty(data.get(f))]
+
+            missing_required = _missing_from(active_data, required_fields)
+            missing_optional = _missing_from(active_data, optional_fields)
+
+            required_complete = len(missing_required) == 0 and len(required_fields) > 0
+
+            lines: List[str] = []
+            lines.append(
+                "CAPTURED FORM STATE (Authoritative; do not re-ask filled values):"
+            )
+            lines.append(f"- form_name: {active_capture_name}")
+
+            if active_data:
+                pairs = [f"{k}: {v}" for k, v in active_data.items() if _non_empty(v)]
+                lines.append(
+                    f"- filled_fields: {', '.join(pairs) if pairs else '(none)'}"
+                )
+            else:
+                lines.append("- filled_fields: (none)")
+
+            lines.append(
+                f"- missing_required_fields: {', '.join(missing_required) if missing_required else '(none)'}"
+            )
+            lines.append(
+                f"- missing_optional_fields: {', '.join(missing_optional) if missing_optional else '(none)'}"
+            )
+            lines.append("")
+
+            if latest_by_name:
+                lines.append("OTHER CAPTURED USER DATA (for reference):")
+                for cname, info in latest_by_name.items():
+                    if cname == active_capture_name:
+                        continue
+                    data = info.get("data", {}) or {}
+                    if data:
+                        pairs = [f"{k}: {v}" for k, v in data.items() if _non_empty(v)]
+                        lines.append(
+                            f"- {cname}: {', '.join(pairs) if pairs else '(none)'}"
+                        )
+                    else:
+                        lines.append(f"- {cname}: (none)")
+
+            if lines:
+                capture_context = "\n".join(lines) + "\n\n"
+
+        # Merge contexts
+        combined_context = ""
+        if capture_context:
+            combined_context += capture_context
+        if memory_context:
+            combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
+        if kb_context:
+            combined_context += kb_context + "\n"
+
+        guide = (
+            "PRIORITIZATION GUIDE:\n"
+            "- Prefer Captured User Data for user-specific fields.\n"
+            "- Prefer KB/tools for facts.\n"
+            "- History is for tone and continuity.\n\n"
+            "FORM FLOW RULES:\n"
+            "- Ask exactly one field per turn.\n"
+            "- If any required fields are missing, ask the next missing required field.\n"
+            "- If all required fields are filled but optional fields are missing, ask the next missing optional field.\n"
+            "- Do NOT re-ask or verify values present in Captured User Data (auto-saved, authoritative).\n"
+            "- Do NOT provide summaries until no required or optional fields are missing.\n\n"
+        )
+
+        if combined_context:
+            combined_context += guide
+        else:
+            # Diagnostics for why the context is empty
+            try:
+                logger.debug(
+                    "_build_combined_context: empty sources — memory_provider=%s, knowledge_base=%s, active_capture=%s",
+                    bool(self.memory_provider),
+                    bool(self.knowledge_base),
+                    bool(
+                        active_capture_name and isinstance(active_capture_schema, dict)
+                    ),
+                )
+            except Exception:
+                pass
+            # Provide minimal guide so realtime instructions are not blank
+            combined_context = guide
+
+        return combined_context, required_complete
 
     # LLM-backed switch intent detection (gpt-4.1-mini)
     class _SwitchIntentModel(BaseModel):
@@ -213,6 +402,23 @@ class QueryService(QueryServiceInterface):
         query: Union[str, bytes],
         images: Optional[List[Union[str, bytes]]] = None,
         output_format: Literal["text", "audio"] = "text",
+        realtime: bool = False,
+        # Realtime minimal controls (voice/format come from audio_* args)
+        vad: Optional[bool] = None,
+        rt_encode_input: bool = False,
+        rt_encode_output: bool = False,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -225,7 +431,6 @@ class QueryService(QueryServiceInterface):
             "sage",
             "shimmer",
         ] = "nova",
-        audio_instructions: str = "You speak in a friendly and helpful manner.",
         audio_output_format: Literal[
             "mp3", "opus", "aac", "flac", "wav", "pcm"
         ] = "aac",
@@ -240,6 +445,321 @@ class QueryService(QueryServiceInterface):
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
+            # Realtime request: HTTP STT for user + single WS for assistant audio
+            if realtime:
+                # 1) Launch HTTP STT in background when input is audio; don't block WS
+                is_audio_bytes = isinstance(query, (bytes, bytearray))
+                user_text = ""
+                stt_task = None
+                if is_audio_bytes:
+
+                    async def _stt_consume():
+                        txt = ""
+                        try:
+                            logger.info(
+                                f"Realtime(HTTP STT): transcribing format: {audio_input_format}"
+                            )
+                            async for (
+                                t
+                            ) in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
+                                query, audio_input_format
+                            ):
+                                txt += t
+                        except Exception as e:
+                            logger.error(f"HTTP STT error: {e}")
+                        return txt
+
+                    stt_task = asyncio.create_task(_stt_consume())
+                else:
+                    user_text = str(query)
+
+                # 2) Single agent selection (no multi-agent routing in realtime path)
+                agent_name = self._get_sticky_agent(user_id)
+                if not agent_name:
+                    try:
+                        agents = self.agent_service.get_all_ai_agents() or {}
+                        agent_name = next(iter(agents.keys())) if agents else "default"
+                    except Exception:
+                        agent_name = "default"
+                prev_assistant = ""
+                if self.memory_provider:
+                    try:
+                        prev_docs = self.memory_provider.find(
+                            collection="conversations",
+                            query={"user_id": user_id},
+                            sort=[("timestamp", -1)],
+                            limit=1,
+                        )
+                        if prev_docs:
+                            prev_assistant = (prev_docs[0] or {}).get(
+                                "assistant_message", ""
+                            ) or ""
+                    except Exception:
+                        pass
+
+                # 3) Build context + tools
+                combined_ctx = ""
+                required_complete = False
+                try:
+                    (
+                        combined_ctx,
+                        required_complete,
+                    ) = await self._build_combined_context(
+                        user_id=user_id,
+                        user_text=(user_text if not is_audio_bytes else ""),
+                        agent_name=agent_name,
+                        capture_name=capture_name,
+                        capture_schema=capture_schema,
+                        prev_assistant=prev_assistant,
+                    )
+                    try:
+                        self._update_sticky_required_complete(
+                            user_id, required_complete
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    combined_ctx = ""
+                try:
+                    # GA Realtime expects flattened tool definitions (no nested "function" object)
+                    initial_tools = [
+                        {
+                            "type": "function",
+                            "name": t["name"],
+                            "description": t.get("description", ""),
+                            "parameters": t.get("parameters", {}),
+                            "strict": True,
+                        }
+                        for t in self.agent_service.get_agent_tools(agent_name)
+                    ]
+                except Exception:
+                    initial_tools = []
+
+                # Build realtime instructions: include full agent system prompt, context, and optional prompt (no user_text)
+                system_prompt = ""
+                try:
+                    system_prompt = self.agent_service.get_agent_system_prompt(
+                        agent_name
+                    )
+                except Exception:
+                    system_prompt = ""
+
+                parts: List[str] = []
+                if system_prompt:
+                    parts.append(system_prompt)
+                if combined_ctx:
+                    parts.append(combined_ctx)
+                if prompt:
+                    parts.append(str(prompt))
+                final_instructions = "\n\n".join([p for p in parts if p])
+
+                # 4) Open a single WS session for assistant audio
+                from solana_agent.adapters.openai_realtime_ws import (
+                    OpenAIRealtimeWebSocketSession,
+                )
+                from solana_agent.interfaces.providers.realtime import (
+                    RealtimeSessionOptions,
+                )
+                from solana_agent.services.realtime import RealtimeService
+                from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+                api_key = None
+                try:
+                    api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                if not api_key:
+                    raise ValueError("OpenAI API key is required for realtime")
+
+                # Per-user persistent WS (single session)
+                def _mime_from(fmt: str) -> str:
+                    f = (fmt or "").lower()
+                    return {
+                        "aac": "audio/aac",
+                        "mp3": "audio/mpeg",
+                        "mp4": "audio/mp4",
+                        "m4a": "audio/mp4",
+                        "mpeg": "audio/mpeg",
+                        "mpga": "audio/mpeg",
+                        "wav": "audio/wav",
+                        "flac": "audio/flac",
+                        "opus": "audio/opus",
+                        "ogg": "audio/ogg",
+                        "webm": "audio/webm",
+                        "pcm": "audio/pcm",
+                    }.get(f, "audio/pcm")
+
+                # Choose output encoding automatically when non-PCM output is requested
+                encode_out = bool(
+                    rt_encode_output or (audio_output_format.lower() != "pcm")
+                )
+                # Choose input transcoding when compressed input is provided (or explicitly requested)
+                is_audio_bytes = isinstance(query, (bytes, bytearray))
+                encode_in = bool(
+                    rt_encode_input
+                    or (is_audio_bytes and audio_input_format.lower() != "pcm")
+                )
+
+                async with self._rt_lock:
+                    rt = self._rt_services.get(user_id)
+                    if not rt or not isinstance(rt, RealtimeService):
+                        opts = RealtimeSessionOptions(
+                            model="gpt-realtime",
+                            voice=rt_voice,
+                            vad_enabled=False,  # no input audio
+                            input_rate_hz=24000,
+                            output_rate_hz=24000,
+                            input_mime="audio/pcm",
+                            output_mime="audio/pcm",
+                            tools=initial_tools or None,
+                            tool_choice="auto",
+                        )
+                        # Ensure initial session.update carries instructions/voice
+                        try:
+                            opts.instructions = final_instructions
+                            opts.voice = rt_voice
+                        except Exception:
+                            pass
+                        conv_session = OpenAIRealtimeWebSocketSession(
+                            api_key=api_key, options=opts
+                        )
+                        transcoder = (
+                            FFmpegTranscoder() if (encode_in or encode_out) else None
+                        )
+                        rt = RealtimeService(
+                            session=conv_session,
+                            options=opts,
+                            transcoder=transcoder,
+                            accept_compressed_input=encode_in,
+                            client_input_mime=_mime_from(audio_input_format),
+                            encode_output=encode_out,
+                            client_output_mime=_mime_from(audio_output_format),
+                        )
+                        self._rt_services[user_id] = rt
+
+                # Tool executor
+                async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+                    try:
+                        return await self.agent_service.execute_tool(
+                            agent_name, tool_name, args or {}
+                        )
+                    except Exception as e:
+                        return {"status": "error", "message": str(e)}
+
+                # If possible, set on underlying session
+                try:
+                    if hasattr(rt, "_session"):
+                        getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+                # Connect/configure
+                if not getattr(rt, "_connected", False):
+                    await rt.start()
+                await rt.configure(
+                    voice=rt_voice,
+                    vad_enabled=bool(vad) if vad is not None else False,
+                    instructions=final_instructions,
+                    tools=initial_tools or None,
+                    tool_choice="auto",
+                )
+
+                # Ensure clean input buffers for this turn
+                try:
+                    await rt.clear_input()
+                except Exception:
+                    pass
+
+                # Persist once per turn
+                turn_id = await self.realtime_begin_turn(user_id)
+                if turn_id and user_text:
+                    try:
+                        await self.realtime_update_user(user_id, turn_id, user_text)
+                    except Exception:
+                        pass
+
+                # Feed audio into WS if audio bytes provided; else use input_text
+                if is_audio_bytes:
+                    bq = bytes(query)
+                    logger.info(
+                        "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
+                        len(bq),
+                        audio_input_format,
+                    )
+                    await rt.append_audio(bq)
+                    vad_enabled_value = bool(vad) if vad is not None else False
+                    if not vad_enabled_value:
+                        await rt.commit_input()
+                        # Manually trigger response when VAD is disabled
+                        await rt.create_response({})
+                    else:
+                        # With server VAD enabled, the model will auto-create a response at end of speech
+                        logger.debug(
+                            "Realtime: VAD enabled — skipping manual response.create"
+                        )
+                else:
+                    # Rely on configured session voice; attach input_text only
+                    await rt.create_response(
+                        {
+                            "modalities": ["audio"],
+                            "input": [{"type": "input_text", "text": user_text or ""}],
+                        }
+                    )
+
+                # Collect audio and transcripts
+                user_tr = ""
+                asst_tr = ""
+
+                async def _drain_in_tr():
+                    nonlocal user_tr
+                    async for t in rt.iter_input_transcript():
+                        if t:
+                            user_tr += t
+
+                async def _drain_out_tr():
+                    nonlocal asst_tr
+                    async for t in rt.iter_output_transcript():
+                        if t:
+                            asst_tr += t
+
+                in_task = asyncio.create_task(_drain_in_tr())
+                out_task = asyncio.create_task(_drain_out_tr())
+                try:
+                    async for audio_chunk in rt.iter_output_audio_encoded():
+                        yield audio_chunk
+                finally:
+                    in_task.cancel()
+                    out_task.cancel()
+                    # If no WS input transcript was captured, fall back to HTTP STT result
+                    if not user_tr:
+                        try:
+                            if "stt_task" in locals() and stt_task is not None:
+                                user_tr = await stt_task
+                        except Exception:
+                            pass
+                    if turn_id:
+                        try:
+                            if user_tr:
+                                await self.realtime_update_user(
+                                    user_id, turn_id, user_tr
+                                )
+                            if asst_tr:
+                                await self.realtime_update_assistant(
+                                    user_id, turn_id, asst_tr
+                                )
+                        except Exception:
+                            pass
+                        try:
+                            await self.realtime_finalize_turn(user_id, turn_id)
+                        except Exception:
+                            pass
+                    # Clear input buffer for next turn reuse
+                    try:
+                        await rt.clear_input()
+                    except Exception:
+                        pass
+                return
+
             # 1) Transcribe audio or accept text
             user_text = ""
             if not isinstance(query, str):
@@ -283,7 +803,6 @@ class QueryService(QueryServiceInterface):
                         text=greeting,
                         voice=audio_voice,
                         response_format=audio_output_format,
-                        instructions=audio_instructions,
                     ):
                         yield chunk
                 else:
@@ -771,7 +1290,6 @@ class QueryService(QueryServiceInterface):
                     output_format="audio",
                     audio_voice=audio_voice,
                     audio_output_format=audio_output_format,
-                    audio_instructions=audio_instructions,
                     prompt=prompt,
                 ):
                     yield audio_chunk
@@ -983,6 +1501,43 @@ class QueryService(QueryServiceInterface):
             )
         except Exception as e:
             logger.error(f"Store conversation error for {user_id}: {e}")
+
+    # --- Realtime persistence helpers (used by client/server using realtime service) ---
+    async def realtime_begin_turn(
+        self, user_id: str
+    ) -> Optional[str]:  # pragma: no cover
+        if not self.memory_provider:
+            return None
+        if not hasattr(self.memory_provider, "begin_stream_turn"):
+            return None
+        return await self.memory_provider.begin_stream_turn(user_id)  # type: ignore[attr-defined]
+
+    async def realtime_update_user(
+        self, user_id: str, turn_id: str, delta: str
+    ) -> None:  # pragma: no cover
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "update_stream_user"):
+            return
+        await self.memory_provider.update_stream_user(user_id, turn_id, delta)  # type: ignore[attr-defined]
+
+    async def realtime_update_assistant(
+        self, user_id: str, turn_id: str, delta: str
+    ) -> None:  # pragma: no cover
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "update_stream_assistant"):
+            return
+        await self.memory_provider.update_stream_assistant(user_id, turn_id, delta)  # type: ignore[attr-defined]
+
+    async def realtime_finalize_turn(
+        self, user_id: str, turn_id: str
+    ) -> None:  # pragma: no cover
+        if not self.memory_provider:
+            return
+        if not hasattr(self.memory_provider, "finalize_stream_turn"):
+            return
+        await self.memory_provider.finalize_stream_turn(user_id, turn_id)  # type: ignore[attr-defined]
 
     def _build_model_from_json_schema(
         self, name: str, schema: Dict[str, Any]

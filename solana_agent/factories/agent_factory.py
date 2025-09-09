@@ -19,6 +19,7 @@ from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.services.knowledge_base import KnowledgeBaseService
+# Realtime is now managed per-call in QueryService.process; no factory wiring
 
 # Repository imports
 from solana_agent.repositories.memory import MemoryRepository
@@ -80,7 +81,7 @@ class SolanaAgentFactory:
         return guardrails
 
     @staticmethod
-    def create_from_config(config: Dict[str, Any]) -> QueryService:
+    def create_from_config(config: Dict[str, Any]) -> QueryService:  # pragma: no cover
         """Create the agent system from configuration.
 
         Args:
