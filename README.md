@@ -277,6 +277,8 @@ async for response in solana_agent.process("user123", audio_content, audio_input
 
 If input and/or output is encoded (compressed) like mp4/aac then you must have `ffmpeg` installed.
 
+Due to the overhead of the router (API call) - realtime only supports a single agent setup.
+
 ```python
 from solana_agent import SolanaAgent
 

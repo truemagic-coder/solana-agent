@@ -201,6 +201,8 @@ Realtime Audio
 
 If input and/or output is encoded (compressed) like mp4/aac then you must have ffmpeg installed.
 
+Due to the overhead of the router (API call) - realtime only supports a single agent setup.
+
 .. code-block:: python
 
    from solana_agent import SolanaAgent
