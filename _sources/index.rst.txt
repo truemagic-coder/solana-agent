@@ -196,6 +196,35 @@ Audio/Text Streaming
       print(response, end="")
 
 
+Realtime Audio
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If input and/or output is encoded (compressed) like mp4/aac then you must have ffmpeg installed.
+
+Due to the overhead of the router (API call) - realtime only supports a single agent setup.
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   solana_agent = SolanaAgent(config=config)
+
+   # Example: mobile sends MP4/AAC; server encodes output to AAC
+   audio_content = await audio_file.read()  # bytes
+   async for audio_chunk in solana_agent.process(
+      "user123",                    # required
+      audio_content,                # required
+      realtime=True,                # optional (default False)
+      output_format="audio",        # required
+      vad=True,                     # enable VAD (optional)
+      rt_encode_input=True,         # accept compressed input (optional)
+      rt_encode_output=True,        # encode output for client (optional)
+      rt_voice="marin"              # the voice to use for interactions (optional)
+      audio_input_format="mp4",     # client transport (optional)
+      audio_output_format="aac"     # client transport (optional)
+   ):
+      handle_audio(audio_chunk)
+
 Image/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

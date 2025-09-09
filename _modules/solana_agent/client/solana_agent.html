@@ -127,6 +127,23 @@
         <span class="n">capture_schema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">capture_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;audio&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span>
+        <span class="c1"># Realtime (WebSocket) options — used when realtime=True</span>
+        <span class="n">realtime</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">vad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">rt_encode_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">rt_encode_output</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">rt_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
+            <span class="s2">&quot;alloy&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ash&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;ballad&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;cedar&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;coral&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;echo&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;marin&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;sage&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;shimmer&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;verse&quot;</span><span class="p">,</span>
+        <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;marin&quot;</span><span class="p">,</span>
         <span class="n">audio_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
             <span class="s2">&quot;alloy&quot;</span><span class="p">,</span>
             <span class="s2">&quot;ash&quot;</span><span class="p">,</span>
@@ -139,7 +156,6 @@
             <span class="s2">&quot;sage&quot;</span><span class="p">,</span>
             <span class="s2">&quot;shimmer&quot;</span><span class="p">,</span>
         <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;nova&quot;</span><span class="p">,</span>
-        <span class="n">audio_instructions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;You speak in a friendly and helpful manner.&quot;</span><span class="p">,</span>
         <span class="n">audio_output_format</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
             <span class="s2">&quot;mp3&quot;</span><span class="p">,</span> <span class="s2">&quot;opus&quot;</span><span class="p">,</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span> <span class="s2">&quot;flac&quot;</span><span class="p">,</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span> <span class="s2">&quot;pcm&quot;</span>
         <span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;aac&quot;</span><span class="p">,</span>
@@ -157,8 +173,14 @@
 <span class="sd">            message: Text message or audio bytes</span>
 <span class="sd">            prompt: Optional prompt for the agent</span>
 <span class="sd">            output_format: Response format (&quot;text&quot; or &quot;audio&quot;)</span>
+<span class="sd">            capture_schema: Optional Pydantic schema for structured output</span>
+<span class="sd">            capture_name: Optional name for structured output capture</span>
+<span class="sd">            realtime: Whether to use realtime (WebSocket) processing</span>
+<span class="sd">            vad: Whether to use voice activity detection (for audio input)</span>
+<span class="sd">            rt_encode_input: Whether to re-encode input audio for compatibility</span>
+<span class="sd">            rt_encode_output: Whether to re-encode output audio for compatibility</span>
+<span class="sd">            rt_voice: Voice to use for realtime audio output</span>
 <span class="sd">            audio_voice: Voice to use for audio output</span>
-<span class="sd">            audio_instructions: Not used in this version</span>
 <span class="sd">            audio_output_format: Audio output format</span>
 <span class="sd">            audio_input_format: Audio input format</span>
 <span class="sd">            router: Optional routing service for processing</span>
@@ -173,8 +195,12 @@
             <span class="n">query</span><span class="o">=</span><span class="n">message</span><span class="p">,</span>
             <span class="n">images</span><span class="o">=</span><span class="n">images</span><span class="p">,</span>
             <span class="n">output_format</span><span class="o">=</span><span class="n">output_format</span><span class="p">,</span>
+            <span class="n">realtime</span><span class="o">=</span><span class="n">realtime</span><span class="p">,</span>
+            <span class="n">vad</span><span class="o">=</span><span class="n">vad</span><span class="p">,</span>
+            <span class="n">rt_encode_input</span><span class="o">=</span><span class="n">rt_encode_input</span><span class="p">,</span>
+            <span class="n">rt_encode_output</span><span class="o">=</span><span class="n">rt_encode_output</span><span class="p">,</span>
+            <span class="n">rt_voice</span><span class="o">=</span><span class="n">rt_voice</span><span class="p">,</span>
             <span class="n">audio_voice</span><span class="o">=</span><span class="n">audio_voice</span><span class="p">,</span>
-            <span class="n">audio_instructions</span><span class="o">=</span><span class="n">audio_instructions</span><span class="p">,</span>
             <span class="n">audio_output_format</span><span class="o">=</span><span class="n">audio_output_format</span><span class="p">,</span>
             <span class="n">audio_input_format</span><span class="o">=</span><span class="n">audio_input_format</span><span class="p">,</span>
             <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
