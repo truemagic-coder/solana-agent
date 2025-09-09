@@ -279,6 +279,8 @@ If input and/or output is encoded (compressed) like mp4/aac then you must have `
 
 Due to the overhead of the router (API call) - realtime only supports a single agent setup.
 
+Realtime uses MongoDB for memory so Zep is not needed.
+
 ```python
 from solana_agent import SolanaAgent
 
