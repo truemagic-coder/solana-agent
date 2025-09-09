@@ -80,6 +80,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._last_input_item_id: Optional[str] = None
         # Response generation tracking to bind tool outputs to the active response
         self._response_generation = 0
+        # Track the currently active response.id (fallback when some events omit it)
+        self._active_response_id: Optional[str] = None
 
         # Outbound event correlation
         self._event_seq = 0
@@ -304,6 +306,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     data = json.loads(raw)
                     etype = data.get("type")
                     logger.debug("WS recv: %s", etype)
+                    # Track active response.id from any response.* event that carries it
+                    try:
+                        if isinstance(etype, str) and etype.startswith("response."):
+                            _resp = data.get("response") or {}
+                            _rid = _resp.get("id")
+                            if _rid:
+                                self._active_response_id = _rid
+                    except Exception:
+                        pass
                     # Demux streams
                     if etype in ("response.output_audio.delta", "response.audio.delta"):
                         b64 = data.get("delta") or ""
@@ -343,7 +354,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         # Capture streamed function-call arguments early and mark readiness on .done
                         try:
                             resp = data.get("response") or {}
-                            rid = resp.get("id")
+                            rid = resp.get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
                             # Many servers include call_id at top-level for these events
                             call_id = data.get("call_id") or data.get("id")
                             # Some servers include the function call item under 'item'
@@ -455,6 +468,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             self._response_active = False
                         except Exception:
                             pass
+                        try:
+                            # Clear active response id when audio for that response is done
+                            self._active_response_id = None
+                        except Exception:
+                            pass
                         # Don't break; we still want to receive input transcription events
                     elif etype in (
                         "response.completed",
@@ -467,6 +485,11 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             logger.info("Realtime WS: transcription response completed")
                         try:
                             self._response_active = False
+                        except Exception:
+                            pass
+                        try:
+                            # Response lifecycle ended; clear active id
+                            self._active_response_id = None
                         except Exception:
                             pass
                     elif etype in ("response.text.done", "response.output_text.done"):
@@ -644,7 +667,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         # Map response-scoped function_call items to response_id and ack function_call_output
                         try:
                             resp = data.get("response") or {}
-                            rid = resp.get("id")
+                            rid = resp.get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
                             item = data.get("item") or {}
                             itype = item.get("type")
                             if itype == "function_call":
@@ -1310,6 +1335,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 rid = self._call_response_ids.get(call_only_id)
                         except Exception:
                             pass
+                # Fallback: use active response id if mapping was omitted in intermediate events
+                if not rid:
+                    rid = getattr(self, "_active_response_id", None)
+                    if rid:
+                        logger.info(
+                            "Using fallback active response_id for function_call_output: call_id=%s response_id=%s",
+                            call_only_id,
+                            rid,
+                        )
                 logger.debug(
                     "function_call_output mapping: call_id=%s response_id=%s present=%s",
                     call_only_id,
