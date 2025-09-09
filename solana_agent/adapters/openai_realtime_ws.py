@@ -1263,15 +1263,26 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     float(max_age),
                 )
             else:
-                # Provide tool result back using GA-supported conversation item; let server continue
-                # Send with tracking and wait for ack (item.created) briefly; retry once if needed
-                # Prepare a list of candidate identifiers to try (primary then fallback)
+                # Provide tool result back; prefer response-scoped output to avoid conversation lookup races
+                # Send with tracking and wait for ack; retry once if needed
                 # Build candidate ways to deliver output: prefer response-scoped first
                 candidates = []
                 call_only_id = pc.get("call_id")
                 rid = None
                 if call_only_id:
+                    # Best-effort: if mapping not ready yet, wait briefly for it to appear
                     rid = self._call_response_ids.get(call_only_id)
+                    if not rid:
+                        try:
+                            t0 = asyncio.get_event_loop().time()
+                            # wait up to ~1.5s in small steps for mapping to arrive from response.* events
+                            while (
+                                not rid and (asyncio.get_event_loop().time() - t0) < 1.5
+                            ):
+                                await asyncio.sleep(0.05)
+                                rid = self._call_response_ids.get(call_only_id)
+                        except Exception:
+                            pass
                 # Candidate as response.function_call_output when response_id is known
                 if call_only_id and rid:
                     candidates.append(
