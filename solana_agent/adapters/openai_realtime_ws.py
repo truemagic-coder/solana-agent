@@ -961,9 +961,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if audio_patch:
             patch["audio"] = audio_patch
 
-        # Always include session.type in updates
-        patch["type"] = "realtime"
-
         # No top-level turn_detection
 
         def _strip_tool_strict(tools_val):
@@ -1030,7 +1027,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 )
         except Exception:
             pass
-        await self._send(payload)
+        # Use tracked send to attach an event_id and improve diagnostics
+        await self._send_tracked(payload, label="session.update:patch")
 
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
