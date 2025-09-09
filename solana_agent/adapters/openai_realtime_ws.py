@@ -1043,10 +1043,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def commit_input(self) -> None:  # pragma: no cover
         try:
-            # Skip commits while a response is active to avoid server errors
+            # If a previous response is still marked active, wait briefly, then proceed.
+            # Skipping commits here can cause new turns to reference old audio and repeat answers.
             if bool(getattr(self, "_response_active", False)):
-                logger.warning("Realtime WS: skipping commit; response active")
-                return
+                logger.warning(
+                    "Realtime WS: response active at commit; waiting briefly before proceeding"
+                )
+                for _ in range(5):  # up to ~0.5s
+                    await asyncio.sleep(0.1)
+                    if not bool(getattr(self, "_response_active", False)):
+                        break
             # Avoid overlapping commits while awaiting server ack
             if bool(getattr(self, "_commit_inflight", False)):
                 logger.warning("Realtime WS: skipping commit; commit in-flight")
