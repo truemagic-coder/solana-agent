@@ -669,6 +669,12 @@ class QueryService(QueryServiceInterface):
                     await rt.clear_input()
                 except Exception:
                     pass
+                # Also reset any leftover output audio so new turn doesn't replay old chunks
+                try:
+                    if hasattr(rt, "reset_output_stream"):
+                        rt.reset_output_stream()
+                except Exception:
+                    pass
 
                 # Persist once per turn
                 turn_id = await self.realtime_begin_turn(user_id)

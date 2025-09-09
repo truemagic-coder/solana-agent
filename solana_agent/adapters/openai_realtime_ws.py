@@ -1254,6 +1254,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
     def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor
 
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        """Drain any queued output audio and clear per-response text buffers.
+        This avoids replaying stale audio if the client failed to consume previous chunks."""
+        try:
+            while True:
+                try:
+                    _ = self._audio_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                except Exception:
+                    break
+            try:
+                self._out_text_buffers.clear()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     # Expose whether a function/tool call is currently pending
     def has_pending_tool_call(self) -> bool:  # pragma: no cover
         try:
@@ -1614,4 +1632,8 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
 
     def set_tool_executor(self, executor):  # pragma: no cover
         # Not applicable for transcription-only
+        return
+
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        # No audio output stream to reset
         return
