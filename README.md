@@ -17,7 +17,7 @@ Build your AI agents in three lines of code!
 ## Why?
 * Three lines of code setup
 * Simple Agent Definition
-* Fast & Streaming Responses
+* Streaming or Realtime Responses
 * Solana Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
@@ -96,6 +96,7 @@ Smart workflows are as easy as combining your tools and prompts.
 **OpenAI**
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
+* [gpt-realtime](https://platform.openai.com/docs/models/gpt-realtime) (realtime audio agent)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
@@ -274,6 +275,8 @@ async for response in solana_agent.process("user123", audio_content, audio_input
 
 ### Realtime Audio Streaming
 
+If input and/or output is encoded (compressed) like mp4/aac then you must have `ffmpeg` installed.
+
 ```python
 from solana_agent import SolanaAgent
 
@@ -282,26 +285,19 @@ solana_agent = SolanaAgent(config=config)
 # Example: mobile sends MP4/AAC; server encodes output to AAC
 audio_content = await audio_file.read()  # bytes
 async for audio_chunk in solana_agent.process(
-    "user123",
-    audio_content,
-    realtime=True,
-    output_format="audio",
-    # Minimal realtime flags
-    vad=True,                  # enable VAD (optional)
-    rt_encode_input=True,      # accept compressed input
-    rt_encode_output=True,     # encode output for client
-    # Voice/format selection via audio_* params
-    audio_voice="nova",
-    audio_input_format="mp4",     # client transport
-    audio_output_format="aac"     # client transport
+    "user123",                    # required
+    audio_content,                # required
+    realtime=True,                # optional (default False)
+    output_format="audio",        # required
+    vad=True,                     # enable VAD (optional)
+    rt_encode_input=True,         # accept compressed input (optional)
+    rt_encode_output=True,        # encode output for client (optional)
+    rt_voice="marin"              # the voice to use for interactions (optional)
+    audio_input_format="mp4",     # client transport (optional)
+    audio_output_format="aac"     # client transport (optional)
 ):
     handle_audio(audio_chunk)
 ```
-
-#### Mobile tips (Expo)
-- Use `rt_encode_input=True` with `audio_input_format="mp4"` to send MP4/AAC from mobile; the server transcodes to PCM16 automatically.
-- Use `rt_encode_output=True` with `audio_output_format="aac"` to stream AAC back to mobile devices.
-- Ensure `ffmpeg` is installed on the server when transcoding is enabled.
 
 ### Image/Text Streaming
 

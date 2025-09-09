@@ -65,7 +65,7 @@ async def test_stream_from_pcm16_aac(monkeypatch):
     tx = FFmpegTranscoder()
 
     async def fake_create_subprocess_exec(*cmd, **kw):
-        # Simulate streaming encoder that outputs in two reads
+        # Simulate streaming encoder that outputs in two reads (full buffer at once)
         return FakeProc(stdout=b"AAC1AAC2", stderr=b"", rc=0)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
@@ -81,3 +81,25 @@ async def test_stream_from_pcm16_aac(monkeypatch):
         out.append(chunk)
 
     assert out == [b"AAC1", b"AAC2"]
+
+
+@pytest.mark.asyncio
+async def test_stream_from_pcm16_chunking_remainder(monkeypatch):
+    tx = FFmpegTranscoder()
+
+    async def fake_create_subprocess_exec(*cmd, **kw):
+        # Output not aligned to chunk size to verify remainder flush
+        return FakeProc(stdout=b"XYZ", stderr=b"", rc=0)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    async def pcm_iter():
+        yield b"1234"
+
+    out = []
+    async for chunk in tx.stream_from_pcm16(
+        pcm_iter(), "audio/aac", 24000, read_chunk_size=2
+    ):
+        out.append(chunk)
+
+    assert out == [b"XY", b"Z"]

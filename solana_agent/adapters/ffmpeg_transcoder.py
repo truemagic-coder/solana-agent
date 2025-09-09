@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import List, AsyncGenerator
 
@@ -230,29 +231,39 @@ class FFmpegTranscoder(AudioTranscoder):
                     # Backpressure
                     await proc.stdin.drain()
             except asyncio.CancelledError:
-                raise
+                # Swallow cancellation; stdin will be closed below.
+                pass
             except Exception as e:
                 logger.debug("FFmpeg(stream) writer error: %s", str(e))
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     proc.stdin.close()
-                except Exception:
-                    pass
 
         writer_task = asyncio.create_task(_writer())
 
+        buf = bytearray()
         try:
             while True:
-                chunk = await proc.stdout.read(read_chunk_size)
-                if not chunk:
+                data = await proc.stdout.read(read_chunk_size)
+                if not data:
                     break
-                yield chunk
+                buf.extend(data)
+                # Emit fixed-size chunks even if read returns a larger blob
+                while len(buf) >= read_chunk_size:
+                    yield bytes(buf[:read_chunk_size])
+                    del buf[:read_chunk_size]
+            # Flush any remainder
+            if buf:
+                yield bytes(buf)
         finally:
             # Ensure writer is done
             if not writer_task.done():
-                writer_task.cancel()
+                with contextlib.suppress(Exception):
+                    writer_task.cancel()
                 try:
                     await writer_task
+                except asyncio.CancelledError:
+                    pass
                 except Exception:
                     pass
             # Drain remaining stderr and check return code
