@@ -1284,6 +1284,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 and max_age is not None
                 and dur > float(max_age)
             )
+            # Track whether the server acknowledged our function_call_output
+            acked = False
             if skip_output:
                 logger.warning(
                     "Skipping function_call_output; duration %.2fs exceeds max_age %.2fs",
@@ -1320,7 +1322,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         call_id,
                     )
                 else:
-                    acked = False
                     for attempt in (1, 2):
                         payload = {
                             "type": "response.function_call_output",
