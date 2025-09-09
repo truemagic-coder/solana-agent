@@ -961,9 +961,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if audio_patch:
             patch["audio"] = audio_patch
 
-        # Always include session.type in updates
-        patch["type"] = "realtime"
-
         # No top-level turn_detection
 
         def _strip_tool_strict(tools_val):
@@ -1030,7 +1027,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 )
         except Exception:
             pass
-        await self._send(payload)
+        # Use tracked send to attach an event_id and improve diagnostics
+        await self._send_tracked(payload, label="session.update:patch")
 
     async def append_audio(self, pcm16_bytes: bytes) -> None:  # pragma: no cover
         b64 = base64.b64encode(pcm16_bytes).decode("ascii")
@@ -1045,10 +1043,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     async def commit_input(self) -> None:  # pragma: no cover
         try:
-            # Skip commits while a response is active to avoid server errors
+            # If a previous response is still marked active, wait briefly, then proceed.
+            # Skipping commits here can cause new turns to reference old audio and repeat answers.
             if bool(getattr(self, "_response_active", False)):
-                logger.warning("Realtime WS: skipping commit; response active")
-                return
+                logger.warning(
+                    "Realtime WS: response active at commit; waiting briefly before proceeding"
+                )
+                for _ in range(5):  # up to ~0.5s
+                    await asyncio.sleep(0.1)
+                    if not bool(getattr(self, "_response_active", False)):
+                        break
             # Avoid overlapping commits while awaiting server ack
             if bool(getattr(self, "_commit_inflight", False)):
                 logger.warning("Realtime WS: skipping commit; commit in-flight")
@@ -1249,6 +1253,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
     def set_tool_executor(self, executor):  # pragma: no cover
         self._tool_executor = executor
+
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        """Drain any queued output audio and clear per-response text buffers.
+        This avoids replaying stale audio if the client failed to consume previous chunks."""
+        try:
+            while True:
+                try:
+                    _ = self._audio_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                except Exception:
+                    break
+            try:
+                self._out_text_buffers.clear()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     # Expose whether a function/tool call is currently pending
     def has_pending_tool_call(self) -> bool:  # pragma: no cover
@@ -1610,4 +1632,8 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
 
     def set_tool_executor(self, executor):  # pragma: no cover
         # Not applicable for transcription-only
+        return
+
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        # No audio output stream to reset
         return

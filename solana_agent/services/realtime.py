@@ -185,6 +185,13 @@ class RealtimeService:
     def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         return self._session.iter_output_audio()
 
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        try:
+            if hasattr(self._session, "reset_output_stream"):
+                self._session.reset_output_stream()
+        except Exception:
+            pass
+
     async def iter_output_audio_encoded(
         self,
     ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
@@ -446,6 +453,13 @@ class TwinRealtimeService:
 
     def iter_output_audio(self) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         return self._conv.iter_output_audio()
+
+    def reset_output_stream(self) -> None:  # pragma: no cover
+        try:
+            if hasattr(self._conv, "reset_output_stream"):
+                self._conv.reset_output_stream()
+        except Exception:
+            pass
 
     async def iter_output_audio_encoded(
         self,
