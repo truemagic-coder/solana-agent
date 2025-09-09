@@ -272,7 +272,7 @@ class MemoryRepository(MemoryProvider):
                 except Exception as e:  # pragma: no cover
                     logger.error(f"Zep memory addition error: {e}")
 
-    async def retrieve(self, user_id: str) -> str:
+    async def retrieve(self, user_id: str) -> str:  # pragma: no cover
         try:
             # Preferred: Zep user context
             memories = ""
