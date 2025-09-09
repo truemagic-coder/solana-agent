@@ -46,18 +46,20 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Tool/function state
         self._recv_task = None
         self._tool_executor = None
-        self._pending_calls: Dict[str, Dict[str, Any]] = {}
+        self._pending_calls = {}
         self._active_tool_calls = 0
         # Map call_id or item_id -> asyncio.Event when server has created the function_call item
-        self._call_ready_events: Dict[str, asyncio.Event] = {}
+        self._call_ready_events = {}
         # Track identifiers already executed to avoid duplicates
         self._executed_call_ids = set()
         # Track mapping from tool call identifiers to the originating response.id
         # Prefer addressing function_call_output to a response to avoid conversation lookup races
-        self._call_response_ids: Dict[str, str] = {}
+        self._call_response_ids = {}
         # Accumulate function call arguments when streamed
-        self._call_args_accum: Dict[str, str] = {}
-        self._call_names: Dict[str, str] = {}
+        self._call_args_accum = {}
+        self._call_names = {}
+        # Map from function_call item_id -> call_id for reliable output addressing
+        self._item_call_ids = {}
 
         # Input/response state
         self._pending_input_bytes = 0
@@ -71,17 +73,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         self._session_created_evt = asyncio.Event()
         self._session_updated_evt = asyncio.Event()
         self._awaiting_session_updated = False
-        self._last_session_patch: Dict[str, Any] = {}
-        self._last_session_updated_payload: Dict[str, Any] = {}
-        self._last_input_item_id: Optional[str] = None
+        self._last_session_patch = {}
+        self._last_session_updated_payload = {}
+        self._last_input_item_id = None
         # Response generation tracking to bind tool outputs to the active response
         self._response_generation = 0
         # Track the currently active response.id (fallback when some events omit it)
-        self._active_response_id: Optional[str] = None
+        self._active_response_id = None
+        # Accumulate assistant output text by response.id and flush on response completion
+        self._out_text_buffers = {}
 
         # Outbound event correlation
         self._event_seq = 0
-        self._sent_events: Dict[str, Dict[str, Any]] = {}
+        self._sent_events = {}
 
     async def connect(self) -> None:  # pragma: no cover
         # Defensive: ensure session events exist even if __init__ didn’t set them (older builds)
@@ -125,15 +129,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 "Realtime WS: no session.created within 1.0s; sending session.update anyway"
             )
 
-        # Configure session (instructions, tools). VAD handled per-request.
-        # Per server schema, turn_detection belongs under audio.input; set to None to disable.
-        # When VAD is disabled, explicitly set create_response to False if the server honors it
-        td_input = (
-            {"type": "server_vad", "create_response": True}
-            if self.options.vad_enabled
-            else {"type": "server_vad", "create_response": False}
-        )
-
         # Build optional prompt block
         prompt_block = None
         if getattr(self.options, "prompt_id", None):
@@ -144,6 +139,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 prompt_block["version"] = self.options.prompt_version
             if getattr(self.options, "prompt_variables", None):
                 prompt_block["variables"] = self.options.prompt_variables
+
+        # Configure session (instructions, tools). VAD handled per-request.
+        # Per server schema, turn_detection belongs under audio.input; set to None to disable.
+        # When VAD is disabled, explicitly set create_response to False if the server honors it
+        td_input = (
+            {"type": "server_vad", "create_response": True}
+            if self.options.vad_enabled
+            else {"type": "server_vad", "create_response": False}
+        )
 
         # Build session.update per docs (nested audio object)
         def _strip_tool_strict(tools_val):
@@ -409,11 +413,28 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         except Exception:
                             pass
                     elif etype == "response.output_text.delta":
-                        # Assistant text stream (not used for audio, but useful as transcript)
-                        delta = data.get("delta") or ""
-                        if delta:
-                            self._out_tr_queue.put_nowait(delta)
-                            logger.debug("Assistant text delta: %r", delta[:120])
+                        # Assistant textual output delta. Buffer per response.id.
+                        # Prefer the audio transcript stream for final transcript; only use text
+                        # deltas if no audio transcript arrives.
+                        try:
+                            rid = (data.get("response") or {}).get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
+                            delta = data.get("delta") or ""
+                            if rid and delta:
+                                buf = self._out_text_buffers.setdefault(
+                                    rid, {"text": "", "has_audio": False}
+                                )
+                                # Only accumulate text when we don't yet have audio transcript
+                                if not bool(buf.get("has_audio")):
+                                    buf["text"] = str(buf.get("text", "")) + delta
+                                    logger.debug(
+                                        "Buffered assistant text delta (rid=%s, len=%d)",
+                                        rid,
+                                        len(delta),
+                                    )
+                        except Exception:
+                            pass
                     elif etype == "conversation.item.input_audio_transcription.delta":
                         delta = data.get("delta") or ""
                         if delta:
@@ -425,10 +446,25 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response.output_audio_transcript.delta",
                         "response.audio_transcript.delta",
                     ):
-                        delta = data.get("delta") or ""
-                        if delta:
-                            self._out_tr_queue.put_nowait(delta)
-                            logger.debug("Output transcript delta: %r", delta[:120])
+                        # Assistant audio transcript delta (authoritative for spoken output)
+                        try:
+                            rid = (data.get("response") or {}).get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
+                            delta = data.get("delta") or ""
+                            if rid and delta:
+                                buf = self._out_text_buffers.setdefault(
+                                    rid, {"text": "", "has_audio": False}
+                                )
+                                buf["has_audio"] = True
+                                buf["text"] = str(buf.get("text", "")) + delta
+                                logger.debug(
+                                    "Buffered audio transcript delta (rid=%s, len=%d)",
+                                    rid,
+                                    len(delta),
+                                )
+                        except Exception:
+                            pass
                     elif etype == "input_audio_buffer.committed":
                         # Track the committed audio item id for OOB transcription referencing
                         item_id = data.get("item_id") or data.get("id")
@@ -459,6 +495,26 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         logger.info(
                             "Realtime WS: output audio done; ending audio stream"
                         )
+                        # If we have a buffered transcript for this response, flush it now
+                        try:
+                            rid = (data.get("response") or {}).get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
+                            if rid and rid in self._out_text_buffers:
+                                final = str(
+                                    self._out_text_buffers.get(rid, {}).get("text")
+                                    or ""
+                                )
+                                if final:
+                                    self._out_tr_queue.put_nowait(final)
+                                    logger.debug(
+                                        "Flushed assistant transcript on audio.done (rid=%s, len=%d)",
+                                        rid,
+                                        len(final),
+                                    )
+                                self._out_text_buffers.pop(rid, None)
+                        except Exception:
+                            pass
                         try:
                             self._audio_queue.put_nowait(None)
                         except Exception:
@@ -482,6 +538,24 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         metadata = data.get("response", {}).get("metadata", {})
                         if metadata.get("type") == "transcription":
                             logger.info("Realtime WS: transcription response completed")
+                        # Flush buffered assistant transcript, if any
+                        try:
+                            rid = (data.get("response") or {}).get("id")
+                            if rid and rid in self._out_text_buffers:
+                                final = str(
+                                    self._out_text_buffers.get(rid, {}).get("text")
+                                    or ""
+                                )
+                                if final:
+                                    self._out_tr_queue.put_nowait(final)
+                                    logger.debug(
+                                        "Flushed assistant transcript on response.done (rid=%s, len=%d)",
+                                        rid,
+                                        len(final),
+                                    )
+                                self._out_text_buffers.pop(rid, None)
+                        except Exception:
+                            pass
                         try:
                             self._response_active = False
                         except Exception:
@@ -503,6 +577,27 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     )
                                 except Exception:
                                     pass
+                        else:
+                            # For assistant text-only completions without audio, flush buffered text
+                            try:
+                                rid = (data.get("response") or {}).get("id") or getattr(
+                                    self, "_active_response_id", None
+                                )
+                                if rid and rid in self._out_text_buffers:
+                                    final = str(
+                                        self._out_text_buffers.get(rid, {}).get("text")
+                                        or ""
+                                    )
+                                    if final:
+                                        self._out_tr_queue.put_nowait(final)
+                                        logger.debug(
+                                            "Flushed assistant transcript on text.done (rid=%s, len=%d)",
+                                            rid,
+                                            len(final),
+                                        )
+                                    self._out_text_buffers.pop(rid, None)
+                            except Exception:
+                                pass
                     elif (
                         etype == "conversation.item.input_audio_transcription.completed"
                     ):
@@ -662,6 +757,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 name = item.get("name")
                                 if name and call_id:
                                     self._call_names[call_id] = name
+                                if call_id and item_id:
+                                    self._item_call_ids[item_id] = call_id
                                 # Bind call identifiers to the response id for response-scoped outputs
                                 for cid in filter(None, [call_id, item_id]):
                                     if rid:
@@ -701,6 +798,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     name = item.get("name")
                                     args = item.get("arguments") or "{}"
                                     status = item.get("status")
+                                    if call_id and item_id:
+                                        self._item_call_ids[item_id] = call_id
                                     # Map this call to the response id for response-scoped outputs
                                     for cid in filter(
                                         None, [call_id, item_id, canonical_id]
@@ -1250,27 +1349,44 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
 
             # Send tool result via conversation.item.create, then trigger response.create (per docs)
             try:
-                call_only_id = pc.get("call_id") or call_id
-                await self._send_tracked(
-                    {
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_only_id,
-                            "output": json.dumps(result),
+                # Derive a valid call_id and avoid sending item_id as call_id
+                derived_call_id = (
+                    pc.get("call_id")
+                    or self._item_call_ids.get(pc.get("item_id"))
+                    or (
+                        call_id
+                        if isinstance(call_id, str) and call_id.startswith("call_")
+                        else None
+                    )
+                )
+                if not derived_call_id:
+                    logger.error(
+                        "Cannot send function_call_output: missing call_id (id=%s name=%s)",
+                        call_id,
+                        pc.get("name"),
+                    )
+                else:
+                    await self._send_tracked(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": derived_call_id,
+                                "output": json.dumps(result),
+                            },
                         },
-                    },
-                    label="conversation.item.create:function_call_output",
-                )
-                logger.info(
-                    "conversation.item.create(function_call_output) sent call_id=%s",
-                    call_only_id,
-                )
+                        label="conversation.item.create:function_call_output",
+                    )
+                    logger.info(
+                        "conversation.item.create(function_call_output) sent call_id=%s",
+                        derived_call_id,
+                    )
             except Exception:
                 logger.exception(
                     "Failed to send function_call_output for call_id=%s", call_id
                 )
             try:
+                await asyncio.sleep(0.02)
                 await self._send_tracked(
                     {
                         "type": "response.create",
