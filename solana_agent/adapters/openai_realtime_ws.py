@@ -641,10 +641,37 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response.output_item.added",
                         "response.output_item.created",
                     ):
-                        # Some servers ack function_call_output at response-level
+                        # Map response-scoped function_call items to response_id and ack function_call_output
                         try:
+                            resp = data.get("response") or {}
+                            rid = resp.get("id")
                             item = data.get("item") or {}
-                            if item.get("type") == "function_call_output":
+                            itype = item.get("type")
+                            if itype == "function_call":
+                                call_id = item.get("call_id")
+                                item_id = item.get("id")
+                                name = item.get("name")
+                                if name and call_id:
+                                    self._call_names[call_id] = name
+                                # Bind call identifiers to the response id for response-scoped outputs
+                                for cid in filter(None, [call_id, item_id]):
+                                    if rid:
+                                        self._call_response_ids[cid] = rid
+                                # Signal readiness for these identifiers
+                                for cid in filter(None, [call_id, item_id]):
+                                    ev = self._call_ready_events.get(cid)
+                                    if not ev:
+                                        ev = asyncio.Event()
+                                        self._call_ready_events[cid] = ev
+                                    ev.set()
+                                logger.debug(
+                                    "Mapped function_call via response.%s: call_id=%s item_id=%s response_id=%s",
+                                    "created" if etype.endswith("created") else "added",
+                                    call_id,
+                                    item_id,
+                                    rid,
+                                )
+                            elif itype == "function_call_output":
                                 call_id = item.get("call_id")
                                 if call_id:
                                     ev = self._fco_ack_events.get(call_id)
@@ -653,11 +680,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                         self._fco_ack_events[call_id] = ev
                                     ev.set()
                                     logger.debug(
-                                        "Ack for function_call_output via response.%s: call_id=%s",
+                                        "Ack for function_call_output via response.%s: call_id=%s response_id=%s",
                                         "created"
                                         if etype.endswith("created")
                                         else "added",
                                         call_id,
+                                        rid,
                                     )
                         except Exception:
                             pass
@@ -1263,142 +1291,113 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     float(max_age),
                 )
             else:
-                # Provide tool result back; prefer response-scoped output to avoid conversation lookup races
-                # Send with tracking and wait for ack; retry once if needed
-                # Build candidate ways to deliver output: prefer response-scoped first
-                candidates = []
+                # Provide tool result back using response-scoped output only (GA)
+                # Find response_id for this call; wait briefly if needed
                 call_only_id = pc.get("call_id")
                 rid = None
                 if call_only_id:
-                    # Best-effort: if mapping not ready yet, wait briefly for it to appear
                     rid = self._call_response_ids.get(call_only_id)
                     if not rid:
                         try:
                             t0 = asyncio.get_event_loop().time()
-                            # wait up to ~1.5s in small steps for mapping to arrive from response.* events
+                            # Wait up to 2.5s for mapping to arrive from response.* events
                             while (
-                                not rid and (asyncio.get_event_loop().time() - t0) < 1.5
+                                not rid and (asyncio.get_event_loop().time() - t0) < 2.5
                             ):
                                 await asyncio.sleep(0.05)
                                 rid = self._call_response_ids.get(call_only_id)
                         except Exception:
                             pass
-                # Candidate as response.function_call_output when response_id is known
-                if call_only_id and rid:
-                    candidates.append(
-                        {
-                            "mode": "response",
-                            "call_id": call_only_id,
-                            "response_id": rid,
-                        }
+                logger.debug(
+                    "function_call_output mapping: call_id=%s response_id=%s present=%s",
+                    call_only_id,
+                    rid,
+                    bool(rid),
+                )
+                if not call_only_id or not rid:
+                    logger.error(
+                        "No response_id mapping for call_id=%s; cannot send response.function_call_output",
+                        call_id,
                     )
-                # Fallback to conversation.item.create if needed (may fail if call not in conversation)
-                if call_only_id:
-                    candidates.append({"mode": "conversation", "call_id": call_only_id})
-
-                acked = False
-                for idx, cand in enumerate(candidates):
-                    # Send once, then retry once on missing ack, else try next candidate
+                else:
+                    acked = False
                     for attempt in (1, 2):
-                        if cand["mode"] == "response":
-                            payload = {
-                                "type": "response.function_call_output",
-                                "response_id": cand["response_id"],
-                                "call_id": cand["call_id"],
-                                "output": json.dumps(result),
-                            }
-                            label = (
-                                "response.function_call_output"
-                                if attempt == 1
-                                else "response.function_call_output:retry"
-                            )
-                        else:
-                            payload = {
-                                "type": "conversation.item.create",
-                                "item": {
-                                    "type": "function_call_output",
-                                    "call_id": cand["call_id"],
-                                    "output": json.dumps(result),
-                                },
-                            }
-                            label = (
-                                "function_call_output"
-                                if attempt == 1
-                                else "function_call_output:retry"
-                            )
+                        payload = {
+                            "type": "response.function_call_output",
+                            "response_id": rid,
+                            "call_id": call_only_id,
+                            "output": json.dumps(result),
+                        }
+                        label = (
+                            "response.function_call_output"
+                            if attempt == 1
+                            else "response.function_call_output:retry"
+                        )
                         eid = await self._send_tracked(payload, label=label)
                         logger.info(
-                            "%s %s sent (event_id=%s) call_id=%s%s",
+                            "%s response.function_call_output sent (event_id=%s) call_id=%s response_id=%s",
                             "Retry" if attempt == 2 else "",
-                            payload.get("type"),
                             eid,
-                            cand.get("call_id"),
-                            f" response_id={cand.get('response_id')}"
-                            if cand["mode"] == "response"
-                            else "",
+                            call_only_id,
+                            rid,
                         )
-                        # wait for ack or explicit error for this cid
-                        # Wait for either an ack (conversation.item.* for this call_id)
-                        # or an explicit invalid_tool_call_id error mapped to this id.
                         try:
-                            ev_ack = self._fco_ack_events.get(cand.get("call_id"))
+                            ev_ack = self._fco_ack_events.get(call_only_id)
                             if not ev_ack:
                                 ev_ack = asyncio.Event()
-                                self._fco_ack_events[cand.get("call_id")] = ev_ack
-                            ev_err = self._fco_error_events.get(cand.get("call_id"))
+                                self._fco_ack_events[call_only_id] = ev_ack
+                            ev_err = self._fco_error_events.get(call_only_id)
                             if not ev_err:
                                 ev_err = asyncio.Event()
-                                self._fco_error_events[cand.get("call_id")] = ev_err
+                                self._fco_error_events[call_only_id] = ev_err
 
                             ack_task = asyncio.create_task(ev_ack.wait())
                             err_task = asyncio.create_task(ev_err.wait())
                             try:
                                 done, pending = await asyncio.wait(
                                     {ack_task, err_task},
-                                    timeout=2.0 if attempt == 1 else 1.5,
+                                    timeout=3.0 if attempt == 1 else 2.0,
                                     return_when=asyncio.FIRST_COMPLETED,
                                 )
                                 if ack_task in done and bool(ack_task.result()):
                                     acked = True
-                                    # Cancel the other waiter if still pending
                                     if err_task in pending:
                                         err_task.cancel()
+                                    logger.info(
+                                        "Ack received for function_call_output call_id=%s",
+                                        call_only_id,
+                                    )
                                     break
                                 if err_task in done and bool(err_task.result()):
                                     logger.error(
                                         "Server rejected function_call_output for id=%s (invalid_tool_call_id)",
-                                        cand.get("call_id"),
+                                        call_only_id,
                                     )
                                     if ack_task in pending:
                                         ack_task.cancel()
                                     break
-                                # Timeout: will retry or try next candidate
+                                logger.warning(
+                                    "No ack yet for function_call_output (attempt %d) call_id=%s",
+                                    attempt,
+                                    call_only_id,
+                                )
                             finally:
                                 for t in (ack_task, err_task):
                                     if not t.done():
                                         t.cancel()
-                        except asyncio.TimeoutError:
-                            # Loop will retry or move to next candidate on timeout
-                            pass
                         except Exception:
-                            # Do not escalate to outer handler; log and allow retry/fallback
                             logger.exception(
-                                "Ack/error wait raised; will retry or fallback (id=%s, attempt=%d)",
-                                cand.get("call_id"),
+                                "Ack/error wait raised; will %s (call_id=%s, attempt=%d)",
+                                "retry" if attempt == 1 else "stop",
+                                call_only_id,
                                 attempt,
                             )
-                    if acked:
-                        break
-                if not acked:
-                    logger.error(
-                        "Failed to deliver function_call_output ack after trying all methods: tried=%s",
-                        ",".join(
-                            [
-                                f"{c['mode']}:{c.get('call_id')}@{c.get('response_id', '-')}"
-                                for c in candidates
-                            ]
-                        ),
-                    )
+                    if not acked:
+                        logger.error(
+                            "Failed to deliver function_call_output ack after retries: call_id=%s response_id=%s",
+                            call_only_id,
+                            rid,
+                        )
             # Cleanup readiness event
             try:
                 self._call_ready_events.pop(call_id, None)
@@ -1427,30 +1426,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 )
                 logger.info("Follow-up response.create sent after tool output (acked)")
         except Exception:
-            try:
-                await self._send_tracked(
-                    {
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({"error": "tool_execution_failed"}),
-                        },
-                    },
-                    label="function_call_output:error",
-                )
-                logger.warning(
-                    "Tool execution failed; delivered error output via conversation.item.create"
-                )
-                # Still ask the model to respond so it can handle/report the error
-                await self._send(
-                    {
-                        "type": "response.create",
-                        "response": {"metadata": {"type": "response"}},
-                    }
-                )
-            except Exception:
-                pass
+            logger.exception(
+                "Tool execution raised unexpectedly for call_id=%s", call_id
+            )
         finally:
             # Clear pending state and decrement active count
             try:
