@@ -325,7 +325,26 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             try:
                                 chunk = base64.b64decode(b64)
                                 self._audio_queue.put_nowait(chunk)
-                                logger.info("Audio delta bytes=%d", len(chunk))
+                                # Ownership/response tagging for diagnostics
+                                try:
+                                    owner = getattr(self, "_owner_user_id", None)
+                                except Exception:
+                                    owner = None
+                                try:
+                                    rid = getattr(self, "_active_response_id", None)
+                                except Exception:
+                                    rid = None
+                                try:
+                                    gen = int(getattr(self, "_response_generation", 0))
+                                except Exception:
+                                    gen = None
+                                logger.info(
+                                    "Audio delta bytes=%d owner=%s rid=%s gen=%s",
+                                    len(chunk),
+                                    owner,
+                                    rid,
+                                    gen,
+                                )
                                 try:
                                     # New response detected if we were previously inactive
                                     if not getattr(self, "_response_active", False):
@@ -492,8 +511,25 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         "response.audio.done",
                     ):
                         # End of audio stream for the response; stop audio iterator but keep WS open for transcripts
+                        try:
+                            owner = getattr(self, "_owner_user_id", None)
+                        except Exception:
+                            owner = None
+                        try:
+                            rid = (data.get("response") or {}).get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
+                        except Exception:
+                            rid = None
+                        try:
+                            gen = int(getattr(self, "_response_generation", 0))
+                        except Exception:
+                            gen = None
                         logger.info(
-                            "Realtime WS: output audio done; ending audio stream"
+                            "Realtime WS: output audio done; owner=%s rid=%s gen=%s",
+                            owner,
+                            rid,
+                            gen,
                         )
                         # If we have a buffered transcript for this response, flush it now
                         try:
