@@ -88,13 +88,14 @@ class FFmpegTranscoder(AudioTranscoder):
     async def from_pcm16(  # pragma: no cover
         self, pcm16_bytes: bytes, output_mime: str, rate_hz: int
     ) -> bytes:
-        """Encode PCM16LE to desired format (currently AAC ADTS for mobile streaming)."""
+        """Encode PCM16LE to desired format (AAC ADTS, fragmented MP4, or MP3)."""
         logger.info(
             "Encode from PCM16: output_mime=%s, rate_hz=%d, input_len=%d",
             output_mime,
             rate_hz,
             len(pcm16_bytes),
         )
+
         if output_mime in ("audio/mpeg", "audio/mp3"):
             # Encode to MP3 (often better streaming compatibility on mobile)
             args = [
@@ -122,8 +123,9 @@ class FFmpegTranscoder(AudioTranscoder):
                 "Encoded from PCM16 to %s: output_len=%d", output_mime, len(out)
             )
             return out
-        if output_mime in ("audio/aac", "audio/mp4", "audio/m4a"):
-            # Encode to AAC in ADTS stream; clients can play it as AAC.
+
+        if output_mime in ("audio/aac",):
+            # Encode to AAC in ADTS stream; good for streaming over sockets/HTTP chunked
             args = [
                 "-hide_banner",
                 "-loglevel",
@@ -149,6 +151,38 @@ class FFmpegTranscoder(AudioTranscoder):
                 "Encoded from PCM16 to %s: output_len=%d", output_mime, len(out)
             )
             return out
+
+        if output_mime in ("audio/mp4", "audio/m4a"):
+            # Encode to fragmented MP4 (fMP4) with AAC for better iOS compatibility
+            # For streaming, write an initial moov and fragment over stdout.
+            args = [
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(rate_hz),
+                "-i",
+                "pipe:0",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-movflags",
+                "+frag_keyframe+empty_moov",
+                "-f",
+                "mp4",
+                "pipe:1",
+            ]
+            out = await self._run_ffmpeg(args, pcm16_bytes)
+            logger.info(
+                "Encoded from PCM16 to %s (fMP4): output_len=%d", output_mime, len(out)
+            )
+            return out
+
         # Default: passthrough
         logger.info("Encode passthrough (no change), output_len=%d", len(pcm16_bytes))
         return pcm16_bytes
@@ -187,7 +221,7 @@ class FFmpegTranscoder(AudioTranscoder):
                 "mp3",
                 "pipe:1",
             ]
-        elif output_mime in ("audio/aac", "audio/mp4", "audio/m4a"):
+        elif output_mime in ("audio/aac",):
             args = [
                 "-hide_banner",
                 "-loglevel",
@@ -206,6 +240,29 @@ class FFmpegTranscoder(AudioTranscoder):
                 "96k",
                 "-f",
                 "adts",
+                "pipe:1",
+            ]
+        elif output_mime in ("audio/mp4", "audio/m4a"):
+            args = [
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(rate_hz),
+                "-i",
+                "pipe:0",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-movflags",
+                "+frag_keyframe+empty_moov",
+                "-f",
+                "mp4",
                 "pipe:1",
             ]
         else:

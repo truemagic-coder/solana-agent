@@ -67,9 +67,116 @@ class QueryService(QueryServiceInterface):
         self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
         # Optional realtime service attached by factory (populated in factory)
         self.realtime = None  # type: ignore[attr-defined]
-        # Persistent realtime WS per user for push-to-talk reuse
-        self._rt_services = {}
+        # Persistent realtime WS pool per user for reuse across turns/devices
+        # { user_id: [RealtimeService, ...] }
+        self._rt_services: Dict[str, List[Any]] = {}
+        # Global lock for creating/finding per-user sessions
         self._rt_lock = asyncio.Lock()
+
+    async def _try_acquire_lock(self, lock: asyncio.Lock) -> bool:
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=0)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            return False
+
+    async def _alloc_realtime_session(
+        self,
+        user_id: str,
+        *,
+        api_key: str,
+        rt_voice: str,
+        final_instructions: str,
+        initial_tools: Optional[List[Dict[str, Any]]],
+        encode_in: bool,
+        encode_out: bool,
+        audio_input_format: str,
+        audio_output_format: str,
+    ) -> Any:
+        """Get a free (or new) realtime session for this user. Marks it busy via an internal lock.
+
+        Returns the RealtimeService with an acquired _in_use_lock that MUST be released by caller.
+        """
+        from solana_agent.interfaces.providers.realtime import (
+            RealtimeSessionOptions,
+        )
+        from solana_agent.adapters.openai_realtime_ws import (
+            OpenAIRealtimeWebSocketSession,
+        )
+        from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+        def _mime_from(fmt: str) -> str:
+            f = (fmt or "").lower()
+            return {
+                "aac": "audio/aac",
+                "mp3": "audio/mpeg",
+                "mp4": "audio/mp4",
+                "m4a": "audio/mp4",
+                "mpeg": "audio/mpeg",
+                "mpga": "audio/mpeg",
+                "wav": "audio/wav",
+                "flac": "audio/flac",
+                "opus": "audio/opus",
+                "ogg": "audio/ogg",
+                "webm": "audio/webm",
+                "pcm": "audio/pcm",
+            }.get(f, "audio/pcm")
+
+        async with self._rt_lock:
+            pool = self._rt_services.get(user_id) or []
+            # Try to reuse an idle session strictly owned by this user
+            for rt in pool:
+                # Extra safety: never reuse a session from another user
+                owner = getattr(rt, "_owner_user_id", None)
+                if owner is not None and owner != user_id:
+                    continue
+                lock = getattr(rt, "_in_use_lock", None)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    setattr(rt, "_in_use_lock", lock)
+                if not lock.locked():
+                    if await self._try_acquire_lock(lock):
+                        return rt
+            # None free: create a new session
+            opts = RealtimeSessionOptions(
+                model="gpt-realtime",
+                voice=rt_voice,
+                vad_enabled=False,
+                input_rate_hz=24000,
+                output_rate_hz=24000,
+                input_mime="audio/pcm",
+                output_mime="audio/pcm",
+                tools=initial_tools or None,
+                tool_choice="auto",
+            )
+            try:
+                opts.instructions = final_instructions
+                opts.voice = rt_voice
+            except Exception:
+                pass
+            conv_session = OpenAIRealtimeWebSocketSession(api_key=api_key, options=opts)
+            transcoder = FFmpegTranscoder() if (encode_in or encode_out) else None
+            from solana_agent.services.realtime import RealtimeService
+
+            rt = RealtimeService(
+                session=conv_session,
+                options=opts,
+                transcoder=transcoder,
+                accept_compressed_input=encode_in,
+                client_input_mime=_mime_from(audio_input_format),
+                encode_output=encode_out,
+                client_output_mime=_mime_from(audio_output_format),
+            )
+            # Tag ownership to prevent any cross-user reuse
+            setattr(rt, "_owner_user_id", user_id)
+            setattr(rt, "_in_use_lock", asyncio.Lock())
+            # Mark busy
+            await getattr(rt, "_in_use_lock").acquire()
+            pool.append(rt)
+            self._rt_services[user_id] = pool
+            return rt
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -554,14 +661,7 @@ class QueryService(QueryServiceInterface):
                 final_instructions = "\n\n".join([p for p in parts if p])
 
                 # 4) Open a single WS session for assistant audio
-                from solana_agent.adapters.openai_realtime_ws import (
-                    OpenAIRealtimeWebSocketSession,
-                )
-                from solana_agent.interfaces.providers.realtime import (
-                    RealtimeSessionOptions,
-                )
-                from solana_agent.services.realtime import RealtimeService
-                from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+                # Realtime imports handled inside allocator helper
 
                 api_key = None
                 try:
@@ -600,171 +700,160 @@ class QueryService(QueryServiceInterface):
                     or (is_audio_bytes and audio_input_format.lower() != "pcm")
                 )
 
-                async with self._rt_lock:
-                    rt = self._rt_services.get(user_id)
-                    if not rt or not isinstance(rt, RealtimeService):
-                        opts = RealtimeSessionOptions(
-                            model="gpt-realtime",
-                            voice=rt_voice,
-                            vad_enabled=False,  # no input audio
-                            input_rate_hz=24000,
-                            output_rate_hz=24000,
-                            input_mime="audio/pcm",
-                            output_mime="audio/pcm",
-                            tools=initial_tools or None,
-                            tool_choice="auto",
-                        )
-                        # Ensure initial session.update carries instructions/voice
-                        try:
-                            opts.instructions = final_instructions
-                            opts.voice = rt_voice
-                        except Exception:
-                            pass
-                        conv_session = OpenAIRealtimeWebSocketSession(
-                            api_key=api_key, options=opts
-                        )
-                        transcoder = (
-                            FFmpegTranscoder() if (encode_in or encode_out) else None
-                        )
-                        rt = RealtimeService(
-                            session=conv_session,
-                            options=opts,
-                            transcoder=transcoder,
-                            accept_compressed_input=encode_in,
-                            client_input_mime=_mime_from(audio_input_format),
-                            encode_output=encode_out,
-                            client_output_mime=_mime_from(audio_output_format),
-                        )
-                        self._rt_services[user_id] = rt
-
-                # Tool executor
-                async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-                    try:
-                        return await self.agent_service.execute_tool(
-                            agent_name, tool_name, args or {}
-                        )
-                    except Exception as e:
-                        return {"status": "error", "message": str(e)}
-
-                # If possible, set on underlying session
-                try:
-                    if hasattr(rt, "_session"):
-                        getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-
-                # Connect/configure
-                if not getattr(rt, "_connected", False):
-                    await rt.start()
-                await rt.configure(
-                    voice=rt_voice,
-                    vad_enabled=bool(vad) if vad is not None else False,
-                    instructions=final_instructions,
-                    tools=initial_tools or None,
-                    tool_choice="auto",
+                # Allocate or reuse a realtime session for this specific request/user
+                rt = await self._alloc_realtime_session(
+                    user_id,
+                    api_key=api_key,
+                    rt_voice=rt_voice,
+                    final_instructions=final_instructions,
+                    initial_tools=initial_tools,
+                    encode_in=encode_in,
+                    encode_out=encode_out,
+                    audio_input_format=audio_input_format,
+                    audio_output_format=audio_output_format,
                 )
-
-                # Ensure clean input buffers for this turn
+                # Ensure lock is released no matter what
                 try:
-                    await rt.clear_input()
-                except Exception:
-                    pass
-                # Also reset any leftover output audio so new turn doesn't replay old chunks
-                try:
-                    if hasattr(rt, "reset_output_stream"):
-                        rt.reset_output_stream()
-                except Exception:
-                    pass
+                    # Tool executor
+                    async def _exec(
+                        tool_name: str, args: Dict[str, Any]
+                    ) -> Dict[str, Any]:
+                        try:
+                            return await self.agent_service.execute_tool(
+                                agent_name, tool_name, args or {}
+                            )
+                        except Exception as e:
+                            return {"status": "error", "message": str(e)}
 
-                # Persist once per turn
-                turn_id = await self.realtime_begin_turn(user_id)
-                if turn_id and user_text:
+                    # If possible, set on underlying session
                     try:
-                        await self.realtime_update_user(user_id, turn_id, user_text)
+                        if hasattr(rt, "_session"):
+                            getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
                     except Exception:
                         pass
 
-                # Feed audio into WS if audio bytes provided; else use input_text
-                if is_audio_bytes:
-                    bq = bytes(query)
-                    logger.info(
-                        "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
-                        len(bq),
-                        audio_input_format,
-                    )
-                    await rt.append_audio(bq)
-                    vad_enabled_value = bool(vad) if vad is not None else False
-                    if not vad_enabled_value:
-                        await rt.commit_input()
-                        # Manually trigger response when VAD is disabled
-                        await rt.create_response({})
-                    else:
-                        # With server VAD enabled, the model will auto-create a response at end of speech
-                        logger.debug(
-                            "Realtime: VAD enabled — skipping manual response.create"
-                        )
-                else:
-                    # Rely on configured session voice; attach input_text only
-                    await rt.create_response(
-                        {
-                            "modalities": ["audio"],
-                            "input": [{"type": "input_text", "text": user_text or ""}],
-                        }
+                    # Connect/configure
+                    if not getattr(rt, "_connected", False):
+                        await rt.start()
+                    await rt.configure(
+                        voice=rt_voice,
+                        vad_enabled=bool(vad) if vad is not None else False,
+                        instructions=final_instructions,
+                        tools=initial_tools or None,
+                        tool_choice="auto",
                     )
 
-                # Collect audio and transcripts
-                user_tr = ""
-                asst_tr = ""
-
-                async def _drain_in_tr():
-                    nonlocal user_tr
-                    async for t in rt.iter_input_transcript():
-                        if t:
-                            user_tr += t
-
-                async def _drain_out_tr():
-                    nonlocal asst_tr
-                    async for t in rt.iter_output_transcript():
-                        if t:
-                            asst_tr += t
-
-                in_task = asyncio.create_task(_drain_in_tr())
-                out_task = asyncio.create_task(_drain_out_tr())
-                try:
-                    async for audio_chunk in rt.iter_output_audio_encoded():
-                        yield audio_chunk
-                finally:
-                    in_task.cancel()
-                    out_task.cancel()
-                    # If no WS input transcript was captured, fall back to HTTP STT result
-                    if not user_tr:
-                        try:
-                            if "stt_task" in locals() and stt_task is not None:
-                                user_tr = await stt_task
-                        except Exception:
-                            pass
-                    if turn_id:
-                        try:
-                            if user_tr:
-                                await self.realtime_update_user(
-                                    user_id, turn_id, user_tr
-                                )
-                            if asst_tr:
-                                await self.realtime_update_assistant(
-                                    user_id, turn_id, asst_tr
-                                )
-                        except Exception:
-                            pass
-                        try:
-                            await self.realtime_finalize_turn(user_id, turn_id)
-                        except Exception:
-                            pass
-                    # Clear input buffer for next turn reuse
+                    # Ensure clean input buffers for this turn
                     try:
                         await rt.clear_input()
                     except Exception:
                         pass
-                return
+                    # Also reset any leftover output audio so new turn doesn't replay old chunks
+                    try:
+                        if hasattr(rt, "reset_output_stream"):
+                            rt.reset_output_stream()
+                    except Exception:
+                        pass
+
+                    # Persist once per turn
+                    turn_id = await self.realtime_begin_turn(user_id)
+                    if turn_id and user_text:
+                        try:
+                            await self.realtime_update_user(user_id, turn_id, user_text)
+                        except Exception:
+                            pass
+
+                    # Feed audio into WS if audio bytes provided; else use input_text
+                    if is_audio_bytes:
+                        bq = bytes(query)
+                        logger.info(
+                            "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
+                            len(bq),
+                            audio_input_format,
+                        )
+                        await rt.append_audio(bq)
+                        vad_enabled_value = bool(vad) if vad is not None else False
+                        if not vad_enabled_value:
+                            await rt.commit_input()
+                            # Manually trigger response when VAD is disabled
+                            await rt.create_response({})
+                        else:
+                            # With server VAD enabled, the model will auto-create a response at end of speech
+                            logger.debug(
+                                "Realtime: VAD enabled — skipping manual response.create"
+                            )
+                    else:
+                        # Rely on configured session voice; attach input_text only
+                        await rt.create_response(
+                            {
+                                "modalities": ["audio"],
+                                "input": [
+                                    {"type": "input_text", "text": user_text or ""}
+                                ],
+                            }
+                        )
+
+                    # Collect audio and transcripts
+                    user_tr = ""
+                    asst_tr = ""
+
+                    async def _drain_in_tr():
+                        nonlocal user_tr
+                        async for t in rt.iter_input_transcript():
+                            if t:
+                                user_tr += t
+
+                    async def _drain_out_tr():
+                        nonlocal asst_tr
+                        async for t in rt.iter_output_transcript():
+                            if t:
+                                asst_tr += t
+
+                    in_task = asyncio.create_task(_drain_in_tr())
+                    out_task = asyncio.create_task(_drain_out_tr())
+                    try:
+                        async for audio_chunk in rt.iter_output_audio_encoded():
+                            yield audio_chunk
+                    finally:
+                        in_task.cancel()
+                        out_task.cancel()
+                        # If no WS input transcript was captured, fall back to HTTP STT result
+                        if not user_tr:
+                            try:
+                                if "stt_task" in locals() and stt_task is not None:
+                                    user_tr = await stt_task
+                            except Exception:
+                                pass
+                        if turn_id:
+                            try:
+                                if user_tr:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, user_tr
+                                    )
+                                if asst_tr:
+                                    await self.realtime_update_assistant(
+                                        user_id, turn_id, asst_tr
+                                    )
+                            except Exception:
+                                pass
+                            try:
+                                await self.realtime_finalize_turn(user_id, turn_id)
+                            except Exception:
+                                pass
+                        # Clear input buffer for next turn reuse
+                        try:
+                            await rt.clear_input()
+                        except Exception:
+                            pass
+                finally:
+                    # Always release the session for reuse by other concurrent requests/devices
+                    try:
+                        lock = getattr(rt, "_in_use_lock", None)
+                        if lock and lock.locked():
+                            lock.release()
+                    except Exception:
+                        pass
+                    return
 
             # 1) Transcribe audio or accept text
             user_text = ""
