@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "31.2.3-dev5"
+version = "31.2.3"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
