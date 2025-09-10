@@ -126,8 +126,12 @@ class QueryService(QueryServiceInterface):
 
         async with self._rt_lock:
             pool = self._rt_services.get(user_id) or []
-            # Try to reuse an idle session
+            # Try to reuse an idle session strictly owned by this user
             for rt in pool:
+                # Extra safety: never reuse a session from another user
+                owner = getattr(rt, "_owner_user_id", None)
+                if owner is not None and owner != user_id:
+                    continue
                 lock = getattr(rt, "_in_use_lock", None)
                 if lock is None:
                     lock = asyncio.Lock()
@@ -165,6 +169,8 @@ class QueryService(QueryServiceInterface):
                 encode_output=encode_out,
                 client_output_mime=_mime_from(audio_output_format),
             )
+            # Tag ownership to prevent any cross-user reuse
+            setattr(rt, "_owner_user_id", user_id)
             setattr(rt, "_in_use_lock", asyncio.Lock())
             # Mark busy
             await getattr(rt, "_in_use_lock").acquire()
