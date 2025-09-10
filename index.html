@@ -258,25 +258,37 @@
 <p>If input and/or output is encoded (compressed) like mp4/aac then you must have ffmpeg installed.</p>
 <p>Due to the overhead of the router (API call) - realtime only supports a single agent setup.</p>
 <p>Realtime uses MongoDB for memory so Zep is not needed.</p>
+<p>This example will work using expo-audio on Android and iOS.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
 
 <span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
 
-<span class="c1"># Example: mobile sends MP4/AAC; server encodes output to AAC</span>
-<span class="n">audio_content</span> <span class="o">=</span> <span class="k">await</span> <span class="n">audio_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>  <span class="c1"># bytes</span>
-<span class="k">async</span> <span class="k">for</span> <span class="n">audio_chunk</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span>
-   <span class="s2">&quot;user123&quot;</span><span class="p">,</span>                    <span class="c1"># required</span>
-   <span class="n">audio_content</span><span class="p">,</span>                <span class="c1"># required</span>
-   <span class="n">realtime</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                <span class="c1"># optional (default False)</span>
-   <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span>        <span class="c1"># required</span>
-   <span class="n">vad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                     <span class="c1"># enable VAD (optional)</span>
-   <span class="n">rt_encode_input</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>         <span class="c1"># accept compressed input (optional)</span>
-   <span class="n">rt_encode_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>        <span class="c1"># encode output for client (optional)</span>
-   <span class="n">rt_voice</span><span class="o">=</span><span class="s2">&quot;marin&quot;</span>              <span class="c1"># the voice to use for interactions (optional)</span>
-   <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;mp4&quot;</span><span class="p">,</span>     <span class="c1"># client transport (optional)</span>
-   <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;aac&quot;</span>     <span class="c1"># client transport (optional)</span>
-<span class="p">):</span>
-   <span class="n">handle_audio</span><span class="p">(</span><span class="n">audio_chunk</span><span class="p">)</span>
+<span class="n">audio_content</span> <span class="o">=</span> <span class="k">await</span> <span class="n">audio_file</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">():</span>
+   <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span>
+      <span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span>
+      <span class="n">message</span><span class="o">=</span><span class="n">audio_content</span><span class="p">,</span>
+      <span class="n">realtime</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+      <span class="n">rt_encode_input</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+      <span class="n">rt_encode_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+      <span class="n">rt_voice</span><span class="o">=</span><span class="s2">&quot;marin&quot;</span><span class="p">,</span>
+      <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span>
+      <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;m4a&quot;</span><span class="p">,</span>
+      <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
+   <span class="p">):</span>
+      <span class="k">yield</span> <span class="n">chunk</span>
+
+<span class="k">return</span> <span class="n">StreamingResponse</span><span class="p">(</span>
+   <span class="n">content</span><span class="o">=</span><span class="n">generate</span><span class="p">(),</span>
+   <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;audio/mp4&quot;</span><span class="p">,</span>
+   <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+      <span class="s2">&quot;Cache-Control&quot;</span><span class="p">:</span> <span class="s2">&quot;no-store&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;Pragma&quot;</span><span class="p">:</span> <span class="s2">&quot;no-cache&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;Content-Disposition&quot;</span><span class="p">:</span> <span class="s2">&quot;inline; filename=stream.m4a&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;X-Accel-Buffering&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span><span class="p">,</span>
+   <span class="p">},</span>
+<span class="p">)</span>
 </pre></div>
 </div>
 </section>
