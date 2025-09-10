@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import logging
 from typing import List, AsyncGenerator
+import tempfile
+import os
 
 from solana_agent.interfaces.providers.audio import AudioTranscoder
 
@@ -49,11 +51,45 @@ class FFmpegTranscoder(AudioTranscoder):
             rate_hz,
             len(audio_bytes),
         )
-        # Prefer to hint format for common containers/codecs; ffmpeg can still autodetect if hint is wrong.
-        hinted_format = None
+        # iOS-recorded MP4/M4A often requires a seekable input for reliable demuxing.
+        # Decode from a temporary file instead of stdin for MP4/M4A.
         if input_mime in ("audio/mp4", "audio/m4a"):
-            hinted_format = "mp4"
-        elif input_mime in ("audio/aac",):
+            suffix = ".m4a" if input_mime == "audio/m4a" else ".mp4"
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tf:
+                    tmp_path = tf.name
+                    tf.write(audio_bytes)
+                args = [
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    tmp_path,
+                    "-vn",  # ignore any video tracks
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(rate_hz),
+                    "-f",
+                    "s16le",
+                    "pipe:1",
+                ]
+                out = await self._run_ffmpeg(args, b"")
+                logger.info(
+                    "Transcoded (MP4/M4A temp-file) to PCM16: output_len=%d", len(out)
+                )
+                return out
+            finally:
+                if tmp_path:
+                    with contextlib.suppress(Exception):
+                        os.remove(tmp_path)
+
+        # For other formats, prefer a format hint when helpful and decode from stdin.
+        hinted_format = None
+        if input_mime in ("audio/aac",):
             # Raw AAC is typically in ADTS stream format
             hinted_format = "adts"
         elif input_mime in ("audio/ogg", "audio/webm"):

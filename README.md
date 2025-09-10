@@ -299,18 +299,18 @@ async def generate():
         rt_encode_output=True,
         rt_voice="marin",
         output_format="audio",
-        audio_output_format="m4a",
+        audio_output_format="mp3",
         audio_input_format="mp4",
     ):
         yield chunk
 
 return StreamingResponse(
     content=generate(),
-    media_type="audio/mp4",
+    media_type="audio/mp3",
     headers={
         "Cache-Control": "no-store",
         "Pragma": "no-cache",
-        "Content-Disposition": "inline; filename=stream.m4a",
+        "Content-Disposition": "inline; filename=stream.mp3",
         "X-Accel-Buffering": "no",
     },
 )
