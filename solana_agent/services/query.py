@@ -67,21 +67,110 @@ class QueryService(QueryServiceInterface):
         self._sticky_sessions: Dict[str, Dict[str, Any]] = {}
         # Optional realtime service attached by factory (populated in factory)
         self.realtime = None  # type: ignore[attr-defined]
-        # Persistent realtime WS per user for push-to-talk reuse
-        self._rt_services = {}
-        # Global lock for creating per-user locks/services
+        # Persistent realtime WS pool per user for reuse across turns/devices
+        # { user_id: [RealtimeService, ...] }
+        self._rt_services: Dict[str, List[Any]] = {}
+        # Global lock for creating/finding per-user sessions
         self._rt_lock = asyncio.Lock()
-        # Per-user locks to isolate realtime operations between users
-        self._rt_user_locks: Dict[str, asyncio.Lock] = {}
 
-    def _get_rt_user_lock(self, user_id: str) -> asyncio.Lock:
-        # Create or return existing per-user lock under global guard
-        # Caller should hold _rt_lock if multiple tasks may race to create
-        lock = self._rt_user_locks.get(user_id)
-        if not lock:
-            lock = asyncio.Lock()
-            self._rt_user_locks[user_id] = lock
-        return lock
+    async def _try_acquire_lock(self, lock: asyncio.Lock) -> bool:
+        try:
+            await asyncio.wait_for(lock.acquire(), timeout=0)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            return False
+
+    async def _alloc_realtime_session(
+        self,
+        user_id: str,
+        *,
+        api_key: str,
+        rt_voice: str,
+        final_instructions: str,
+        initial_tools: Optional[List[Dict[str, Any]]],
+        encode_in: bool,
+        encode_out: bool,
+        audio_input_format: str,
+        audio_output_format: str,
+    ) -> Any:
+        """Get a free (or new) realtime session for this user. Marks it busy via an internal lock.
+
+        Returns the RealtimeService with an acquired _in_use_lock that MUST be released by caller.
+        """
+        from solana_agent.interfaces.providers.realtime import (
+            RealtimeSessionOptions,
+        )
+        from solana_agent.adapters.openai_realtime_ws import (
+            OpenAIRealtimeWebSocketSession,
+        )
+        from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+        def _mime_from(fmt: str) -> str:
+            f = (fmt or "").lower()
+            return {
+                "aac": "audio/aac",
+                "mp3": "audio/mpeg",
+                "mp4": "audio/mp4",
+                "m4a": "audio/mp4",
+                "mpeg": "audio/mpeg",
+                "mpga": "audio/mpeg",
+                "wav": "audio/wav",
+                "flac": "audio/flac",
+                "opus": "audio/opus",
+                "ogg": "audio/ogg",
+                "webm": "audio/webm",
+                "pcm": "audio/pcm",
+            }.get(f, "audio/pcm")
+
+        async with self._rt_lock:
+            pool = self._rt_services.get(user_id) or []
+            # Try to reuse an idle session
+            for rt in pool:
+                lock = getattr(rt, "_in_use_lock", None)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    setattr(rt, "_in_use_lock", lock)
+                if not lock.locked():
+                    if await self._try_acquire_lock(lock):
+                        return rt
+            # None free: create a new session
+            opts = RealtimeSessionOptions(
+                model="gpt-realtime",
+                voice=rt_voice,
+                vad_enabled=False,
+                input_rate_hz=24000,
+                output_rate_hz=24000,
+                input_mime="audio/pcm",
+                output_mime="audio/pcm",
+                tools=initial_tools or None,
+                tool_choice="auto",
+            )
+            try:
+                opts.instructions = final_instructions
+                opts.voice = rt_voice
+            except Exception:
+                pass
+            conv_session = OpenAIRealtimeWebSocketSession(api_key=api_key, options=opts)
+            transcoder = FFmpegTranscoder() if (encode_in or encode_out) else None
+            from solana_agent.services.realtime import RealtimeService
+
+            rt = RealtimeService(
+                session=conv_session,
+                options=opts,
+                transcoder=transcoder,
+                accept_compressed_input=encode_in,
+                client_input_mime=_mime_from(audio_input_format),
+                encode_output=encode_out,
+                client_output_mime=_mime_from(audio_output_format),
+            )
+            setattr(rt, "_in_use_lock", asyncio.Lock())
+            # Mark busy
+            await getattr(rt, "_in_use_lock").acquire()
+            pool.append(rt)
+            self._rt_services[user_id] = pool
+            return rt
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -566,14 +655,7 @@ class QueryService(QueryServiceInterface):
                 final_instructions = "\n\n".join([p for p in parts if p])
 
                 # 4) Open a single WS session for assistant audio
-                from solana_agent.adapters.openai_realtime_ws import (
-                    OpenAIRealtimeWebSocketSession,
-                )
-                from solana_agent.interfaces.providers.realtime import (
-                    RealtimeSessionOptions,
-                )
-                from solana_agent.services.realtime import RealtimeService
-                from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+                # Realtime imports handled inside allocator helper
 
                 api_key = None
                 try:
@@ -612,46 +694,20 @@ class QueryService(QueryServiceInterface):
                     or (is_audio_bytes and audio_input_format.lower() != "pcm")
                 )
 
-                async with self._rt_lock:
-                    # Ensure per-user lock exists
-                    user_lock = self._get_rt_user_lock(user_id)
-                    rt = self._rt_services.get(user_id)
-                    if not rt or not isinstance(rt, RealtimeService):
-                        opts = RealtimeSessionOptions(
-                            model="gpt-realtime",
-                            voice=rt_voice,
-                            vad_enabled=False,  # no input audio
-                            input_rate_hz=24000,
-                            output_rate_hz=24000,
-                            input_mime="audio/pcm",
-                            output_mime="audio/pcm",
-                            tools=initial_tools or None,
-                            tool_choice="auto",
-                        )
-                        # Ensure initial session.update carries instructions/voice
-                        try:
-                            opts.instructions = final_instructions
-                            opts.voice = rt_voice
-                        except Exception:
-                            pass
-                        conv_session = OpenAIRealtimeWebSocketSession(
-                            api_key=api_key, options=opts
-                        )
-                        transcoder = (
-                            FFmpegTranscoder() if (encode_in or encode_out) else None
-                        )
-                        rt = RealtimeService(
-                            session=conv_session,
-                            options=opts,
-                            transcoder=transcoder,
-                            accept_compressed_input=encode_in,
-                            client_input_mime=_mime_from(audio_input_format),
-                            encode_output=encode_out,
-                            client_output_mime=_mime_from(audio_output_format),
-                        )
-                        self._rt_services[user_id] = rt
-                # From here on, isolate operations for this user under the per-user lock
-                async with self._rt_user_locks[user_id]:
+                # Allocate or reuse a realtime session for this specific request/user
+                rt = await self._alloc_realtime_session(
+                    user_id,
+                    api_key=api_key,
+                    rt_voice=rt_voice,
+                    final_instructions=final_instructions,
+                    initial_tools=initial_tools,
+                    encode_in=encode_in,
+                    encode_out=encode_out,
+                    audio_input_format=audio_input_format,
+                    audio_output_format=audio_output_format,
+                )
+                # Ensure lock is released no matter what
+                try:
                     # Tool executor
                     async def _exec(
                         tool_name: str, args: Dict[str, Any]
@@ -783,6 +839,14 @@ class QueryService(QueryServiceInterface):
                             await rt.clear_input()
                         except Exception:
                             pass
+                finally:
+                    # Always release the session for reuse by other concurrent requests/devices
+                    try:
+                        lock = getattr(rt, "_in_use_lock", None)
+                        if lock and lock.locked():
+                            lock.release()
+                    except Exception:
+                        pass
                     return
 
             # 1) Transcribe audio or accept text
