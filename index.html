@@ -274,18 +274,18 @@
       <span class="n">rt_encode_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
       <span class="n">rt_voice</span><span class="o">=</span><span class="s2">&quot;marin&quot;</span><span class="p">,</span>
       <span class="n">output_format</span><span class="o">=</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span>
-      <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;m4a&quot;</span><span class="p">,</span>
-      <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;mp4&quot;</span><span class="p">,</span>
+      <span class="n">audio_output_format</span><span class="o">=</span><span class="s2">&quot;mp3&quot;</span><span class="p">,</span>
+      <span class="n">audio_input_format</span><span class="o">=</span><span class="s2">&quot;m4a&quot;</span><span class="p">,</span>
    <span class="p">):</span>
       <span class="k">yield</span> <span class="n">chunk</span>
 
 <span class="k">return</span> <span class="n">StreamingResponse</span><span class="p">(</span>
    <span class="n">content</span><span class="o">=</span><span class="n">generate</span><span class="p">(),</span>
-   <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;audio/mp4&quot;</span><span class="p">,</span>
+   <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;audio/mp3&quot;</span><span class="p">,</span>
    <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
       <span class="s2">&quot;Cache-Control&quot;</span><span class="p">:</span> <span class="s2">&quot;no-store&quot;</span><span class="p">,</span>
       <span class="s2">&quot;Pragma&quot;</span><span class="p">:</span> <span class="s2">&quot;no-cache&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;Content-Disposition&quot;</span><span class="p">:</span> <span class="s2">&quot;inline; filename=stream.m4a&quot;</span><span class="p">,</span>
+      <span class="s2">&quot;Content-Disposition&quot;</span><span class="p">:</span> <span class="s2">&quot;inline; filename=stream.mp3&quot;</span><span class="p">,</span>
       <span class="s2">&quot;X-Accel-Buffering&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span><span class="p">,</span>
    <span class="p">},</span>
 <span class="p">)</span>
