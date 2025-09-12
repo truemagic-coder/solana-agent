@@ -1037,6 +1037,15 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         if "tools" in patch:
             patch["tools"] = _strip_tool_strict(patch["tools"])  # idempotent
 
+        # Per server requirements, always include session.type and output_modalities
+        try:
+            patch["type"] = "realtime"
+            # Preserve caller-provided output_modalities if present, otherwise default to audio
+            if "output_modalities" not in patch:
+                patch["output_modalities"] = ["audio"]
+        except Exception:
+            pass
+
         payload = {"type": "session.update", "session": patch}
         # Mark awaiting updated and store last patch
         self._last_session_patch = patch or {}
