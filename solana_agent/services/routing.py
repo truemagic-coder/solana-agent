@@ -1,11 +1,3 @@
-"""
-Routing service implementation.
-
-This service manages query routing to appropriate agents using an LLM-based
-analysis. It defaults to a small, low-cost model for routing to minimize
-overhead while maintaining quality.
-"""
-
 import logging
 from typing import Dict, List, Optional, Any
 from solana_agent.interfaces.services.routing import (
@@ -81,17 +73,18 @@ class RoutingService(RoutingServiceInterface):
 
         USER QUERY: {query}
 
-        INSTRUCTIONS:
-        - Look at the user query and match it to the most appropriate agent from the list above
-        - If the user mentions a specific topic or need that matches an agent's specialization, choose that agent
-        - Return the EXACT agent name (not the specialization description)
+        ROUTING RULES:
+        - Match the user query to the agent whose specialization best fits the user's intent
+        - Return the EXACT agent name that matches best
 
-        Please determine:
-        1. primary_agent: The exact name of the best matching agent (e.g., "onboarding", "support")
-        2. secondary_agents: Names of other agents that might help (empty list if none)
-        3. complexity_level: 1-5 (5 being most complex)
-        4. topics: Key topics mentioned
-        5. confidence: 0.0-1.0 (how confident you are in this routing decision)
+        INSTRUCTIONS:
+        - primary_agent: The exact name of the best matching agent (e.g., "onboarding", "event_feedback")
+        - secondary_agents: Other agents that might help (usually empty)
+        - complexity_level: 1-5 (5 being most complex)
+        - topics: Key topics mentioned
+        - confidence: 0.0-1.0 (how confident you are in this routing decision)
+
+        For the query "{query}", which agent should handle it?
         """
 
         try:
@@ -114,12 +107,14 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": analysis.confidence,
             }
         except Exception as e:
-            logger.error(f"Error analyzing query: {e}")  # Use logger.error
+            logger.error(f"Error analyzing query: {e}")
+            logger.debug(f"Query that failed: {query}")
+            logger.debug(f"Available agents: {list(agents.keys())}")
             # Return default analysis on error
+            first_agent = list(agents.keys())[0] if agents else "general"
+            logger.debug(f"Defaulting to first agent: {first_agent}")
             return {
-                "primary_specialization": list(agents.keys())[0]
-                if agents
-                else "general",
+                "primary_specialization": first_agent,
                 "secondary_specializations": [],
                 "complexity_level": 1,
                 "topics": [],
