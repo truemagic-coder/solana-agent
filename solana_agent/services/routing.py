@@ -40,8 +40,7 @@ class RoutingService(RoutingServiceInterface):
         self.agent_service = agent_service
         self.api_key = api_key
         self.base_url = base_url
-        # Use a small, cheap model for routing unless explicitly provided
-        self.model = model or "gpt-4.1-mini"
+        self.model = model or "gpt-4.1"
         # Simple sticky session: remember last routed agent in-process
         self._last_agent = None
 
