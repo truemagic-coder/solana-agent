@@ -81,26 +81,34 @@ class RoutingService(RoutingServiceInterface):
 
         USER QUERY: {query}
 
+        INSTRUCTIONS:
+        - Look at the user query and match it to the most appropriate agent from the list above
+        - If the user mentions a specific topic or need that matches an agent's specialization, choose that agent
+        - Return the EXACT agent name (not the specialization description)
+
         Please determine:
-        1. Which agent is the primary best match for this query (must be one of the listed agents)
-        2. Any secondary agents that might be helpful (must be from the listed agents)
-        3. The complexity level (1-5, where 5 is most complex)
-        4. Any key topics or technologies mentioned
+        1. primary_agent: The exact name of the best matching agent (e.g., "onboarding", "support")
+        2. secondary_agents: Names of other agents that might help (empty list if none)
+        3. complexity_level: 1-5 (5 being most complex)
+        4. topics: Key topics mentioned
+        5. confidence: 0.0-1.0 (how confident you are in this routing decision)
         """
 
         try:
             analysis = await self.llm_provider.parse_structured_output(
                 prompt=prompt,
-                system_prompt="Match user queries to the most appropriate agent based on specializations.",
+                system_prompt="You are an expert at routing user queries to the most appropriate AI agent. Always return the exact agent name that best matches the user's needs based on the specializations provided. If the user mentions a specific topic, prioritize agents whose specialization matches that topic.",
                 model_class=QueryAnalysis,
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
             )
 
+            logger.debug(f"LLM analysis result: {analysis}")
+
             return {
-                "primary_specialization": analysis.primary_specialization,
-                "secondary_specializations": analysis.secondary_specializations,
+                "primary_specialization": analysis.primary_agent,
+                "secondary_specializations": analysis.secondary_agents,
                 "complexity_level": analysis.complexity_level,
                 "topics": analysis.topics,
                 "confidence": analysis.confidence,
@@ -143,9 +151,11 @@ class RoutingService(RoutingServiceInterface):
 
         # Always analyze with a small model to select the best agent
         analysis = await self._analyze_query(query)
+        logger.debug(f"Routing analysis for query '{query}': {analysis}")
         best_agent = await self._find_best_ai_agent(
             analysis["primary_specialization"], analysis["secondary_specializations"]
         )
+        logger.debug(f"Selected agent: {best_agent}")
         chosen = best_agent or next(iter(agents.keys()))
         self._last_agent = chosen
         return chosen
@@ -171,6 +181,7 @@ class RoutingService(RoutingServiceInterface):
 
         # First, check if primary_specialization is directly an agent name
         if primary_specialization in ai_agents:
+            logger.debug(f"Direct agent match: {primary_specialization}")
             return primary_specialization
 
         # If not a direct agent name match, use specialization matching
@@ -185,6 +196,9 @@ class RoutingService(RoutingServiceInterface):
                 or primary_specialization.lower() in agent.specialization.lower()
             ):
                 score += 10
+                logger.debug(
+                    f"Specialization match for {agent_id}: '{agent.specialization}' matches '{primary_specialization}'"
+                )
 
             # Check secondary specializations
             for sec_spec in secondary_specializations:
@@ -209,6 +223,8 @@ class RoutingService(RoutingServiceInterface):
 
         # If no match found, return first agent as fallback
         if ai_agents:
-            return next(iter(ai_agents.keys()))
+            fallback_agent = next(iter(ai_agents.keys()))
+            logger.debug(f"No match found, using fallback agent: {fallback_agent}")
+            return fallback_agent
 
         return None
