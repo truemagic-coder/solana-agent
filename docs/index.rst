@@ -223,9 +223,10 @@ This example will work using expo-audio on Android and iOS.
          rt_encode_input=True,
          rt_encode_output=True,
          rt_voice="marin",
+         rt_output_modalities=["audio"],
          output_format="audio",
-         audio_output_format="mp3",
          audio_input_format="m4a",
+         audio_output_format="mp3",
       ):
          yield chunk
 
@@ -239,6 +240,83 @@ This example will work using expo-audio on Android and iOS.
          "X-Accel-Buffering": "no",
       },
    )
+
+Realtime Text Streaming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Due to the overhead of the router (API call) - realtime only supports a single agent setup.
+
+Realtime uses MongoDB for memory so Zep is not needed.
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   solana_agent = SolanaAgent(config=config)
+
+   async def generate():
+      async for chunk in solana_agent.process(
+         user_id="user123", 
+         message="What is the latest news on Solana?",
+         realtime=True,
+         rt_output_modalities=["text"],
+      ):
+         yield chunk
+
+Dual Modality Realtime Streaming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Solana Agent now supports **dual modality realtime streaming**, allowing you to stream both audio and text simultaneously from a single realtime session. This enables rich conversational experiences where users can receive both voice responses and text transcripts in real-time.
+
+Features
+^^^^^^^^
+
+- **Simultaneous Audio & Text**: Stream both modalities from the same conversation
+- **Flexible Output**: Choose audio-only, text-only, or both modalities
+- **Real-time Demuxing**: Automatically separate audio and text streams
+- **Mobile Optimized**: Works seamlessly with compressed audio formats (MP4/MP3)
+- **Memory Efficient**: Smart buffering and streaming for optimal performance
+
+Mobile App Integration Example
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   solana_agent = SolanaAgent(config=config)
+
+   @app.post("/realtime/dual")
+   async def realtime_dual_endpoint(audio_file: UploadFile):
+      audio_content = await audio_file.read()
+
+      async def stream_response():
+         async for chunk in solana_agent.process(
+            user_id="mobile_user",
+            message=audio_content,
+            realtime=True,
+            rt_encode_input=True,  # Handle compressed mobile audio
+            rt_encode_output=True,
+            rt_output_modalities=["audio", "text"],
+            rt_voice="marin",
+            audio_input_format="mp4",  # iOS/Android compressed format
+            audio_output_format="mp3",
+         ):
+            if chunk.modality == "audio":
+               # Send audio data to mobile app
+               yield f"event: audio\ndata: {chunk.data.hex()}\n\n"
+            elif chunk.modality == "text":
+               # Send transcript to mobile app
+               yield f"event: transcript\ndata: {chunk.text_data}\n\n"
+
+      return StreamingResponse(
+         content=stream_response(),
+         media_type="text/event-stream",
+         headers={
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+         },
+      )
 
 Image/Text Streaming
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
