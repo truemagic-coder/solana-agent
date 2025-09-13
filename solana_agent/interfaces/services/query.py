@@ -15,6 +15,7 @@ class QueryService(ABC):
         user_id: str,
         query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
             "ash",

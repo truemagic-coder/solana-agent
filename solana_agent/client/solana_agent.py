@@ -57,6 +57,7 @@ class SolanaAgent(SolanaAgentInterface):
         vad: Optional[bool] = False,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
             "ash",
@@ -104,6 +105,7 @@ class SolanaAgent(SolanaAgentInterface):
             vad: Whether to use voice activity detection (for audio input)
             rt_encode_input: Whether to re-encode input audio for compatibility
             rt_encode_output: Whether to re-encode output audio for compatibility
+            rt_output_modalities: Modalities to return in realtime (default both if None)
             rt_voice: Voice to use for realtime audio output
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
@@ -124,6 +126,7 @@ class SolanaAgent(SolanaAgentInterface):
             vad=vad,
             rt_encode_input=rt_encode_input,
             rt_encode_output=rt_encode_output,
+            rt_output_modalities=rt_output_modalities,
             rt_voice=rt_voice,
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,

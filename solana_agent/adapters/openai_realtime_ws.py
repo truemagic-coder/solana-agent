@@ -169,7 +169,8 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "output_modalities": ["audio"],
+                "output_modalities": self.options.output_modalities
+                or ["audio", "text"],
                 "audio": {
                     "input": {
                         "format": {
@@ -1040,9 +1041,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Per server requirements, always include session.type and output_modalities
         try:
             patch["type"] = "realtime"
-            # Preserve caller-provided output_modalities if present, otherwise default to audio
+            # Preserve caller-provided output_modalities if present, otherwise default to configured modalities
             if "output_modalities" not in patch:
-                patch["output_modalities"] = ["audio"]
+                patch["output_modalities"] = self.options.output_modalities or [
+                    "audio",
+                    "text",
+                ]
         except Exception:
             pass
 

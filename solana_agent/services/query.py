@@ -94,6 +94,7 @@ class QueryService(QueryServiceInterface):
         encode_out: bool,
         audio_input_format: str,
         audio_output_format: str,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
     ) -> Any:
         """Get a free (or new) realtime session for this user. Marks it busy via an internal lock.
 
@@ -148,6 +149,7 @@ class QueryService(QueryServiceInterface):
                 output_rate_hz=24000,
                 input_mime="audio/pcm",
                 output_mime="audio/pcm",
+                output_modalities=rt_output_modalities,
                 tools=initial_tools or None,
                 tool_choice="auto",
             )
@@ -514,6 +516,7 @@ class QueryService(QueryServiceInterface):
         vad: Optional[bool] = None,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
             "ash",
@@ -711,6 +714,7 @@ class QueryService(QueryServiceInterface):
                     encode_out=encode_out,
                     audio_input_format=audio_input_format,
                     audio_output_format=audio_output_format,
+                    rt_output_modalities=rt_output_modalities,
                 )
                 # Ensure lock is released no matter what
                 try:

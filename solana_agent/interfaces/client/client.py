@@ -22,6 +22,7 @@ class SolanaAgent(ABC):
         vad: bool = False,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
             "ash",

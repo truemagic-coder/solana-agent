@@ -1,7 +1,16 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, Literal, Optional, Awaitable, Callable
+from typing import (
+    Any,
+    AsyncGenerator,
+    Dict,
+    Literal,
+    Optional,
+    Awaitable,
+    Callable,
+    List,
+)
 
 
 @dataclass
@@ -24,6 +33,7 @@ class RealtimeSessionOptions:
     output_rate_hz: int = 24000
     input_mime: str = "audio/pcm"  # 16-bit PCM
     output_mime: str = "audio/pcm"  # 16-bit PCM
+    output_modalities: List[Literal["audio", "text"]] = None  # None means auto-detect
     instructions: Optional[str] = None
     # Optional: tools payload compatible with OpenAI Realtime session.update
     tools: Optional[list[dict[str, Any]]] = None
