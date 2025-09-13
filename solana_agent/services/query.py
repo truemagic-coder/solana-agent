@@ -792,13 +792,22 @@ class QueryService(QueryServiceInterface):
                                 "Realtime: VAD enabled — skipping manual response.create"
                             )
                     else:
-                        # Rely on configured session voice; attach input_text only
-                        await rt.create_response(
+                        # For text input, create conversation item first, then response
+                        await rt.create_conversation_item(
                             {
-                                "modalities": ["audio"],
-                                "input": [
+                                "type": "message",
+                                "role": "user",
+                                "content": [
                                     {"type": "input_text", "text": user_text or ""}
                                 ],
+                            }
+                        )
+                        modalities = getattr(
+                            rt, "_options", RealtimeSessionOptions()
+                        ).output_modalities or ["audio"]
+                        await rt.create_response(
+                            {
+                                "modalities": modalities,
                             }
                         )
 

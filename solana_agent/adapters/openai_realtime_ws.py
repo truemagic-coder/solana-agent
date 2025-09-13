@@ -102,16 +102,30 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
-        logger.info(
-            "Realtime WS connecting: uri=%s, input=%s@%sHz, output=%s@%sHz, voice=%s, vad=%s",
-            uri,
-            self.options.input_mime,
-            self.options.input_rate_hz,
-            self.options.output_mime,
-            self.options.output_rate_hz,
-            self.options.voice,
-            self.options.vad_enabled,
-        )
+
+        # Determine if audio output should be configured for logging
+        modalities = self.options.output_modalities or ["audio", "text"]
+        should_configure_audio_output = "audio" in modalities
+
+        if should_configure_audio_output:
+            logger.info(
+                "Realtime WS connecting: uri=%s, input=%s@%sHz, output=%s@%sHz, voice=%s, vad=%s",
+                uri,
+                self.options.input_mime,
+                self.options.input_rate_hz,
+                self.options.output_mime,
+                self.options.output_rate_hz,
+                self.options.voice,
+                self.options.vad_enabled,
+            )
+        else:
+            logger.info(
+                "Realtime WS connecting: uri=%s, input=%s@%sHz, text-only output, vad=%s",
+                uri,
+                self.options.input_mime,
+                self.options.input_rate_hz,
+                self.options.vad_enabled,
+            )
         self._ws = await websockets.connect(
             uri, additional_headers=headers, max_size=None
         )
@@ -165,12 +179,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     cleaned.append(t)
             return cleaned
 
+        # Determine if audio output should be configured
+        modalities = self.options.output_modalities or ["audio", "text"]
+        should_configure_audio_output = "audio" in modalities
+
+        # Build session.update per docs (nested audio object)
         session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "output_modalities": self.options.output_modalities
-                or ["audio", "text"],
+                "output_modalities": modalities,
                 "audio": {
                     "input": {
                         "format": {
@@ -179,16 +197,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         },
                         "turn_detection": td_input,
                     },
-                    "output": {
-                        "format": {
-                            "type": self.options.output_mime or "audio/pcm",
-                            "rate": int(self.options.output_rate_hz or 24000),
-                        },
-                        "voice": self.options.voice,
-                        "speed": float(
-                            getattr(self.options, "voice_speed", 1.0) or 1.0
-                        ),
-                    },
+                    **(
+                        {
+                            "output": {
+                                "format": {
+                                    "type": self.options.output_mime or "audio/pcm",
+                                    "rate": int(self.options.output_rate_hz or 24000),
+                                },
+                                "voice": self.options.voice,
+                                "speed": float(
+                                    getattr(self.options, "voice_speed", 1.0) or 1.0
+                                ),
+                            }
+                        }
+                        if should_configure_audio_output
+                        else {}
+                    ),
                 },
                 # Note: no top-level turn_detection; nested under audio.input
                 **({"prompt": prompt_block} if prompt_block else {}),
@@ -205,13 +229,19 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 ),
             },
         }
-        logger.info(
-            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
-            self.options.voice,
-            self.options.vad_enabled,
-            (self.options.output_mime or "audio/pcm"),
-            int(self.options.output_rate_hz or 24000),
-        )
+        if should_configure_audio_output:
+            logger.info(
+                "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
+                self.options.voice,
+                self.options.vad_enabled,
+                (self.options.output_mime or "audio/pcm"),
+                int(self.options.output_rate_hz or 24000),
+            )
+        else:
+            logger.info(
+                "Realtime WS: sending session.update (text-only, vad=%s)",
+                self.options.vad_enabled,
+            )
         # Log exact session.update payload and mark awaiting session.updated
         try:
             logger.info(
@@ -232,7 +262,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning(
                     "Realtime WS: instructions missing/empty in session.update"
                 )
-            if not voice:
+            if not voice and should_configure_audio_output:
                 logger.warning("Realtime WS: voice missing in session.update")
         except Exception:
             pass
@@ -1152,6 +1182,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         except Exception:
             pass
 
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        payload = {"type": "conversation.item.create", "item": item}
+        await self._send_tracked(payload, label="conversation.item.create")
+
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
@@ -1642,6 +1679,13 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
 
     async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})
+
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        payload = {"type": "conversation.item.create", "item": item}
+        await self._send_tracked(payload, label="conversation.item.create")
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None

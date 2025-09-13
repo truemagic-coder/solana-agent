@@ -42,6 +42,10 @@ class FakeRealtimeService:
         # No-op: we predefine chunks to stream
         return
 
+    async def create_conversation_item(self, item: dict) -> None:
+        # No-op: fake service doesn't need to create conversation items
+        return
+
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:
         async def _gen():
             if False:

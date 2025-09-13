@@ -96,11 +96,18 @@ class RealtimeService:
             }
 
         if output_mime or output_rate_hz is not None or voice is not None:
-            audio_patch["output"] = {
-                "format": "pcm16",  # session is fixed to PCM16 server-side
-                "voice": voice or self._options.voice,
-                "speed": 1.0,
-            }
+            # Only configure audio output if audio is in the output modalities
+            modalities = (
+                self._options.output_modalities
+                if self._options.output_modalities is not None
+                else ["audio"]
+            )
+            if "audio" in modalities:
+                audio_patch["output"] = {
+                    "format": "pcm16",  # session is fixed to PCM16 server-side
+                    "voice": voice or self._options.voice,
+                    "speed": 1.0,
+                }
 
         if audio_patch:
             patch["audio"] = audio_patch
@@ -174,6 +181,12 @@ class RealtimeService:
         await self._session.clear_input()
 
     # --- Out-of-band response (e.g., TTS without new audio) ---
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        await self._session.create_conversation_item(item)
+
     async def create_response(  # pragma: no cover
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -448,11 +461,18 @@ class TwinRealtimeService:
                     turn_detection = None
             audio_patch["input"] = {"format": "pcm16", "turn_detection": turn_detection}
         if output_rate_hz is not None or output_mime is not None or voice is not None:
-            audio_patch["output"] = {
-                "format": "pcm16",
-                "voice": voice or self._conv_opts.voice,
-                "speed": 1.0,
-            }
+            # Only configure audio output if audio is in the output modalities
+            modalities = (
+                self._conv_opts.output_modalities
+                if self._conv_opts.output_modalities is not None
+                else ["audio"]
+            )
+            if "audio" in modalities:
+                audio_patch["output"] = {
+                    "format": "pcm16",
+                    "voice": voice or self._conv_opts.voice,
+                    "speed": 1.0,
+                }
         if audio_patch:
             patch["audio"] = audio_patch
         if instructions is not None:
@@ -519,6 +539,12 @@ class TwinRealtimeService:
 
     async def clear_input(self) -> None:  # pragma: no cover
         await asyncio.gather(self._conv.clear_input(), self._trans.clear_input())
+
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        await self._conv.create_conversation_item(item)
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
