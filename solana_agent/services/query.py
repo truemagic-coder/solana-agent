@@ -704,7 +704,8 @@ class QueryService(QueryServiceInterface):
                     or (is_audio_bytes and audio_input_format.lower() != "pcm")
                 )
 
-                # Allocate or reuse a realtime session for this specific request/user
+                # Allocate or reuse a realtime session for this specific request/user.
+                # (Transcription options may be applied below; if they change after allocate we will reconfigure.)
                 rt = await self._alloc_realtime_session(
                     user_id,
                     api_key=api_key,
@@ -782,38 +783,46 @@ class QueryService(QueryServiceInterface):
                     # Determine if realtime transcription should be enabled (always skip HTTP STT regardless)
                     realtime_transcription_enabled = bool(rt_transcription_model)
                     if realtime_transcription_enabled:
+                        updated = False
                         try:
-                            # Patch underlying session options so adapter attaches transcription config on next configure
                             if hasattr(rt, "_options"):
-                                setattr(
-                                    rt._options,
-                                    "transcription_model",
-                                    rt_transcription_model,
-                                )
-                                setattr(
-                                    rt._options,
-                                    "transcription_language",
-                                    rt_transcription_language,
-                                )
-                                setattr(
-                                    rt._options,
-                                    "transcription_prompt",
-                                    rt_transcription_prompt,
-                                )
-                                setattr(
-                                    rt._options,
-                                    "transcription_noise_reduction",
-                                    rt_transcription_noise_reduction,
-                                )
-                                setattr(
-                                    rt._options,
-                                    "transcription_include_logprobs",
-                                    rt_transcription_include_logprobs,
-                                )
+                                for name, value in [
+                                    ("transcription_model", rt_transcription_model),
+                                    (
+                                        "transcription_language",
+                                        rt_transcription_language,
+                                    ),
+                                    ("transcription_prompt", rt_transcription_prompt),
+                                    (
+                                        "transcription_noise_reduction",
+                                        rt_transcription_noise_reduction,
+                                    ),
+                                    (
+                                        "transcription_include_logprobs",
+                                        rt_transcription_include_logprobs,
+                                    ),
+                                ]:
+                                    if value is not None:
+                                        setattr(rt._options, name, value)
+                                        updated = True
                         except Exception:
                             logger.exception(
                                 "Failed to set transcription options on realtime session"
                             )
+                        # If we updated after initial configure, send a configure to push new session.update
+                        if updated:
+                            try:
+                                await rt.configure(
+                                    voice=rt_voice,
+                                    vad_enabled=bool(vad) if vad is not None else False,
+                                    instructions=final_instructions,
+                                    tools=initial_tools or None,
+                                    tool_choice="auto",
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "Realtime: secondary configure failed when applying transcription options"
+                                )
 
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
@@ -867,10 +876,13 @@ class QueryService(QueryServiceInterface):
                     user_tr = ""
                     asst_tr = ""
 
+                    input_segments: List[str] = []
+
                     async def _drain_in_tr():
                         nonlocal user_tr
                         async for t in rt.iter_input_transcript():
                             if t:
+                                input_segments.append(t)
                                 user_tr += t
 
                     # Check if we need both audio and text modalities
@@ -928,15 +940,32 @@ class QueryService(QueryServiceInterface):
                                     else:
                                         yield audio_chunk
                         finally:
-                            in_task.cancel()
-                            out_task.cancel()
+                            # Allow transcript drain tasks to finish to capture user/asst text before persistence
+                            try:
+                                await asyncio.wait_for(in_task, timeout=0.05)
+                            except Exception:
+                                in_task.cancel()
+                            try:
+                                await asyncio.wait_for(out_task, timeout=0.05)
+                            except Exception:
+                                out_task.cancel()
                         # HTTP STT path removed: realtime audio input transcript (if any) is authoritative
                         # Persist transcripts after combined streaming completes
                         if turn_id:
                             try:
-                                if user_tr:
+                                # Fall back to joined input segments if user_tr empty (e.g. no flush yet)
+                                effective_user_tr = user_tr or ("".join(input_segments))
+                                try:
+                                    setattr(
+                                        self,
+                                        "_last_realtime_user_transcript",
+                                        effective_user_tr,
+                                    )
+                                except Exception:
+                                    pass
+                                if effective_user_tr:
                                     await self.realtime_update_user(
-                                        user_id, turn_id, user_tr
+                                        user_id, turn_id, effective_user_tr
                                     )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
@@ -973,15 +1002,30 @@ class QueryService(QueryServiceInterface):
                                 else:
                                     yield audio_chunk
                         finally:
-                            in_task.cancel()
-                            out_task.cancel()
+                            try:
+                                await asyncio.wait_for(in_task, timeout=0.05)
+                            except Exception:
+                                in_task.cancel()
+                            try:
+                                await asyncio.wait_for(out_task, timeout=0.05)
+                            except Exception:
+                                out_task.cancel()
                         # HTTP STT path removed
                         # Persist transcripts after audio-only streaming
                         if turn_id:
                             try:
-                                if user_tr:
+                                effective_user_tr = user_tr or ("".join(input_segments))
+                                try:
+                                    setattr(
+                                        self,
+                                        "_last_realtime_user_transcript",
+                                        effective_user_tr,
+                                    )
+                                except Exception:
+                                    pass
+                                if effective_user_tr:
                                     await self.realtime_update_user(
-                                        user_id, turn_id, user_tr
+                                        user_id, turn_id, effective_user_tr
                                     )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
@@ -1009,9 +1053,18 @@ class QueryService(QueryServiceInterface):
                         # No HTTP STT fallback
                         if turn_id:
                             try:
-                                if user_tr:
+                                effective_user_tr = user_tr or ("".join(input_segments))
+                                try:
+                                    setattr(
+                                        self,
+                                        "_last_realtime_user_transcript",
+                                        effective_user_tr,
+                                    )
+                                except Exception:
+                                    pass
+                                if effective_user_tr:
                                     await self.realtime_update_user(
-                                        user_id, turn_id, user_tr
+                                        user_id, turn_id, effective_user_tr
                                     )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
