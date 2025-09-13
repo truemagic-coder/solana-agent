@@ -531,6 +531,12 @@ class QueryService(QueryServiceInterface):
             "shimmer",
             "verse",
         ] = "marin",
+        # Realtime transcription configuration (new)
+        rt_transcription_model: Optional[str] = None,
+        rt_transcription_language: Optional[str] = None,
+        rt_transcription_prompt: Optional[str] = None,
+        rt_transcription_noise_reduction: Optional[bool] = None,
+        rt_transcription_include_logprobs: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -559,31 +565,13 @@ class QueryService(QueryServiceInterface):
         try:
             # Realtime request: HTTP STT for user + single WS for assistant audio
             if realtime:
-                # 1) Launch HTTP STT in background when input is audio; don't block WS
+                # 1) Determine if input is audio bytes. We now ALWAYS skip HTTP STT in realtime mode.
+                #    The realtime websocket session (optionally with built-in transcription) is authoritative.
                 is_audio_bytes = isinstance(query, (bytes, bytearray))
-                user_text = ""
-                stt_task = None
-                if is_audio_bytes:
-
-                    async def _stt_consume():
-                        txt = ""
-                        try:
-                            logger.info(
-                                f"Realtime(HTTP STT): transcribing format: {audio_input_format}"
-                            )
-                            async for (
-                                t
-                            ) in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
-                                query, audio_input_format
-                            ):
-                                txt += t
-                        except Exception as e:
-                            logger.error(f"HTTP STT error: {e}")
-                        return txt
-
-                    stt_task = asyncio.create_task(_stt_consume())
-                else:
-                    user_text = str(query)
+                user_text = "" if is_audio_bytes else str(query)
+                # Provide a sensible default realtime transcription model when audio supplied
+                if is_audio_bytes and not rt_transcription_model:
+                    rt_transcription_model = "gpt-4o-mini-transcribe"
 
                 # 2) Single agent selection (no multi-agent routing in realtime path)
                 agent_name = self._get_sticky_agent(user_id)
@@ -791,6 +779,42 @@ class QueryService(QueryServiceInterface):
                         rt_output_modalities is None
                         or (rt_output_modalities and "audio" in rt_output_modalities)
                     )
+                    # Determine if realtime transcription should be enabled (always skip HTTP STT regardless)
+                    realtime_transcription_enabled = bool(rt_transcription_model)
+                    if realtime_transcription_enabled:
+                        try:
+                            # Patch underlying session options so adapter attaches transcription config on next configure
+                            if hasattr(rt, "_options"):
+                                setattr(
+                                    rt._options,
+                                    "transcription_model",
+                                    rt_transcription_model,
+                                )
+                                setattr(
+                                    rt._options,
+                                    "transcription_language",
+                                    rt_transcription_language,
+                                )
+                                setattr(
+                                    rt._options,
+                                    "transcription_prompt",
+                                    rt_transcription_prompt,
+                                )
+                                setattr(
+                                    rt._options,
+                                    "transcription_noise_reduction",
+                                    rt_transcription_noise_reduction,
+                                )
+                                setattr(
+                                    rt._options,
+                                    "transcription_include_logprobs",
+                                    rt_transcription_include_logprobs,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "Failed to set transcription options on realtime session"
+                            )
+
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
                         logger.info(
@@ -906,14 +930,7 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
-                        # Prefer HTTP STT transcript if available (authoritative for user input)
-                        if "stt_task" in locals() and stt_task is not None:
-                            try:
-                                stt_result = await stt_task
-                                if stt_result:
-                                    user_tr = stt_result
-                            except Exception:
-                                pass
+                        # HTTP STT path removed: realtime audio input transcript (if any) is authoritative
                         # Persist transcripts after combined streaming completes
                         if turn_id:
                             try:
@@ -958,14 +975,7 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
-                        # Prefer HTTP STT transcript if available (authoritative for user input)
-                        if "stt_task" in locals() and stt_task is not None:
-                            try:
-                                stt_result = await stt_task
-                                if stt_result:
-                                    user_tr = stt_result
-                            except Exception:
-                                pass
+                        # HTTP STT path removed
                         # Persist transcripts after audio-only streaming
                         if turn_id:
                             try:
@@ -996,12 +1006,7 @@ class QueryService(QueryServiceInterface):
                         async for t in _drain_out_tr_text():
                             # Provide plain text to caller
                             yield t
-                        if not user_tr:
-                            try:
-                                if "stt_task" in locals() and stt_task is not None:
-                                    user_tr = await stt_task
-                            except Exception:
-                                pass
+                        # No HTTP STT fallback
                         if turn_id:
                             try:
                                 if user_tr:

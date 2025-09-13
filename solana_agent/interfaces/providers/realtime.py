@@ -45,6 +45,14 @@ class RealtimeSessionOptions:
     # Optional guard: if a tool takes longer than this to complete, skip sending
     # function_call_output to avoid stale/expired call_id issues. Set to None to always send.
     tool_result_max_age_s: Optional[float] = None
+    # --- Realtime transcription configuration (optional) ---
+    # When transcription_model is set, QueryService should skip the HTTP STT path and rely on
+    # realtime websocket transcription events. Other fields customize that behavior.
+    transcription_model: Optional[str] = None
+    transcription_language: Optional[str] = None  # e.g. 'en'
+    transcription_prompt: Optional[str] = None
+    transcription_noise_reduction: Optional[bool] = None
+    transcription_include_logprobs: bool = False
 
 
 @dataclass

@@ -246,6 +246,7 @@ async for response in solana_agent.process("user123", "What is the latest news o
 ### Audio/Text Streaming
 
 ```python
+## Realtime Usage
 from solana_agent import SolanaAgent
 
 config = {
@@ -282,17 +283,20 @@ Due to the overhead of the router (API call) - realtime only supports a single a
 
 Realtime uses MongoDB for memory so Zep is not needed.
 
+By default, when `realtime=True` and you supply raw/encoded audio bytes as input, the system **always skips the HTTP transcription (STT) path** and relies solely on the realtime websocket session for input transcription. If you don't specify `rt_transcription_model`, a sensible default (`gpt-4o-mini-transcribe`) is auto-selected so you still receive input transcript events with minimal latency.
+
+Implications:
+- `llm_provider.transcribe_audio` is never invoked for realtime turns.
+- Lower end-to-end latency (no duplicate network round trip for STT).
+- Unified transcript sourcing from realtime events.
+- If you explicitly want to disable transcription altogether, send text (not audio bytes) or ignore transcript events client-side.
+
 This example will work using expo-audio on Android and iOS.
 
 ```python
 from solana_agent import SolanaAgent
 
 solana_agent = SolanaAgent(config=config)
-
-audio_content = await audio_file.read()
-
-async def generate():
-    async for chunk in solana_agent.process(
         user_id="user123", 
         message=audio_content,
         realtime=True,
@@ -324,6 +328,8 @@ Due to the overhead of the router (API call) - realtime only supports a single a
 
 Realtime uses MongoDB for memory so Zep is not needed.
 
+When using realtime with text input, no audio transcription is needed. The same bypass rules apply—HTTP STT is never called in realtime mode.
+
 ```python
 from solana_agent import SolanaAgent
 
@@ -353,36 +359,53 @@ Solana Agent supports **dual modality realtime streaming**, allowing you to stre
 #### Mobile App Integration Example
 
 ```python
-# For React Native / Expo apps with expo-audio
+from fastapi import UploadFile
+from fastapi.responses import StreamingResponse
 from solana_agent import SolanaAgent
+from solana_agent.interfaces.providers.realtime import RealtimeChunk
+import base64
 
 solana_agent = SolanaAgent(config=config)
 
 @app.post("/realtime/dual")
 async def realtime_dual_endpoint(audio_file: UploadFile):
+    """
+    Dual modality (audio + text) realtime endpoint using Server-Sent Events (SSE).
+    Sends:
+      event: audio      (base64 encoded audio frames)
+      event: transcript (incremental text)
+    """
+    # Compressed mobile input (e.g. iOS/Android mp4 / aac)
     audio_content = await audio_file.read()
 
-    async def stream_response():
+    async def event_stream():
         async for chunk in solana_agent.process(
             user_id="mobile_user",
             message=audio_content,
             realtime=True,
-            rt_encode_input=True,  # Handle compressed mobile audio
-            rt_encode_output=True,
-            rt_output_modalities=["audio", "text"],
+            rt_encode_input=True,          # Accept compressed input
+            rt_encode_output=True,         # Return compressed audio frames
+            rt_output_modalities=["audio", "text"],  # Request both
             rt_voice="marin",
-            audio_input_format="mp4",  # iOS/Android compressed format
-            audio_output_format="mp3",
+            audio_input_format="mp4",      # Incoming container/codec
+            audio_output_format="mp3",     # Outgoing (you can use aac/mp3)
+            # Do NOT set output_format="audio" here; leave default so dual passthrough stays enabled
         ):
-            if chunk.modality == "audio":
-                # Send audio data to mobile app
-                yield f"event: audio\ndata: {chunk.data.hex()}\n\n"
-            elif chunk.modality == "text":
-                # Send transcript to mobile app
-                yield f"event: transcript\ndata: {chunk.text_data}\n\n"
+            # When both modalities requested, you receive RealtimeChunk objects
+            if isinstance(chunk, RealtimeChunk):
+                if chunk.is_audio and chunk.audio_data:
+                    # Encode audio bytes for SSE (base64 safer than hex; smaller)
+                    b64 = base64.b64encode(chunk.audio_data).decode("ascii")
+                    yield f"event: audio\ndata: {b64}\n\n"
+                elif chunk.is_text and chunk.text_data:
+                    yield f"event: transcript\ndata: {chunk.text_data}\n\n"
+                continue
+
+        # Optional end marker
+        yield "event: done\ndata: end\n\n"
 
     return StreamingResponse(
-        content=stream_response(),
+        event_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-store",

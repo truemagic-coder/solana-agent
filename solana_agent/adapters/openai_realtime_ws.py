@@ -229,6 +229,32 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 ),
             },
         }
+        # Optional realtime transcription configuration
+        try:
+            tr_model = getattr(self.options, "transcription_model", None)
+            if tr_model:
+                audio_obj = session_payload["session"].setdefault("audio", {})
+                # Attach input transcription config per GA schema
+                transcription_cfg: Dict[str, Any] = {"model": tr_model}
+                lang = getattr(self.options, "transcription_language", None)
+                if lang:
+                    transcription_cfg["language"] = lang
+                prompt_txt = getattr(self.options, "transcription_prompt", None)
+                if prompt_txt is not None:
+                    transcription_cfg["prompt"] = prompt_txt
+                if getattr(self.options, "transcription_include_logprobs", False):
+                    session_payload["session"].setdefault("include", []).append(
+                        "item.input_audio_transcription.logprobs"
+                    )
+                nr = getattr(self.options, "transcription_noise_reduction", None)
+                if nr is not None:
+                    audio_obj["noise_reduction"] = bool(nr)
+                # Place under audio.input.transcription per current server conventions
+                audio_obj.setdefault("input", {}).setdefault(
+                    "transcription", transcription_cfg
+                )
+        except Exception:
+            logger.exception("Failed to attach transcription config to session.update")
         if should_configure_audio_output:
             logger.info(
                 "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
