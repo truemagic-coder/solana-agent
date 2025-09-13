@@ -1104,6 +1104,47 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 else:
                     patch[k] = raw[k]
 
+        # --- Inject realtime transcription config if options were updated after initial connect ---
+        try:
+            tr_model = getattr(self.options, "transcription_model", None)
+            if tr_model and isinstance(patch, dict):
+                # Ensure audio/input containers exist without overwriting caller provided fields
+                aud = patch.setdefault("audio", {})
+                inp = aud.setdefault("input", {})
+                # Only add if not explicitly provided in this patch
+                if "transcription" not in inp:
+                    transcription_cfg: Dict[str, Any] = {"model": tr_model}
+                    lang = getattr(self.options, "transcription_language", None)
+                    if lang:
+                        transcription_cfg["language"] = lang
+                    prompt_txt = getattr(self.options, "transcription_prompt", None)
+                    if prompt_txt is not None:
+                        transcription_cfg["prompt"] = prompt_txt
+                    nr = getattr(self.options, "transcription_noise_reduction", None)
+                    if nr is not None:
+                        aud["noise_reduction"] = bool(nr)
+                    if getattr(self.options, "transcription_include_logprobs", False):
+                        patch.setdefault("include", [])
+                        if (
+                            "item.input_audio_transcription.logprobs"
+                            not in patch["include"]
+                        ):
+                            patch["include"].append(
+                                "item.input_audio_transcription.logprobs"
+                            )
+                    inp["transcription"] = transcription_cfg
+                    try:
+                        logger.debug(
+                            "Realtime WS: update_session injected transcription config model=%s",
+                            tr_model,
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            logger.exception(
+                "Realtime WS: failed injecting transcription config in update_session"
+            )
+
         # Ensure tools are cleaned even if provided only under audio or elsewhere
         if "tools" in patch:
             patch["tools"] = _strip_tool_strict(patch["tools"])  # idempotent

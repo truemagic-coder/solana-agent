@@ -720,6 +720,42 @@ class QueryService(QueryServiceInterface):
                 )
                 # Ensure lock is released no matter what
                 try:
+                    # --- Apply realtime transcription config BEFORE connecting (new) ---
+                    if rt_transcription_model and hasattr(rt, "_options"):
+                        try:
+                            setattr(
+                                rt._options,
+                                "transcription_model",
+                                rt_transcription_model,
+                            )
+                            if rt_transcription_language is not None:
+                                setattr(
+                                    rt._options,
+                                    "transcription_language",
+                                    rt_transcription_language,
+                                )
+                            if rt_transcription_prompt is not None:
+                                setattr(
+                                    rt._options,
+                                    "transcription_prompt",
+                                    rt_transcription_prompt,
+                                )
+                            if rt_transcription_noise_reduction is not None:
+                                setattr(
+                                    rt._options,
+                                    "transcription_noise_reduction",
+                                    rt_transcription_noise_reduction,
+                                )
+                            if rt_transcription_include_logprobs:
+                                setattr(
+                                    rt._options, "transcription_include_logprobs", True
+                                )
+                        except Exception:
+                            logger.debug(
+                                "Failed pre-connect transcription option assignment",
+                                exc_info=True,
+                            )
+
                     # Tool executor
                     async def _exec(
                         tool_name: str, args: Dict[str, Any]
@@ -781,48 +817,7 @@ class QueryService(QueryServiceInterface):
                         or (rt_output_modalities and "audio" in rt_output_modalities)
                     )
                     # Determine if realtime transcription should be enabled (always skip HTTP STT regardless)
-                    realtime_transcription_enabled = bool(rt_transcription_model)
-                    if realtime_transcription_enabled:
-                        updated = False
-                        try:
-                            if hasattr(rt, "_options"):
-                                for name, value in [
-                                    ("transcription_model", rt_transcription_model),
-                                    (
-                                        "transcription_language",
-                                        rt_transcription_language,
-                                    ),
-                                    ("transcription_prompt", rt_transcription_prompt),
-                                    (
-                                        "transcription_noise_reduction",
-                                        rt_transcription_noise_reduction,
-                                    ),
-                                    (
-                                        "transcription_include_logprobs",
-                                        rt_transcription_include_logprobs,
-                                    ),
-                                ]:
-                                    if value is not None:
-                                        setattr(rt._options, name, value)
-                                        updated = True
-                        except Exception:
-                            logger.exception(
-                                "Failed to set transcription options on realtime session"
-                            )
-                        # If we updated after initial configure, send a configure to push new session.update
-                        if updated:
-                            try:
-                                await rt.configure(
-                                    voice=rt_voice,
-                                    vad_enabled=bool(vad) if vad is not None else False,
-                                    instructions=final_instructions,
-                                    tools=initial_tools or None,
-                                    tool_choice="auto",
-                                )
-                            except Exception:
-                                logger.debug(
-                                    "Realtime: secondary configure failed when applying transcription options"
-                                )
+                    # realtime_transcription_enabled now implicit (options set before connect)
 
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
