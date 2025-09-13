@@ -157,7 +157,11 @@ async def test_iter_output_audio_encoded_passthrough_waits_on_pending_tool(monke
 
     out = bytearray()
     async for chunk in svc.iter_output_audio_encoded():
-        out.extend(chunk)
+        if hasattr(chunk, "audio_data") and chunk.audio_data:
+            out.extend(chunk.audio_data)
+        else:
+            # Fallback for raw bytes (backward compatibility)
+            out.extend(chunk)
         if len(out) >= 8:
             break
 
@@ -189,7 +193,11 @@ async def test_iter_output_audio_encoded_with_encoding():
 
     chunks = []
     async for c in svc.iter_output_audio_encoded():
-        chunks.append(c)
+        if hasattr(c, "data"):
+            chunks.append(c.data)
+        else:
+            # Fallback for raw bytes (backward compatibility)
+            chunks.append(c)
         if len(chunks) >= 2:
             break
 

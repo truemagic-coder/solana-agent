@@ -10,6 +10,7 @@ from typing import (
     Awaitable,
     Callable,
     List,
+    Union,
 )
 
 
@@ -44,6 +45,99 @@ class RealtimeSessionOptions:
     # Optional guard: if a tool takes longer than this to complete, skip sending
     # function_call_output to avoid stale/expired call_id issues. Set to None to always send.
     tool_result_max_age_s: Optional[float] = None
+
+
+@dataclass
+class RealtimeChunk:
+    """Represents a chunk of data from a realtime session with its modality type."""
+
+    modality: Literal["audio", "text"]
+    data: Union[str, bytes]
+    timestamp: Optional[float] = None  # Optional timestamp for ordering
+    metadata: Optional[Dict[str, Any]] = None  # Optional additional metadata
+
+    @property
+    def is_audio(self) -> bool:
+        """Check if this is an audio chunk."""
+        return self.modality == "audio"
+
+    @property
+    def is_text(self) -> bool:
+        """Check if this is a text chunk."""
+        return self.modality == "text"
+
+    @property
+    def text_data(self) -> Optional[str]:
+        """Get text data if this is a text chunk."""
+        return self.data if isinstance(self.data, str) else None
+
+    @property
+    def audio_data(self) -> Optional[bytes]:
+        """Get audio data if this is an audio chunk."""
+        return self.data if isinstance(self.data, bytes) else None
+
+
+async def separate_audio_chunks(
+    chunks: AsyncGenerator[RealtimeChunk, None],
+) -> AsyncGenerator[bytes, None]:
+    """Extract only audio chunks from a stream of RealtimeChunk objects.
+
+    Args:
+        chunks: Stream of RealtimeChunk objects
+
+    Yields:
+        Audio data bytes from audio chunks only
+    """
+    async for chunk in chunks:
+        if chunk.is_audio and chunk.audio_data:
+            yield chunk.audio_data
+
+
+async def separate_text_chunks(
+    chunks: AsyncGenerator[RealtimeChunk, None],
+) -> AsyncGenerator[str, None]:
+    """Extract only text chunks from a stream of RealtimeChunk objects.
+
+    Args:
+        chunks: Stream of RealtimeChunk objects
+
+    Yields:
+        Text data from text chunks only
+    """
+    async for chunk in chunks:
+        if chunk.is_text and chunk.text_data:
+            yield chunk.text_data
+
+
+async def demux_realtime_chunks(
+    chunks: AsyncGenerator[RealtimeChunk, None],
+) -> tuple[AsyncGenerator[bytes, None], AsyncGenerator[str, None]]:
+    """Demux a stream of RealtimeChunk objects into separate audio and text streams.
+
+    Note: This function consumes the input generator, so each output stream can only be consumed once.
+
+    Args:
+        chunks: Stream of RealtimeChunk objects
+
+    Returns:
+        Tuple of (audio_stream, text_stream) async generators
+    """
+    # Collect all chunks first since we can't consume the generator twice
+    collected_chunks = []
+    async for chunk in chunks:
+        collected_chunks.append(chunk)
+
+    async def audio_stream():
+        for chunk in collected_chunks:
+            if chunk.is_audio and chunk.audio_data:
+                yield chunk.audio_data
+
+    async def text_stream():
+        for chunk in collected_chunks:
+            if chunk.is_text and chunk.text_data:
+                yield chunk.text_data
+
+    return audio_stream(), text_stream()
 
 
 class BaseRealtimeSession(ABC):

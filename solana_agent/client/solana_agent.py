@@ -16,6 +16,7 @@ from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInte
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
+from solana_agent.interfaces.providers.realtime import RealtimeChunk
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -91,7 +92,9 @@ class SolanaAgent(SolanaAgentInterface):
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
-    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
+    ) -> AsyncGenerator[
+        Union[str, bytes, BaseModel, RealtimeChunk], None
+    ]:  # pragma: no cover
         """Process a user message (text or audio) and optional images, returning the response stream.
 
         Args:

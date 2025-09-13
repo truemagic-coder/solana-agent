@@ -37,6 +37,11 @@ from solana_agent.interfaces.services.knowledge_base import (
 )
 from solana_agent.interfaces.guardrails.guardrails import InputGuardrail
 
+from solana_agent.interfaces.providers.realtime import (
+    RealtimeChunk,
+    RealtimeSessionOptions,
+)
+
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 
@@ -807,20 +812,62 @@ class QueryService(QueryServiceInterface):
                             if t:
                                 user_tr += t
 
-                    async def _drain_out_tr():
-                        nonlocal asst_tr
-                        async for t in rt.iter_output_transcript():
-                            if t:
-                                asst_tr += t
+                    # Check if we need both audio and text modalities
+                    modalities = getattr(
+                        rt, "_options", RealtimeSessionOptions()
+                    ).output_modalities or ["audio"]
+                    use_combined_stream = "audio" in modalities and "text" in modalities
 
-                    in_task = asyncio.create_task(_drain_in_tr())
-                    out_task = asyncio.create_task(_drain_out_tr())
-                    try:
-                        async for audio_chunk in rt.iter_output_audio_encoded():
-                            yield audio_chunk
-                    finally:
-                        in_task.cancel()
-                        out_task.cancel()
+                    if use_combined_stream:
+                        # Use combined stream for both modalities
+                        async def _drain_out_tr():
+                            nonlocal asst_tr
+                            async for t in rt.iter_output_transcript():
+                                if t:
+                                    asst_tr += t
+
+                        in_task = asyncio.create_task(_drain_in_tr())
+                        out_task = asyncio.create_task(_drain_out_tr())
+                        try:
+                            # Check if the service has iter_output_combined method
+                            if hasattr(rt, "iter_output_combined"):
+                                async for chunk in rt.iter_output_combined():
+                                    yield chunk
+                            else:
+                                # Fallback: yield audio chunks as RealtimeChunk objects
+                                async for audio_chunk in rt.iter_output_audio_encoded():
+                                    if hasattr(audio_chunk, "modality"):
+                                        yield audio_chunk
+                                    else:
+                                        # Wrap raw bytes in RealtimeChunk for consistency
+                                        yield RealtimeChunk(
+                                            modality="audio", data=audio_chunk
+                                        )
+                        finally:
+                            in_task.cancel()
+                            out_task.cancel()
+                    else:
+                        # Use separate streams (legacy behavior)
+                        async def _drain_out_tr():
+                            nonlocal asst_tr
+                            async for t in rt.iter_output_transcript():
+                                if t:
+                                    asst_tr += t
+
+                        in_task = asyncio.create_task(_drain_in_tr())
+                        out_task = asyncio.create_task(_drain_out_tr())
+                        try:
+                            async for audio_chunk in rt.iter_output_audio_encoded():
+                                # Handle both RealtimeChunk objects and raw bytes for compatibility
+                                if hasattr(audio_chunk, "modality"):
+                                    # This is a RealtimeChunk from real RealtimeService
+                                    yield audio_chunk
+                                else:
+                                    # This is raw bytes from fake/test services
+                                    yield audio_chunk
+                        finally:
+                            in_task.cancel()
+                            out_task.cancel()
                         # If no WS input transcript was captured, fall back to HTTP STT result
                         if not user_tr:
                             try:
