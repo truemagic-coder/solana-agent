@@ -277,7 +277,11 @@ class RealtimeService:
         """
 
         # Determine which modalities to stream based on session options
-        modalities = self._options.output_modalities or ["audio"]
+        modalities = (
+            self._options.output_modalities
+            if self._options.output_modalities is not None
+            else ["audio"]
+        )
         should_stream_audio = "audio" in modalities
         should_stream_text = "text" in modalities
 
