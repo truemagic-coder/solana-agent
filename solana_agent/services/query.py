@@ -906,6 +906,14 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
+                        # Prefer HTTP STT transcript if available (authoritative for user input)
+                        if "stt_task" in locals() and stt_task is not None:
+                            try:
+                                stt_result = await stt_task
+                                if stt_result:
+                                    user_tr = stt_result
+                            except Exception:
+                                pass
                         # Persist transcripts after combined streaming completes
                         if turn_id:
                             try:
@@ -950,6 +958,14 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
+                        # Prefer HTTP STT transcript if available (authoritative for user input)
+                        if "stt_task" in locals() and stt_task is not None:
+                            try:
+                                stt_result = await stt_task
+                                if stt_result:
+                                    user_tr = stt_result
+                            except Exception:
+                                pass
                         # Persist transcripts after audio-only streaming
                         if turn_id:
                             try:
