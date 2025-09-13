@@ -33,13 +33,11 @@ class DummyRealtimeSession:
         return
 
     async def append_audio(self, b: bytes):
-        # Emit two audio chunks and interleave transcripts
         await self._audio.put(b"FAKEAUDIO1")
         for part in ["hel", "lo "]:
             await self._in_tr.put(part)
         await self._out_tr.put("Hi there!")
         await self._audio.put(b"FAKEAUDIO2")
-        # Terminate queues
         await self._out_tr.put(None)
         await self._audio.put(None)
         await self._in_tr.put(None)
@@ -58,8 +56,7 @@ class DummyRealtimeSession:
             item = await q.get()
             if item is None:
                 break
-            if item:
-                yield item
+            yield item
 
     def iter_input_transcript(self):
         return self._iter(self._in_tr)
@@ -67,15 +64,18 @@ class DummyRealtimeSession:
     def iter_output_transcript(self):
         return self._iter(self._out_tr)
 
-    def iter_output_audio(self):
+    def iter_output_audio(self):  # not used directly, but keep for parity
         return self._iter(self._audio)
 
     async def iter_output_audio_encoded(self):
         async for a in self._iter(self._audio):
             yield type("RC", (), {"modality": "audio", "data": a})()
 
-    async def append_tool(self):  # pragma: no cover
-        return
+    async def iter_output_combined(self):
+        async for a in self.iter_output_audio_encoded():
+            yield a
+        async for t in self.iter_output_transcript():
+            yield type("RC", (), {"modality": "text", "data": t})()
 
 
 class DummyRealtimeService:
@@ -421,8 +421,12 @@ async def test_realtime_audio_user_transcript_persisted(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_realtime_fallback_store_conversation(monkeypatch):
-    """Ensure that _store_conversation fallback is invoked after finalize when streaming partials exist."""
+async def test_realtime_no_duplicate_conversation_and_user_transcript(monkeypatch):
+    """Ensure only one conversation history document would be stored logically and user transcript delta not duplicated.
+
+    We simulate streaming APIs (begin/update/finalize) being present; fallback store should NOT trigger since we have those APIs.
+    The QueryService adjustments track already streamed user transcript length to avoid duplicate update_stream_user calls with same text.
+    """
     agent_service = AgentService(llm_provider=MagicMock())
     routing_service = RoutingService(
         llm_provider=agent_service.llm_provider, agent_service=agent_service
@@ -458,15 +462,34 @@ async def test_realtime_fallback_store_conversation(monkeypatch):
 
     monkeypatch.setattr(qs, "_alloc_realtime_session", _alloc)
 
-    # Run realtime audio turn
+    # Execute realtime audio turn
     async for _ in qs.process(
         user_id="u1",
         query=b"AUDIOINPUT",
         realtime=True,
         output_format="audio",
         rt_output_modalities=["audio", "text"],
+        rt_transcription_model="gpt-4o-mini-transcribe",
     ):
         pass
 
-    # Fallback store should have been called if transcripts captured
-    assert memory_provider.store.await_count >= 1
+    # Fallback store should NOT be called because streaming APIs exist
+    assert memory_provider.store.await_count == 0, (
+        "Expected no fallback store invocation"
+    )
+    # update_stream_user should have been called exactly once with full transcript (hel + lo )
+    # depending on segmentation it may be incremental; ensure no duplicated concatenation
+    # Collect cumulative user transcript from calls
+    user_deltas = [c.args[2] for c in memory_provider.update_stream_user.call_args_list]
+    # Join deltas to form final transcript
+    # Ensure no duplicate repeated full transcript (i.e., last delta should not equal final transcript entirely more than once)
+    # A naive duplication would show two identical concatenations; we check uniqueness of cumulative growth pattern.
+    cumulative = []
+    acc = ""
+    for d in user_deltas:
+        acc += d
+        cumulative.append(acc)
+    # Ensure cumulative list strictly increases and final appears only once
+    assert len(cumulative) == len(set(cumulative)), (
+        "Detected duplicate cumulative user transcript states"
+    )

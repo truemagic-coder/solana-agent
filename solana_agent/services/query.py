@@ -191,9 +191,7 @@ class QueryService(QueryServiceInterface):
     ) -> None:
         self._sticky_sessions[user_id] = {
             "agent": agent_name,
-            "started_at": self._sticky_sessions.get(user_id, {}).get(
-                "started_at", time.time()
-            ),
+            "started_at": time.time(),
             "last_updated": time.time(),
             "required_complete": required_complete,
         }
@@ -958,10 +956,27 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
+                                # Avoid duplicating user transcript if it was already streamed fully earlier
                                 if effective_user_tr:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, effective_user_tr
-                                    )
+                                    try:
+                                        already_len = getattr(
+                                            self, "_rt_user_stream_len", 0
+                                        )
+                                        if len(effective_user_tr) > already_len:
+                                            await self.realtime_update_user(
+                                                user_id,
+                                                turn_id,
+                                                effective_user_tr[already_len:],
+                                            )
+                                            setattr(
+                                                self,
+                                                "_rt_user_stream_len",
+                                                len(effective_user_tr),
+                                            )
+                                    except Exception:
+                                        await self.realtime_update_user(
+                                            user_id, turn_id, effective_user_tr
+                                        )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
@@ -972,23 +987,6 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
-                            # Fallback: ensure conversation stored for history queries when streaming provider handles only partials
-                            try:
-                                if (
-                                    (user_tr or asst_tr)
-                                    and self.memory_provider
-                                    and hasattr(
-                                        self.memory_provider, "begin_stream_turn"
-                                    )
-                                ):
-                                    await self._store_conversation(
-                                        user_id, user_tr or "", asst_tr or ""
-                                    )
-                            except Exception:
-                                logger.debug(
-                                    "Realtime fallback _store_conversation failed",
-                                    exc_info=True,
-                                )
                     elif wants_audio:
                         # Use separate streams (legacy behavior)
                         async def _drain_out_tr():
@@ -1036,9 +1034,25 @@ class QueryService(QueryServiceInterface):
                                 except Exception:
                                     pass
                                 if effective_user_tr:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, effective_user_tr
-                                    )
+                                    try:
+                                        already_len = getattr(
+                                            self, "_rt_user_stream_len", 0
+                                        )
+                                        if len(effective_user_tr) > already_len:
+                                            await self.realtime_update_user(
+                                                user_id,
+                                                turn_id,
+                                                effective_user_tr[already_len:],
+                                            )
+                                            setattr(
+                                                self,
+                                                "_rt_user_stream_len",
+                                                len(effective_user_tr),
+                                            )
+                                    except Exception:
+                                        await self.realtime_update_user(
+                                            user_id, turn_id, effective_user_tr
+                                        )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
@@ -1049,22 +1063,6 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
-                            try:
-                                if (
-                                    (user_tr or asst_tr)
-                                    and self.memory_provider
-                                    and hasattr(
-                                        self.memory_provider, "begin_stream_turn"
-                                    )
-                                ):
-                                    await self._store_conversation(
-                                        user_id, user_tr or "", asst_tr or ""
-                                    )
-                            except Exception:
-                                logger.debug(
-                                    "Realtime fallback _store_conversation failed",
-                                    exc_info=True,
-                                )
                         # If no WS input transcript was captured, fall back to HTTP STT result
                     else:
                         # Text-only: just stream assistant transcript if available (no audio iteration)
@@ -1091,9 +1089,25 @@ class QueryService(QueryServiceInterface):
                                 except Exception:
                                     pass
                                 if effective_user_tr:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, effective_user_tr
-                                    )
+                                    try:
+                                        already_len = getattr(
+                                            self, "_rt_user_stream_len", 0
+                                        )
+                                        if len(effective_user_tr) > already_len:
+                                            await self.realtime_update_user(
+                                                user_id,
+                                                turn_id,
+                                                effective_user_tr[already_len:],
+                                            )
+                                            setattr(
+                                                self,
+                                                "_rt_user_stream_len",
+                                                len(effective_user_tr),
+                                            )
+                                    except Exception:
+                                        await self.realtime_update_user(
+                                            user_id, turn_id, effective_user_tr
+                                        )
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
@@ -1104,22 +1118,6 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
-                            try:
-                                if (
-                                    (user_tr or asst_tr)
-                                    and self.memory_provider
-                                    and hasattr(
-                                        self.memory_provider, "begin_stream_turn"
-                                    )
-                                ):
-                                    await self._store_conversation(
-                                        user_id, user_tr or "", asst_tr or ""
-                                    )
-                            except Exception:
-                                logger.debug(
-                                    "Realtime fallback _store_conversation failed",
-                                    exc_info=True,
-                                )
                         # Clear input buffer for next turn reuse
                         try:
                             await rt.clear_input()
