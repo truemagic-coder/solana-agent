@@ -87,6 +87,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.services.knowledge_base</span><span class="w"> </span><span class="kn">import</span> <span class="n">KnowledgeBaseService</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingInterface</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.providers.realtime</span><span class="w"> </span><span class="kn">import</span> <span class="n">RealtimeChunk</span>
 
 
 <div class="viewcode-block" id="SolanaAgent">
@@ -132,6 +133,7 @@
         <span class="n">vad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">rt_encode_input</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">rt_encode_output</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">rt_output_modalities</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;audio&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">rt_voice</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span>
             <span class="s2">&quot;alloy&quot;</span><span class="p">,</span>
             <span class="s2">&quot;ash&quot;</span><span class="p">,</span>
@@ -165,7 +167,9 @@
         <span class="n">router</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">RoutingInterface</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">images</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">output_model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Type</span><span class="p">[</span><span class="n">BaseModel</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncGenerator</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">],</span> <span class="kc">None</span><span class="p">]:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncGenerator</span><span class="p">[</span>
+        <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">RealtimeChunk</span><span class="p">],</span> <span class="kc">None</span>
+    <span class="p">]:</span>  <span class="c1"># pragma: no cover</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Process a user message (text or audio) and optional images, returning the response stream.</span>
 
 <span class="sd">        Args:</span>
@@ -179,6 +183,7 @@
 <span class="sd">            vad: Whether to use voice activity detection (for audio input)</span>
 <span class="sd">            rt_encode_input: Whether to re-encode input audio for compatibility</span>
 <span class="sd">            rt_encode_output: Whether to re-encode output audio for compatibility</span>
+<span class="sd">            rt_output_modalities: Modalities to return in realtime (default both if None)</span>
 <span class="sd">            rt_voice: Voice to use for realtime audio output</span>
 <span class="sd">            audio_voice: Voice to use for audio output</span>
 <span class="sd">            audio_output_format: Audio output format</span>
@@ -199,6 +204,7 @@
             <span class="n">vad</span><span class="o">=</span><span class="n">vad</span><span class="p">,</span>
             <span class="n">rt_encode_input</span><span class="o">=</span><span class="n">rt_encode_input</span><span class="p">,</span>
             <span class="n">rt_encode_output</span><span class="o">=</span><span class="n">rt_encode_output</span><span class="p">,</span>
+            <span class="n">rt_output_modalities</span><span class="o">=</span><span class="n">rt_output_modalities</span><span class="p">,</span>
             <span class="n">rt_voice</span><span class="o">=</span><span class="n">rt_voice</span><span class="p">,</span>
             <span class="n">audio_voice</span><span class="o">=</span><span class="n">audio_voice</span><span class="p">,</span>
             <span class="n">audio_output_format</span><span class="o">=</span><span class="n">audio_output_format</span><span class="p">,</span>
