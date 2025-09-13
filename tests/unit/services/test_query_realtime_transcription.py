@@ -488,6 +488,86 @@ async def test_realtime_no_duplicate_conversation_and_user_transcript(monkeypatc
         "hello ",
         "hello",
         "hel lo",
-    }  # allow minor spacing artifacts from stub segmentation
+        "helo ",  # produced by overlap-based merge (dedup removing duplicated 'l')
+    }  # allow minor spacing artifacts / merge effects
     # finalize should still have been called
+    assert memory_provider.finalize_stream_turn.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_realtime_cumulative_and_duplicate_user_segments(monkeypatch):
+    """Ensure cumulative + repeated final input transcript segments produce a single deduplicated user transcript.
+
+    Simulates provider emitting: ["My name is ", "My name is John", "My name is John"]
+    Stored transcript should be exactly "My name is John" with a single update_stream_user call.
+    """
+    from solana_agent.services.agent import AgentService
+    from solana_agent.services.routing import RoutingService
+    from solana_agent.interfaces.providers.realtime import RealtimeSessionOptions
+
+    class CumulativeDummySession(DummyRealtimeSession):
+        async def append_audio(self, b: bytes):
+            # Emit cumulative growing and duplicate final segments
+            for part in ["My name is ", "My name is John", "My name is John"]:
+                await self._in_tr.put(part)
+            # Minimal assistant side output
+            await self._out_tr.put("Hello John!")
+            await self._out_tr.put(None)
+            await self._in_tr.put(None)
+            await self._audio.put(None)
+
+    agent_service = AgentService(llm_provider=MagicMock())
+    routing_service = RoutingService(
+        llm_provider=agent_service.llm_provider, agent_service=agent_service
+    )
+    agent_service.get_all_ai_agents = MagicMock(return_value={"default": {}})
+    agent_service.get_agent_system_prompt = MagicMock(return_value="SYSTEM")
+    agent_service.get_agent_tools = MagicMock(return_value=[])
+
+    memory_provider = MagicMock()
+    memory_provider.retrieve = AsyncMock(return_value="")
+    memory_provider.begin_stream_turn = AsyncMock(return_value="turn-2")
+    memory_provider.update_stream_user = AsyncMock()
+    memory_provider.update_stream_assistant = AsyncMock()
+    memory_provider.finalize_stream_turn = AsyncMock()
+
+    qs = QueryService(
+        agent_service,
+        routing_service,
+        memory_provider=memory_provider,
+        knowledge_base=None,
+    )
+
+    async def _alloc(*args, **kwargs):
+        opts = RealtimeSessionOptions(output_modalities=["text"], vad_enabled=False)
+        sess = CumulativeDummySession(opts)
+        rs = DummyRealtimeService(sess, opts)
+        setattr(rs, "_in_use_lock", asyncio.Lock())
+        await getattr(rs, "_in_use_lock").acquire()
+        # Trigger audio append path so input transcript is produced
+        await rs.append_audio(b"FAKE")
+        return rs
+
+    monkeypatch.setattr(qs, "_alloc_realtime_session", _alloc)
+
+    # Run realtime process with audio path (forces append_audio invocation)
+    async for _ in qs.process(
+        user_id="u2",
+        query=b"AUDIOINPUT",
+        realtime=True,
+        output_format="text",
+        rt_output_modalities=["text"],
+        rt_transcription_model="gpt-4o-mini-transcribe",
+    ):
+        pass
+
+    # Validate single persistence and deduplicated final transcript
+    user_calls = memory_provider.update_stream_user.call_args_list
+    assert len(user_calls) == 1, (
+        f"Expected single user transcript persistence, got {len(user_calls)}"
+    )
+    final_text = user_calls[0].args[2]
+    assert final_text == "My name is John", (
+        f"Unexpected deduped transcript: {final_text!r}"
+    )
     assert memory_provider.finalize_stream_turn.await_count == 1

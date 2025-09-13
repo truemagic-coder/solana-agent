@@ -805,7 +805,10 @@ class QueryService(QueryServiceInterface):
                     # Begin streaming turn (defer user transcript persistence until final to avoid duplicates)
                     turn_id = await self.realtime_begin_turn(user_id)
                     # We'll buffer the full user transcript (text input or realtime audio transcription) and persist exactly once.
-                    final_user_tr: str = user_text if user_text else ""
+                    # Initialize empty; we'll build it strictly from realtime transcript segments to avoid
+                    # accidental duplication with pre-supplied user_text or prior buffers.
+                    final_user_tr: str = ""
+                    user_persisted = False
 
                     # Feed audio into WS if audio bytes provided and audio modality requested; else treat as text
                     wants_audio = (
@@ -821,6 +824,24 @@ class QueryService(QueryServiceInterface):
                     # Determine if realtime transcription should be enabled (always skip HTTP STT regardless)
                     # realtime_transcription_enabled now implicit (options set before connect)
 
+                    if is_audio_bytes and not wants_audio:
+                        # Feed audio solely for transcription (no audio output requested)
+                        bq = bytes(query)
+                        logger.info(
+                            "Realtime: appending input audio for transcription only, len=%d, fmt=%s",
+                            len(bq),
+                            audio_input_format,
+                        )
+                        await rt.append_audio(bq)
+                        vad_enabled_value = bool(vad) if vad is not None else False
+                        if not vad_enabled_value:
+                            await rt.commit_input()
+                            # Request only text response
+                            await rt.create_response({"modalities": ["text"]})
+                        else:
+                            logger.debug(
+                                "Realtime: VAD enabled (text-only output) — skipping manual response.create"
+                            )
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
                         logger.info(
@@ -876,11 +897,39 @@ class QueryService(QueryServiceInterface):
                     input_segments: List[str] = []
 
                     async def _drain_in_tr():
+                        """Accumulate realtime input transcript segments, de-duplicating cumulative repeats.
+
+                        Some realtime providers emit growing cumulative transcripts (e.g. "Hel", "Hello") or
+                        may occasionally resend the full final transcript. Previous logic naively concatenated
+                        every segment which could yield duplicated text ("HelloHello") if cumulative or repeated
+                        finals were received. This routine keeps a canonical buffer (user_tr) and only appends
+                        the non-overlapping suffix of each new segment.
+                        """
                         nonlocal user_tr
                         async for t in rt.iter_input_transcript():
-                            if t:
-                                input_segments.append(t)
-                                user_tr += t
+                            if not t:
+                                continue
+                            # Track raw segment for optional debugging
+                            input_segments.append(t)
+                            if not user_tr:
+                                user_tr = t
+                                continue
+                            if t == user_tr:
+                                # Exact duplicate of current buffer; skip
+                                continue
+                            if t.startswith(user_tr):
+                                # Cumulative growth; append only the new suffix
+                                user_tr += t[len(user_tr) :]
+                                continue
+                            # General case: find largest overlap between end of user_tr and start of t
+                            # to avoid duplicated middle content (e.g., user_tr="My name is", t="name is John")
+                            overlap = 0
+                            max_check = min(len(user_tr), len(t))
+                            for k in range(max_check, 0, -1):
+                                if user_tr.endswith(t[:k]):
+                                    overlap = k
+                                    break
+                            user_tr += t[overlap:]
 
                     # Check if we need both audio and text modalities
                     modalities = getattr(
@@ -950,7 +999,6 @@ class QueryService(QueryServiceInterface):
                         # Persist transcripts after combined streaming completes
                         if turn_id:
                             try:
-                                # Fall back to joined input segments if user_tr empty (e.g. no flush yet)
                                 effective_user_tr = user_tr or ("".join(input_segments))
                                 try:
                                     setattr(
@@ -960,7 +1008,6 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
-                                # Persist only the final complete user transcript once
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
                                 if asst_tr:
@@ -969,18 +1016,26 @@ class QueryService(QueryServiceInterface):
                                     )
                             except Exception:
                                 pass
-                            # Single persistence of user transcript
-                            if final_user_tr:
+                            if final_user_tr and not user_persisted:
                                 try:
                                     await self.realtime_update_user(
                                         user_id, turn_id, final_user_tr
                                     )
+                                    user_persisted = True
                                 except Exception:
                                     pass
                             try:
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
+                            if final_user_tr and not user_persisted:
+                                try:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, final_user_tr
+                                    )
+                                    user_persisted = True
+                                except Exception:
+                                    pass
                     elif wants_audio:
                         # Use separate streams (legacy behavior)
                         async def _drain_out_tr():
@@ -1036,11 +1091,12 @@ class QueryService(QueryServiceInterface):
                                     )
                             except Exception:
                                 pass
-                            if final_user_tr:
+                            if final_user_tr and not user_persisted:
                                 try:
                                     await self.realtime_update_user(
                                         user_id, turn_id, final_user_tr
                                     )
+                                    user_persisted = True
                                 except Exception:
                                     pass
                             try:
@@ -1050,6 +1106,12 @@ class QueryService(QueryServiceInterface):
                         # If no WS input transcript was captured, fall back to HTTP STT result
                     else:
                         # Text-only: just stream assistant transcript if available (no audio iteration)
+                        # If original input was audio bytes but caller only wants text output (no audio modality),
+                        # we still need to drain the input transcript stream to build user_tr.
+                        in_task_audio_only = None
+                        if is_audio_bytes:
+                            in_task_audio_only = asyncio.create_task(_drain_in_tr())
+
                         async def _drain_out_tr_text():
                             nonlocal asst_tr
                             async for t in rt.iter_output_transcript():
@@ -1060,6 +1122,12 @@ class QueryService(QueryServiceInterface):
                         async for t in _drain_out_tr_text():
                             # Provide plain text to caller
                             yield t
+                        # Wait for input transcript (if any) before persistence
+                        if "in_task_audio_only" in locals() and in_task_audio_only:
+                            try:
+                                await asyncio.wait_for(in_task_audio_only, timeout=0.1)
+                            except Exception:
+                                in_task_audio_only.cancel()
                         # No HTTP STT fallback
                         if turn_id:
                             try:
@@ -1072,6 +1140,7 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
+                                # For text-only modality but audio-origin (cumulative segments captured), persist user transcript
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
                                 if asst_tr:
@@ -1080,17 +1149,19 @@ class QueryService(QueryServiceInterface):
                                     )
                             except Exception:
                                 pass
-                            if final_user_tr:
+                            if final_user_tr and not user_persisted:
                                 try:
                                     await self.realtime_update_user(
                                         user_id, turn_id, final_user_tr
                                     )
+                                    user_persisted = True
                                 except Exception:
                                     pass
                             try:
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
+                        # Input transcript task already awaited above
                         # Clear input buffer for next turn reuse
                         try:
                             await rt.clear_input()
