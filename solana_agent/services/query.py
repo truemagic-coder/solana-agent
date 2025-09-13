@@ -701,6 +701,17 @@ class QueryService(QueryServiceInterface):
                 encode_out = bool(
                     rt_encode_output or (audio_output_format.lower() != "pcm")
                 )
+                # If caller explicitly requests text-only realtime, disable output encoding entirely
+                if (
+                    rt_output_modalities is not None
+                    and "audio" not in rt_output_modalities
+                ):
+                    if encode_out:
+                        logger.debug(
+                            "Realtime(QueryService): forcing encode_out False for text-only modalities=%s",
+                            rt_output_modalities,
+                        )
+                    encode_out = False
                 # Choose input transcoding when compressed input is provided (or explicitly requested)
                 is_audio_bytes = isinstance(query, (bytes, bytearray))
                 encode_in = bool(
@@ -772,8 +783,18 @@ class QueryService(QueryServiceInterface):
                         except Exception:
                             pass
 
-                    # Feed audio into WS if audio bytes provided; else use input_text
-                    if is_audio_bytes:
+                    # Feed audio into WS if audio bytes provided and audio modality requested; else treat as text
+                    wants_audio = (
+                        (
+                            getattr(rt, "_options", None)
+                            and getattr(rt, "_options").output_modalities
+                        )
+                        and "audio" in getattr(rt, "_options").output_modalities  # type: ignore[attr-defined]
+                    ) or (
+                        rt_output_modalities is None
+                        or (rt_output_modalities and "audio" in rt_output_modalities)
+                    )
+                    if is_audio_bytes and wants_audio:
                         bq = bytes(query)
                         logger.info(
                             "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
@@ -791,7 +812,7 @@ class QueryService(QueryServiceInterface):
                             logger.debug(
                                 "Realtime: VAD enabled — skipping manual response.create"
                             )
-                    else:
+                    else:  # Text-only path OR caller excluded audio modality
                         # For text input, create conversation item first, then response
                         await rt.create_conversation_item(
                             {
@@ -802,9 +823,19 @@ class QueryService(QueryServiceInterface):
                                 ],
                             }
                         )
-                        modalities = getattr(
-                            rt, "_options", RealtimeSessionOptions()
-                        ).output_modalities or ["audio"]
+                        # Determine effective modalities (fall back to provided override or text only)
+                        if rt_output_modalities is not None:
+                            modalities = rt_output_modalities or ["text"]
+                        else:
+                            mo = getattr(
+                                rt, "_options", RealtimeSessionOptions()
+                            ).output_modalities
+                            modalities = mo if mo else ["audio"]
+                        if "audio" not in modalities:
+                            # Ensure we do not accidentally request audio generation
+                            modalities = [m for m in modalities if m == "text"] or [
+                                "text"
+                            ]
                         await rt.create_response(
                             {
                                 "modalities": modalities,
@@ -827,7 +858,7 @@ class QueryService(QueryServiceInterface):
                     ).output_modalities or ["audio"]
                     use_combined_stream = "audio" in modalities and "text" in modalities
 
-                    if use_combined_stream:
+                    if use_combined_stream and wants_audio:
                         # Use combined stream for both modalities
                         async def _drain_out_tr():
                             nonlocal asst_tr
@@ -855,7 +886,7 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
-                    else:
+                    elif wants_audio:
                         # Use separate streams (legacy behavior)
                         async def _drain_out_tr():
                             nonlocal asst_tr
@@ -878,6 +909,18 @@ class QueryService(QueryServiceInterface):
                             in_task.cancel()
                             out_task.cancel()
                         # If no WS input transcript was captured, fall back to HTTP STT result
+                    else:
+                        # Text-only: just stream assistant transcript if available (no audio iteration)
+                        async def _drain_out_tr_text():
+                            nonlocal asst_tr
+                            async for t in rt.iter_output_transcript():
+                                if t:
+                                    asst_tr += t
+                                    yield t  # Yield incremental text chunks directly
+
+                        async for t in _drain_out_tr_text():
+                            # Provide plain text to caller
+                            yield t
                         if not user_tr:
                             try:
                                 if "stt_task" in locals() and stt_task is not None:

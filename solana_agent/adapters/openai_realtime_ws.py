@@ -663,6 +663,20 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                             len(final),
                                         )
                                     self._out_text_buffers.pop(rid, None)
+                                # Always terminate the output transcript stream for this response when text-only.
+                                try:
+                                    # Only enqueue sentinel when no audio modality is configured
+                                    modalities = (
+                                        getattr(self.options, "output_modalities", None)
+                                        or []
+                                    )
+                                    if "audio" not in modalities:
+                                        self._out_tr_queue.put_nowait(None)
+                                        logger.debug(
+                                            "Enqueued transcript termination sentinel (text-only response)"
+                                        )
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                     elif (
