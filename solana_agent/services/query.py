@@ -37,10 +37,7 @@ from solana_agent.interfaces.services.knowledge_base import (
 )
 from solana_agent.interfaces.guardrails.guardrails import InputGuardrail
 
-from solana_agent.interfaces.providers.realtime import (
-    RealtimeChunk,
-    RealtimeSessionOptions,
-)
+from solana_agent.interfaces.providers.realtime import RealtimeSessionOptions
 
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -872,17 +869,40 @@ class QueryService(QueryServiceInterface):
                             # Check if the service has iter_output_combined method
                             if hasattr(rt, "iter_output_combined"):
                                 async for chunk in rt.iter_output_combined():
-                                    yield chunk
+                                    # Adapt output based on caller's requested output_format
+                                    if output_format == "text":
+                                        # Only yield text modalities as plain strings
+                                        if getattr(chunk, "modality", None) == "text":
+                                            yield chunk.data  # type: ignore[attr-defined]
+                                        continue
+                                    # Audio streaming path
+                                    if getattr(chunk, "modality", None) == "audio":
+                                        # Yield raw bytes if data present
+                                        yield getattr(chunk, "data", b"")
+                                    elif (
+                                        getattr(chunk, "modality", None) == "text"
+                                        and output_format == "audio"
+                                    ):
+                                        # Optionally ignore or log text while audio requested
+                                        continue
+                                    else:
+                                        # Fallback: ignore unknown modalities for now
+                                        continue
                             else:
                                 # Fallback: yield audio chunks as RealtimeChunk objects
                                 async for audio_chunk in rt.iter_output_audio_encoded():
+                                    if output_format == "text":
+                                        # Ignore audio when text requested
+                                        continue
+                                    # output_format audio: provide raw bytes
                                     if hasattr(audio_chunk, "modality"):
-                                        yield audio_chunk
+                                        if (
+                                            getattr(audio_chunk, "modality", None)
+                                            == "audio"
+                                        ):
+                                            yield getattr(audio_chunk, "data", b"")
                                     else:
-                                        # Wrap raw bytes in RealtimeChunk for consistency
-                                        yield RealtimeChunk(
-                                            modality="audio", data=audio_chunk
-                                        )
+                                        yield audio_chunk
                         finally:
                             in_task.cancel()
                             out_task.cancel()
@@ -898,12 +918,17 @@ class QueryService(QueryServiceInterface):
                         out_task = asyncio.create_task(_drain_out_tr())
                         try:
                             async for audio_chunk in rt.iter_output_audio_encoded():
-                                # Handle both RealtimeChunk objects and raw bytes for compatibility
+                                if output_format == "text":
+                                    # Skip audio when caller wants text only
+                                    continue
+                                # output_format audio: yield raw bytes
                                 if hasattr(audio_chunk, "modality"):
-                                    # This is a RealtimeChunk from real RealtimeService
-                                    yield audio_chunk
+                                    if (
+                                        getattr(audio_chunk, "modality", None)
+                                        == "audio"
+                                    ):
+                                        yield getattr(audio_chunk, "data", b"")
                                 else:
-                                    # This is raw bytes from fake/test services
                                     yield audio_chunk
                         finally:
                             in_task.cancel()
