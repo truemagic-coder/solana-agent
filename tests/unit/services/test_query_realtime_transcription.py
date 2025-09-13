@@ -477,19 +477,17 @@ async def test_realtime_no_duplicate_conversation_and_user_transcript(monkeypatc
     assert memory_provider.store.await_count == 0, (
         "Expected no fallback store invocation"
     )
-    # update_stream_user should have been called exactly once with full transcript (hel + lo )
-    # depending on segmentation it may be incremental; ensure no duplicated concatenation
-    # Collect cumulative user transcript from calls
-    user_deltas = [c.args[2] for c in memory_provider.update_stream_user.call_args_list]
-    # Join deltas to form final transcript
-    # Ensure no duplicate repeated full transcript (i.e., last delta should not equal final transcript entirely more than once)
-    # A naive duplication would show two identical concatenations; we check uniqueness of cumulative growth pattern.
-    cumulative = []
-    acc = ""
-    for d in user_deltas:
-        acc += d
-        cumulative.append(acc)
-    # Ensure cumulative list strictly increases and final appears only once
-    assert len(cumulative) == len(set(cumulative)), (
-        "Detected duplicate cumulative user transcript states"
+    # update_stream_user should now be called exactly once with the full transcript (no incremental deltas)
+    user_calls = memory_provider.update_stream_user.call_args_list
+    assert len(user_calls) == 1, (
+        f"Expected single user transcript persistence, got {len(user_calls)}"
     )
+    full_delta = user_calls[0].args[2]
+    assert full_delta in {
+        "hel lo ",
+        "hello ",
+        "hello",
+        "hel lo",
+    }  # allow minor spacing artifacts from stub segmentation
+    # finalize should still have been called
+    assert memory_provider.finalize_stream_turn.await_count == 1

@@ -203,6 +203,13 @@ class QueryService(QueryServiceInterface):
             self._sticky_sessions[user_id]["required_complete"] = required_complete
             self._sticky_sessions[user_id]["last_updated"] = time.time()
 
+    def _clear_sticky_agent(self, user_id: str) -> None:
+        if user_id in self._sticky_sessions:
+            try:
+                del self._sticky_sessions[user_id]
+            except Exception:
+                pass
+
     async def _build_combined_context(
         self,
         user_id: str,
@@ -795,13 +802,10 @@ class QueryService(QueryServiceInterface):
                     except Exception:
                         pass
 
-                    # Persist once per turn
+                    # Begin streaming turn (defer user transcript persistence until final to avoid duplicates)
                     turn_id = await self.realtime_begin_turn(user_id)
-                    if turn_id and user_text:
-                        try:
-                            await self.realtime_update_user(user_id, turn_id, user_text)
-                        except Exception:
-                            pass
+                    # We'll buffer the full user transcript (text input or realtime audio transcription) and persist exactly once.
+                    final_user_tr: str = user_text if user_text else ""
 
                     # Feed audio into WS if audio bytes provided and audio modality requested; else treat as text
                     wants_audio = (
@@ -866,7 +870,7 @@ class QueryService(QueryServiceInterface):
                         )
 
                     # Collect audio and transcripts
-                    user_tr = ""
+                    user_tr = ""  # Accumulates realtime input transcript segments (audio path)
                     asst_tr = ""
 
                     input_segments: List[str] = []
@@ -956,33 +960,23 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
-                                # Avoid duplicating user transcript if it was already streamed fully earlier
+                                # Persist only the final complete user transcript once
                                 if effective_user_tr:
-                                    try:
-                                        already_len = getattr(
-                                            self, "_rt_user_stream_len", 0
-                                        )
-                                        if len(effective_user_tr) > already_len:
-                                            await self.realtime_update_user(
-                                                user_id,
-                                                turn_id,
-                                                effective_user_tr[already_len:],
-                                            )
-                                            setattr(
-                                                self,
-                                                "_rt_user_stream_len",
-                                                len(effective_user_tr),
-                                            )
-                                    except Exception:
-                                        await self.realtime_update_user(
-                                            user_id, turn_id, effective_user_tr
-                                        )
+                                    final_user_tr = effective_user_tr
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
                                     )
                             except Exception:
                                 pass
+                            # Single persistence of user transcript
+                            if final_user_tr:
+                                try:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, final_user_tr
+                                    )
+                                except Exception:
+                                    pass
                             try:
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
@@ -1033,32 +1027,22 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
+                                # Buffer final transcript for single persistence
                                 if effective_user_tr:
-                                    try:
-                                        already_len = getattr(
-                                            self, "_rt_user_stream_len", 0
-                                        )
-                                        if len(effective_user_tr) > already_len:
-                                            await self.realtime_update_user(
-                                                user_id,
-                                                turn_id,
-                                                effective_user_tr[already_len:],
-                                            )
-                                            setattr(
-                                                self,
-                                                "_rt_user_stream_len",
-                                                len(effective_user_tr),
-                                            )
-                                    except Exception:
-                                        await self.realtime_update_user(
-                                            user_id, turn_id, effective_user_tr
-                                        )
+                                    final_user_tr = effective_user_tr
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
                                     )
                             except Exception:
                                 pass
+                            if final_user_tr:
+                                try:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, final_user_tr
+                                    )
+                                except Exception:
+                                    pass
                             try:
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
@@ -1089,31 +1073,20 @@ class QueryService(QueryServiceInterface):
                                 except Exception:
                                     pass
                                 if effective_user_tr:
-                                    try:
-                                        already_len = getattr(
-                                            self, "_rt_user_stream_len", 0
-                                        )
-                                        if len(effective_user_tr) > already_len:
-                                            await self.realtime_update_user(
-                                                user_id,
-                                                turn_id,
-                                                effective_user_tr[already_len:],
-                                            )
-                                            setattr(
-                                                self,
-                                                "_rt_user_stream_len",
-                                                len(effective_user_tr),
-                                            )
-                                    except Exception:
-                                        await self.realtime_update_user(
-                                            user_id, turn_id, effective_user_tr
-                                        )
+                                    final_user_tr = effective_user_tr
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
                                     )
                             except Exception:
                                 pass
+                            if final_user_tr:
+                                try:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, final_user_tr
+                                    )
+                                except Exception:
+                                    pass
                             try:
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
@@ -1133,58 +1106,30 @@ class QueryService(QueryServiceInterface):
                         pass
                     return
 
-            # 1) Transcribe audio or accept text
+            # 1) Acquire user_text (transcribe audio or direct text) for non-realtime path
             user_text = ""
             if not isinstance(query, str):
-                logger.info(
-                    f"Received audio input, transcribing format: {audio_input_format}"
-                )
-                async for (
-                    transcript
-                ) in self.agent_service.llm_provider.transcribe_audio(
-                    query, audio_input_format
-                ):
-                    user_text += transcript
-                logger.info(f"Transcription result length: {len(user_text)}")
+                try:
+                    logger.info(
+                        f"Received audio input, transcribing format: {audio_input_format}"
+                    )
+                    async for tpart in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
+                        query, audio_input_format
+                    ):
+                        user_text += tpart
+                except Exception:
+                    user_text = ""
             else:
                 user_text = query
-                logger.info(f"Received text input length: {len(user_text)}")
 
             # 2) Input guardrails
-            original_text = user_text
             for guardrail in self.input_guardrails:
                 try:
                     user_text = await guardrail.process(user_text)
                 except Exception as e:
                     logger.debug(f"Guardrail error: {e}")
-            if user_text != original_text:
-                logger.info(
-                    f"Input guardrails modified user text. Original length: {len(original_text)}, New length: {len(user_text)}"
-                )
 
-            # 3) Greetings shortcut
-            if not images and user_text.strip().lower() in {
-                "hi",
-                "hello",
-                "hey",
-                "ping",
-                "test",
-            }:
-                greeting = "Hello! How can I help you today?"
-                if output_format == "audio":
-                    async for chunk in self.agent_service.llm_provider.tts(
-                        text=greeting,
-                        voice=audio_voice,
-                        response_format=audio_output_format,
-                    ):
-                        yield chunk
-                else:
-                    yield greeting
-                if self.memory_provider:
-                    await self._store_conversation(user_id, original_text, greeting)
-                return
-
-            # 4) Memory context (conversation history)
+            # 3) Memory context (conversation history)
             memory_context = ""
             if self.memory_provider:
                 try:
@@ -1192,7 +1137,7 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     memory_context = ""
 
-            # 5) Knowledge base context
+            # 4) Knowledge base context
             kb_context = ""
             if self.knowledge_base:
                 try:
@@ -1212,7 +1157,7 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     kb_context = ""
 
-            # 6) Determine agent (sticky session aware; allow explicit switch/new conversation)
+            # 5) Determine agent (sticky session aware; allow explicit switch/new conversation)
             agent_name = "default"
             prev_assistant = ""
             routing_input = user_text
