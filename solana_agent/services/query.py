@@ -906,6 +906,23 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
+                        # Persist transcripts after combined streaming completes
+                        if turn_id:
+                            try:
+                                if user_tr:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, user_tr
+                                    )
+                                if asst_tr:
+                                    await self.realtime_update_assistant(
+                                        user_id, turn_id, asst_tr
+                                    )
+                            except Exception:
+                                pass
+                            try:
+                                await self.realtime_finalize_turn(user_id, turn_id)
+                            except Exception:
+                                pass
                     elif wants_audio:
                         # Use separate streams (legacy behavior)
                         async def _drain_out_tr():
@@ -933,6 +950,23 @@ class QueryService(QueryServiceInterface):
                         finally:
                             in_task.cancel()
                             out_task.cancel()
+                        # Persist transcripts after audio-only streaming
+                        if turn_id:
+                            try:
+                                if user_tr:
+                                    await self.realtime_update_user(
+                                        user_id, turn_id, user_tr
+                                    )
+                                if asst_tr:
+                                    await self.realtime_update_assistant(
+                                        user_id, turn_id, asst_tr
+                                    )
+                            except Exception:
+                                pass
+                            try:
+                                await self.realtime_finalize_turn(user_id, turn_id)
+                            except Exception:
+                                pass
                         # If no WS input transcript was captured, fall back to HTTP STT result
                     else:
                         # Text-only: just stream assistant transcript if available (no audio iteration)
