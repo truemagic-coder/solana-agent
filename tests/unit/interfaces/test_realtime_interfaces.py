@@ -1,6 +1,6 @@
 import pytest
 
-from realtime import (
+from solana_agent.interfaces.providers.realtime import (
     RealtimeSessionOptions,
     RealtimeChunk,
     separate_audio_chunks,
@@ -370,3 +370,106 @@ class TestBaseRealtimeSession:
 
             method = getattr(BaseRealtimeSession, method_name)
             assert callable(method), f"Method {method_name} is not callable"
+
+
+class _ConcreteRealtimeSession(
+    BaseRealtimeSession
+):  # pragma: no cover - used only for coverage tests
+    async def connect(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def update_session(self, session_patch):
+        pass
+
+    async def append_audio(self, pcm16_bytes: bytes) -> None:
+        pass
+
+    async def commit_input(self) -> None:
+        pass
+
+    async def clear_input(self) -> None:
+        pass
+
+    async def create_response(self, response_patch=None) -> None:
+        pass
+
+    def iter_events(self):
+        async def _g():
+            if False:
+                yield  # pragma: no cover
+
+        return _g()
+
+    def iter_output_audio(self):
+        async def _g():
+            if False:
+                yield  # pragma: no cover
+
+        return _g()
+
+    def iter_input_transcript(self):
+        async def _g():
+            if False:
+                yield  # pragma: no cover
+
+        return _g()
+
+    def iter_output_transcript(self):
+        async def _g():
+            if False:
+                yield  # pragma: no cover
+
+        return _g()
+
+    def set_tool_executor(self, executor):
+        pass
+
+
+class TestRealtimeSessionOptionsTranscription:
+    def test_transcription_defaults(self):
+        opts = RealtimeSessionOptions()
+        assert opts.transcription_model is None
+        assert opts.transcription_language is None
+        assert opts.transcription_prompt is None
+        assert opts.transcription_noise_reduction is None
+        assert opts.transcription_include_logprobs is False
+
+    def test_transcription_custom(self):
+        opts = RealtimeSessionOptions(
+            transcription_model="whisper-1",
+            transcription_language="en",
+            transcription_prompt="domain context",
+            transcription_noise_reduction=True,
+            transcription_include_logprobs=True,
+        )
+        assert opts.transcription_model == "whisper-1"
+        assert opts.transcription_language == "en"
+        assert opts.transcription_prompt == "domain context"
+        assert opts.transcription_noise_reduction is True
+        assert opts.transcription_include_logprobs is True
+
+
+@pytest.mark.asyncio
+class TestConcreteRealtimeSessionCoverage:
+    async def test_instantiate_and_call_methods(self):
+        sess = _ConcreteRealtimeSession()
+        await sess.connect()
+        await sess.update_session({"a": 1})
+        await sess.append_audio(b"\x00\x00")
+        await sess.commit_input()
+        await sess.clear_input()
+        await sess.create_response({"response": 1})
+        sess.set_tool_executor(lambda name, args: None)  # sync is fine for stub
+        # Iterate through generators (they are empty)
+        async for _ in sess.iter_events():
+            pass
+        async for _ in sess.iter_output_audio():
+            pass
+        async for _ in sess.iter_input_transcript():
+            pass
+        async for _ in sess.iter_output_transcript():
+            pass
+        await sess.close()
