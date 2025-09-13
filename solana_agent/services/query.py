@@ -1010,6 +1010,13 @@ class QueryService(QueryServiceInterface):
                                     pass
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
+                                elif (
+                                    isinstance(query, str)
+                                    and query
+                                    and not input_segments
+                                    and not user_tr
+                                ):
+                                    final_user_tr = query
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
@@ -1085,6 +1092,13 @@ class QueryService(QueryServiceInterface):
                                 # Buffer final transcript for single persistence
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
+                                elif (
+                                    isinstance(query, str)
+                                    and query
+                                    and not input_segments
+                                    and not user_tr
+                                ):
+                                    final_user_tr = query
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
@@ -1143,6 +1157,13 @@ class QueryService(QueryServiceInterface):
                                 # For text-only modality but audio-origin (cumulative segments captured), persist user transcript
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
+                                elif (
+                                    isinstance(query, str)
+                                    and query
+                                    and not input_segments
+                                    and not user_tr
+                                ):
+                                    final_user_tr = query
                                 if asst_tr:
                                     await self.realtime_update_assistant(
                                         user_id, turn_id, asst_tr
