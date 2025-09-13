@@ -418,3 +418,55 @@ async def test_realtime_audio_user_transcript_persisted(monkeypatch):
     if memory_provider.update_stream_user.await_count:
         args_list = memory_provider.update_stream_user.call_args_list
         assert any(len(c.args) >= 3 and c.args[2] for c in args_list)
+
+
+@pytest.mark.asyncio
+async def test_realtime_fallback_store_conversation(monkeypatch):
+    """Ensure that _store_conversation fallback is invoked after finalize when streaming partials exist."""
+    agent_service = AgentService(llm_provider=MagicMock())
+    routing_service = RoutingService(
+        llm_provider=agent_service.llm_provider, agent_service=agent_service
+    )
+    agent_service.get_all_ai_agents = MagicMock(return_value={"default": {}})
+    agent_service.get_agent_system_prompt = MagicMock(return_value="SYSTEM")
+    agent_service.get_agent_tools = MagicMock(return_value=[])
+
+    memory_provider = MagicMock()
+    memory_provider.retrieve = AsyncMock(return_value="")
+    memory_provider.begin_stream_turn = AsyncMock(return_value="turn-1")
+    memory_provider.update_stream_user = AsyncMock()
+    memory_provider.update_stream_assistant = AsyncMock()
+    memory_provider.finalize_stream_turn = AsyncMock()
+    memory_provider.store = AsyncMock()
+
+    qs = QueryService(
+        agent_service,
+        routing_service,
+        memory_provider=memory_provider,
+        knowledge_base=None,
+    )
+
+    async def _alloc(*args, **kwargs):
+        opts = RealtimeSessionOptions(
+            output_modalities=["audio", "text"], vad_enabled=False
+        )
+        sess = DummyRealtimeSession(opts)
+        rs = DummyRealtimeService(sess, opts)
+        setattr(rs, "_in_use_lock", asyncio.Lock())
+        await getattr(rs, "_in_use_lock").acquire()
+        return rs
+
+    monkeypatch.setattr(qs, "_alloc_realtime_session", _alloc)
+
+    # Run realtime audio turn
+    async for _ in qs.process(
+        user_id="u1",
+        query=b"AUDIOINPUT",
+        realtime=True,
+        output_format="audio",
+        rt_output_modalities=["audio", "text"],
+    ):
+        pass
+
+    # Fallback store should have been called if transcripts captured
+    assert memory_provider.store.await_count >= 1

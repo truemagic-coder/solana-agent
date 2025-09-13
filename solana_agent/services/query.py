@@ -977,6 +977,23 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
+                            # Fallback: ensure conversation stored for history queries when streaming provider handles only partials
+                            try:
+                                if (
+                                    (user_tr or asst_tr)
+                                    and self.memory_provider
+                                    and hasattr(
+                                        self.memory_provider, "begin_stream_turn"
+                                    )
+                                ):
+                                    await self._store_conversation(
+                                        user_id, user_tr or "", asst_tr or ""
+                                    )
+                            except Exception:
+                                logger.debug(
+                                    "Realtime fallback _store_conversation failed",
+                                    exc_info=True,
+                                )
                     elif wants_audio:
                         # Use separate streams (legacy behavior)
                         async def _drain_out_tr():
@@ -1037,6 +1054,22 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
+                            try:
+                                if (
+                                    (user_tr or asst_tr)
+                                    and self.memory_provider
+                                    and hasattr(
+                                        self.memory_provider, "begin_stream_turn"
+                                    )
+                                ):
+                                    await self._store_conversation(
+                                        user_id, user_tr or "", asst_tr or ""
+                                    )
+                            except Exception:
+                                logger.debug(
+                                    "Realtime fallback _store_conversation failed",
+                                    exc_info=True,
+                                )
                         # If no WS input transcript was captured, fall back to HTTP STT result
                     else:
                         # Text-only: just stream assistant transcript if available (no audio iteration)
@@ -1076,6 +1109,22 @@ class QueryService(QueryServiceInterface):
                                 await self.realtime_finalize_turn(user_id, turn_id)
                             except Exception:
                                 pass
+                            try:
+                                if (
+                                    (user_tr or asst_tr)
+                                    and self.memory_provider
+                                    and hasattr(
+                                        self.memory_provider, "begin_stream_turn"
+                                    )
+                                ):
+                                    await self._store_conversation(
+                                        user_id, user_tr or "", asst_tr or ""
+                                    )
+                            except Exception:
+                                logger.debug(
+                                    "Realtime fallback _store_conversation failed",
+                                    exc_info=True,
+                                )
                         # Clear input buffer for next turn reuse
                         try:
                             await rt.clear_input()
