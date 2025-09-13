@@ -371,11 +371,13 @@ solana_agent = SolanaAgent(config=config)
 async def realtime_dual_endpoint(audio_file: UploadFile):
     """
     Dual modality (audio + text) realtime endpoint using Server-Sent Events (SSE).
-    Sends:
+    Emits:
       event: audio      (base64 encoded audio frames)
       event: transcript (incremental text)
+    Notes:
+      - Do NOT set output_format when using both modalities.
+      - If only one modality is requested, plain str (text) or raw audio bytes may be yielded instead of RealtimeChunk.
     """
-    # Compressed mobile input (e.g. iOS/Android mp4 / aac)
     audio_content = await audio_file.read()
 
     async def event_stream():
@@ -383,25 +385,30 @@ async def realtime_dual_endpoint(audio_file: UploadFile):
             user_id="mobile_user",
             message=audio_content,
             realtime=True,
-            rt_encode_input=True,          # Accept compressed input
-            rt_encode_output=True,         # Return compressed audio frames
-            rt_output_modalities=["audio", "text"],  # Request both
+            rt_encode_input=True,
+            rt_encode_output=True,
+            rt_output_modalities=["audio", "text"],
             rt_voice="marin",
-            audio_input_format="mp4",      # Incoming container/codec
-            audio_output_format="mp3",     # Outgoing (you can use aac/mp3)
-            # Do NOT set output_format="audio" here; leave default so dual passthrough stays enabled
+            audio_input_format="mp4",
+            audio_output_format="mp3",
+            # Optionally lock transcription model (otherwise default is auto-selected):
+            # rt_transcription_model="gpt-4o-mini-transcribe",
         ):
-            # When both modalities requested, you receive RealtimeChunk objects
             if isinstance(chunk, RealtimeChunk):
                 if chunk.is_audio and chunk.audio_data:
-                    # Encode audio bytes for SSE (base64 safer than hex; smaller)
                     b64 = base64.b64encode(chunk.audio_data).decode("ascii")
                     yield f"event: audio\ndata: {b64}\n\n"
                 elif chunk.is_text and chunk.text_data:
+                    # Incremental transcript (not duplicated at finalize)
                     yield f"event: transcript\ndata: {chunk.text_data}\n\n"
                 continue
+            # (Defensive) fallback: if something else appears
+            if isinstance(chunk, bytes):
+                b64 = base64.b64encode(chunk).decode("ascii")
+                yield f"event: audio\ndata: {b64}\n\n"
+            elif isinstance(chunk, str):
+                yield f"event: transcript\ndata: {chunk}\n\n"
 
-        # Optional end marker
         yield "event: done\ndata: end\n\n"
 
     return StreamingResponse(
