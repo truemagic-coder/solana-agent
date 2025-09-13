@@ -7,6 +7,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from solana_agent.interfaces.providers.realtime import (
     BaseRealtimeSession,
     RealtimeSessionOptions,
+    RealtimeChunk,
 )
 from solana_agent.interfaces.providers.audio import AudioTranscoder
 
@@ -95,11 +96,18 @@ class RealtimeService:
             }
 
         if output_mime or output_rate_hz is not None or voice is not None:
-            audio_patch["output"] = {
-                "format": "pcm16",  # session is fixed to PCM16 server-side
-                "voice": voice or self._options.voice,
-                "speed": 1.0,
-            }
+            # Only configure audio output if audio is in the output modalities
+            modalities = (
+                self._options.output_modalities
+                if self._options.output_modalities is not None
+                else ["audio"]
+            )
+            if "audio" in modalities:
+                audio_patch["output"] = {
+                    "format": "pcm16",  # session is fixed to PCM16 server-side
+                    "voice": voice or self._options.voice,
+                    "speed": 1.0,
+                }
 
         if audio_patch:
             patch["audio"] = audio_patch
@@ -173,6 +181,12 @@ class RealtimeService:
         await self._session.clear_input()
 
     # --- Out-of-band response (e.g., TTS without new audio) ---
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        await self._session.create_conversation_item(item)
+
     async def create_response(  # pragma: no cover
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -194,8 +208,8 @@ class RealtimeService:
 
     async def iter_output_audio_encoded(
         self,
-    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
-        """Stream PCM16 audio, tolerating long tool executions by waiting while calls are pending.
+    ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
+        """Stream PCM16 audio as RealtimeChunk objects, tolerating long tool executions by waiting while calls are pending.
 
         - If no audio arrives immediately, we keep waiting as long as a function/tool call is pending.
         - Bridge across multiple audio segments (e.g., pre-call and post-call responses).
@@ -261,10 +275,89 @@ class RealtimeService:
             async for out in self._transcoder.stream_from_pcm16(
                 _produce_pcm(), self._client_output_mime, self._options.output_rate_hz
             ):
-                yield out
+                yield RealtimeChunk(modality="audio", data=out)
         else:
             async for chunk in _produce_pcm():
-                yield chunk
+                yield RealtimeChunk(modality="audio", data=chunk)
+
+    async def iter_output_combined(
+        self,
+    ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
+        """Stream both audio and text chunks as RealtimeChunk objects.
+
+        This method combines audio and text streams when both modalities are enabled.
+        Audio chunks are yielded as they arrive, and text chunks are yielded as transcript deltas arrive.
+        """
+
+        # Determine which modalities to stream based on session options
+        modalities = (
+            self._options.output_modalities
+            if self._options.output_modalities is not None
+            else ["audio"]
+        )
+        should_stream_audio = "audio" in modalities
+        should_stream_text = "text" in modalities
+
+        if not should_stream_audio and not should_stream_text:
+            return  # No modalities requested
+
+        # Create tasks for both streams if needed
+        tasks = []
+        queues = []
+
+        if should_stream_audio:
+            audio_queue = asyncio.Queue()
+            queues.append(audio_queue)
+
+            async def _collect_audio():
+                try:
+                    async for chunk in self.iter_output_audio_encoded():
+                        await audio_queue.put(chunk)
+                finally:
+                    await audio_queue.put(None)  # Sentinel
+
+            tasks.append(asyncio.create_task(_collect_audio()))
+
+        if should_stream_text:
+            text_queue = asyncio.Queue()
+            queues.append(text_queue)
+
+            async def _collect_text():
+                try:
+                    async for text_chunk in self.iter_output_transcript():
+                        if text_chunk:  # Only yield non-empty text chunks
+                            await text_queue.put(
+                                RealtimeChunk(modality="text", data=text_chunk)
+                            )
+                finally:
+                    await text_queue.put(None)  # Sentinel
+
+            tasks.append(asyncio.create_task(_collect_text()))
+
+        try:
+            # Collect chunks from all queues
+            active_queues = len(queues)
+
+            while active_queues > 0:
+                for queue in queues:
+                    try:
+                        chunk = queue.get_nowait()
+                        if chunk is None:
+                            active_queues -= 1
+                        else:
+                            yield chunk
+                    except asyncio.QueueEmpty:
+                        continue
+
+                # Small delay to prevent busy waiting
+                if active_queues > 0:
+                    await asyncio.sleep(0.01)
+
+        finally:
+            # Cancel all tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._session.iter_input_transcript()
@@ -368,11 +461,18 @@ class TwinRealtimeService:
                     turn_detection = None
             audio_patch["input"] = {"format": "pcm16", "turn_detection": turn_detection}
         if output_rate_hz is not None or output_mime is not None or voice is not None:
-            audio_patch["output"] = {
-                "format": "pcm16",
-                "voice": voice or self._conv_opts.voice,
-                "speed": 1.0,
-            }
+            # Only configure audio output if audio is in the output modalities
+            modalities = (
+                self._conv_opts.output_modalities
+                if self._conv_opts.output_modalities is not None
+                else ["audio"]
+            )
+            if "audio" in modalities:
+                audio_patch["output"] = {
+                    "format": "pcm16",
+                    "voice": voice or self._conv_opts.voice,
+                    "speed": 1.0,
+                }
         if audio_patch:
             patch["audio"] = audio_patch
         if instructions is not None:
@@ -440,6 +540,12 @@ class TwinRealtimeService:
     async def clear_input(self) -> None:  # pragma: no cover
         await asyncio.gather(self._conv.clear_input(), self._trans.clear_input())
 
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        await self._conv.create_conversation_item(item)
+
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
     ) -> None:  # pragma: no cover
@@ -463,7 +569,7 @@ class TwinRealtimeService:
 
     async def iter_output_audio_encoded(
         self,
-    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+    ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
         # Reuse the same encoding pipeline as RealtimeService but source from conversation
         pcm_gen = self._conv.iter_output_audio()
 
@@ -494,10 +600,10 @@ class TwinRealtimeService:
             async for out in self._transcoder.stream_from_pcm16(
                 _pcm_iter(), self._client_output_mime, self._conv_opts.output_rate_hz
             ):
-                yield out
+                yield RealtimeChunk(modality="audio", data=out)
         else:
             async for chunk in _pcm_iter():
-                yield chunk
+                yield RealtimeChunk(modality="audio", data=chunk)
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._trans.iter_input_transcript()

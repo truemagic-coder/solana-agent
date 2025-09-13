@@ -102,16 +102,30 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         ]
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
-        logger.info(
-            "Realtime WS connecting: uri=%s, input=%s@%sHz, output=%s@%sHz, voice=%s, vad=%s",
-            uri,
-            self.options.input_mime,
-            self.options.input_rate_hz,
-            self.options.output_mime,
-            self.options.output_rate_hz,
-            self.options.voice,
-            self.options.vad_enabled,
-        )
+
+        # Determine if audio output should be configured for logging
+        modalities = self.options.output_modalities or ["audio", "text"]
+        should_configure_audio_output = "audio" in modalities
+
+        if should_configure_audio_output:
+            logger.info(
+                "Realtime WS connecting: uri=%s, input=%s@%sHz, output=%s@%sHz, voice=%s, vad=%s",
+                uri,
+                self.options.input_mime,
+                self.options.input_rate_hz,
+                self.options.output_mime,
+                self.options.output_rate_hz,
+                self.options.voice,
+                self.options.vad_enabled,
+            )
+        else:
+            logger.info(
+                "Realtime WS connecting: uri=%s, input=%s@%sHz, text-only output, vad=%s",
+                uri,
+                self.options.input_mime,
+                self.options.input_rate_hz,
+                self.options.vad_enabled,
+            )
         self._ws = await websockets.connect(
             uri, additional_headers=headers, max_size=None
         )
@@ -165,11 +179,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     cleaned.append(t)
             return cleaned
 
+        # Determine if audio output should be configured
+        modalities = self.options.output_modalities or ["audio", "text"]
+        should_configure_audio_output = "audio" in modalities
+
+        # Build session.update per docs (nested audio object)
         session_payload: Dict[str, Any] = {
             "type": "session.update",
             "session": {
                 "type": "realtime",
-                "output_modalities": ["audio"],
+                "output_modalities": modalities,
                 "audio": {
                     "input": {
                         "format": {
@@ -178,16 +197,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         },
                         "turn_detection": td_input,
                     },
-                    "output": {
-                        "format": {
-                            "type": self.options.output_mime or "audio/pcm",
-                            "rate": int(self.options.output_rate_hz or 24000),
-                        },
-                        "voice": self.options.voice,
-                        "speed": float(
-                            getattr(self.options, "voice_speed", 1.0) or 1.0
-                        ),
-                    },
+                    **(
+                        {
+                            "output": {
+                                "format": {
+                                    "type": self.options.output_mime or "audio/pcm",
+                                    "rate": int(self.options.output_rate_hz or 24000),
+                                },
+                                "voice": self.options.voice,
+                                "speed": float(
+                                    getattr(self.options, "voice_speed", 1.0) or 1.0
+                                ),
+                            }
+                        }
+                        if should_configure_audio_output
+                        else {}
+                    ),
                 },
                 # Note: no top-level turn_detection; nested under audio.input
                 **({"prompt": prompt_block} if prompt_block else {}),
@@ -204,13 +229,45 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 ),
             },
         }
-        logger.info(
-            "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
-            self.options.voice,
-            self.options.vad_enabled,
-            (self.options.output_mime or "audio/pcm"),
-            int(self.options.output_rate_hz or 24000),
-        )
+        # Optional realtime transcription configuration
+        try:
+            tr_model = getattr(self.options, "transcription_model", None)
+            if tr_model:
+                audio_obj = session_payload["session"].setdefault("audio", {})
+                # Attach input transcription config per GA schema
+                transcription_cfg: Dict[str, Any] = {"model": tr_model}
+                lang = getattr(self.options, "transcription_language", None)
+                if lang:
+                    transcription_cfg["language"] = lang
+                prompt_txt = getattr(self.options, "transcription_prompt", None)
+                if prompt_txt is not None:
+                    transcription_cfg["prompt"] = prompt_txt
+                if getattr(self.options, "transcription_include_logprobs", False):
+                    session_payload["session"].setdefault("include", []).append(
+                        "item.input_audio_transcription.logprobs"
+                    )
+                nr = getattr(self.options, "transcription_noise_reduction", None)
+                if nr is not None:
+                    audio_obj["noise_reduction"] = bool(nr)
+                # Place under audio.input.transcription per current server conventions
+                audio_obj.setdefault("input", {}).setdefault(
+                    "transcription", transcription_cfg
+                )
+        except Exception:
+            logger.exception("Failed to attach transcription config to session.update")
+        if should_configure_audio_output:
+            logger.info(
+                "Realtime WS: sending session.update (voice=%s, vad=%s, output=%s@%s)",
+                self.options.voice,
+                self.options.vad_enabled,
+                (self.options.output_mime or "audio/pcm"),
+                int(self.options.output_rate_hz or 24000),
+            )
+        else:
+            logger.info(
+                "Realtime WS: sending session.update (text-only, vad=%s)",
+                self.options.vad_enabled,
+            )
         # Log exact session.update payload and mark awaiting session.updated
         try:
             logger.info(
@@ -231,7 +288,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning(
                     "Realtime WS: instructions missing/empty in session.update"
                 )
-            if not voice:
+            if not voice and should_configure_audio_output:
                 logger.warning("Realtime WS: voice missing in session.update")
         except Exception:
             pass
@@ -632,6 +689,20 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                             len(final),
                                         )
                                     self._out_text_buffers.pop(rid, None)
+                                # Always terminate the output transcript stream for this response when text-only.
+                                try:
+                                    # Only enqueue sentinel when no audio modality is configured
+                                    modalities = (
+                                        getattr(self.options, "output_modalities", None)
+                                        or []
+                                    )
+                                    if "audio" not in modalities:
+                                        self._out_tr_queue.put_nowait(None)
+                                        logger.debug(
+                                            "Enqueued transcript termination sentinel (text-only response)"
+                                        )
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                     elif (
@@ -1033,6 +1104,47 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 else:
                     patch[k] = raw[k]
 
+        # --- Inject realtime transcription config if options were updated after initial connect ---
+        try:
+            tr_model = getattr(self.options, "transcription_model", None)
+            if tr_model and isinstance(patch, dict):
+                # Ensure audio/input containers exist without overwriting caller provided fields
+                aud = patch.setdefault("audio", {})
+                inp = aud.setdefault("input", {})
+                # Only add if not explicitly provided in this patch
+                if "transcription" not in inp:
+                    transcription_cfg: Dict[str, Any] = {"model": tr_model}
+                    lang = getattr(self.options, "transcription_language", None)
+                    if lang:
+                        transcription_cfg["language"] = lang
+                    prompt_txt = getattr(self.options, "transcription_prompt", None)
+                    if prompt_txt is not None:
+                        transcription_cfg["prompt"] = prompt_txt
+                    nr = getattr(self.options, "transcription_noise_reduction", None)
+                    if nr is not None:
+                        aud["noise_reduction"] = bool(nr)
+                    if getattr(self.options, "transcription_include_logprobs", False):
+                        patch.setdefault("include", [])
+                        if (
+                            "item.input_audio_transcription.logprobs"
+                            not in patch["include"]
+                        ):
+                            patch["include"].append(
+                                "item.input_audio_transcription.logprobs"
+                            )
+                    inp["transcription"] = transcription_cfg
+                    try:
+                        logger.debug(
+                            "Realtime WS: update_session injected transcription config model=%s",
+                            tr_model,
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            logger.exception(
+                "Realtime WS: failed injecting transcription config in update_session"
+            )
+
         # Ensure tools are cleaned even if provided only under audio or elsewhere
         if "tools" in patch:
             patch["tools"] = _strip_tool_strict(patch["tools"])  # idempotent
@@ -1040,9 +1152,12 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Per server requirements, always include session.type and output_modalities
         try:
             patch["type"] = "realtime"
-            # Preserve caller-provided output_modalities if present, otherwise default to audio
+            # Preserve caller-provided output_modalities if present, otherwise default to configured modalities
             if "output_modalities" not in patch:
-                patch["output_modalities"] = ["audio"]
+                patch["output_modalities"] = self.options.output_modalities or [
+                    "audio",
+                    "text",
+                ]
         except Exception:
             pass
 
@@ -1147,6 +1262,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             self._commit_evt = asyncio.Event()
         except Exception:
             pass
+
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        payload = {"type": "conversation.item.create", "item": item}
+        await self._send_tracked(payload, label="conversation.item.create")
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None
@@ -1638,6 +1760,13 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
 
     async def clear_input(self) -> None:  # pragma: no cover
         await self._send({"type": "input_audio_buffer.clear"})
+
+    async def create_conversation_item(
+        self, item: Dict[str, Any]
+    ) -> None:  # pragma: no cover
+        """Create a conversation item (e.g., for text input)."""
+        payload = {"type": "conversation.item.create", "item": item}
+        await self._send_tracked(payload, label="conversation.item.create")
 
     async def create_response(
         self, response_patch: Optional[Dict[str, Any]] = None

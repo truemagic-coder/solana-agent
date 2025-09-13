@@ -14,7 +14,7 @@ from solana_agent.interfaces.providers.memory import MemoryProvider
 TEST_USER_ID = "test_user"
 TEST_QUERY = "What is Solana?"
 TEST_RESPONSE = "Solana is a blockchain."
-HARDCODED_GREETING = "Hello! How can I help you today?"  # Define constant
+HARDCODED_GREETING = None  # Greeting shortcut removed
 
 
 # Helper async generator function for mocking
@@ -29,10 +29,13 @@ def mock_agent_service():
     # Use AsyncMock for the service object itself
     service = AsyncMock(spec=AgentService)  # Use spec for better mocking
 
-    # Mock generate_response: return_value should be the generator *object*
-    # Create the generator object first
-    generator_instance = mock_async_generator(TEST_RESPONSE)
-    service.generate_response = AsyncMock(return_value=generator_instance)
+    # Provide a generate_response that returns an async generator honoring kwargs
+    async def mock_generate(**kwargs):
+        # yield a single chunk of text as normal LLM output
+        async for item in mock_async_generator(TEST_RESPONSE):
+            yield item
+
+    service.generate_response.side_effect = lambda **kwargs: mock_generate(**kwargs)
 
     # Mock the attribute accessed after generate_response finishes
     service.last_text_response = TEST_RESPONSE
@@ -102,39 +105,13 @@ def query_service(mock_agent_service, mock_routing_service, mock_memory_provider
 
 
 @pytest.mark.asyncio
-async def test_process_greeting_simple(
-    query_service, mock_agent_service, mock_memory_provider
-):
-    """Test processing simple greeting bypasses agent and stores correctly."""
+async def test_process_greeting_simple(query_service, mock_agent_service):
     greeting_query = "hello"
-    response_chunks = []
-
-    # Reset mocks before the test run
-    mock_agent_service.generate_response.reset_mock()
-    mock_memory_provider.store.reset_mock()
-
-    async for chunk in query_service.process(
-        user_id=TEST_USER_ID, query=greeting_query, output_format="text"
-    ):
-        response_chunks.append(chunk)
-
-    # Assert the hardcoded greeting response is yielded
-    assert response_chunks == [HARDCODED_GREETING]
-
-    # Assert generate_response was NOT called
-    mock_agent_service.generate_response.assert_not_called()
-
-    # --- FIX: Adjust assertion to match the actual call signature ---
-    # Assert memory store WAS called with the correct greeting interaction
-    # based on the error message, it seems store is called positionally
-    # with user_id and a list of message dicts.
-    expected_messages_list = [
-        {"role": "user", "content": greeting_query},
-        {"role": "assistant", "content": HARDCODED_GREETING},
-    ]
-    mock_memory_provider.store.assert_awaited_once_with(
-        TEST_USER_ID, expected_messages_list
-    )
+    chunks = []
+    async for c in query_service.process(user_id=TEST_USER_ID, query=greeting_query):
+        chunks.append(c)
+    assert any(TEST_RESPONSE in str(c) for c in chunks), f"Chunks: {chunks}"
+    assert mock_agent_service.generate_response.call_count >= 1
     # If it's actually called with keyword arguments matching the structure:
     # mock_memory_provider.store.assert_awaited_once_with(
     #     user_id=TEST_USER_ID,

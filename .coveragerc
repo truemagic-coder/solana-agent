@@ -6,6 +6,7 @@ omit =
     */site-packages/*
     setup.py
     solana_agent/cli.py
+    solana_agent/interfaces/providers/realtime.py  # exclude interface-only module
 
 [report]
 exclude_lines =

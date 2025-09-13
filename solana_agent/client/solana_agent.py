@@ -16,6 +16,7 @@ from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInte
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
+from solana_agent.interfaces.providers.realtime import RealtimeChunk
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -57,6 +58,7 @@ class SolanaAgent(SolanaAgentInterface):
         vad: Optional[bool] = False,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
             "ash",
@@ -90,7 +92,9 @@ class SolanaAgent(SolanaAgentInterface):
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
-    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
+    ) -> AsyncGenerator[
+        Union[str, bytes, BaseModel, RealtimeChunk], None
+    ]:  # pragma: no cover
         """Process a user message (text or audio) and optional images, returning the response stream.
 
         Args:
@@ -104,6 +108,7 @@ class SolanaAgent(SolanaAgentInterface):
             vad: Whether to use voice activity detection (for audio input)
             rt_encode_input: Whether to re-encode input audio for compatibility
             rt_encode_output: Whether to re-encode output audio for compatibility
+            rt_output_modalities: Modalities to return in realtime (default both if None)
             rt_voice: Voice to use for realtime audio output
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
@@ -124,6 +129,7 @@ class SolanaAgent(SolanaAgentInterface):
             vad=vad,
             rt_encode_input=rt_encode_input,
             rt_encode_output=rt_encode_output,
+            rt_output_modalities=rt_output_modalities,
             rt_voice=rt_voice,
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,
