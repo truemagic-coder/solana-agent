@@ -53,6 +53,18 @@ class FFmpegTranscoder(AudioTranscoder):
                 len(audio_bytes),
             )
             return audio_bytes
+        # Heuristic fallback: some realtime clients stream raw PCM frames but still label as mp4/m4a.
+        # A valid MP4/M4A should contain an 'ftyp' atom near the beginning. If absent AND length is even
+        # (16-bit samples) we treat as PCM16 to avoid ffmpeg errors like 'moov atom not found'.
+        if input_mime in {"audio/mp4", "audio/m4a"}:
+            head = audio_bytes[:24]
+            if b"ftyp" not in head and (len(audio_bytes) % 2 == 0):
+                logger.info(
+                    "Transcode heuristic skip (declared %s, missing ftyp; assuming raw PCM16): len=%d",
+                    input_mime,
+                    len(audio_bytes),
+                )
+                return audio_bytes
         logger.info(
             "Transcode to PCM16: input_mime=%s, rate_hz=%d, input_len=%d",
             input_mime,

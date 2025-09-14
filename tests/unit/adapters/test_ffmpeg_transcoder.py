@@ -48,6 +48,16 @@ async def test_to_pcm16_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_to_pcm16_mislabeled_mp4_pcm_skip():
+    tx = FFmpegTranscoder()
+    # Provide raw pcm bytes (even length) but mime says mp4 and no ftyp header
+    raw_pcm = b"\x00\x01" * 40
+    out = await tx.to_pcm16(raw_pcm, "audio/mp4", 24000)
+    # Heuristic should skip ffmpeg and return unchanged bytes
+    assert out == raw_pcm
+
+
+@pytest.mark.asyncio
 async def test_from_pcm16_encode_mp3(monkeypatch):
     tx = FFmpegTranscoder()
 
