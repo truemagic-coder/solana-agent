@@ -1591,12 +1591,29 @@ class QueryService(QueryServiceInterface):
                 return user_transcript_accum
 
             async def _stream_audio_only():
+                # Stream audio chunks while concurrently draining transcripts for persistence
                 async for ch in rt.iter_output_audio_encoded():
-                    # Support raw bytes OR RealtimeChunk objects
                     data = getattr(ch, "data", ch)
                     if isinstance(data, (bytes, bytearray)):
                         yield data
-                    # No assistant text expected in pure audio iteration
+                # After audio is done, drain user transcript (if any) then assistant transcript for persistence
+                if is_audio_bytes and hasattr(rt, "iter_input_transcript"):
+                    try:
+                        async for u in rt.iter_input_transcript():
+                            if u is None:
+                                break
+                            merged = _merge_user_piece(u)
+                            await _persist_user_if_needed(merged)
+                    except Exception:
+                        pass
+                # Some realtime sessions may still offer output transcript even if audio-only modality requested
+                if hasattr(rt, "iter_output_transcript"):
+                    try:
+                        async for t in rt.iter_output_transcript():
+                            if t:
+                                await _persist_assistant_delta(t)
+                    except Exception:
+                        pass
 
             async def _stream_text_only():
                 # If audio bytes were sent, input transcript comes from iter_input_transcript
