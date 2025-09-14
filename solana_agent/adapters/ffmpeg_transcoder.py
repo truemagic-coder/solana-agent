@@ -45,6 +45,14 @@ class FFmpegTranscoder(AudioTranscoder):
         self, audio_bytes: bytes, input_mime: str, rate_hz: int
     ) -> bytes:
         """Decode compressed audio to mono PCM16LE at rate_hz."""
+        # Fast-path: already linear PCM16 mono at desired rate (assume caller ensured rate)
+        if input_mime in {"audio/pcm", "audio/x-raw", "audio/raw"}:
+            logger.info(
+                "Transcode skip (already PCM16): input_mime=%s, len=%d",
+                input_mime,
+                len(audio_bytes),
+            )
+            return audio_bytes
         logger.info(
             "Transcode to PCM16: input_mime=%s, rate_hz=%d, input_len=%d",
             input_mime,

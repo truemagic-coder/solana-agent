@@ -75,6 +75,35 @@ class QueryService(QueryServiceInterface):
         # Global lock for creating/finding per-user sessions
         self._rt_lock = asyncio.Lock()
 
+    def _compute_encode_in(
+        self,
+        *,
+        is_audio_bytes: bool,
+        audio_input_format: str,
+        rt_encode_input: bool,
+    ) -> bool:
+        """Determine if input audio should be transcoded.
+
+        Rules:
+        - Must actually be raw audio bytes provided (bytes/bytearray) else False.
+        - If format is already raw PCM ("pcm" or "audio/pcm") never transcode, even if rt_encode_input=True.
+        - For any other declared format (e.g. mp3, wav, webm, etc.) return True because we need a
+          deterministic 16‑bit PCM stream for the realtime session (channel/rate normalization) and
+          to avoid depending on the upstream container specifics.
+
+        Note: The rt_encode_input flag is currently advisory but ignored for PCM since transcoding
+        would be a no‑op and wasteful. For non‑PCM formats we always transcode, so the flag does not
+        change the outcome right now; it is kept for future extension (e.g. allowing direct passthrough
+        of certain compressed codecs if the backend gains native support).
+        """
+        if not is_audio_bytes:
+            return False
+        fmt = (audio_input_format or "").lower()
+        if fmt in {"pcm", "audio/pcm"}:
+            return False
+        # All other formats (including 'wav', 'mp3', etc.) require a decode/normalize step.
+        return True
+
     async def _try_acquire_lock(self, lock: asyncio.Lock) -> bool:
         try:
             await asyncio.wait_for(lock.acquire(), timeout=0)
@@ -704,9 +733,13 @@ class QueryService(QueryServiceInterface):
                     encode_out = False
                 # Choose input transcoding when compressed input is provided (or explicitly requested)
                 is_audio_bytes = isinstance(query, (bytes, bytearray))
-                encode_in = bool(
-                    rt_encode_input
-                    or (is_audio_bytes and audio_input_format.lower() != "pcm")
+                # Determine if we truly need to transcode input audio.
+                # Only transcode when the provided audio bytes are in a compressed / non-PCM format.
+                # Even if rt_encode_input is True, skip when format is already raw PCM16 to avoid unnecessary ffmpeg.
+                encode_in = self._compute_encode_in(
+                    is_audio_bytes=is_audio_bytes,
+                    audio_input_format=audio_input_format,
+                    rt_encode_input=rt_encode_input,
                 )
 
                 # Allocate or reuse a realtime session for this specific request/user.
