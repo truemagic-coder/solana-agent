@@ -163,7 +163,17 @@ class SolanaAgent(SolanaAgentInterface):
             capture_schema=capture_schema,
             capture_name=capture_name,
         ):
-            yield chunk
+            # For audio-only output, unwrap RealtimeChunk and yield only audio bytes
+            if output_format == "audio":
+                if hasattr(chunk, "data") and isinstance(
+                    chunk.data, (bytes, bytearray)
+                ):
+                    yield chunk.data
+                elif isinstance(chunk, (bytes, bytearray)):
+                    yield chunk
+                # Do not yield transcript for audio-only
+            else:
+                yield chunk
 
     async def delete_user_history(self, user_id: str) -> None:
         """
