@@ -193,7 +193,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                     "input": {
                         "format": {
                             "type": self.options.input_mime or "audio/pcm",
-                            "rate": int(self.options.input_rate_hz or 24000),
+                            "rate": int(self.options.input_rate_hz or 16000),
                         },
                         "turn_detection": td_input,
                     },
@@ -202,7 +202,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             "output": {
                                 "format": {
                                     "type": self.options.output_mime or "audio/pcm",
-                                    "rate": int(self.options.output_rate_hz or 24000),
+                                    "rate": int(self.options.output_rate_hz or 16000),
                                 },
                                 "voice": self.options.voice,
                                 "speed": float(
@@ -261,7 +261,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 self.options.voice,
                 self.options.vad_enabled,
                 (self.options.output_mime or "audio/pcm"),
-                int(self.options.output_rate_hz or 24000),
+                int(self.options.output_rate_hz or 16000),
             )
         else:
             logger.info(
@@ -1025,7 +1025,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ftype = "audio/pcm"
                     audio_patch.setdefault("input", {})["format"] = {
                         "type": ftype,
-                        "rate": int(self.options.input_rate_hz or 24000),
+                        "rate": int(self.options.input_rate_hz or 16000),
                     }
 
             # Optional input extras
@@ -1049,7 +1049,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         ftype = "audio/pcm"
                     op["format"] = {
                         "type": ftype,
-                        "rate": int(self.options.output_rate_hz or 24000),
+                        "rate": int(self.options.output_rate_hz or 16000),
                     }
             if "voice" in out:
                 op["voice"] = out.get("voice")
@@ -1223,7 +1223,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 logger.warning("Realtime WS: skipping commit; committed recently")
                 return
             # Require at least 100ms of audio (~4800 bytes at 24kHz mono 16-bit)
-            min_bytes = int(0.1 * int(self.options.input_rate_hz or 24000) * 2)
+            min_bytes = int(0.1 * int(self.options.input_rate_hz or 16000) * 2)
         except Exception:
             min_bytes = 4800
         if int(getattr(self, "_pending_input_bytes", 0)) < min_bytes:

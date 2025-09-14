@@ -43,7 +43,7 @@ async def test_to_pcm16_success(monkeypatch):
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    out = await tx.to_pcm16(b"data", "audio/mp4", 24000)
+    out = await tx.to_pcm16(b"data", "audio/mp4", 16000)
     assert out == b"\x00\x01\x02\x03"
 
 
@@ -52,7 +52,7 @@ async def test_to_pcm16_mislabeled_mp4_pcm_skip():
     tx = FFmpegTranscoder()
     # Provide raw pcm bytes (even length) but mime says mp4 and no ftyp header
     raw_pcm = b"\x00\x01" * 40
-    out = await tx.to_pcm16(raw_pcm, "audio/mp4", 24000)
+    out = await tx.to_pcm16(raw_pcm, "audio/mp4", 16000)
     # Heuristic should skip ffmpeg and return unchanged bytes
     assert out == raw_pcm
 
@@ -66,7 +66,7 @@ async def test_from_pcm16_encode_mp3(monkeypatch):
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    out = await tx.from_pcm16(b"PCM", "audio/mpeg", 24000)
+    out = await tx.from_pcm16(b"PCM", "audio/mpeg", 16000)
     assert out == b"MP3DATA"
 
 
@@ -86,7 +86,7 @@ async def test_stream_from_pcm16_aac(monkeypatch):
 
     out = []
     async for chunk in tx.stream_from_pcm16(
-        pcm_iter(), "audio/aac", 24000, read_chunk_size=4
+        pcm_iter(), "audio/aac", 16000, read_chunk_size=4
     ):
         out.append(chunk)
 
@@ -108,7 +108,7 @@ async def test_stream_from_pcm16_chunking_remainder(monkeypatch):
 
     out = []
     async for chunk in tx.stream_from_pcm16(
-        pcm_iter(), "audio/aac", 24000, read_chunk_size=2
+        pcm_iter(), "audio/aac", 16000, read_chunk_size=2
     ):
         out.append(chunk)
 

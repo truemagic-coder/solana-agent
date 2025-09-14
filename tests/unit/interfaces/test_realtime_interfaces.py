@@ -19,8 +19,8 @@ class TestRealtimeSessionOptions:
         assert options.model is None
         assert options.voice == "marin"
         assert options.vad_enabled is True
-        assert options.input_rate_hz == 24000
-        assert options.output_rate_hz == 24000
+        assert options.input_rate_hz == 16000
+        assert options.output_rate_hz == 16000
         assert options.input_mime == "audio/pcm"
         assert options.output_mime == "audio/pcm"
         assert options.output_modalities is None

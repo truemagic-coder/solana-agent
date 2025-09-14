@@ -30,8 +30,8 @@ class RealtimeSessionOptions:
         "verse",
     ] = "marin"
     vad_enabled: bool = True
-    input_rate_hz: int = 24000
-    output_rate_hz: int = 24000
+    input_rate_hz: int = 16000
+    output_rate_hz: int = 16000
     input_mime: str = "audio/pcm"  # 16-bit PCM
     output_mime: str = "audio/pcm"  # 16-bit PCM
     output_modalities: List[Literal["audio", "text"]] = None  # None means auto-detect
