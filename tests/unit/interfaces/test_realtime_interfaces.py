@@ -14,15 +14,18 @@ class TestRealtimeSessionOptions:
     """Test RealtimeSessionOptions dataclass."""
 
     def test_default_values(self):
-        """Test default values for RealtimeSessionOptions."""
         options = RealtimeSessionOptions()
+        # Default simple fields
         assert options.model is None
         assert options.voice == "marin"
         assert options.vad_enabled is True
-        assert options.input_rate_hz == 16000
-        assert options.output_rate_hz == 16000
+        # Enforced backend-supported 24 kHz sample rate
+        assert options.input_rate_hz == 24000
+        assert options.output_rate_hz == 24000
+        # Audio mime defaults
         assert options.input_mime == "audio/pcm"
         assert options.output_mime == "audio/pcm"
+        # Optional config defaults
         assert options.output_modalities is None
         assert options.instructions is None
         assert options.tools is None
@@ -31,13 +34,12 @@ class TestRealtimeSessionOptions:
         assert options.tool_result_max_age_s is None
 
     def test_custom_values(self):
-        """Test custom values for RealtimeSessionOptions."""
         options = RealtimeSessionOptions(
             model="gpt-4",
             voice="alloy",
             vad_enabled=False,
-            input_rate_hz=16000,
-            output_rate_hz=16000,
+            input_rate_hz=24000,
+            output_rate_hz=24000,
             input_mime="audio/wav",
             output_mime="audio/wav",
             output_modalities=["audio", "text"],
@@ -50,8 +52,8 @@ class TestRealtimeSessionOptions:
         assert options.model == "gpt-4"
         assert options.voice == "alloy"
         assert options.vad_enabled is False
-        assert options.input_rate_hz == 16000
-        assert options.output_rate_hz == 16000
+        assert options.input_rate_hz == 24000
+        assert options.output_rate_hz == 24000
         assert options.input_mime == "audio/wav"
         assert options.output_mime == "audio/wav"
         assert options.output_modalities == ["audio", "text"]
