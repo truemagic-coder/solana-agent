@@ -1488,6 +1488,15 @@ class QueryService(QueryServiceInterface):
                     # Only commit immediately if VAD explicitly disabled. If VAD enabled or left as default, let VAD trigger commit.
                     if configure_vad is False:
                         await rt.commit_input()
+                        # When VAD is disabled we must explicitly request a response.
+                        if hasattr(rt, "create_response"):
+                            try:
+                                await rt.create_response(None)
+                            except Exception:
+                                logger.debug(
+                                    "Failed to create_response after commit (audio, no VAD)",
+                                    exc_info=True,
+                                )
                 except Exception:
                     logger.debug("Failed to append/commit audio input", exc_info=True)
             else:
