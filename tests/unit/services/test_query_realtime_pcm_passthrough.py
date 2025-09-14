@@ -83,6 +83,9 @@ async def test_pcm_input_no_ffmpeg(monkeypatch, caplog):
     async def fake_alloc(self, *a, **kw):  # pragma: no cover
         # encode_in should be False for pcm input; assert for safety
         assert kw.get("encode_in") is False
+        # encode_out should be False when output format is pcm
+        assert kw.get("encode_out") is False
+        # client_output_mime should be audio/pcm
         return DummyRT()
 
     query_mod.QueryService._alloc_realtime_session = fake_alloc
@@ -111,6 +114,34 @@ async def test_pcm_input_no_ffmpeg(monkeypatch, caplog):
 
     # Expect one raw audio chunk (bytes) containing b"ok"
     assert results == [b"ok"]
+    for rec in caplog.records:
+        assert "FFmpeg:" not in rec.message
+
+    # Second scenario: leave audio_output_format default (aac) but set rt_prefer_pcm to force pcm passthrough
+    results2 = []
+    async for c in svc.process(
+        user_id="u1",
+        query=pcm_bytes,
+        images=None,
+        output_format="audio",
+        realtime=True,
+        vad=False,
+        rt_encode_input=False,
+        rt_encode_output=False,
+        rt_output_modalities=["audio"],
+        rt_voice="marin",
+        # Intentionally omit explicit audio_output_format; rely on default but force override
+        rt_prefer_pcm=True,
+        audio_input_format="pcm",
+        prompt=None,
+        router=None,
+        output_model=None,
+        capture_schema=None,
+        capture_name=None,
+    ):
+        results2.append(c)
+
+    assert results2 == [b"ok"]
     for rec in caplog.records:
         assert "FFmpeg:" not in rec.message
 

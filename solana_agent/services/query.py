@@ -36,8 +36,8 @@ from solana_agent.interfaces.services.knowledge_base import (
     KnowledgeBaseService as KnowledgeBaseInterface,
 )
 from solana_agent.interfaces.guardrails.guardrails import InputGuardrail
-
 from solana_agent.interfaces.providers.realtime import RealtimeSessionOptions
+
 
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
@@ -131,9 +131,6 @@ class QueryService(QueryServiceInterface):
 
         Returns the RealtimeService with an acquired _in_use_lock that MUST be released by caller.
         """
-        from solana_agent.interfaces.providers.realtime import (
-            RealtimeSessionOptions,
-        )
         from solana_agent.adapters.openai_realtime_ws import (
             OpenAIRealtimeWebSocketSession,
         )
@@ -571,6 +568,8 @@ class QueryService(QueryServiceInterface):
         rt_transcription_prompt: Optional[str] = None,
         rt_transcription_noise_reduction: Optional[bool] = None,
         rt_transcription_include_logprobs: bool = False,
+        # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
+        rt_prefer_pcm: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -597,639 +596,32 @@ class QueryService(QueryServiceInterface):
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process the user request and generate a response."""
         try:
-            # Realtime request: HTTP STT for user + single WS for assistant audio
+            # Realtime refactored branch (clean delegation)
             if realtime:
-                # 1) Determine if input is audio bytes. We now ALWAYS skip HTTP STT in realtime mode.
-                #    The realtime websocket session (optionally with built-in transcription) is authoritative.
-                is_audio_bytes = isinstance(query, (bytes, bytearray))
-                user_text = "" if is_audio_bytes else str(query)
-                # Provide a sensible default realtime transcription model when audio supplied
-                if is_audio_bytes and not rt_transcription_model:
-                    rt_transcription_model = "gpt-4o-mini-transcribe"
-
-                # 2) Single agent selection (no multi-agent routing in realtime path)
-                agent_name = self._get_sticky_agent(user_id)
-                if not agent_name:
-                    try:
-                        agents = self.agent_service.get_all_ai_agents() or {}
-                        agent_name = next(iter(agents.keys())) if agents else "default"
-                    except Exception:
-                        agent_name = "default"
-                prev_assistant = ""
-                if self.memory_provider:
-                    try:
-                        prev_docs = self.memory_provider.find(
-                            collection="conversations",
-                            query={"user_id": user_id},
-                            sort=[("timestamp", -1)],
-                            limit=1,
-                        )
-                        if prev_docs:
-                            prev_assistant = (prev_docs[0] or {}).get(
-                                "assistant_message", ""
-                            ) or ""
-                    except Exception:
-                        pass
-
-                # 3) Build context + tools
-                combined_ctx = ""
-                required_complete = False
-                try:
-                    (
-                        combined_ctx,
-                        required_complete,
-                    ) = await self._build_combined_context(
-                        user_id=user_id,
-                        user_text=(user_text if not is_audio_bytes else ""),
-                        agent_name=agent_name,
-                        capture_name=capture_name,
-                        capture_schema=capture_schema,
-                        prev_assistant=prev_assistant,
-                    )
-                    try:
-                        self._update_sticky_required_complete(
-                            user_id, required_complete
-                        )
-                    except Exception:
-                        pass
-                except Exception:
-                    combined_ctx = ""
-                try:
-                    # GA Realtime expects flattened tool definitions (no nested "function" object)
-                    initial_tools = [
-                        {
-                            "type": "function",
-                            "name": t["name"],
-                            "description": t.get("description", ""),
-                            "parameters": t.get("parameters", {}),
-                            "strict": True,
-                        }
-                        for t in self.agent_service.get_agent_tools(agent_name)
-                    ]
-                except Exception:
-                    initial_tools = []
-
-                # Build realtime instructions: include full agent system prompt, context, and optional prompt (no user_text)
-                system_prompt = ""
-                try:
-                    system_prompt = self.agent_service.get_agent_system_prompt(
-                        agent_name
-                    )
-                except Exception:
-                    system_prompt = ""
-
-                parts: List[str] = []
-                if system_prompt:
-                    parts.append(system_prompt)
-                if combined_ctx:
-                    parts.append(combined_ctx)
-                if prompt:
-                    parts.append(str(prompt))
-                final_instructions = "\n\n".join([p for p in parts if p])
-
-                # 4) Open a single WS session for assistant audio
-                # Realtime imports handled inside allocator helper
-
-                api_key = None
-                try:
-                    api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                if not api_key:
-                    raise ValueError("OpenAI API key is required for realtime")
-
-                # Per-user persistent WS (single session)
-                def _mime_from(fmt: str) -> str:
-                    f = (fmt or "").lower()
-                    return {
-                        "aac": "audio/aac",
-                        "mp3": "audio/mpeg",
-                        "mp4": "audio/mp4",
-                        "m4a": "audio/mp4",
-                        "mpeg": "audio/mpeg",
-                        "mpga": "audio/mpeg",
-                        "wav": "audio/wav",
-                        "flac": "audio/flac",
-                        "opus": "audio/opus",
-                        "ogg": "audio/ogg",
-                        "webm": "audio/webm",
-                        "pcm": "audio/pcm",
-                    }.get(f, "audio/pcm")
-
-                # Choose output encoding automatically when non-PCM output is requested
-                encode_out = bool(
-                    rt_encode_output or (audio_output_format.lower() != "pcm")
-                )
-                # If caller explicitly requests text-only realtime, disable output encoding entirely
-                if (
-                    rt_output_modalities is not None
-                    and "audio" not in rt_output_modalities
-                ):
-                    if encode_out:
-                        logger.debug(
-                            "Realtime(QueryService): forcing encode_out False for text-only modalities=%s",
-                            rt_output_modalities,
-                        )
-                    encode_out = False
-                # Choose input transcoding when compressed input is provided (or explicitly requested)
-                is_audio_bytes = isinstance(query, (bytes, bytearray))
-                # Determine if we truly need to transcode input audio.
-                # Only transcode when the provided audio bytes are in a compressed / non-PCM format.
-                # Even if rt_encode_input is True, skip when format is already raw PCM16 to avoid unnecessary ffmpeg.
-                encode_in = self._compute_encode_in(
-                    is_audio_bytes=is_audio_bytes,
-                    audio_input_format=audio_input_format,
+                async for chunk in self._process_realtime(
+                    user_id=user_id,
+                    query=query,
+                    output_format=output_format,
+                    vad=vad,
                     rt_encode_input=rt_encode_input,
-                )
-
-                # Allocate or reuse a realtime session for this specific request/user.
-                # (Transcription options may be applied below; if they change after allocate we will reconfigure.)
-                rt = await self._alloc_realtime_session(
-                    user_id,
-                    api_key=api_key,
-                    rt_voice=rt_voice,
-                    final_instructions=final_instructions,
-                    initial_tools=initial_tools,
-                    encode_in=encode_in,
-                    encode_out=encode_out,
-                    audio_input_format=audio_input_format,
-                    audio_output_format=audio_output_format,
+                    rt_encode_output=rt_encode_output,
                     rt_output_modalities=rt_output_modalities,
-                )
-                # Ensure lock is released no matter what
-                try:
-                    # --- Apply realtime transcription config BEFORE connecting (new) ---
-                    if rt_transcription_model and hasattr(rt, "_options"):
-                        try:
-                            setattr(
-                                rt._options,
-                                "transcription_model",
-                                rt_transcription_model,
-                            )
-                            if rt_transcription_language is not None:
-                                setattr(
-                                    rt._options,
-                                    "transcription_language",
-                                    rt_transcription_language,
-                                )
-                            if rt_transcription_prompt is not None:
-                                setattr(
-                                    rt._options,
-                                    "transcription_prompt",
-                                    rt_transcription_prompt,
-                                )
-                            if rt_transcription_noise_reduction is not None:
-                                setattr(
-                                    rt._options,
-                                    "transcription_noise_reduction",
-                                    rt_transcription_noise_reduction,
-                                )
-                            if rt_transcription_include_logprobs:
-                                setattr(
-                                    rt._options, "transcription_include_logprobs", True
-                                )
-                        except Exception:
-                            logger.debug(
-                                "Failed pre-connect transcription option assignment",
-                                exc_info=True,
-                            )
-
-                    # Tool executor
-                    async def _exec(
-                        tool_name: str, args: Dict[str, Any]
-                    ) -> Dict[str, Any]:
-                        try:
-                            return await self.agent_service.execute_tool(
-                                agent_name, tool_name, args or {}
-                            )
-                        except Exception as e:
-                            return {"status": "error", "message": str(e)}
-
-                    # If possible, set on underlying session
-                    try:
-                        if hasattr(rt, "_session"):
-                            getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-
-                    # Connect/configure
-                    if not getattr(rt, "_connected", False):
-                        await rt.start()
-                    await rt.configure(
-                        voice=rt_voice,
-                        vad_enabled=bool(vad) if vad is not None else False,
-                        instructions=final_instructions,
-                        tools=initial_tools or None,
-                        tool_choice="auto",
-                    )
-
-                    # Ensure clean input buffers for this turn
-                    try:
-                        await rt.clear_input()
-                    except Exception:
-                        pass
-                    # Also reset any leftover output audio so new turn doesn't replay old chunks
-                    try:
-                        if hasattr(rt, "reset_output_stream"):
-                            rt.reset_output_stream()
-                    except Exception:
-                        pass
-
-                    # Begin streaming turn (defer user transcript persistence until final to avoid duplicates)
-                    turn_id = await self.realtime_begin_turn(user_id)
-                    # We'll buffer the full user transcript (text input or realtime audio transcription) and persist exactly once.
-                    # Initialize empty; we'll build it strictly from realtime transcript segments to avoid
-                    # accidental duplication with pre-supplied user_text or prior buffers.
-                    final_user_tr: str = ""
-                    user_persisted = False
-
-                    # Feed audio into WS if audio bytes provided and audio modality requested; else treat as text
-                    wants_audio = (
-                        (
-                            getattr(rt, "_options", None)
-                            and getattr(rt, "_options").output_modalities
-                        )
-                        and "audio" in getattr(rt, "_options").output_modalities  # type: ignore[attr-defined]
-                    ) or (
-                        rt_output_modalities is None
-                        or (rt_output_modalities and "audio" in rt_output_modalities)
-                    )
-                    # Determine if realtime transcription should be enabled (always skip HTTP STT regardless)
-                    # realtime_transcription_enabled now implicit (options set before connect)
-
-                    if is_audio_bytes and not wants_audio:
-                        # Feed audio solely for transcription (no audio output requested)
-                        bq = bytes(query)
-                        logger.info(
-                            "Realtime: appending input audio for transcription only, len=%d, fmt=%s",
-                            len(bq),
-                            audio_input_format,
-                        )
-                        await rt.append_audio(bq)
-                        vad_enabled_value = bool(vad) if vad is not None else False
-                        if not vad_enabled_value:
-                            await rt.commit_input()
-                            # Request only text response
-                            await rt.create_response({"modalities": ["text"]})
-                        else:
-                            logger.debug(
-                                "Realtime: VAD enabled (text-only output) — skipping manual response.create"
-                            )
-                    if is_audio_bytes and wants_audio:
-                        bq = bytes(query)
-                        logger.info(
-                            "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
-                            len(bq),
-                            audio_input_format,
-                        )
-                        await rt.append_audio(bq)
-                        vad_enabled_value = bool(vad) if vad is not None else False
-                        if not vad_enabled_value:
-                            await rt.commit_input()
-                            # Manually trigger response when VAD is disabled
-                            await rt.create_response({})
-                        else:
-                            # With server VAD enabled, the model will auto-create a response at end of speech
-                            logger.debug(
-                                "Realtime: VAD enabled — skipping manual response.create"
-                            )
-                    else:  # Text-only path OR caller excluded audio modality
-                        # For text input, create conversation item first, then response
-                        await rt.create_conversation_item(
-                            {
-                                "type": "message",
-                                "role": "user",
-                                "content": [
-                                    {"type": "input_text", "text": user_text or ""}
-                                ],
-                            }
-                        )
-                        # Determine effective modalities (fall back to provided override or text only)
-                        if rt_output_modalities is not None:
-                            modalities = rt_output_modalities or ["text"]
-                        else:
-                            mo = getattr(
-                                rt, "_options", RealtimeSessionOptions()
-                            ).output_modalities
-                            modalities = mo if mo else ["audio"]
-                        if "audio" not in modalities:
-                            # Ensure we do not accidentally request audio generation
-                            modalities = [m for m in modalities if m == "text"] or [
-                                "text"
-                            ]
-                        await rt.create_response(
-                            {
-                                "modalities": modalities,
-                            }
-                        )
-
-                    # Collect audio and transcripts
-                    user_tr = ""  # Accumulates realtime input transcript segments (audio path)
-                    asst_tr = ""
-
-                    input_segments: List[str] = []
-
-                    async def _drain_in_tr():
-                        """Accumulate realtime input transcript segments, de-duplicating cumulative repeats.
-
-                        Some realtime providers emit growing cumulative transcripts (e.g. "Hel", "Hello") or
-                        may occasionally resend the full final transcript. Previous logic naively concatenated
-                        every segment which could yield duplicated text ("HelloHello") if cumulative or repeated
-                        finals were received. This routine keeps a canonical buffer (user_tr) and only appends
-                        the non-overlapping suffix of each new segment.
-                        """
-                        nonlocal user_tr
-                        async for t in rt.iter_input_transcript():
-                            if not t:
-                                continue
-                            # Track raw segment for optional debugging
-                            input_segments.append(t)
-                            if not user_tr:
-                                user_tr = t
-                                continue
-                            if t == user_tr:
-                                # Exact duplicate of current buffer; skip
-                                continue
-                            if t.startswith(user_tr):
-                                # Cumulative growth; append only the new suffix
-                                user_tr += t[len(user_tr) :]
-                                continue
-                            # General case: find largest overlap between end of user_tr and start of t
-                            # to avoid duplicated middle content (e.g., user_tr="My name is", t="name is John")
-                            overlap = 0
-                            max_check = min(len(user_tr), len(t))
-                            for k in range(max_check, 0, -1):
-                                if user_tr.endswith(t[:k]):
-                                    overlap = k
-                                    break
-                            user_tr += t[overlap:]
-
-                    # Check if we need both audio and text modalities
-                    modalities = getattr(
-                        rt, "_options", RealtimeSessionOptions()
-                    ).output_modalities or ["audio"]
-                    use_combined_stream = "audio" in modalities and "text" in modalities
-
-                    if use_combined_stream and wants_audio:
-                        # Use combined stream for both modalities
-                        async def _drain_out_tr():
-                            nonlocal asst_tr
-                            async for t in rt.iter_output_transcript():
-                                if t:
-                                    asst_tr += t
-
-                        in_task = asyncio.create_task(_drain_in_tr())
-                        out_task = asyncio.create_task(_drain_out_tr())
-                        try:
-                            # Check if the service has iter_output_combined method
-                            if hasattr(rt, "iter_output_combined"):
-                                async for chunk in rt.iter_output_combined():
-                                    # Adapt output based on caller's requested output_format
-                                    if output_format == "text":
-                                        # Only yield text modalities as plain strings
-                                        if getattr(chunk, "modality", None) == "text":
-                                            yield chunk.data  # type: ignore[attr-defined]
-                                        continue
-                                    # Audio streaming path
-                                    if getattr(chunk, "modality", None) == "audio":
-                                        # Yield raw bytes if data present
-                                        yield getattr(chunk, "data", b"")
-                                    elif (
-                                        getattr(chunk, "modality", None) == "text"
-                                        and output_format == "audio"
-                                    ):
-                                        # Optionally ignore or log text while audio requested
-                                        continue
-                                    else:
-                                        # Fallback: ignore unknown modalities for now
-                                        continue
-                            else:
-                                # Fallback: yield audio chunks as RealtimeChunk objects
-                                async for audio_chunk in rt.iter_output_audio_encoded():
-                                    if output_format == "text":
-                                        # Ignore audio when text requested
-                                        continue
-                                    # output_format audio: provide raw bytes
-                                    if hasattr(audio_chunk, "modality"):
-                                        if (
-                                            getattr(audio_chunk, "modality", None)
-                                            == "audio"
-                                        ):
-                                            yield getattr(audio_chunk, "data", b"")
-                                    else:
-                                        yield audio_chunk
-                        finally:
-                            # Allow transcript drain tasks to finish to capture user/asst text before persistence
-                            try:
-                                await asyncio.wait_for(in_task, timeout=0.05)
-                            except Exception:
-                                in_task.cancel()
-                            try:
-                                await asyncio.wait_for(out_task, timeout=0.05)
-                            except Exception:
-                                out_task.cancel()
-                        # HTTP STT path removed: realtime audio input transcript (if any) is authoritative
-                        # Persist transcripts after combined streaming completes
-                        if turn_id:
-                            try:
-                                effective_user_tr = user_tr or ("".join(input_segments))
-                                try:
-                                    setattr(
-                                        self,
-                                        "_last_realtime_user_transcript",
-                                        effective_user_tr,
-                                    )
-                                except Exception:
-                                    pass
-                                if effective_user_tr:
-                                    final_user_tr = effective_user_tr
-                                elif (
-                                    isinstance(query, str)
-                                    and query
-                                    and not input_segments
-                                    and not user_tr
-                                ):
-                                    final_user_tr = query
-                                if asst_tr:
-                                    await self.realtime_update_assistant(
-                                        user_id, turn_id, asst_tr
-                                    )
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                            try:
-                                await self.realtime_finalize_turn(user_id, turn_id)
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                    elif wants_audio:
-                        # Use separate streams (legacy behavior)
-                        async def _drain_out_tr():
-                            nonlocal asst_tr
-                            async for t in rt.iter_output_transcript():
-                                if t:
-                                    asst_tr += t
-
-                        in_task = asyncio.create_task(_drain_in_tr())
-                        out_task = asyncio.create_task(_drain_out_tr())
-                        try:
-                            async for audio_chunk in rt.iter_output_audio_encoded():
-                                if output_format == "text":
-                                    # Skip audio when caller wants text only
-                                    continue
-                                # output_format audio: yield raw bytes
-                                if hasattr(audio_chunk, "modality"):
-                                    if (
-                                        getattr(audio_chunk, "modality", None)
-                                        == "audio"
-                                    ):
-                                        yield getattr(audio_chunk, "data", b"")
-                                else:
-                                    yield audio_chunk
-                        finally:
-                            try:
-                                await asyncio.wait_for(in_task, timeout=0.05)
-                            except Exception:
-                                in_task.cancel()
-                            try:
-                                await asyncio.wait_for(out_task, timeout=0.05)
-                            except Exception:
-                                out_task.cancel()
-                        # HTTP STT path removed
-                        # Persist transcripts after audio-only streaming
-                        if turn_id:
-                            try:
-                                effective_user_tr = user_tr or ("".join(input_segments))
-                                try:
-                                    setattr(
-                                        self,
-                                        "_last_realtime_user_transcript",
-                                        effective_user_tr,
-                                    )
-                                except Exception:
-                                    pass
-                                # Buffer final transcript for single persistence
-                                if effective_user_tr:
-                                    final_user_tr = effective_user_tr
-                                elif (
-                                    isinstance(query, str)
-                                    and query
-                                    and not input_segments
-                                    and not user_tr
-                                ):
-                                    final_user_tr = query
-                                if asst_tr:
-                                    await self.realtime_update_assistant(
-                                        user_id, turn_id, asst_tr
-                                    )
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                            try:
-                                await self.realtime_finalize_turn(user_id, turn_id)
-                            except Exception:
-                                pass
-                        # If no WS input transcript was captured, fall back to HTTP STT result
-                    else:
-                        # Text-only: just stream assistant transcript if available (no audio iteration)
-                        # If original input was audio bytes but caller only wants text output (no audio modality),
-                        # we still need to drain the input transcript stream to build user_tr.
-                        in_task_audio_only = None
-                        if is_audio_bytes:
-                            in_task_audio_only = asyncio.create_task(_drain_in_tr())
-
-                        async def _drain_out_tr_text():
-                            nonlocal asst_tr
-                            async for t in rt.iter_output_transcript():
-                                if t:
-                                    asst_tr += t
-                                    yield t  # Yield incremental text chunks directly
-
-                        async for t in _drain_out_tr_text():
-                            # Provide plain text to caller
-                            yield t
-                        # Wait for input transcript (if any) before persistence
-                        if "in_task_audio_only" in locals() and in_task_audio_only:
-                            try:
-                                await asyncio.wait_for(in_task_audio_only, timeout=0.1)
-                            except Exception:
-                                in_task_audio_only.cancel()
-                        # No HTTP STT fallback
-                        if turn_id:
-                            try:
-                                effective_user_tr = user_tr or ("".join(input_segments))
-                                try:
-                                    setattr(
-                                        self,
-                                        "_last_realtime_user_transcript",
-                                        effective_user_tr,
-                                    )
-                                except Exception:
-                                    pass
-                                # For text-only modality but audio-origin (cumulative segments captured), persist user transcript
-                                if effective_user_tr:
-                                    final_user_tr = effective_user_tr
-                                elif (
-                                    isinstance(query, str)
-                                    and query
-                                    and not input_segments
-                                    and not user_tr
-                                ):
-                                    final_user_tr = query
-                                if asst_tr:
-                                    await self.realtime_update_assistant(
-                                        user_id, turn_id, asst_tr
-                                    )
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                            try:
-                                await self.realtime_finalize_turn(user_id, turn_id)
-                            except Exception:
-                                pass
-                        # Input transcript task already awaited above
-                        # Clear input buffer for next turn reuse
-                        try:
-                            await rt.clear_input()
-                        except Exception:
-                            pass
-                finally:
-                    # Always release the session for reuse by other concurrent requests/devices
-                    try:
-                        lock = getattr(rt, "_in_use_lock", None)
-                        if lock and lock.locked():
-                            lock.release()
-                    except Exception:
-                        pass
-                    return
+                    rt_voice=rt_voice,
+                    rt_transcription_model=rt_transcription_model,
+                    rt_transcription_language=rt_transcription_language,
+                    rt_transcription_prompt=rt_transcription_prompt,
+                    rt_transcription_noise_reduction=rt_transcription_noise_reduction,
+                    rt_transcription_include_logprobs=rt_transcription_include_logprobs,
+                    audio_voice=audio_voice,
+                    audio_output_format=audio_output_format,
+                    audio_input_format=audio_input_format,
+                    prompt=prompt,
+                    capture_schema=capture_schema,
+                    capture_name=capture_name,
+                    rt_prefer_pcm=rt_prefer_pcm,
+                ):
+                    yield chunk
+                return
 
             # 1) Acquire user_text (transcribe audio or direct text) for non-realtime path
             user_text = ""
@@ -1836,6 +1228,14 @@ class QueryService(QueryServiceInterface):
             )
             logger.error(f"Error in query processing: {e}\n{traceback.format_exc()}")
 
+            # For realtime shared-session concurrency error, propagate so caller sees RuntimeError
+            if (
+                realtime
+                and isinstance(e, RuntimeError)
+                and "already being consumed" in str(e)
+            ):
+                raise
+
             if output_format == "audio":
                 try:
                     async for chunk in self.agent_service.llm_provider.tts(
@@ -1843,12 +1243,450 @@ class QueryService(QueryServiceInterface):
                         voice=audio_voice,
                         response_format=audio_output_format,
                     ):
-                        yield chunk
+                        # Ensure we only yield bytes for audio path
+                        if isinstance(chunk, (bytes, bytearray)):
+                            yield chunk
+                        else:
+                            yield str(chunk).encode("utf-8")
                 except Exception as tts_e:
                     logger.error(f"Error during TTS for error message: {tts_e}")
-                    yield error_msg + f" (TTS Error: {tts_e})"
+                    yield (error_msg + f" (TTS Error: {tts_e})").encode("utf-8")
             else:
                 yield error_msg
+
+    async def _process_realtime(
+        self,
+        *,
+        user_id: str,
+        query: Union[str, bytes],
+        output_format: Literal["text", "audio"],
+        vad: Optional[bool],
+        rt_encode_input: bool,
+        rt_encode_output: bool,
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]],
+        rt_voice: str,
+        rt_transcription_model: Optional[str],
+        rt_transcription_language: Optional[str],
+        rt_transcription_prompt: Optional[str],
+        rt_transcription_noise_reduction: Optional[bool],
+        rt_transcription_include_logprobs: bool,
+        audio_voice: str,
+        audio_output_format: str,
+        audio_input_format: str,
+        prompt: Optional[str],
+        capture_schema: Optional[Dict[str, Any]],
+        capture_name: Optional[str],
+        rt_prefer_pcm: bool,
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
+        """Isolated realtime handling.
+
+        Responsibilities (minimal for refactor completion):
+        - Build context/instructions
+        - Decide encode_in / encode_out
+        - Allocate & configure realtime session
+        - Send user input (audio or text)
+        - Stream back audio or text chunks
+        - Release session lock
+
+        NOTE: Streaming transcript persistence & advanced overlap merging are handled
+        by higher-level memory provider helpers (not invoked when memory_provider is None).
+        """
+
+        is_audio_bytes = isinstance(query, (bytes, bytearray))
+        if is_audio_bytes and not rt_transcription_model:
+            rt_transcription_model = "gpt-4o-mini-transcribe"
+
+        # Select agent (sticky or fallback first available)
+        agent_name = self._get_sticky_agent(user_id)
+        if not agent_name:
+            try:
+                agents = self.agent_service.get_all_ai_agents() or {}
+                agent_name = next(iter(agents.keys())) if agents else "default"
+            except Exception:
+                agent_name = "default"
+
+        prev_assistant = ""
+        if self.memory_provider:
+            try:
+                prev_docs = self.memory_provider.find(
+                    collection="conversations",
+                    query={"user_id": user_id},
+                    sort=[("timestamp", -1)],
+                    limit=1,
+                )
+                if prev_docs:
+                    prev_assistant = (prev_docs[0] or {}).get(
+                        "assistant_message", ""
+                    ) or ""
+            except Exception:
+                pass
+
+        combined_ctx = ""
+        required_complete = False
+        try:
+            (
+                combined_ctx,
+                required_complete,
+            ) = await self._build_combined_context(
+                user_id=user_id,
+                user_text=("" if is_audio_bytes else str(query)),
+                agent_name=agent_name,
+                capture_name=capture_name,
+                capture_schema=capture_schema,
+                prev_assistant=prev_assistant,
+            )
+            try:
+                self._update_sticky_required_complete(user_id, required_complete)
+            except Exception:
+                pass
+        except Exception:
+            combined_ctx = ""
+
+        try:
+            initial_tools = [
+                {
+                    "type": "function",
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {}),
+                    "strict": True,
+                }
+                for t in self.agent_service.get_agent_tools(agent_name)
+            ]
+        except Exception:
+            initial_tools = []
+
+        system_prompt = ""
+        try:
+            system_prompt = self.agent_service.get_agent_system_prompt(agent_name)
+        except Exception:
+            system_prompt = ""
+
+        parts: List[str] = []
+        if system_prompt:
+            parts.append(system_prompt)
+        if combined_ctx:
+            parts.append(combined_ctx)
+        if prompt:
+            parts.append(str(prompt))
+        final_instructions = "\n\n".join([p for p in parts if p])
+
+        api_key = None
+        try:
+            api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        if not api_key:
+            raise ValueError("OpenAI API key is required for realtime")
+
+        # Adjust output format preference
+        if rt_prefer_pcm and audio_output_format == "aac":
+            audio_output_format = "pcm"
+
+        encode_out = bool(rt_encode_output or (audio_output_format.lower() != "pcm"))
+        if rt_output_modalities is not None and "audio" not in rt_output_modalities:
+            if encode_out:
+                logger.debug(
+                    "Realtime(QueryService): forcing encode_out False for text-only modalities=%s",
+                    rt_output_modalities,
+                )
+            encode_out = False
+        encode_in = self._compute_encode_in(
+            is_audio_bytes=is_audio_bytes,
+            audio_input_format=audio_input_format,
+            rt_encode_input=rt_encode_input,
+        )
+
+        rt = await self._alloc_realtime_session(
+            user_id,
+            api_key=api_key,
+            rt_voice=rt_voice,
+            final_instructions=final_instructions,
+            initial_tools=initial_tools,
+            encode_in=encode_in,
+            encode_out=encode_out,
+            audio_input_format=audio_input_format,
+            audio_output_format=audio_output_format,
+            rt_output_modalities=rt_output_modalities,
+        )
+
+        lock = getattr(rt, "_in_use_lock", None)
+        try:
+            # Apply transcription options *before* connect if possible
+            if rt_transcription_model and hasattr(rt, "_options"):
+                try:
+                    setattr(rt._options, "transcription_model", rt_transcription_model)
+                    if rt_transcription_language is not None:
+                        setattr(
+                            rt._options,
+                            "transcription_language",
+                            rt_transcription_language,
+                        )
+                    if rt_transcription_prompt is not None:
+                        setattr(
+                            rt._options, "transcription_prompt", rt_transcription_prompt
+                        )
+                    if rt_transcription_noise_reduction is not None:
+                        setattr(
+                            rt._options,
+                            "transcription_noise_reduction",
+                            rt_transcription_noise_reduction,
+                        )
+                    if rt_transcription_include_logprobs:
+                        setattr(rt._options, "transcription_include_logprobs", True)
+                except Exception:
+                    logger.debug(
+                        "Realtime transcription option assignment failed", exc_info=True
+                    )
+
+            async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+                try:
+                    return await self.agent_service.execute_tool(
+                        agent_name, tool_name, args or {}
+                    )
+                except Exception as e:
+                    return {"status": "error", "message": str(e)}
+
+            try:
+                if hasattr(rt, "_session") and hasattr(
+                    rt._session, "set_tool_executor"
+                ):
+                    rt._session.set_tool_executor(_exec)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+            if not getattr(rt, "_connected", False):
+                await rt.start()
+            await rt.configure(
+                voice=rt_voice,
+                vad_enabled=bool(vad) if vad is not None else False,
+                instructions=final_instructions,
+                tools=initial_tools or None,
+                tool_choice="auto",
+            )
+
+            try:
+                await rt.clear_input()
+            except Exception:
+                pass
+            try:
+                if hasattr(rt, "reset_output_stream"):
+                    rt.reset_output_stream()
+            except Exception:
+                pass
+
+            # Send user input
+            if is_audio_bytes:
+                try:
+                    await rt.append_audio(query)  # type: ignore[arg-type]
+                    await rt.commit_input()
+                except Exception:
+                    logger.debug("Failed to append/commit audio input", exc_info=True)
+            else:
+                text_query = str(query)
+                if text_query.strip():
+                    try:
+                        if hasattr(rt, "create_conversation_item"):
+                            await rt.create_conversation_item(
+                                {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": text_query,
+                                }
+                            )
+                        if hasattr(rt, "create_response"):
+                            await rt.create_response(None)
+                    except Exception:
+                        logger.debug("Failed to send text user item", exc_info=True)
+
+            # Decide streaming approach
+            # Prefer combined when both modalities requested
+            modalities = (
+                rt_output_modalities
+                if rt_output_modalities is not None
+                else (["audio"] if output_format == "audio" else ["text"])
+            )
+
+            async def _yield_audio():
+                async for ch in rt.iter_output_audio_encoded():
+                    if getattr(ch, "modality", "audio") == "audio":
+                        yield ch.data  # bytes
+
+            async def _yield_text():
+                async for t in rt.iter_output_transcript():
+                    if t:
+                        yield t
+
+            # --- Streaming persistence setup ---
+            turn_id: Optional[str] = None
+            has_stream_hooks = False
+            if self.memory_provider and (
+                hasattr(self.memory_provider, "begin_stream_turn")
+                and hasattr(self.memory_provider, "update_stream_user")
+                and hasattr(self.memory_provider, "update_stream_assistant")
+                and hasattr(self.memory_provider, "finalize_stream_turn")
+            ):
+                try:
+                    turn_id = await self.realtime_begin_turn(user_id)
+                    has_stream_hooks = True if turn_id else False
+                except Exception:
+                    turn_id = None
+                    has_stream_hooks = False
+
+            # Track cumulative user transcript for deduping (cumulative + duplicate finals)
+            user_transcript_accum = ""
+            last_persisted_user = ""
+
+            async def _persist_user_if_needed(final_text: str):
+                nonlocal last_persisted_user
+                if not has_stream_hooks or not turn_id:
+                    return
+                # For audio inputs we delay persistence until final finalize block
+                if is_audio_bytes:
+                    last_persisted_user = final_text  # stash only
+                    return
+                if not final_text or final_text == last_persisted_user:
+                    return
+                try:
+                    await self.realtime_update_user(user_id, turn_id, final_text)
+                    last_persisted_user = final_text
+                except Exception:
+                    pass
+
+            async def _persist_assistant_delta(delta: str):
+                if not has_stream_hooks or not turn_id:
+                    return
+                if not delta:
+                    return
+                try:
+                    await self.realtime_update_assistant(user_id, turn_id, delta)
+                except Exception:
+                    pass
+
+            # Helper to merge cumulative transcript pieces
+            def _merge_user_piece(piece: str) -> str:
+                nonlocal user_transcript_accum
+                if not piece:
+                    return user_transcript_accum
+                # Accept either cumulative (full) or delta; choose longest with overlap elimination
+                if piece.startswith(user_transcript_accum):
+                    user_transcript_accum = piece
+                else:
+                    # Find maximal overlap suffix of existing with prefix of new piece
+                    overlap = 0
+                    max_check = min(len(user_transcript_accum), len(piece))
+                    for k in range(max_check, 0, -1):
+                        if user_transcript_accum.endswith(piece[:k]):
+                            overlap = k
+                            break
+                    user_transcript_accum += piece[overlap:]
+                return user_transcript_accum
+
+            async def _stream_audio_only():
+                async for ch in rt.iter_output_audio_encoded():
+                    # Support raw bytes OR RealtimeChunk objects
+                    data = getattr(ch, "data", ch)
+                    if isinstance(data, (bytes, bytearray)):
+                        yield data
+                    # No assistant text expected in pure audio iteration
+
+            async def _stream_text_only():
+                # If audio bytes were sent, input transcript comes from iter_input_transcript
+                # Assistant transcript from iter_output_transcript
+                if is_audio_bytes:
+                    # Drain user transcript first (provider may finish early)
+                    if hasattr(rt, "iter_input_transcript"):
+                        async for u in rt.iter_input_transcript():
+                            if u is None:
+                                break
+                            merged = _merge_user_piece(u)
+                            await _persist_user_if_needed(merged)
+                else:
+                    # Text query provided directly: treat as complete user transcript
+                    merged = _merge_user_piece(str(query))
+                    await _persist_user_if_needed(merged)
+                async for t in rt.iter_output_transcript():
+                    if t:
+                        await _persist_assistant_delta(t)
+                        yield t
+
+            async def _stream_combined():
+                # Use combined if available for convenience, else synthesize
+                combined_supported = hasattr(rt, "iter_output_combined")
+                # Persist direct text query as user transcript if provided and not audio
+                if not is_audio_bytes and str(query).strip():
+                    merged = _merge_user_piece(str(query))
+                    await _persist_user_if_needed(merged)
+                if combined_supported:
+                    async for ch in rt.iter_output_combined():
+                        mod = getattr(ch, "modality", None)
+                        data = getattr(ch, "data", ch)
+                        if mod == "audio" and isinstance(data, (bytes, bytearray)):
+                            yield data
+                        elif mod == "text" and isinstance(data, str):
+                            await _persist_assistant_delta(data)
+                            yield data
+                    # After combined finishes, drain any remaining input transcript (some stubs emit input separately)
+                    if is_audio_bytes:
+                        async for u in rt.iter_input_transcript():
+                            if u is None:
+                                break
+                            merged = _merge_user_piece(u)
+                            await _persist_user_if_needed(merged)
+                else:
+                    # Fallback: interleave manual streams (simple version)
+                    audio_task = asyncio.create_task(_stream_audio_only().__anext__())
+                    text_task = asyncio.create_task(_stream_text_only().__anext__())
+                    # Minimal fallback; not exhaustive interleaving
+                    for task in (audio_task, text_task):
+                        try:
+                            val = await task
+                            if isinstance(val, (bytes, bytearray)):
+                                yield val
+                            else:
+                                await _persist_assistant_delta(str(val))
+                                yield str(val)
+                        except Exception:
+                            pass
+
+            # Execute streaming according to modalities
+            try:
+                if "audio" in modalities and "text" in modalities:
+                    async for out in _stream_combined():
+                        yield out
+                elif "audio" in modalities:
+                    async for out in _stream_audio_only():
+                        yield out
+                else:
+                    async for out in _stream_text_only():
+                        yield out
+            finally:
+                # Persist final user transcript if we collected one and never stored
+                if user_transcript_accum and has_stream_hooks and turn_id:
+                    # Persist (single write) now for audio input; for text we may have already stored
+                    if is_audio_bytes:
+                        try:
+                            await self.realtime_update_user(
+                                user_id, turn_id, user_transcript_accum
+                            )
+                        except Exception:
+                            pass
+                # Expose for tests
+                if user_transcript_accum:
+                    setattr(
+                        self, "_last_realtime_user_transcript", user_transcript_accum
+                    )
+                if has_stream_hooks and turn_id:
+                    try:
+                        await self.realtime_finalize_turn(user_id, turn_id)
+                    except Exception:
+                        pass
+        finally:
+            try:
+                if lock and getattr(lock, "locked", lambda: False)():
+                    lock.release()
+            except Exception:
+                pass
 
     async def delete_user_history(self, user_id: str) -> None:
         """Delete all conversation history for a user."""
