@@ -588,6 +588,21 @@ class QueryService(QueryServiceInterface):
                     if rt_output_modalities is None:
                         rt_output_modalities = ["audio"]
 
+                # Minimal WAV header parser for mono PCM16 to detect 16k input
+                def _parse_wav_header(b: bytes) -> int:
+                    try:
+                        if len(b) < 44:
+                            return 0
+                        if b[0:4] != b"RIFF" or b[8:12] != b"WAVE":
+                            return 0
+                        if int.from_bytes(b[20:22], "little") != 1:  # audio format PCM
+                            return 0
+                        if int.from_bytes(b[22:24], "little") != 1:  # mono
+                            return 0
+                        return int.from_bytes(b[24:28], "little")
+                    except Exception:
+                        return 0
+
                 # 2) Single agent selection (no multi-agent routing in realtime path)
                 agent_name = self._get_sticky_agent(user_id)
                 if not agent_name:
@@ -853,12 +868,42 @@ class QueryService(QueryServiceInterface):
                             )
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
-                        logger.info(
-                            "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
-                            len(bq),
-                            audio_input_format,
-                        )
-                        await rt.append_audio(bq)
+                        if expo_mode:
+                            in_rate = 0
+                            if audio_input_format.lower() == "wav":
+                                in_rate = _parse_wav_header(bq)
+                            if in_rate == 16000:
+                                try:
+                                    # Strip header (44 bytes) and upsample to 24k
+                                    pcm16_16k = bq[44:]
+                                    from solana_agent.adapters.ffmpeg_transcoder import (
+                                        FFmpegTranscoder,
+                                    )
+
+                                    pcm16_24k = await FFmpegTranscoder().resample_pcm16(
+                                        pcm16_16k, 16000, 24000, output_container="raw"
+                                    )
+                                    await rt.append_audio(pcm16_24k)
+                                    logger.info(
+                                        "Expo preset ingress: upsampled 16k WAV -> 24k PCM len_in=%d len_out=%d",
+                                        len(pcm16_16k),
+                                        len(pcm16_24k),
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Expo preset ingress upsample failed; falling back to original",
+                                        exc_info=True,
+                                    )
+                                    await rt.append_audio(bq)
+                            else:
+                                await rt.append_audio(bq)
+                        else:
+                            logger.info(
+                                "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
+                                len(bq),
+                                audio_input_format,
+                            )
+                            await rt.append_audio(bq)
                         vad_enabled_value = bool(vad) if vad is not None else False
                         if not vad_enabled_value:
                             await rt.commit_input()
@@ -1017,61 +1062,52 @@ class QueryService(QueryServiceInterface):
                         out_task = asyncio.create_task(_drain_out_tr())
                         try:
                             # Check if the service has iter_output_combined method
-                            if hasattr(rt, "iter_output_combined"):
-                                async for chunk in rt.iter_output_combined():
-                                    # Adapt output based on caller's requested output_format
-                                    if output_format == "text":
-                                        # Only yield text modalities as plain strings
-                                        if getattr(chunk, "modality", None) == "text":
-                                            yield chunk.data  # type: ignore[attr-defined]
-                                        continue
-                                    # Audio streaming path
-                                    if getattr(chunk, "modality", None) == "audio":
-                                        raw_bytes = getattr(chunk, "data", b"")
-                                        if expo_mode:
-                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
-                                                yield ob
-                                        else:
-                                            yield raw_bytes
-                                    elif (
-                                        getattr(chunk, "modality", None) == "text"
-                                        and output_format == "audio"
-                                    ):
-                                        # Optionally ignore or log text while audio requested
-                                        continue
-                                    else:
-                                        # Fallback: ignore unknown modalities for now
-                                        continue
+                            if output_format == "text":
+                                async for t in rt.iter_output_transcript():
+                                    if t:
+                                        yield t
                             else:
-                                # Fallback: yield audio chunks as RealtimeChunk objects
-                                async for audio_chunk in rt.iter_output_audio_encoded():
-                                    if output_format == "text":
-                                        continue
-                                    if (
-                                        hasattr(audio_chunk, "modality")
-                                        and getattr(audio_chunk, "modality", None)
-                                        == "audio"
+                                if expo_mode:
+                                    from solana_agent.adapters.ffmpeg_transcoder import (
+                                        FFmpegTranscoder,
+                                    )
+
+                                    async def _pcm24_iter():
+                                        if hasattr(rt, "iter_output_combined"):
+                                            async for c in rt.iter_output_combined():
+                                                if (
+                                                    getattr(c, "modality", None)
+                                                    == "audio"
+                                                ):
+                                                    yield getattr(c, "data", b"")
+                                        else:
+                                            async for (
+                                                ac
+                                            ) in rt.iter_output_audio_encoded():
+                                                if (
+                                                    getattr(ac, "modality", None)
+                                                    == "audio"
+                                                ):
+                                                    yield getattr(ac, "data", b"")
+
+                                    async for (
+                                        rb
+                                    ) in FFmpegTranscoder().stream_resample_pcm16(
+                                        _pcm24_iter(),
+                                        24000,
+                                        16000,
+                                        output_container="wav",
                                     ):
-                                        raw_bytes = getattr(audio_chunk, "data", b"")
-                                        if expo_mode:
-                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
-                                                yield ob
-                                        else:
-                                            yield raw_bytes
+                                        yield rb
+                                else:
+                                    if hasattr(rt, "iter_output_combined"):
+                                        async for c in rt.iter_output_combined():
+                                            if getattr(c, "modality", None) == "audio":
+                                                yield getattr(c, "data", b"")
                                     else:
-                                        # Should already be modality tagged, but handle fallback
-                                        raw_bytes = (
-                                            audio_chunk
-                                            if isinstance(
-                                                audio_chunk, (bytes, bytearray)
-                                            )
-                                            else getattr(audio_chunk, "data", b"")
-                                        )
-                                        if expo_mode:
-                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
-                                                yield ob
-                                        else:
-                                            yield raw_bytes
+                                        async for ac in rt.iter_output_audio_encoded():
+                                            if getattr(ac, "modality", None) == "audio":
+                                                yield getattr(ac, "data", b"")
                         finally:
                             # Allow transcript drain tasks to finish to capture user/asst text before persistence
                             try:
@@ -1135,7 +1171,7 @@ class QueryService(QueryServiceInterface):
                                 except Exception:
                                     pass
                     elif wants_audio:
-                        # Use separate streams (legacy behavior)
+                        # Separate audio + transcript
                         async def _drain_out_tr():
                             nonlocal asst_tr
                             async for t in rt.iter_output_transcript():
@@ -1145,93 +1181,31 @@ class QueryService(QueryServiceInterface):
                         in_task = asyncio.create_task(_drain_in_tr())
                         out_task = asyncio.create_task(_drain_out_tr())
                         try:
-                            expo_buf2: Optional[bytearray] = None
-                            expo_sent_header2 = False
-                            expo_resampler2 = None
                             if expo_mode:
                                 from solana_agent.adapters.ffmpeg_transcoder import (
                                     FFmpegTranscoder,
                                 )
 
-                                expo_buf2 = bytearray()
-                                expo_resampler2 = FFmpegTranscoder()
+                                async def _pcm24_iter2():
+                                    async for ac in rt.iter_output_audio_encoded():
+                                        if getattr(ac, "modality", None) == "audio":
+                                            yield getattr(ac, "data", b"")
 
-                                async def _emit_expo2(block: bytes) -> List[bytes]:  # type: ignore
-                                    nonlocal expo_sent_header2, expo_buf2
-                                    assert (
-                                        expo_buf2 is not None
-                                        and expo_resampler2 is not None
-                                    )
-                                    expo_buf2.extend(block)
-                                    outs: List[bytes] = []
-                                    THRESH = 48000
-                                    if len(expo_buf2) >= THRESH:
-                                        raw_block = bytes(expo_buf2)
-                                        expo_buf2.clear()
-                                        container = (
-                                            "wav" if not expo_sent_header2 else "raw"
-                                        )
-                                        try:
-                                            converted = (
-                                                await expo_resampler2.resample_pcm16(
-                                                    raw_block,
-                                                    24000,
-                                                    16000,
-                                                    output_container=container,
-                                                )
-                                            )
-                                            if not expo_sent_header2:
-                                                expo_sent_header2 = True
-                                            outs.append(converted)
-                                        except Exception:
-                                            outs.append(block)
-                                    return outs
-
-                                async def _flush_expo2() -> List[bytes]:  # type: ignore
-                                    nonlocal expo_sent_header2, expo_buf2
-                                    outs: List[bytes] = []
-                                    if expo_buf2 and len(expo_buf2) > 0:
-                                        raw_block = bytes(expo_buf2)
-                                        expo_buf2.clear()
-                                        container = (
-                                            "wav" if not expo_sent_header2 else "raw"
-                                        )
-                                        try:
-                                            converted = (
-                                                await expo_resampler2.resample_pcm16(
-                                                    raw_block,
-                                                    24000,
-                                                    16000,
-                                                    output_container=container,
-                                                )
-                                            )
-                                            if not expo_sent_header2:
-                                                expo_sent_header2 = True
-                                            outs.append(converted)
-                                        except Exception:
-                                            outs.append(raw_block)
-                                    return outs
-
-                            async for audio_chunk in rt.iter_output_audio_encoded():
-                                if output_format == "text":
-                                    continue
-                                if (
-                                    hasattr(audio_chunk, "modality")
-                                    and getattr(audio_chunk, "modality", None)
-                                    == "audio"
+                                async for (
+                                    rb
+                                ) in FFmpegTranscoder().stream_resample_pcm16(
+                                    _pcm24_iter2(), 24000, 16000, output_container="wav"
                                 ):
-                                    data_bytes = getattr(audio_chunk, "data", b"")
-                                else:
-                                    data_bytes = (
-                                        audio_chunk
-                                        if isinstance(audio_chunk, (bytes, bytearray))
-                                        else getattr(audio_chunk, "data", b"")
-                                    )
-                                if expo_mode:
-                                    for ob in await _emit_expo2(data_bytes):  # type: ignore
-                                        yield ob
-                                else:
-                                    yield data_bytes
+                                    if output_format != "text":
+                                        yield rb
+                            else:
+                                async for ac in rt.iter_output_audio_encoded():
+                                    if output_format == "text":
+                                        continue
+                                    if getattr(ac, "modality", None) == "audio":
+                                        yield getattr(ac, "data", b"")
+                                    else:
+                                        yield ac
                         finally:
                             try:
                                 await asyncio.wait_for(in_task, timeout=0.05)
@@ -1241,11 +1215,6 @@ class QueryService(QueryServiceInterface):
                                 await asyncio.wait_for(out_task, timeout=0.05)
                             except Exception:
                                 out_task.cancel()
-                            if expo_mode:
-                                for ob in await _flush_expo2():  # type: ignore
-                                    yield ob
-                        # HTTP STT path removed
-                        # Persist transcripts after audio-only streaming
                         if turn_id:
                             try:
                                 effective_user_tr = user_tr or ("".join(input_segments))
@@ -1257,7 +1226,6 @@ class QueryService(QueryServiceInterface):
                                     )
                                 except Exception:
                                     pass
-                                # Buffer final transcript for single persistence
                                 if effective_user_tr:
                                     final_user_tr = effective_user_tr
                                 elif (
