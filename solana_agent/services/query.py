@@ -1494,9 +1494,31 @@ class QueryService(QueryServiceInterface):
                                 await rt.create_response(None)
                             except Exception:
                                 logger.debug(
-                                    "Failed to create_response after commit (audio, no VAD)",
+                                    "Failed to create_response after commit (audio, no VAD) — scheduling delayed retry",
                                     exc_info=True,
                                 )
+
+                                # Fallback: schedule a delayed retry in background in case commit race prevented response
+                                async def _delayed_resp():  # pragma: no cover
+                                    try:
+                                        await asyncio.sleep(0.75)
+                                        try:
+                                            await rt.create_response(None)
+                                            logger.debug(
+                                                "Delayed create_response retry executed (audio, no VAD)"
+                                            )
+                                        except Exception:
+                                            logger.debug(
+                                                "Delayed create_response retry failed",
+                                                exc_info=True,
+                                            )
+                                    except Exception:
+                                        pass
+
+                                try:
+                                    asyncio.create_task(_delayed_resp())
+                                except Exception:
+                                    pass
                 except Exception:
                     logger.debug("Failed to append/commit audio input", exc_info=True)
             else:
