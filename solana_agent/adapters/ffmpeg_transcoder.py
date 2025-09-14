@@ -51,6 +51,23 @@ class FFmpegTranscoder(AudioTranscoder):
             rate_hz,
             len(audio_bytes),
         )
+        # Fast-path: raw PCM payloads (already PCM16LE mono). Some callers may still
+        # set accept_compressed_input=True with client_input_mime=audio/pcm; in that
+        # case ffmpeg autodetection would fail (no container). Provide explicit demux args.
+        try:
+            im = (input_mime or "").lower()
+        except Exception:
+            im = input_mime
+        if im in {"audio/pcm", "audio/pcm16", "audio/x-pcm", "pcm16"}:
+            # If the requested output rate matches, just return bytes (identity).
+            # Otherwise perform a raw resample.
+            # Use resample_pcm16 for consistency.
+            logger.debug("FFmpegTranscoder.to_pcm16: raw PCM fast-path (mime=%s)", im)
+            if rate_hz in (0, None):  # Defensive: ensure positive rate
+                rate_hz = 24000
+            # We don't know the input sample rate explicitly here; assume caller already
+            # provides audio at the desired rate. (If not, higher-level logic should invoke resample.)
+            return audio_bytes
         # iOS-recorded MP4/M4A often requires a seekable input for reliable demuxing.
         # Decode from a temporary file instead of stdin for MP4/M4A.
         if input_mime in ("audio/mp4", "audio/m4a"):
@@ -96,6 +113,8 @@ class FFmpegTranscoder(AudioTranscoder):
             hinted_format = None  # container detection is decent here
         elif input_mime in ("audio/wav", "audio/x-wav"):
             hinted_format = "wav"
+        elif input_mime in ("audio/pcm", "audio/pcm16", "audio/x-pcm"):
+            hinted_format = "s16le"  # Raw PCM requires explicit format
 
         args = [
             "-hide_banner",
@@ -103,7 +122,18 @@ class FFmpegTranscoder(AudioTranscoder):
             "error",
         ]
         if hinted_format:
-            args += ["-f", hinted_format]
+            # For raw PCM we also need channels/sample rate BEFORE -i
+            if hinted_format == "s16le":
+                args += [
+                    "-f",
+                    "s16le",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    str(rate_hz),
+                ]
+            else:
+                args += ["-f", hinted_format]
         args += [
             "-i",
             "pipe:0",

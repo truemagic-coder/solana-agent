@@ -34,6 +34,7 @@ class RealtimeService:
         client_input_mime: str = "audio/mp4",
         encode_output: bool = False,
         client_output_mime: str = "audio/aac",
+        client_input_rate_hz: Optional[int] = None,
     ) -> None:
         self._session = session
         self._options = options or RealtimeSessionOptions()
@@ -45,6 +46,7 @@ class RealtimeService:
         self._client_input_mime = client_input_mime
         self._encode_output = encode_output
         self._client_output_mime = client_output_mime
+        self._client_input_rate_hz = client_input_rate_hz
 
     async def start(self) -> None:  # pragma: no cover
         async with self._lock:
@@ -155,7 +157,44 @@ class RealtimeService:
             self._accept_compressed_input,
             self._client_input_mime,
         )
+        target_rate = int(self._options.input_rate_hz or 24000)
+        cim = (self._client_input_mime or "").lower()
         if self._accept_compressed_input:
+            # Raw PCM fast path (optionally resample)
+            if cim in {"audio/pcm", "audio/pcm16", "audio/x-pcm"}:
+                if (
+                    self._client_input_rate_hz
+                    and self._client_input_rate_hz != target_rate
+                    and self._transcoder
+                ):
+                    try:
+                        pcm_resampled = await self._transcoder.resample_pcm16(
+                            chunk_bytes,
+                            self._client_input_rate_hz,
+                            target_rate,
+                            output_container="raw",
+                        )
+                        await self._session.append_audio(pcm_resampled)
+                        logger.debug(
+                            "RealtimeService.append_audio: resampled raw pcm %dHz->%dHz len_in=%d len_out=%d",
+                            self._client_input_rate_hz,
+                            target_rate,
+                            len(chunk_bytes),
+                            len(pcm_resampled),
+                        )
+                        return
+                    except Exception:
+                        logger.warning(
+                            "RealtimeService.append_audio: resample failed, falling back to original",
+                            exc_info=True,
+                        )
+                await self._session.append_audio(chunk_bytes)
+                logger.debug(
+                    "RealtimeService.append_audio: bypass transcode (raw pcm) len=%d target_rate=%d",
+                    len(chunk_bytes),
+                    target_rate,
+                )
+                return
             if not self._transcoder:
                 raise ValueError(
                     "Compressed input enabled but no transcoder configured"
@@ -166,10 +205,39 @@ class RealtimeService:
             await self._session.append_audio(pcm16)
             logger.debug("RealtimeService.append_audio: sent PCM16 len=%d", len(pcm16))
             return
-        # Default: pass-through PCM16
+        # Passthrough path (raw PCM provided without compression hint)
+        if (
+            cim in {"audio/pcm", "audio/pcm16", "audio/x-pcm"}
+            and self._client_input_rate_hz
+            and self._client_input_rate_hz != target_rate
+            and self._transcoder
+        ):
+            try:
+                pcm_resampled = await self._transcoder.resample_pcm16(
+                    chunk_bytes,
+                    self._client_input_rate_hz,
+                    target_rate,
+                    output_container="raw",
+                )
+                await self._session.append_audio(pcm_resampled)
+                logger.debug(
+                    "RealtimeService.append_audio: resampled passthrough raw pcm %dHz->%dHz len_in=%d len_out=%d",
+                    self._client_input_rate_hz,
+                    target_rate,
+                    len(chunk_bytes),
+                    len(pcm_resampled),
+                )
+                return
+            except Exception:
+                logger.warning(
+                    "RealtimeService.append_audio: passthrough resample failed, using original",
+                    exc_info=True,
+                )
         await self._session.append_audio(chunk_bytes)
         logger.debug(
-            "RealtimeService.append_audio: sent passthrough len=%d", len(chunk_bytes)
+            "RealtimeService.append_audio: sent passthrough len=%d target_rate=%d",
+            len(chunk_bytes),
+            target_rate,
         )
 
     async def commit_input(self) -> None:  # pragma: no cover

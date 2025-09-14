@@ -45,11 +45,13 @@ class FakeSession:
 
 
 class FakeTranscoder:
-    def __init__(self, to_pcm_out=b"PCM", encode_prefix=b"E:"):
+    def __init__(self, to_pcm_out=b"PCM", encode_prefix=b"E:", resample_out=b"RSMPL"):
         self.to_pcm_calls = []
         self.stream_calls = []
+        self.resample_calls = []
         self._to_pcm_out = to_pcm_out
         self._prefix = encode_prefix
+        self._resample_out = resample_out
 
     async def to_pcm16(self, data: bytes, input_mime: str, rate_hz: int) -> bytes:
         self.to_pcm_calls.append((len(data), input_mime, rate_hz))
@@ -61,6 +63,12 @@ class FakeTranscoder:
             if not chunk:
                 continue
             yield self._prefix + chunk
+
+    async def resample_pcm16(
+        self, data: bytes, in_rate: int, out_rate: int, output_container: str = "raw"
+    ):
+        self.resample_calls.append((len(data), in_rate, out_rate, output_container))
+        return self._resample_out
 
 
 @pytest.mark.asyncio
@@ -91,6 +99,43 @@ async def test_append_audio_with_transcode():
     # Transcoder used and PCM forwarded to session
     assert transcoder.to_pcm_calls and transcoder.to_pcm_calls[0][0] == len(src)
     sess.append_audio.assert_called_once_with(b"PCM16")
+
+
+@pytest.mark.asyncio
+async def test_append_audio_bypass_transcode_for_raw_pcm():
+    """When accept_compressed_input is True but client input mime is raw PCM, transcoder shouldn't be used."""
+    sess = FakeSession()
+    transcoder = FakeTranscoder(to_pcm_out=b"IGNORED")
+    svc = RealtimeService(
+        session=sess,
+        transcoder=transcoder,
+        accept_compressed_input=True,
+        client_input_mime="audio/pcm",
+    )
+
+    data = b"\x00\x01\x02\x03"
+    await svc.append_audio(data)
+
+    # Should have bypassed transcoder
+    assert transcoder.to_pcm_calls == []
+    sess.append_audio.assert_called_once_with(data)
+
+
+@pytest.mark.asyncio
+async def test_append_audio_resample_raw_pcm_when_rate_mismatch():
+    sess = FakeSession()
+    transcoder = FakeTranscoder(resample_out=b"UP24")
+    svc = RealtimeService(
+        session=sess,
+        transcoder=transcoder,
+        accept_compressed_input=False,
+        client_input_mime="audio/pcm",
+        client_input_rate_hz=16000,
+    )
+    data = b"\x00" * 320
+    await svc.append_audio(data)
+    assert transcoder.resample_calls == [(len(data), 16000, 24000, "raw")]
+    sess.append_audio.assert_called_once_with(b"UP24")
 
 
 @pytest.mark.asyncio

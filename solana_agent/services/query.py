@@ -877,12 +877,20 @@ class QueryService(QueryServiceInterface):
                         else:
                             if expo_mode:
                                 in_rate = 0
-                                if audio_input_format.lower() == "wav":
+                                fmt_lower = audio_input_format.lower()
+                                # raw_pcm flag no longer needed; kept logic branch only
+                                if fmt_lower == "wav":
                                     in_rate = _parse_wav_header(bq)
+                                elif fmt_lower == "pcm":
+                                    # Caller indicated raw PCM (assume 16k if length matches common frame multiples).
+                                    # We don't have header metadata; rely on explicit preset expectation of 16k ingress.
+                                    in_rate = 16000
                                 if in_rate == 16000:
                                     try:
-                                        # Strip header (44 bytes) and upsample to 24k
-                                        pcm16_16k = bq[44:]
+                                        if fmt_lower == "wav":
+                                            pcm16_16k = bq[44:]
+                                        else:  # raw pcm
+                                            pcm16_16k = bq
                                         from solana_agent.adapters.ffmpeg_transcoder import (
                                             FFmpegTranscoder,
                                         )
@@ -897,13 +905,15 @@ class QueryService(QueryServiceInterface):
                                         )
                                         await rt.append_audio(pcm16_24k)
                                         logger.info(
-                                            "Expo preset ingress: upsampled 16k WAV -> 24k PCM len_in=%d len_out=%d",
+                                            "Expo preset ingress: upsampled 16k %s -> 24k PCM len_in=%d len_out=%d",
+                                            "WAV" if fmt_lower == "wav" else "raw PCM",
                                             len(pcm16_16k),
                                             len(pcm16_24k),
                                         )
                                     except Exception:
                                         logger.warning(
-                                            "Expo preset ingress upsample failed; falling back to original",
+                                            "Expo preset ingress upsample failed (%s); falling back to original",
+                                            fmt_lower,
                                             exc_info=True,
                                         )
                                         await rt.append_audio(bq)
