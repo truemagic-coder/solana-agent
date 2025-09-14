@@ -47,6 +47,7 @@ class QueryService(ABC):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        audio_preset: Literal["default", "expo_pcm16"] = "default",
         prompt: Optional[str] = None,
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,

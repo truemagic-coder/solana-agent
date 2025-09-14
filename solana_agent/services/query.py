@@ -560,6 +560,7 @@ class QueryService(QueryServiceInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
+        audio_preset: Literal["default", "expo_pcm16"] = "default",
         prompt: Optional[str] = None,
         router: Optional[RoutingServiceInterface] = None,
         output_model: Optional[Type[BaseModel]] = None,
@@ -577,6 +578,15 @@ class QueryService(QueryServiceInterface):
                 # Provide a sensible default realtime transcription model when audio supplied
                 if is_audio_bytes and not rt_transcription_model:
                     rt_transcription_model = "gpt-4o-mini-transcribe"
+
+                expo_mode = audio_preset == "expo_pcm16" and output_format == "audio"
+                if expo_mode:
+                    # Force downstream to prefer raw PCM frames from realtime service for manual resample.
+                    # We'll wrap to WAV + 16k after collecting enough PCM at 24k.
+                    rt_encode_output = False
+                    # Ensure modalities request audio only (client can request transcript separately if needed)
+                    if rt_output_modalities is None:
+                        rt_output_modalities = ["audio"]
 
                 # 2) Single agent selection (no multi-agent routing in realtime path)
                 agent_name = self._get_sticky_agent(user_id)
@@ -655,7 +665,7 @@ class QueryService(QueryServiceInterface):
                 if combined_ctx:
                     parts.append(combined_ctx)
                 if prompt:
-                    parts.append(str(prompt))
+                    parts.append(prompt)
                 final_instructions = "\n\n".join([p for p in parts if p])
 
                 # 4) Open a single WS session for assistant audio
@@ -678,7 +688,6 @@ class QueryService(QueryServiceInterface):
                         "mp4": "audio/mp4",
                         "m4a": "audio/mp4",
                         "mpeg": "audio/mpeg",
-                        "mpga": "audio/mpeg",
                         "wav": "audio/wav",
                         "flac": "audio/flac",
                         "opus": "audio/opus",
@@ -938,6 +947,65 @@ class QueryService(QueryServiceInterface):
                     use_combined_stream = "audio" in modalities and "text" in modalities
 
                     if use_combined_stream and wants_audio:
+                        # Prepare expo preset resample helpers if needed
+                        expo_buf: Optional[bytearray] = None
+                        expo_sent_header = False
+                        expo_resampler = None
+                        if expo_mode:
+                            from solana_agent.adapters.ffmpeg_transcoder import (
+                                FFmpegTranscoder,
+                            )
+
+                            expo_buf = bytearray()
+                            expo_resampler = FFmpegTranscoder()
+
+                            async def _emit_expo(block: bytes) -> List[bytes]:  # type: ignore
+                                nonlocal expo_sent_header, expo_buf
+                                assert (
+                                    expo_buf is not None and expo_resampler is not None
+                                )
+                                expo_buf.extend(block)
+                                out: List[bytes] = []
+                                THRESH = 48000  # ~1s of 24kHz PCM16 mono
+                                if len(expo_buf) >= THRESH:
+                                    raw_block = bytes(expo_buf)
+                                    expo_buf.clear()
+                                    container = "wav" if not expo_sent_header else "raw"
+                                    try:
+                                        converted = await expo_resampler.resample_pcm16(
+                                            raw_block,
+                                            24000,
+                                            16000,
+                                            output_container=container,
+                                        )
+                                        if not expo_sent_header:
+                                            expo_sent_header = True
+                                        out.append(converted)
+                                    except Exception:
+                                        out.append(block)  # fallback
+                                return out
+
+                            async def _flush_expo() -> List[bytes]:  # type: ignore
+                                nonlocal expo_sent_header, expo_buf
+                                outs: List[bytes] = []
+                                if expo_buf and len(expo_buf) > 0:
+                                    raw_block = bytes(expo_buf)
+                                    expo_buf.clear()
+                                    container = "wav" if not expo_sent_header else "raw"
+                                    try:
+                                        converted = await expo_resampler.resample_pcm16(
+                                            raw_block,
+                                            24000,
+                                            16000,
+                                            output_container=container,
+                                        )
+                                        if not expo_sent_header:
+                                            expo_sent_header = True
+                                        outs.append(converted)
+                                    except Exception:
+                                        outs.append(raw_block)
+                                return outs
+
                         # Use combined stream for both modalities
                         async def _drain_out_tr():
                             nonlocal asst_tr
@@ -959,8 +1027,12 @@ class QueryService(QueryServiceInterface):
                                         continue
                                     # Audio streaming path
                                     if getattr(chunk, "modality", None) == "audio":
-                                        # Yield raw bytes if data present
-                                        yield getattr(chunk, "data", b"")
+                                        raw_bytes = getattr(chunk, "data", b"")
+                                        if expo_mode:
+                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
+                                                yield ob
+                                        else:
+                                            yield raw_bytes
                                     elif (
                                         getattr(chunk, "modality", None) == "text"
                                         and output_format == "audio"
@@ -974,17 +1046,32 @@ class QueryService(QueryServiceInterface):
                                 # Fallback: yield audio chunks as RealtimeChunk objects
                                 async for audio_chunk in rt.iter_output_audio_encoded():
                                     if output_format == "text":
-                                        # Ignore audio when text requested
                                         continue
-                                    # output_format audio: provide raw bytes
-                                    if hasattr(audio_chunk, "modality"):
-                                        if (
-                                            getattr(audio_chunk, "modality", None)
-                                            == "audio"
-                                        ):
-                                            yield getattr(audio_chunk, "data", b"")
+                                    if (
+                                        hasattr(audio_chunk, "modality")
+                                        and getattr(audio_chunk, "modality", None)
+                                        == "audio"
+                                    ):
+                                        raw_bytes = getattr(audio_chunk, "data", b"")
+                                        if expo_mode:
+                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
+                                                yield ob
+                                        else:
+                                            yield raw_bytes
                                     else:
-                                        yield audio_chunk
+                                        # Should already be modality tagged, but handle fallback
+                                        raw_bytes = (
+                                            audio_chunk
+                                            if isinstance(
+                                                audio_chunk, (bytes, bytearray)
+                                            )
+                                            else getattr(audio_chunk, "data", b"")
+                                        )
+                                        if expo_mode:
+                                            for ob in await _emit_expo(raw_bytes):  # type: ignore
+                                                yield ob
+                                        else:
+                                            yield raw_bytes
                         finally:
                             # Allow transcript drain tasks to finish to capture user/asst text before persistence
                             try:
@@ -995,6 +1082,10 @@ class QueryService(QueryServiceInterface):
                                 await asyncio.wait_for(out_task, timeout=0.05)
                             except Exception:
                                 out_task.cancel()
+                            # Flush leftover expo buffer
+                            if expo_mode:
+                                for ob in await _flush_expo():  # type: ignore
+                                    yield ob
                         # HTTP STT path removed: realtime audio input transcript (if any) is authoritative
                         # Persist transcripts after combined streaming completes
                         if turn_id:
@@ -1054,19 +1145,93 @@ class QueryService(QueryServiceInterface):
                         in_task = asyncio.create_task(_drain_in_tr())
                         out_task = asyncio.create_task(_drain_out_tr())
                         try:
+                            expo_buf2: Optional[bytearray] = None
+                            expo_sent_header2 = False
+                            expo_resampler2 = None
+                            if expo_mode:
+                                from solana_agent.adapters.ffmpeg_transcoder import (
+                                    FFmpegTranscoder,
+                                )
+
+                                expo_buf2 = bytearray()
+                                expo_resampler2 = FFmpegTranscoder()
+
+                                async def _emit_expo2(block: bytes) -> List[bytes]:  # type: ignore
+                                    nonlocal expo_sent_header2, expo_buf2
+                                    assert (
+                                        expo_buf2 is not None
+                                        and expo_resampler2 is not None
+                                    )
+                                    expo_buf2.extend(block)
+                                    outs: List[bytes] = []
+                                    THRESH = 48000
+                                    if len(expo_buf2) >= THRESH:
+                                        raw_block = bytes(expo_buf2)
+                                        expo_buf2.clear()
+                                        container = (
+                                            "wav" if not expo_sent_header2 else "raw"
+                                        )
+                                        try:
+                                            converted = (
+                                                await expo_resampler2.resample_pcm16(
+                                                    raw_block,
+                                                    24000,
+                                                    16000,
+                                                    output_container=container,
+                                                )
+                                            )
+                                            if not expo_sent_header2:
+                                                expo_sent_header2 = True
+                                            outs.append(converted)
+                                        except Exception:
+                                            outs.append(block)
+                                    return outs
+
+                                async def _flush_expo2() -> List[bytes]:  # type: ignore
+                                    nonlocal expo_sent_header2, expo_buf2
+                                    outs: List[bytes] = []
+                                    if expo_buf2 and len(expo_buf2) > 0:
+                                        raw_block = bytes(expo_buf2)
+                                        expo_buf2.clear()
+                                        container = (
+                                            "wav" if not expo_sent_header2 else "raw"
+                                        )
+                                        try:
+                                            converted = (
+                                                await expo_resampler2.resample_pcm16(
+                                                    raw_block,
+                                                    24000,
+                                                    16000,
+                                                    output_container=container,
+                                                )
+                                            )
+                                            if not expo_sent_header2:
+                                                expo_sent_header2 = True
+                                            outs.append(converted)
+                                        except Exception:
+                                            outs.append(raw_block)
+                                    return outs
+
                             async for audio_chunk in rt.iter_output_audio_encoded():
                                 if output_format == "text":
-                                    # Skip audio when caller wants text only
                                     continue
-                                # output_format audio: yield raw bytes
-                                if hasattr(audio_chunk, "modality"):
-                                    if (
-                                        getattr(audio_chunk, "modality", None)
-                                        == "audio"
-                                    ):
-                                        yield getattr(audio_chunk, "data", b"")
+                                if (
+                                    hasattr(audio_chunk, "modality")
+                                    and getattr(audio_chunk, "modality", None)
+                                    == "audio"
+                                ):
+                                    data_bytes = getattr(audio_chunk, "data", b"")
                                 else:
-                                    yield audio_chunk
+                                    data_bytes = (
+                                        audio_chunk
+                                        if isinstance(audio_chunk, (bytes, bytearray))
+                                        else getattr(audio_chunk, "data", b"")
+                                    )
+                                if expo_mode:
+                                    for ob in await _emit_expo2(data_bytes):  # type: ignore
+                                        yield ob
+                                else:
+                                    yield data_bytes
                         finally:
                             try:
                                 await asyncio.wait_for(in_task, timeout=0.05)
@@ -1076,6 +1241,9 @@ class QueryService(QueryServiceInterface):
                                 await asyncio.wait_for(out_task, timeout=0.05)
                             except Exception:
                                 out_task.cancel()
+                            if expo_mode:
+                                for ob in await _flush_expo2():  # type: ignore
+                                    yield ob
                         # HTTP STT path removed
                         # Persist transcripts after audio-only streaming
                         if turn_id:

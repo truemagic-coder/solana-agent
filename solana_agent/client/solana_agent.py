@@ -53,6 +53,7 @@ class SolanaAgent(SolanaAgentInterface):
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
+        audio_preset: Literal["default", "expo_pcm16"] = "default",
         # Realtime (WebSocket) options — used when realtime=True
         realtime: bool = False,
         vad: Optional[bool] = False,
@@ -134,6 +135,7 @@ class SolanaAgent(SolanaAgentInterface):
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
+            audio_preset=audio_preset,
             prompt=prompt,
             router=router,
             output_model=output_model,

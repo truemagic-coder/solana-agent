@@ -223,6 +223,145 @@ class FFmpegTranscoder(AudioTranscoder):
         logger.info("Encode passthrough (no change), output_len=%d", len(pcm16_bytes))
         return pcm16_bytes
 
+    async def resample_pcm16(
+        self,
+        pcm16_bytes: bytes,
+        in_rate_hz: int,
+        out_rate_hz: int,
+        output_container: str = "raw",
+    ) -> bytes:  # pragma: no cover
+        """Resample mono PCM16LE from in_rate_hz to out_rate_hz.
+
+        Args:
+            pcm16_bytes: Raw little-endian PCM16 mono audio.
+            in_rate_hz: Input sample rate.
+            out_rate_hz: Desired output sample rate.
+            output_container: "raw" for s16le stream, "wav" for RIFF WAV.
+        """
+        if in_rate_hz == out_rate_hz and output_container == "raw":
+            return pcm16_bytes
+        fmt = "s16le"
+        args = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            fmt,
+            "-ac",
+            "1",
+            "-ar",
+            str(in_rate_hz),
+            "-i",
+            "pipe:0",
+            "-ac",
+            "1",
+            "-ar",
+            str(out_rate_hz),
+        ]
+        if output_container == "wav":
+            args += [
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "wav",
+                "pipe:1",
+            ]
+        else:  # raw
+            args += [
+                "-f",
+                "s16le",
+                "pipe:1",
+            ]
+        return await self._run_ffmpeg(args, pcm16_bytes)
+
+    async def stream_resample_pcm16(
+        self,
+        pcm_iter: AsyncGenerator[bytes, None],
+        in_rate_hz: int,
+        out_rate_hz: int,
+        output_container: str = "wav",
+        read_chunk_size: int = 4096,
+    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+        """Streaming resample for PCM16 mono.
+
+        Launches a single ffmpeg process to convert sample rate on-the-fly.
+        If output_container == "wav" a single RIFF header is emitted at start.
+        """
+        if in_rate_hz == out_rate_hz and output_container == "raw":
+            # Passthrough
+            async for c in pcm_iter:
+                yield c
+            return
+        args = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "s16le",
+            "-ac",
+            "1",
+            "-ar",
+            str(in_rate_hz),
+            "-i",
+            "pipe:0",
+            "-ac",
+            "1",
+            "-ar",
+            str(out_rate_hz),
+        ]
+        if output_container == "wav":
+            args += ["-c:a", "pcm_s16le", "-f", "wav", "pipe:1"]
+        else:
+            args += ["-f", "s16le", "pipe:1"]
+        logger.info("FFmpeg(resample stream): starting args=%s", args)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert proc.stdin and proc.stdout
+
+        async def _writer():
+            try:
+                async for p in pcm_iter:
+                    if not p:
+                        continue
+                    proc.stdin.write(p)
+                    await proc.stdin.drain()
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.debug("FFmpeg(resample stream) writer error: %s", e)
+            finally:
+                with contextlib.suppress(Exception):
+                    proc.stdin.close()
+
+        writer_task = asyncio.create_task(_writer())
+        try:
+            while True:
+                data = await proc.stdout.read(read_chunk_size)
+                if not data:
+                    break
+                yield data
+        finally:
+            if not writer_task.done():
+                with contextlib.suppress(Exception):
+                    writer_task.cancel()
+                try:
+                    await writer_task
+                except Exception:
+                    pass
+            with contextlib.suppress(Exception):
+                stderr = await proc.stderr.read() if proc.stderr else b""
+                code = await proc.wait()
+                if code != 0:
+                    err = (stderr or b"").decode("utf-8", errors="ignore")
+                    logger.error(
+                        "FFmpeg(resample stream) failed (code=%s): %s", code, err[:1000]
+                    )
+
     async def stream_from_pcm16(  # pragma: no cover
         self,
         pcm_iter: AsyncGenerator[bytes, None],
