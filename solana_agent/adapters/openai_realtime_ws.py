@@ -103,8 +103,13 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         model = self.options.model or "gpt-realtime"
         uri = f"{self.url}?model={model}"
 
-        # Determine if audio output should be configured for logging
-        modalities = self.options.output_modalities or ["audio", "text"]
+        # Enforce single modality (backend limitation). Default to audio.
+        modalities = self.options.output_modalities or ["audio"]
+        if len(modalities) > 1:
+            if "audio" in modalities:
+                modalities = ["audio"]
+            else:
+                modalities = [modalities[0]]
         should_configure_audio_output = "audio" in modalities
 
         if should_configure_audio_output:
@@ -163,7 +168,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             else {"type": "server_vad", "create_response": False}
         )
 
-        # Build session.update per docs (nested audio object)
         def _strip_tool_strict(tools_val):
             try:
                 tools_list = list(tools_val or [])
@@ -178,10 +182,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 except Exception:
                     cleaned.append(t)
             return cleaned
-
-        # Determine if audio output should be configured
-        modalities = self.options.output_modalities or ["audio", "text"]
-        should_configure_audio_output = "audio" in modalities
 
         # Build session.update per docs (nested audio object)
         session_payload: Dict[str, Any] = {
@@ -234,7 +234,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             tr_model = getattr(self.options, "transcription_model", None)
             if tr_model:
                 audio_obj = session_payload["session"].setdefault("audio", {})
-                # Attach input transcription config per GA schema
                 transcription_cfg: Dict[str, Any] = {"model": tr_model}
                 lang = getattr(self.options, "transcription_language", None)
                 if lang:
@@ -249,7 +248,6 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                 nr = getattr(self.options, "transcription_noise_reduction", None)
                 if nr is not None:
                     audio_obj["noise_reduction"] = bool(nr)
-                # Place under audio.input.transcription per current server conventions
                 audio_obj.setdefault("input", {}).setdefault(
                     "transcription", transcription_cfg
                 )

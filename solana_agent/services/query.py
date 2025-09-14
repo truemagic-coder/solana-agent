@@ -868,42 +868,54 @@ class QueryService(QueryServiceInterface):
                             )
                     if is_audio_bytes and wants_audio:
                         bq = bytes(query)
-                        if expo_mode:
-                            in_rate = 0
-                            if audio_input_format.lower() == "wav":
-                                in_rate = _parse_wav_header(bq)
-                            if in_rate == 16000:
-                                try:
-                                    # Strip header (44 bytes) and upsample to 24k
-                                    pcm16_16k = bq[44:]
-                                    from solana_agent.adapters.ffmpeg_transcoder import (
-                                        FFmpegTranscoder,
-                                    )
+                        if not bq:
+                            logger.debug("Realtime: skipping empty audio buffer append")
+                            vad_enabled_value = bool(vad) if vad is not None else False
+                            if not vad_enabled_value:
+                                await rt.commit_input()
+                                await rt.create_response({})
+                        else:
+                            if expo_mode:
+                                in_rate = 0
+                                if audio_input_format.lower() == "wav":
+                                    in_rate = _parse_wav_header(bq)
+                                if in_rate == 16000:
+                                    try:
+                                        # Strip header (44 bytes) and upsample to 24k
+                                        pcm16_16k = bq[44:]
+                                        from solana_agent.adapters.ffmpeg_transcoder import (
+                                            FFmpegTranscoder,
+                                        )
 
-                                    pcm16_24k = await FFmpegTranscoder().resample_pcm16(
-                                        pcm16_16k, 16000, 24000, output_container="raw"
-                                    )
-                                    await rt.append_audio(pcm16_24k)
-                                    logger.info(
-                                        "Expo preset ingress: upsampled 16k WAV -> 24k PCM len_in=%d len_out=%d",
-                                        len(pcm16_16k),
-                                        len(pcm16_24k),
-                                    )
-                                except Exception:
-                                    logger.warning(
-                                        "Expo preset ingress upsample failed; falling back to original",
-                                        exc_info=True,
-                                    )
+                                        pcm16_24k = (
+                                            await FFmpegTranscoder().resample_pcm16(
+                                                pcm16_16k,
+                                                16000,
+                                                24000,
+                                                output_container="raw",
+                                            )
+                                        )
+                                        await rt.append_audio(pcm16_24k)
+                                        logger.info(
+                                            "Expo preset ingress: upsampled 16k WAV -> 24k PCM len_in=%d len_out=%d",
+                                            len(pcm16_16k),
+                                            len(pcm16_24k),
+                                        )
+                                    except Exception:
+                                        logger.warning(
+                                            "Expo preset ingress upsample failed; falling back to original",
+                                            exc_info=True,
+                                        )
+                                        await rt.append_audio(bq)
+                                else:
                                     await rt.append_audio(bq)
                             else:
+                                logger.info(
+                                    "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
+                                    len(bq),
+                                    audio_input_format,
+                                )
                                 await rt.append_audio(bq)
-                        else:
-                            logger.info(
-                                "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
-                                len(bq),
-                                audio_input_format,
-                            )
-                            await rt.append_audio(bq)
                         vad_enabled_value = bool(vad) if vad is not None else False
                         if not vad_enabled_value:
                             await rt.commit_input()
@@ -985,143 +997,63 @@ class QueryService(QueryServiceInterface):
                                     break
                             user_tr += t[overlap:]
 
-                    # Check if we need both audio and text modalities
+                    # Determine (sanitized) single modality. If caller provided more than one, clamp.
                     modalities = getattr(
                         rt, "_options", RealtimeSessionOptions()
                     ).output_modalities or ["audio"]
-                    use_combined_stream = "audio" in modalities and "text" in modalities
+                    if len(modalities) > 1:
+                        if wants_audio and "audio" in modalities:
+                            modalities = ["audio"]
+                        else:
+                            modalities = [m for m in modalities if m == "text"] or [
+                                modalities[0]
+                            ]
+                    # Dual modality disabled (sanitized earlier)
 
-                    if use_combined_stream and wants_audio:
-                        # Prepare expo preset resample helpers if needed
-                        expo_buf: Optional[bytearray] = None
-                        expo_sent_header = False
-                        expo_resampler = None
-                        if expo_mode:
-                            from solana_agent.adapters.ffmpeg_transcoder import (
-                                FFmpegTranscoder,
-                            )
+                    # Single-modality streaming: either text or audio
+                    async def _drain_out_tr():
+                        nonlocal asst_tr
+                        async for t in rt.iter_output_transcript():
+                            if t:
+                                asst_tr += t
 
-                            expo_buf = bytearray()
-                            expo_resampler = FFmpegTranscoder()
-
-                            async def _emit_expo(block: bytes) -> List[bytes]:  # type: ignore
-                                nonlocal expo_sent_header, expo_buf
-                                assert (
-                                    expo_buf is not None and expo_resampler is not None
-                                )
-                                expo_buf.extend(block)
-                                out: List[bytes] = []
-                                THRESH = 48000  # ~1s of 24kHz PCM16 mono
-                                if len(expo_buf) >= THRESH:
-                                    raw_block = bytes(expo_buf)
-                                    expo_buf.clear()
-                                    container = "wav" if not expo_sent_header else "raw"
-                                    try:
-                                        converted = await expo_resampler.resample_pcm16(
-                                            raw_block,
-                                            24000,
-                                            16000,
-                                            output_container=container,
-                                        )
-                                        if not expo_sent_header:
-                                            expo_sent_header = True
-                                        out.append(converted)
-                                    except Exception:
-                                        out.append(block)  # fallback
-                                return out
-
-                            async def _flush_expo() -> List[bytes]:  # type: ignore
-                                nonlocal expo_sent_header, expo_buf
-                                outs: List[bytes] = []
-                                if expo_buf and len(expo_buf) > 0:
-                                    raw_block = bytes(expo_buf)
-                                    expo_buf.clear()
-                                    container = "wav" if not expo_sent_header else "raw"
-                                    try:
-                                        converted = await expo_resampler.resample_pcm16(
-                                            raw_block,
-                                            24000,
-                                            16000,
-                                            output_container=container,
-                                        )
-                                        if not expo_sent_header:
-                                            expo_sent_header = True
-                                        outs.append(converted)
-                                    except Exception:
-                                        outs.append(raw_block)
-                                return outs
-
-                        # Use combined stream for both modalities
-                        async def _drain_out_tr():
-                            nonlocal asst_tr
+                    in_task = asyncio.create_task(_drain_in_tr())
+                    out_task = asyncio.create_task(_drain_out_tr())
+                    try:
+                        if output_format == "text":
                             async for t in rt.iter_output_transcript():
                                 if t:
-                                    asst_tr += t
-
-                        in_task = asyncio.create_task(_drain_in_tr())
-                        out_task = asyncio.create_task(_drain_out_tr())
-                        try:
-                            # Check if the service has iter_output_combined method
-                            if output_format == "text":
-                                async for t in rt.iter_output_transcript():
-                                    if t:
-                                        yield t
-                            else:
-                                if expo_mode:
-                                    from solana_agent.adapters.ffmpeg_transcoder import (
-                                        FFmpegTranscoder,
-                                    )
-
-                                    async def _pcm24_iter():
-                                        if hasattr(rt, "iter_output_combined"):
-                                            async for c in rt.iter_output_combined():
-                                                if (
-                                                    getattr(c, "modality", None)
-                                                    == "audio"
-                                                ):
-                                                    yield getattr(c, "data", b"")
-                                        else:
-                                            async for (
-                                                ac
-                                            ) in rt.iter_output_audio_encoded():
-                                                if (
-                                                    getattr(ac, "modality", None)
-                                                    == "audio"
-                                                ):
-                                                    yield getattr(ac, "data", b"")
-
-                                    async for (
-                                        rb
-                                    ) in FFmpegTranscoder().stream_resample_pcm16(
-                                        _pcm24_iter(),
-                                        24000,
-                                        16000,
-                                        output_container="wav",
-                                    ):
-                                        yield rb
-                                else:
-                                    if hasattr(rt, "iter_output_combined"):
-                                        async for c in rt.iter_output_combined():
-                                            if getattr(c, "modality", None) == "audio":
-                                                yield getattr(c, "data", b"")
-                                    else:
-                                        async for ac in rt.iter_output_audio_encoded():
-                                            if getattr(ac, "modality", None) == "audio":
-                                                yield getattr(ac, "data", b"")
-                        finally:
-                            # Allow transcript drain tasks to finish to capture user/asst text before persistence
-                            try:
-                                await asyncio.wait_for(in_task, timeout=0.05)
-                            except Exception:
-                                in_task.cancel()
-                            try:
-                                await asyncio.wait_for(out_task, timeout=0.05)
-                            except Exception:
-                                out_task.cancel()
-                            # Flush leftover expo buffer
+                                    yield t
+                        else:
                             if expo_mode:
-                                for ob in await _flush_expo():  # type: ignore
-                                    yield ob
+                                from solana_agent.adapters.ffmpeg_transcoder import (
+                                    FFmpegTranscoder,
+                                )
+
+                                async def _pcm24_iter():
+                                    async for ac in rt.iter_output_audio_encoded():
+                                        if getattr(ac, "modality", None) == "audio":
+                                            yield getattr(ac, "data", b"")
+
+                                async for (
+                                    rb
+                                ) in FFmpegTranscoder().stream_resample_pcm16(
+                                    _pcm24_iter(), 24000, 16000, output_container="wav"
+                                ):
+                                    yield rb
+                            else:
+                                async for ac in rt.iter_output_audio_encoded():
+                                    if getattr(ac, "modality", None) == "audio":
+                                        yield getattr(ac, "data", b"")
+                    finally:
+                        try:
+                            await asyncio.wait_for(in_task, timeout=0.05)
+                        except Exception:
+                            in_task.cancel()
+                        try:
+                            await asyncio.wait_for(out_task, timeout=0.05)
+                        except Exception:
+                            out_task.cancel()
                         # HTTP STT path removed: realtime audio input transcript (if any) is authoritative
                         # Persist transcripts after combined streaming completes
                         if turn_id:
@@ -1170,160 +1102,11 @@ class QueryService(QueryServiceInterface):
                                     user_persisted = True
                                 except Exception:
                                     pass
-                    elif wants_audio:
-                        # Separate audio + transcript
-                        async def _drain_out_tr():
-                            nonlocal asst_tr
-                            async for t in rt.iter_output_transcript():
-                                if t:
-                                    asst_tr += t
-
-                        in_task = asyncio.create_task(_drain_in_tr())
-                        out_task = asyncio.create_task(_drain_out_tr())
-                        try:
-                            if expo_mode:
-                                from solana_agent.adapters.ffmpeg_transcoder import (
-                                    FFmpegTranscoder,
-                                )
-
-                                async def _pcm24_iter2():
-                                    async for ac in rt.iter_output_audio_encoded():
-                                        if getattr(ac, "modality", None) == "audio":
-                                            yield getattr(ac, "data", b"")
-
-                                async for (
-                                    rb
-                                ) in FFmpegTranscoder().stream_resample_pcm16(
-                                    _pcm24_iter2(), 24000, 16000, output_container="wav"
-                                ):
-                                    if output_format != "text":
-                                        yield rb
-                            else:
-                                async for ac in rt.iter_output_audio_encoded():
-                                    if output_format == "text":
-                                        continue
-                                    if getattr(ac, "modality", None) == "audio":
-                                        yield getattr(ac, "data", b"")
-                                    else:
-                                        yield ac
-                        finally:
-                            try:
-                                await asyncio.wait_for(in_task, timeout=0.05)
-                            except Exception:
-                                in_task.cancel()
-                            try:
-                                await asyncio.wait_for(out_task, timeout=0.05)
-                            except Exception:
-                                out_task.cancel()
-                        if turn_id:
-                            try:
-                                effective_user_tr = user_tr or ("".join(input_segments))
-                                try:
-                                    setattr(
-                                        self,
-                                        "_last_realtime_user_transcript",
-                                        effective_user_tr,
-                                    )
-                                except Exception:
-                                    pass
-                                if effective_user_tr:
-                                    final_user_tr = effective_user_tr
-                                elif (
-                                    isinstance(query, str)
-                                    and query
-                                    and not input_segments
-                                    and not user_tr
-                                ):
-                                    final_user_tr = query
-                                if asst_tr:
-                                    await self.realtime_update_assistant(
-                                        user_id, turn_id, asst_tr
-                                    )
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                            try:
-                                await self.realtime_finalize_turn(user_id, turn_id)
-                            except Exception:
-                                pass
-                        # If no WS input transcript was captured, fall back to HTTP STT result
-                    else:
-                        # Text-only: just stream assistant transcript if available (no audio iteration)
-                        # If original input was audio bytes but caller only wants text output (no audio modality),
-                        # we still need to drain the input transcript stream to build user_tr.
-                        in_task_audio_only = None
-                        if is_audio_bytes:
-                            in_task_audio_only = asyncio.create_task(_drain_in_tr())
-
-                        async def _drain_out_tr_text():
-                            nonlocal asst_tr
-                            async for t in rt.iter_output_transcript():
-                                if t:
-                                    asst_tr += t
-                                    yield t  # Yield incremental text chunks directly
-
-                        async for t in _drain_out_tr_text():
-                            # Provide plain text to caller
-                            yield t
-                        # Wait for input transcript (if any) before persistence
-                        if "in_task_audio_only" in locals() and in_task_audio_only:
-                            try:
-                                await asyncio.wait_for(in_task_audio_only, timeout=0.1)
-                            except Exception:
-                                in_task_audio_only.cancel()
-                        # No HTTP STT fallback
-                        if turn_id:
-                            try:
-                                effective_user_tr = user_tr or ("".join(input_segments))
-                                try:
-                                    setattr(
-                                        self,
-                                        "_last_realtime_user_transcript",
-                                        effective_user_tr,
-                                    )
-                                except Exception:
-                                    pass
-                                # For text-only modality but audio-origin (cumulative segments captured), persist user transcript
-                                if effective_user_tr:
-                                    final_user_tr = effective_user_tr
-                                elif (
-                                    isinstance(query, str)
-                                    and query
-                                    and not input_segments
-                                    and not user_tr
-                                ):
-                                    final_user_tr = query
-                                if asst_tr:
-                                    await self.realtime_update_assistant(
-                                        user_id, turn_id, asst_tr
-                                    )
-                            except Exception:
-                                pass
-                            if final_user_tr and not user_persisted:
-                                try:
-                                    await self.realtime_update_user(
-                                        user_id, turn_id, final_user_tr
-                                    )
-                                    user_persisted = True
-                                except Exception:
-                                    pass
-                            try:
-                                await self.realtime_finalize_turn(user_id, turn_id)
-                            except Exception:
-                                pass
-                        # Input transcript task already awaited above
-                        # Clear input buffer for next turn reuse
-                        try:
-                            await rt.clear_input()
-                        except Exception:
-                            pass
+                    # Clear input buffer for next turn reuse (single modality path)
+                    try:
+                        await rt.clear_input()
+                    except Exception:
+                        pass
                 finally:
                     # Always release the session for reuse by other concurrent requests/devices
                     try:
