@@ -1460,9 +1460,11 @@ class QueryService(QueryServiceInterface):
 
             if not getattr(rt, "_connected", False):
                 await rt.start()
+            # Preserve existing session vad setting if caller passed None; only override when explicitly True/False
+            configure_vad = None if vad is None else bool(vad)
             await rt.configure(
                 voice=rt_voice,
-                vad_enabled=bool(vad) if vad is not None else False,
+                vad_enabled=configure_vad,
                 instructions=final_instructions,
                 output_rate_hz=rt_output_rate_hz,
                 tools=initial_tools or None,
@@ -1483,7 +1485,9 @@ class QueryService(QueryServiceInterface):
             if is_audio_bytes:
                 try:
                     await rt.append_audio(query)  # type: ignore[arg-type]
-                    await rt.commit_input()
+                    # Only commit immediately if VAD explicitly disabled. If VAD enabled or left as default, let VAD trigger commit.
+                    if configure_vad is False:
+                        await rt.commit_input()
                 except Exception:
                     logger.debug("Failed to append/commit audio input", exc_info=True)
             else:

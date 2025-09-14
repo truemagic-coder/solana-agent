@@ -125,6 +125,7 @@ class SolanaAgent(SolanaAgentInterface):
             rt_transcription_noise_reduction: Whether to apply noise reduction to realtime transcription
             rt_transcription_include_logprobs: Whether to include logprobs in realtime transcription
             rt_prefer_pcm: Whether to prefer raw PCM passthrough for realtime audio output
+            rt_output_rate_hz: Optional output sample rate for realtime PCM audio
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
             audio_input_format: Audio input format
