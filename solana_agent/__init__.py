@@ -21,6 +21,9 @@ from solana_agent.interfaces.guardrails.guardrails import (
     OutputGuardrail,
 )
 
+# Realtime chunk interface
+from solana_agent.interfaces.providers.realtime import RealtimeChunk
+
 # Package metadata
 __all__ = [
     # Main client interfaces
@@ -35,4 +38,6 @@ __all__ = [
     # Guardrails
     "InputGuardrail",
     "OutputGuardrail",
+    # RealtimeChunk
+    "RealtimeChunk",
 ]
