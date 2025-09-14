@@ -42,6 +42,8 @@ class QueryService(ABC):
         rt_transcription_include_logprobs: bool = False,
         # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
         rt_prefer_pcm: bool = False,
+        # Optional override for realtime output sample rate (PCM). Defaults to provider/session default if None.
+        rt_output_rate_hz: Optional[int] = None,
         audio_voice: Literal[
             "alloy",
             "ash",

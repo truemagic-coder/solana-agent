@@ -79,6 +79,7 @@ class SolanaAgent(SolanaAgentInterface):
         rt_transcription_include_logprobs: bool = False,
         # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
         rt_prefer_pcm: bool = False,
+        rt_output_rate_hz: Optional[int] = None,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -151,6 +152,7 @@ class SolanaAgent(SolanaAgentInterface):
             rt_transcription_noise_reduction=rt_transcription_noise_reduction,
             rt_transcription_include_logprobs=rt_transcription_include_logprobs,
             rt_prefer_pcm=rt_prefer_pcm,
+            rt_output_rate_hz=rt_output_rate_hz,
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,

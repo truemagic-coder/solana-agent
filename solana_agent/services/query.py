@@ -570,6 +570,7 @@ class QueryService(QueryServiceInterface):
         rt_transcription_include_logprobs: bool = False,
         # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
         rt_prefer_pcm: bool = False,
+        rt_output_rate_hz: Optional[int] = None,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -619,6 +620,7 @@ class QueryService(QueryServiceInterface):
                     capture_schema=capture_schema,
                     capture_name=capture_name,
                     rt_prefer_pcm=rt_prefer_pcm,
+                    rt_output_rate_hz=rt_output_rate_hz,
                 ):
                     yield chunk
                 return
@@ -1277,6 +1279,7 @@ class QueryService(QueryServiceInterface):
         capture_schema: Optional[Dict[str, Any]],
         capture_name: Optional[str],
         rt_prefer_pcm: bool,
+        rt_output_rate_hz: Optional[int],
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Isolated realtime handling.
 
@@ -1461,6 +1464,7 @@ class QueryService(QueryServiceInterface):
                 voice=rt_voice,
                 vad_enabled=bool(vad) if vad is not None else False,
                 instructions=final_instructions,
+                output_rate_hz=rt_output_rate_hz,
                 tools=initial_tools or None,
                 tool_choice="auto",
             )
