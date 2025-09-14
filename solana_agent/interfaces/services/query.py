@@ -44,6 +44,8 @@ class QueryService(ABC):
         rt_prefer_pcm: bool = False,
         # Optional override for realtime output sample rate (PCM). Defaults to provider/session default if None.
         rt_output_rate_hz: Optional[int] = None,
+    # When True and output is audio, suppress emitting assistant text to caller while still persisting it to memory.
+    rt_suppress_text_output: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",

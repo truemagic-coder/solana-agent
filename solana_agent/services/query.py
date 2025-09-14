@@ -1554,7 +1554,9 @@ class QueryService(QueryServiceInterface):
             async def _yield_text():
                 async for t in rt.iter_output_transcript():
                     if t:
-                        yield t
+                        # Only yield text when caller wants text output
+                        if output_format != "audio":
+                            yield t
 
             # --- Streaming persistence setup ---
             turn_id: Optional[str] = None
@@ -1650,7 +1652,6 @@ class QueryService(QueryServiceInterface):
                 # If audio bytes were sent, input transcript comes from iter_input_transcript
                 # Assistant transcript from iter_output_transcript
                 if is_audio_bytes:
-                    # Drain user transcript first (provider may finish early)
                     if hasattr(rt, "iter_input_transcript"):
                         async for u in rt.iter_input_transcript():
                             if u is None:
@@ -1658,13 +1659,13 @@ class QueryService(QueryServiceInterface):
                             merged = _merge_user_piece(u)
                             await _persist_user_if_needed(merged)
                 else:
-                    # Text query provided directly: treat as complete user transcript
                     merged = _merge_user_piece(str(query))
                     await _persist_user_if_needed(merged)
                 async for t in rt.iter_output_transcript():
                     if t:
                         await _persist_assistant_delta(t)
-                        yield t
+                        if output_format != "audio":
+                            yield t
 
             async def _stream_combined():
                 # Use combined if available for convenience, else synthesize
@@ -1681,7 +1682,8 @@ class QueryService(QueryServiceInterface):
                             yield data
                         elif mod == "text" and isinstance(data, str):
                             await _persist_assistant_delta(data)
-                            yield data
+                            if output_format != "audio":
+                                yield data
                     # After combined finishes, drain any remaining input transcript (some stubs emit input separately)
                     if is_audio_bytes:
                         async for u in rt.iter_input_transcript():
