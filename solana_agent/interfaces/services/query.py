@@ -16,6 +16,11 @@ class QueryService(ABC):
         user_id: str,
         query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
+        realtime: bool = False,
+        # Realtime minimal controls (voice/format come from audio_* args)
+        vad: Optional[bool] = None,
+        rt_encode_input: bool = False,
+        rt_encode_output: bool = False,
         rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
         rt_voice: Literal[
             "alloy",
@@ -29,6 +34,14 @@ class QueryService(ABC):
             "shimmer",
             "verse",
         ] = "marin",
+        # Realtime transcription configuration (new)
+        rt_transcription_model: Optional[str] = None,
+        rt_transcription_language: Optional[str] = None,
+        rt_transcription_prompt: Optional[str] = None,
+        rt_transcription_noise_reduction: Optional[bool] = None,
+        rt_transcription_include_logprobs: bool = False,
+        # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
+        rt_prefer_pcm: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",

@@ -53,9 +53,9 @@ class SolanaAgent(SolanaAgentInterface):
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
-        # Realtime (WebSocket) options — used when realtime=True
         realtime: bool = False,
-        vad: Optional[bool] = False,
+        # Realtime minimal controls (voice/format come from audio_* args)
+        vad: Optional[bool] = None,
         rt_encode_input: bool = False,
         rt_encode_output: bool = False,
         rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
@@ -71,6 +71,14 @@ class SolanaAgent(SolanaAgentInterface):
             "shimmer",
             "verse",
         ] = "marin",
+        # Realtime transcription configuration (new)
+        rt_transcription_model: Optional[str] = None,
+        rt_transcription_language: Optional[str] = None,
+        rt_transcription_prompt: Optional[str] = None,
+        rt_transcription_noise_reduction: Optional[bool] = None,
+        rt_transcription_include_logprobs: bool = False,
+        # Prefer raw PCM passthrough for realtime output (overrides default aac when True and caller didn't request another format)
+        rt_prefer_pcm: bool = False,
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -110,6 +118,12 @@ class SolanaAgent(SolanaAgentInterface):
             rt_encode_output: Whether to re-encode output audio for compatibility
             rt_output_modalities: Modalities to return in realtime (default both if None)
             rt_voice: Voice to use for realtime audio output
+            rt_transcription_model: Optional transcription model for realtime input
+            rt_transcription_language: Optional language code for realtime transcription
+            rt_transcription_prompt: Optional prompt to guide realtime transcription
+            rt_transcription_noise_reduction: Whether to apply noise reduction to realtime transcription
+            rt_transcription_include_logprobs: Whether to include logprobs in realtime transcription
+            rt_prefer_pcm: Whether to prefer raw PCM passthrough for realtime audio output
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
             audio_input_format: Audio input format
@@ -131,6 +145,12 @@ class SolanaAgent(SolanaAgentInterface):
             rt_encode_output=rt_encode_output,
             rt_output_modalities=rt_output_modalities,
             rt_voice=rt_voice,
+            rt_transcription_model=rt_transcription_model,
+            rt_transcription_language=rt_transcription_language,
+            rt_transcription_prompt=rt_transcription_prompt,
+            rt_transcription_noise_reduction=rt_transcription_noise_reduction,
+            rt_transcription_include_logprobs=rt_transcription_include_logprobs,
+            rt_prefer_pcm=rt_prefer_pcm,
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
