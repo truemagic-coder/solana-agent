@@ -1181,7 +1181,9 @@ class QueryService(QueryServiceInterface):
                                 )
 
                                 async def _pcm24_iter():
-                                    async for audio_chunk in rt.iter_output_audio_encoded():
+                                    async for (
+                                        audio_chunk
+                                    ) in rt.iter_output_audio_encoded():
                                         yield audio_chunk
 
                                 async for (

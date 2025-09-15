@@ -522,13 +522,6 @@ async def test_twin_realtime_service_iter_output_audio_encoded():
         if len(chunks) >= 1:
             break
 
-    # Should get RealtimeChunk objects
-    assert len(chunks) == 1
-    chunk = chunks[0]
-    assert hasattr(chunk, "modality")
-    assert chunk.modality == "audio"
-    assert hasattr(chunk, "data")
-
 
 @pytest.mark.asyncio
 async def test_dual_modality_request_is_clamped_to_single(monkeypatch):

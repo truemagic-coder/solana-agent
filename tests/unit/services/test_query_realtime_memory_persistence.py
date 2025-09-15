@@ -67,6 +67,7 @@ class CombinedRealtimeStub(TextOnlyRealtimeStub):
     async def iter_output_combined(self):
         # Import RealtimeChunk for the combined method
         from solana_agent.interfaces.providers.realtime import RealtimeChunk
+
         # Interleave one audio then final text
         for a in self._audio_chunks:
             await asyncio.sleep(0)

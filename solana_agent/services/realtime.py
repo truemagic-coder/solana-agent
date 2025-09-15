@@ -381,7 +381,9 @@ class RealtimeService:
             async def _collect_audio():
                 try:
                     async for chunk in self.iter_output_audio_encoded():
-                        await audio_queue.put(RealtimeChunk(modality="audio", data=chunk))
+                        await audio_queue.put(
+                            RealtimeChunk(modality="audio", data=chunk)
+                        )
                 finally:
                     await audio_queue.put(None)  # Sentinel
 
