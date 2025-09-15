@@ -930,22 +930,24 @@ class QueryService(QueryServiceInterface):
                         tool_choice="auto",
                     )
 
-                    # Some providers drop turn_detection after first auto response.
-                    # Force a minimal reconfigure to reassert VAD when session is reused.
-                    try:
-                        if getattr(rt, "_connected", False) and bool(vad):
-                            # Issue a lightweight patch containing only turn_detection toggle
-                            await rt.configure(vad_enabled=True)
-                    except Exception:
-                        logger.debug(
-                            "Realtime: VAD reassert patch failed", exc_info=True
-                        )
-
-                    # Ensure clean input buffers for this turn
+                    # Ensure clean input buffers for this turn (before VAD reassert)
                     try:
                         await rt.clear_input()
                     except Exception:
                         pass
+
+                    # Some providers drop turn_detection after first auto response.
+                    # Force a minimal reconfigure to reassert VAD when session is reused.
+                    # Must happen AFTER clear_input to ensure VAD state is properly restored.
+                    try:
+                        if getattr(rt, "_connected", False) and bool(vad):
+                            # Issue a lightweight patch containing only turn_detection toggle
+                            await rt.configure(vad_enabled=True)
+                            logger.debug("Realtime: VAD reasserted after clear_input")
+                    except Exception:
+                        logger.debug(
+                            "Realtime: VAD reassert patch failed", exc_info=True
+                        )
                     # Also reset any leftover output audio so new turn doesn't replay old chunks
                     try:
                         if hasattr(rt, "reset_output_stream"):

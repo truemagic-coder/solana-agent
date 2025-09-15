@@ -86,8 +86,11 @@ class RealtimeService:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
+                    vad_mode = os.getenv("REALTIME_VAD_MODE", "server_vad")
+                    if vad_mode not in {"server_vad", "semantic_vad"}:
+                        vad_mode = "server_vad"
                     turn_detection = {
-                        "type": "semantic_vad",
+                        "type": vad_mode,
                         "create_response": True,
                     }
                 else:
