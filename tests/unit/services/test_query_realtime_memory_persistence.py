@@ -62,16 +62,18 @@ class CombinedRealtimeStub(TextOnlyRealtimeStub):
     async def iter_output_audio_encoded(self):
         for a in self._audio_chunks:
             await asyncio.sleep(0)
-            yield type("RC", (), {"modality": "audio", "data": a})()
+            yield a
 
     async def iter_output_combined(self):
+        # Import RealtimeChunk for the combined method
+        from solana_agent.interfaces.providers.realtime import RealtimeChunk
         # Interleave one audio then final text
         for a in self._audio_chunks:
             await asyncio.sleep(0)
-            yield type("RC", (), {"modality": "audio", "data": a})()
+            yield RealtimeChunk(modality="audio", data=a)
         for t in self._assistant_chunks:
             await asyncio.sleep(0)
-            yield type("RC", (), {"modality": "text", "data": t})()
+            yield RealtimeChunk(modality="text", data=t)
 
     def iter_output_transcript(self):  # reuse parent text
         return super().iter_output_transcript()

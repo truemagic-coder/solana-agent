@@ -1181,9 +1181,8 @@ class QueryService(QueryServiceInterface):
                                 )
 
                                 async def _pcm24_iter():
-                                    async for ac in rt.iter_output_audio_encoded():
-                                        if getattr(ac, "modality", None) == "audio":
-                                            yield getattr(ac, "data", b"")
+                                    async for audio_chunk in rt.iter_output_audio_encoded():
+                                        yield audio_chunk
 
                                 async for (
                                     rb
@@ -1192,9 +1191,8 @@ class QueryService(QueryServiceInterface):
                                 ):
                                     yield rb
                             else:
-                                async for ac in rt.iter_output_audio_encoded():
-                                    if getattr(ac, "modality", None) == "audio":
-                                        yield getattr(ac, "data", b"")
+                                async for audio_chunk in rt.iter_output_audio_encoded():
+                                    yield audio_chunk
                     finally:
                         try:
                             await asyncio.wait_for(in_task, timeout=0.05)

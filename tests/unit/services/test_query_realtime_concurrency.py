@@ -60,14 +60,11 @@ class FakeRealtimeService:
 
         return _gen()
 
-    async def iter_output_audio_encoded(self) -> AsyncGenerator[Any, None]:
-        # Import RealtimeChunk
-        from solana_agent.interfaces.providers.realtime import RealtimeChunk
-        
-        # Yield labeled chunks with tiny delays to simulate streaming
+    async def iter_output_audio_encoded(self) -> AsyncGenerator[bytes, None]:
+        # Yield raw bytes directly
         for c in self._chunks:
             await asyncio.sleep(0)
-            yield RealtimeChunk(modality="audio", data=c)
+            yield c
 
 
 class FakeSharedRealtimeService(FakeRealtimeService):
@@ -83,7 +80,7 @@ class FakeSharedRealtimeService(FakeRealtimeService):
         self.release_first_consumer = asyncio.Event()
         self.second_attempted = asyncio.Event()
 
-    async def iter_output_audio_encoded(self) -> AsyncGenerator[Any, None]:
+    async def iter_output_audio_encoded(self) -> AsyncGenerator[bytes, None]:
         if self._audio_stream_in_use:
             self.second_attempted.set()
             raise RuntimeError("Output audio is already being consumed")

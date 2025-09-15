@@ -69,13 +69,15 @@ class DummyRealtimeSession:
 
     async def iter_output_audio_encoded(self):
         async for a in self._iter(self._audio):
-            yield type("RC", (), {"modality": "audio", "data": a})()
+            yield a
 
     async def iter_output_combined(self):
+        # Import RealtimeChunk for the combined method
+        from solana_agent.interfaces.providers.realtime import RealtimeChunk
         async for a in self.iter_output_audio_encoded():
-            yield a
+            yield RealtimeChunk(modality="audio", data=a)
         async for t in self.iter_output_transcript():
-            yield type("RC", (), {"modality": "text", "data": t})()
+            yield RealtimeChunk(modality="text", data=t)
 
 
 class DummyRealtimeService:

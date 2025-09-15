@@ -86,11 +86,8 @@ class RealtimeService:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
-                    vad_mode = os.getenv("REALTIME_VAD_MODE", "server_vad")
-                    if vad_mode not in {"server_vad", "semantic_vad"}:
-                        vad_mode = "server_vad"
                     turn_detection = {
-                        "type": vad_mode,
+                        "type": "semantic_vad",
                         "create_response": True,
                     }
                 else:
@@ -279,8 +276,8 @@ class RealtimeService:
 
     async def iter_output_audio_encoded(
         self,
-    ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
-        """Stream PCM16 audio as RealtimeChunk objects, tolerating long tool executions by waiting while calls are pending.
+    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
+        """Stream PCM16 audio as raw bytes, tolerating long tool executions by waiting while calls are pending.
 
         - If no audio arrives immediately, we keep waiting as long as a function/tool call is pending.
         - Bridge across multiple audio segments (e.g., pre-call and post-call responses).
@@ -346,18 +343,19 @@ class RealtimeService:
             async for out in self._transcoder.stream_from_pcm16(
                 _produce_pcm(), self._client_output_mime, self._options.output_rate_hz
             ):
-                yield RealtimeChunk(modality="audio", data=out)
+                yield out
         else:
             async for chunk in _produce_pcm():
-                yield RealtimeChunk(modality="audio", data=chunk)
+                yield chunk
 
     async def iter_output_combined(
         self,
     ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
         """Stream both audio and text chunks as RealtimeChunk objects.
 
-        This method combines audio and text streams when both modalities are enabled.
-        Audio chunks are yielded as they arrive, and text chunks are yielded as transcript deltas arrive.
+        DEPRECATED: This method is for legacy dual modality support.
+        OpenAI now only supports single modality (either audio OR text).
+        Use iter_output_audio_encoded() for audio or iter_output_transcript() for text.
         """
 
         # Determine which modalities to stream based on session options
@@ -383,7 +381,7 @@ class RealtimeService:
             async def _collect_audio():
                 try:
                     async for chunk in self.iter_output_audio_encoded():
-                        await audio_queue.put(chunk)
+                        await audio_queue.put(RealtimeChunk(modality="audio", data=chunk))
                 finally:
                     await audio_queue.put(None)  # Sentinel
 
@@ -640,7 +638,7 @@ class TwinRealtimeService:
 
     async def iter_output_audio_encoded(
         self,
-    ) -> AsyncGenerator[RealtimeChunk, None]:  # pragma: no cover
+    ) -> AsyncGenerator[bytes, None]:  # pragma: no cover
         # Reuse the same encoding pipeline as RealtimeService but source from conversation
         pcm_gen = self._conv.iter_output_audio()
 
@@ -671,10 +669,10 @@ class TwinRealtimeService:
             async for out in self._transcoder.stream_from_pcm16(
                 _pcm_iter(), self._client_output_mime, self._conv_opts.output_rate_hz
             ):
-                yield RealtimeChunk(modality="audio", data=out)
+                yield out
         else:
             async for chunk in _pcm_iter():
-                yield RealtimeChunk(modality="audio", data=chunk)
+                yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
         return self._trans.iter_input_transcript()
