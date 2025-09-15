@@ -87,7 +87,7 @@ class RealtimeService:
             if vad_enabled is not None:
                 if vad_enabled:
                     turn_detection = {
-                        "type": "semantic_vad",
+                        "type": "server_vad",
                         "create_response": True,
                     }
                 else:
@@ -527,7 +527,7 @@ class TwinRealtimeService:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
-                    turn_detection = {"type": "semantic_vad", "create_response": True}
+                    turn_detection = {"type": "server_vad", "create_response": True}
                 else:
                     turn_detection = None
             audio_patch["input"] = {"format": "pcm16", "turn_detection": turn_detection}
