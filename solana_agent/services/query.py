@@ -930,6 +930,17 @@ class QueryService(QueryServiceInterface):
                         tool_choice="auto",
                     )
 
+                    # Some providers drop turn_detection after first auto response.
+                    # Force a minimal reconfigure to reassert VAD when session is reused.
+                    try:
+                        if getattr(rt, "_connected", False) and bool(vad):
+                            # Issue a lightweight patch containing only turn_detection toggle
+                            await rt.configure(vad_enabled=True)
+                    except Exception:
+                        logger.debug(
+                            "Realtime: VAD reassert patch failed", exc_info=True
+                        )
+
                     # Ensure clean input buffers for this turn
                     try:
                         await rt.clear_input()
