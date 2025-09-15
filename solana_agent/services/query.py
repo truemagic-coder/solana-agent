@@ -850,6 +850,10 @@ class QueryService(QueryServiceInterface):
                     audio_output_format=audio_output_format,
                     rt_output_modalities=rt_output_modalities,
                 )
+
+                # Check if this is a reused session (has been connected before)
+                is_reused_session = getattr(rt, "_connected", False)
+
                 # Post-allocation normalization (covers reused or monkeypatched sessions)
                 try:
                     self._normalize_realtime_session(
@@ -930,24 +934,31 @@ class QueryService(QueryServiceInterface):
                         tool_choice="auto",
                     )
 
-                    # Ensure clean input buffers for this turn (before VAD reassert)
-                    try:
-                        await rt.clear_input()
-                    except Exception:
-                        pass
+                    # Ensure clean input buffers for this turn (only for reused sessions)
+                    if is_reused_session:
+                        try:
+                            await rt.clear_input()
+                            logger.debug(
+                                "Realtime: cleared input buffer for reused session"
+                            )
+                        except Exception:
+                            pass
 
                     # Some providers drop turn_detection after first auto response.
                     # Force a minimal reconfigure to reassert VAD when session is reused.
                     # Must happen AFTER clear_input to ensure VAD state is properly restored.
-                    try:
-                        if getattr(rt, "_connected", False) and bool(vad):
-                            # Issue a lightweight patch containing only turn_detection toggle
-                            await rt.configure(vad_enabled=True)
-                            logger.debug("Realtime: VAD reasserted after clear_input")
-                    except Exception:
-                        logger.debug(
-                            "Realtime: VAD reassert patch failed", exc_info=True
-                        )
+                    if is_reused_session:
+                        try:
+                            if getattr(rt, "_connected", False) and bool(vad):
+                                # Issue a lightweight patch containing only turn_detection toggle
+                                await rt.configure(vad_enabled=True)
+                                logger.debug(
+                                    "Realtime: VAD reasserted after clear_input"
+                                )
+                        except Exception:
+                            logger.debug(
+                                "Realtime: VAD reassert patch failed", exc_info=True
+                            )
                     # Also reset any leftover output audio so new turn doesn't replay old chunks
                     try:
                         if hasattr(rt, "reset_output_stream"):
