@@ -141,6 +141,35 @@ class QueryService(QueryServiceInterface):
                     setattr(rt, "_in_use_lock", lock)
                 if not lock.locked():
                     if await self._try_acquire_lock(lock):
+                        # Ensure encode_in/out + transcoder alignment for this request
+                        try:
+                            desired_in_mime = _mime_from(audio_input_format)
+                            desired_out_mime = _mime_from(audio_output_format)
+                            need_encoding = desired_out_mime != "audio/pcm"
+                            # Attach transcoder if needed
+                            if (
+                                need_encoding
+                                and getattr(rt, "_transcoder", None) is None
+                            ):
+                                setattr(rt, "_transcoder", FFmpegTranscoder())
+                            if need_encoding:
+                                setattr(rt, "_encode_output", True)
+                            # Update output mime if changed (even if previously encoded differently)
+                            if (
+                                desired_out_mime
+                                and getattr(rt, "_client_output_mime", None)
+                                != desired_out_mime
+                            ):
+                                setattr(rt, "_client_output_mime", desired_out_mime)
+                            # Update input mime
+                            if (
+                                desired_in_mime
+                                and getattr(rt, "_client_input_mime", None)
+                                != desired_in_mime
+                            ):
+                                setattr(rt, "_client_input_mime", desired_in_mime)
+                        except Exception:
+                            pass
                         return rt
             # None free: create a new session
             opts = RealtimeSessionOptions(
@@ -181,6 +210,80 @@ class QueryService(QueryServiceInterface):
             pool.append(rt)
             self._rt_services[user_id] = pool
             return rt
+
+    def _normalize_realtime_session(
+        self,
+        rt: Any,
+        *,
+        audio_input_format: str,
+        audio_output_format: str,
+        encode_in: bool,
+        encode_out: bool,
+    ) -> None:
+        """Ensure a (possibly reused or externally provided) realtime session instance
+        has encoding/transcoder attributes aligned with the caller's requested formats.
+
+        This is invoked unconditionally after allocation so tests that monkeypatch
+        the allocator (bypassing internal reuse logic) still exercise the same
+        normalization path used in production.
+        """
+        try:
+
+            def _mime_from(fmt: str) -> str:
+                f = (fmt or "").lower()
+                return {
+                    "aac": "audio/aac",
+                    "mp3": "audio/mpeg",
+                    "mp4": "audio/mp4",
+                    "m4a": "audio/mp4",
+                    "mpeg": "audio/mpeg",
+                    "mpga": "audio/mpeg",
+                    "wav": "audio/wav",
+                    "flac": "audio/flac",
+                    "opus": "audio/opus",
+                    "ogg": "audio/ogg",
+                    "webm": "audio/webm",
+                    "pcm": "audio/pcm",
+                }.get(f, "audio/pcm")
+
+            desired_in_mime = _mime_from(audio_input_format)
+            desired_out_mime = _mime_from(audio_output_format)
+            need_encoding = bool(encode_out or desired_out_mime != "audio/pcm")
+
+            # Attach transcoder lazily if needed
+            if need_encoding and getattr(rt, "_transcoder", None) is None:
+                try:
+                    from solana_agent.adapters.ffmpeg_transcoder import (
+                        FFmpegTranscoder,
+                    )
+
+                    setattr(rt, "_transcoder", FFmpegTranscoder())
+                except Exception:
+                    # If transcoder fails to init, disable encoding to avoid static
+                    setattr(rt, "_encode_output", False)
+                    return
+
+            # Update encode flag
+            if need_encoding:
+                setattr(rt, "_encode_output", True)
+            else:
+                # Only clear if previously set AND caller explicitly does not want encoding
+                if not encode_out:
+                    setattr(rt, "_encode_output", False)
+
+            # Harmonize client mimes (input/output) if attributes exist
+            try:
+                if getattr(rt, "_client_output_mime", None) != desired_out_mime:
+                    setattr(rt, "_client_output_mime", desired_out_mime)
+            except Exception:
+                pass
+            try:
+                if getattr(rt, "_client_input_mime", None) != desired_in_mime:
+                    setattr(rt, "_client_input_mime", desired_in_mime)
+            except Exception:
+                pass
+        except Exception:
+            logger.debug("_normalize_realtime_session: failed", exc_info=True)
 
     def _get_sticky_agent(self, user_id: str) -> Optional[str]:
         sess = self._sticky_sessions.get(user_id)
@@ -747,6 +850,19 @@ class QueryService(QueryServiceInterface):
                     audio_output_format=audio_output_format,
                     rt_output_modalities=rt_output_modalities,
                 )
+                # Post-allocation normalization (covers reused or monkeypatched sessions)
+                try:
+                    self._normalize_realtime_session(
+                        rt,
+                        audio_input_format=audio_input_format,
+                        audio_output_format=audio_output_format,
+                        encode_in=encode_in,
+                        encode_out=encode_out,
+                    )
+                except Exception:
+                    logger.debug(
+                        "Realtime: normalization failed (non-fatal)", exc_info=True
+                    )
                 # Ensure lock is released no matter what
                 try:
                     # --- Apply realtime transcription config BEFORE connecting (new) ---
