@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from solana_agent.interfaces.providers.realtime import (
@@ -87,11 +86,8 @@ class RealtimeService:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
-                    vad_mode = os.getenv("REALTIME_VAD_MODE", "server_vad")
-                    if vad_mode not in {"server_vad", "semantic_vad"}:
-                        vad_mode = "server_vad"
                     turn_detection = {
-                        "type": vad_mode,
+                        "type": "semantic_vad",
                         "create_response": True,
                     }
                 else:
@@ -528,10 +524,7 @@ class TwinRealtimeService:
             turn_detection = None
             if vad_enabled is not None:
                 if vad_enabled:
-                    vad_mode = os.getenv("REALTIME_VAD_MODE", "server_vad")
-                    if vad_mode not in {"server_vad", "semantic_vad"}:
-                        vad_mode = "server_vad"
-                    turn_detection = {"type": vad_mode, "create_response": True}
+                    turn_detection = {"type": "semantic_vad", "create_response": True}
                 else:
                     turn_detection = None
             audio_patch["input"] = {"format": "pcm16", "turn_detection": turn_detection}

@@ -163,9 +163,9 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
         # Per server schema, turn_detection belongs under audio.input; set to None to disable.
         # When VAD is disabled, explicitly set create_response to False if the server honors it
         td_input = (
-            {"type": "server_vad", "create_response": True}
+            {"type": "semantic_vad", "create_response": True}
             if self.options.vad_enabled
-            else {"type": "server_vad", "create_response": False}
+            else {"type": "semantic_vad", "create_response": False}
         )
 
         def _strip_tool_strict(tools_val):
@@ -1662,7 +1662,7 @@ class OpenAITranscriptionWebSocketSession(BaseRealtimeSession):
                 ),
             },
             "turn_detection": (
-                {"type": "server_vad"} if self.options.vad_enabled else None
+                {"type": "semantic_vad"} if self.options.vad_enabled else None
             ),
             # Optionally include extra properties (e.g., logprobs)
             # "include": ["item.input_audio_transcription.logprobs"],
