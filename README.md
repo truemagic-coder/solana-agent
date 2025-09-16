@@ -345,6 +345,90 @@ async def generate():
         yield chunk
 ```
 
+### Realtime Persistent Sessions
+
+For high-frequency realtime applications, you can create persistent WebSocket sessions to avoid the overhead of establishing new connections for each request. This is particularly useful when you need to make multiple realtime audio exchanges with low latency.
+
+```python
+from solana_agent import SolanaAgent
+import asyncio
+
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+    },
+    "mongo": {
+        "connection_string": "your-mongo-connection-string",
+        "database": "your-database-name"
+    },
+    "agents": [
+        {
+            "name": "voice_assistant",
+            "instructions": "You are a helpful voice assistant.",
+            "specialization": "Voice interactions",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async def example_persistent_session():
+    # Create a persistent session
+    session_id = await solana_agent.create_realtime_session(
+        user_id="user123",
+        expo_pcm16=True,  # Enable expo PCM16 preset for audio processing
+        audio_output_format="pcm",  # Output format: pcm, mp3, aac, flac, wav, opus
+    )
+    
+    try:
+        # Load audio file for sending
+        with open("audio.wav", "rb") as f:
+            audio_data = f.read()
+        
+        # Send multiple requests using the same session
+        for i in range(5):
+            print(f"Request {i+1}:")
+            
+            response_audio = b""
+            async for audio_chunk in solana_agent.realtime_send(
+                session_id=session_id,
+                audio_data=audio_data,
+                message=f"This is message {i+1}. Please respond briefly."
+            ):
+                response_audio += audio_chunk
+                print(".", end="", flush=True)
+            
+            # Save response audio
+            with open(f"response_{i+1}.wav", "wb") as f:
+                f.write(response_audio)
+            print(f" Saved response_{i+1}.wav")
+            
+            # Small delay between requests
+            await asyncio.sleep(1)
+    
+    finally:
+        # Always close the session when done
+        await solana_agent.close_realtime_session(session_id)
+
+# Run the example
+asyncio.run(example_persistent_session())
+```
+
+#### Session Management
+
+```python
+# List all active sessions for a user
+sessions = await solana_agent.list_realtime_sessions("user123")
+for session in sessions:
+    print(f"Session: {session['session_id']}, Created: {session['created_at']}")
+
+# Close a specific session
+await solana_agent.close_realtime_session(session_id)
+
+# Sessions are automatically cleaned up but should be explicitly closed
+# when no longer needed to free resources immediately
+```
+
 ### Image/Text Streaming
 
 ```python
