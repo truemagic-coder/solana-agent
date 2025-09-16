@@ -298,3 +298,234 @@ class SolanaAgent(SolanaAgentInterface):
         return await kb.add_pdf_document(
             pdf_data, metadata, document_id, namespace, chunk_batch_size
         )
+
+    async def create_realtime_session(
+        self,
+        user_id: str,
+        vad: bool = True,
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
+        agent_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> str:
+        """
+        Create a persistent realtime WebSocket session for reuse across requests.
+
+        This method creates a WebSocket session that can be reused for multiple
+        realtime audio/text interactions, avoiding the overhead of creating new
+        connections for each request.
+
+        Args:
+            user_id: User ID for the session
+            vad: Whether to use voice activity detection (server_vad)
+            audio_input_format: Input audio format
+            audio_output_format: Output audio format
+            rt_output_modalities: Modalities to return (default both if None)
+            rt_voice: Voice to use for audio output
+            agent_name: Optional agent name to use for session
+            prompt: Optional prompt for the session
+
+        Returns:
+            Session ID for use with realtime_send()
+        """
+        return await self.query_service.create_realtime_session(
+            user_id=user_id,
+            vad=vad,
+            audio_input_format=audio_input_format,
+            audio_output_format=audio_output_format,
+            rt_output_modalities=rt_output_modalities,
+            rt_voice=rt_voice,
+            agent_name=agent_name,
+            prompt=prompt,
+        )
+
+    async def realtime_send(
+        self,
+        session_id: str,
+        query: Union[str, bytes],
+        vad: Optional[bool] = None,
+        output_format: Literal["text", "audio"] = "audio",
+        audio_preset: Literal["default", "expo_pcm16"] = "default",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """
+        Send audio/text to an existing realtime session and get response stream.
+
+        This method reuses an existing WebSocket session created with
+        create_realtime_session(), providing much better performance than
+        creating new sessions for each request.
+
+        Supports the same audio encoding/decoding patterns as the main process()
+        method, including expo_pcm16 preset for 16kHz input/output with FFmpeg
+        transcoding.
+
+        Args:
+            session_id: Session ID from create_realtime_session()
+            query: Text message or audio bytes to send
+            vad: Override VAD setting for this request (optional)
+            output_format: Response format ("text" or "audio")
+            audio_preset: Audio processing preset ("default" or "expo_pcm16")
+            audio_input_format: Input audio format for encoding detection
+            audio_output_format: Output audio format for encoding
+
+        Yields:
+            Response chunks (text strings or audio bytes)
+        """
+        # Check if we need expo mode processing
+        expo_mode = audio_preset == "expo_pcm16" and output_format == "audio"
+        is_audio_bytes = isinstance(query, (bytes, bytearray))
+
+        # Handle input audio encoding for expo mode
+        processed_query = query
+        if expo_mode and is_audio_bytes:
+            # Parse WAV header for mono PCM16 to detect 16k input (same logic as process method)
+            def _parse_wav_header(b: bytes) -> int:
+                try:
+                    if len(b) < 44:
+                        return 0
+                    if b[0:4] != b"RIFF" or b[8:12] != b"WAVE":
+                        return 0
+                    if int.from_bytes(b[20:22], "little") != 1:  # audio format PCM
+                        return 0
+                    if int.from_bytes(b[22:24], "little") != 1:  # mono
+                        return 0
+                    return int.from_bytes(b[24:28], "little")
+                except Exception:
+                    return 0
+
+            bq = bytes(query)
+            if bq:
+                in_rate = 0
+                fmt_lower = audio_input_format.lower()
+
+                if fmt_lower == "wav":
+                    in_rate = _parse_wav_header(bq)
+                elif fmt_lower == "pcm":
+                    # Assume 16k for raw PCM in expo mode
+                    in_rate = 16000
+
+                if in_rate == 16000:
+                    try:
+                        if fmt_lower == "wav":
+                            pcm16_16k = bq[44:]
+                        else:  # raw pcm
+                            pcm16_16k = bq
+
+                        from solana_agent.adapters.ffmpeg_transcoder import (
+                            FFmpegTranscoder,
+                        )
+
+                        # Upsample from 16k to 24k for realtime API
+                        pcm16_24k = await FFmpegTranscoder().resample_pcm16(
+                            pcm16_16k,
+                            16000,
+                            24000,
+                            output_container="raw",
+                        )
+                        processed_query = pcm16_24k
+
+                    except Exception:
+                        # Fall back to original if upsampling fails
+                        processed_query = bq
+
+        # Handle output processing based on preset and format
+        if output_format == "text":
+            # Text output - no audio encoding needed
+            async for chunk in self.query_service.realtime_send(
+                session_id=session_id,
+                query=processed_query,
+                vad=vad,
+                output_format=output_format,
+            ):
+                yield chunk
+        elif expo_mode:
+            # Expo mode: force PCM output, then downsample to 16k WAV
+            from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+            async def _pcm24_iter():
+                async for chunk in self.query_service.realtime_send(
+                    session_id=session_id,
+                    query=processed_query,
+                    vad=vad,
+                    output_format=output_format,
+                ):
+                    yield chunk
+
+            # Downsample from 24k to 16k and wrap in WAV
+            async for resampled_chunk in FFmpegTranscoder().stream_resample_pcm16(
+                _pcm24_iter(), 24000, 16000, output_container="wav"
+            ):
+                yield resampled_chunk
+        elif output_format == "audio" and audio_output_format.lower() != "pcm":
+            # Need to encode from PCM to the requested format
+            from solana_agent.adapters.ffmpeg_transcoder import FFmpegTranscoder
+
+            async def _pcm_iter():
+                async for chunk in self.query_service.realtime_send(
+                    session_id=session_id,
+                    query=processed_query,
+                    vad=vad,
+                    output_format=output_format,
+                ):
+                    yield chunk
+
+            # Encode PCM to requested format
+            async for encoded_chunk in FFmpegTranscoder().stream_from_pcm16(
+                _pcm_iter(), output_container=audio_output_format.lower()
+            ):
+                yield encoded_chunk
+        else:
+            # Standard processing - PCM output, no encoding needed
+            async for chunk in self.query_service.realtime_send(
+                session_id=session_id,
+                query=processed_query,
+                vad=vad,
+                output_format=output_format,
+            ):
+                yield chunk
+
+    async def close_realtime_session(self, session_id: str) -> bool:
+        """
+        Close and clean up a persistent realtime session.
+
+        Args:
+            session_id: Session ID from create_realtime_session()
+
+        Returns:
+            True if session was found and closed, False if not found
+        """
+        return await self.query_service.close_realtime_session(session_id)
+
+    def list_realtime_sessions(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        List active realtime sessions for a user.
+
+        Args:
+            user_id: User ID to list sessions for
+
+        Returns:
+            List of session info dictionaries with metadata
+        """
+        return self.query_service.list_realtime_sessions(user_id)

@@ -68,3 +68,58 @@ class QueryService(ABC):
     ) -> Dict[str, Any]:
         """Get paginated message history for a user."""
         pass
+
+    @abstractmethod
+    async def create_realtime_session(
+        self,
+        user_id: str,
+        *,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
+        vad: bool = True,
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
+        agent_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> str:
+        """Create a persistent realtime session for a user."""
+        pass
+
+    @abstractmethod
+    async def close_realtime_session(self, session_id: str) -> bool:
+        """Close a persistent realtime session."""
+        pass
+
+    @abstractmethod
+    async def realtime_send(
+        self,
+        session_id: str,
+        query: Union[str, bytes],
+        *,
+        vad: Optional[bool] = None,
+        output_format: Literal["text", "audio"] = "audio",
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """Send audio or text to an existing persistent realtime session."""
+        pass
+
+    @abstractmethod
+    def list_realtime_sessions(
+        self, user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List active persistent realtime sessions."""
+        pass

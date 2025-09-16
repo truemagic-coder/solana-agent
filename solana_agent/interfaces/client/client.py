@@ -124,3 +124,61 @@ class SolanaAgent(ABC):
     ) -> str:
         """Add a PDF document to the knowledge base."""
         pass
+
+    @abstractmethod
+    async def create_realtime_session(
+        self,
+        user_id: str,
+        vad: bool = True,
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
+        agent_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> str:
+        """Create a persistent realtime WebSocket session for reuse across requests."""
+        pass
+
+    @abstractmethod
+    async def realtime_send(
+        self,
+        session_id: str,
+        query: Union[str, bytes],
+        vad: Optional[bool] = None,
+        output_format: Literal["text", "audio"] = "audio",
+        audio_preset: Literal["default", "expo_pcm16"] = "default",
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """Send audio/text to an existing realtime session and get response stream."""
+        pass
+
+    @abstractmethod
+    async def close_realtime_session(self, session_id: str) -> bool:
+        """Close and clean up a persistent realtime session."""
+        pass
+
+    @abstractmethod
+    def list_realtime_sessions(self, user_id: str) -> List[Dict[str, Any]]:
+        """List active realtime sessions for a user."""
+        pass

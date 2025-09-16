@@ -1981,6 +1981,357 @@ class QueryService(QueryServiceInterface):
         except Exception as e:
             logger.error(f"Store conversation error for {user_id}: {e}")
 
+    # --- Realtime session management methods (for persistent WebSocket sessions) ---
+
+    async def create_realtime_session(
+        self,
+        user_id: str,
+        *,
+        rt_voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "cedar",
+            "coral",
+            "echo",
+            "marin",
+            "sage",
+            "shimmer",
+            "verse",
+        ] = "marin",
+        vad: bool = True,
+        audio_input_format: Literal[
+            "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm", "pcm"
+        ] = "pcm",
+        audio_output_format: Literal[
+            "mp3", "opus", "aac", "flac", "wav", "pcm"
+        ] = "pcm",
+        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
+        agent_name: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> str:
+        """Create a persistent realtime session for a user.
+
+        Returns a session_id that can be used for subsequent realtime_send calls.
+        The session remains active until explicitly closed or the service shuts down.
+        """
+        # Get API key
+        api_key = None
+        try:
+            api_key = self.agent_service.llm_provider.get_api_key()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        if not api_key:
+            raise ValueError("OpenAI API key is required for realtime")
+
+        # Determine agent
+        if not agent_name:
+            agent_name = self._get_sticky_agent(user_id)
+            if not agent_name:
+                try:
+                    agents = self.agent_service.get_all_ai_agents() or {}
+                    agent_name = next(iter(agents.keys())) if agents else "default"
+                except Exception:
+                    agent_name = "default"
+
+        # Build instructions and tools
+        system_prompt = ""
+        try:
+            system_prompt = self.agent_service.get_agent_system_prompt(agent_name)
+        except Exception:
+            pass
+
+        # Build context
+        combined_ctx = ""
+        try:
+            combined_ctx, _ = await self._build_combined_context(
+                user_id=user_id,
+                user_text="",
+                agent_name=agent_name,
+                capture_name=None,
+                capture_schema=None,
+                prev_assistant="",
+            )
+        except Exception:
+            pass
+
+        # Build final instructions
+        parts: List[str] = []
+        if system_prompt:
+            parts.append(system_prompt)
+        if combined_ctx:
+            parts.append(combined_ctx)
+        if prompt:
+            parts.append(prompt)
+        final_instructions = "\n\n".join([p for p in parts if p])
+
+        # Get tools
+        try:
+            initial_tools = [
+                {
+                    "type": "function",
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {}),
+                    "strict": True,
+                }
+                for t in self.agent_service.get_agent_tools(agent_name)
+            ]
+        except Exception:
+            initial_tools = []
+
+        # Create session
+        rt = await self._alloc_realtime_session(
+            user_id,
+            api_key=api_key,
+            rt_voice=rt_voice,
+            final_instructions=final_instructions,
+            initial_tools=initial_tools,
+            encode_in=audio_input_format.lower() != "pcm",
+            encode_out=audio_output_format.lower() != "pcm",
+            audio_input_format=audio_input_format,
+            audio_output_format=audio_output_format,
+            rt_output_modalities=rt_output_modalities,
+        )
+
+        # Connect and configure
+        await rt.start()
+        await rt.configure(
+            voice=rt_voice,
+            vad_enabled=vad,
+            instructions=final_instructions,
+            tools=initial_tools or None,
+            tool_choice="auto",
+        )
+
+        # Set up tool executor
+        async def _exec(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+            try:
+                return await self.agent_service.execute_tool(
+                    agent_name, tool_name, args or {}
+                )
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+
+        try:
+            if hasattr(rt, "_session"):
+                getattr(rt, "_session").set_tool_executor(_exec)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        # Store session with a unique ID
+        import uuid
+
+        session_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
+
+        # Store in a persistent sessions dictionary
+        if not hasattr(self, "_persistent_sessions"):
+            self._persistent_sessions = {}
+
+        self._persistent_sessions[session_id] = {
+            "rt": rt,
+            "user_id": user_id,
+            "agent_name": agent_name,
+            "created_at": asyncio.get_event_loop().time(),
+            "last_used": asyncio.get_event_loop().time(),
+        }
+
+        logger.info(
+            f"Created persistent realtime session {session_id} for user {user_id}"
+        )
+        return session_id
+
+    async def close_realtime_session(self, session_id: str) -> bool:
+        """Close a persistent realtime session."""
+        if not hasattr(self, "_persistent_sessions"):
+            return False
+
+        session_info = self._persistent_sessions.get(session_id)
+        if not session_info:
+            return False
+
+        try:
+            rt = session_info["rt"]
+            await rt.stop()
+
+            # Release the lock if it exists
+            lock = getattr(rt, "_in_use_lock", None)
+            if lock and lock.locked():
+                lock.release()
+
+            del self._persistent_sessions[session_id]
+            logger.info(f"Closed persistent realtime session {session_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error closing session {session_id}: {e}")
+            return False
+
+    async def realtime_send(
+        self,
+        session_id: str,
+        query: Union[str, bytes],
+        *,
+        vad: Optional[bool] = None,
+        output_format: Literal["text", "audio"] = "audio",
+    ) -> AsyncGenerator[Union[str, bytes], None]:
+        """Send audio or text to an existing persistent realtime session.
+
+        This method reuses the existing WebSocket connection and session state,
+        avoiding the overhead of creating new sessions for each request.
+        """
+        if not hasattr(self, "_persistent_sessions"):
+            raise ValueError("No persistent sessions found")
+
+        session_info = self._persistent_sessions.get(session_id)
+        if not session_info:
+            raise ValueError(f"Session {session_id} not found")
+
+        rt = session_info["rt"]
+        user_id = session_info["user_id"]
+        agent_name = session_info["agent_name"]
+
+        # Update last used timestamp
+        session_info["last_used"] = asyncio.get_event_loop().time()
+
+        # Determine if input is audio
+        is_audio_bytes = isinstance(query, (bytes, bytearray))
+
+        try:
+            # Clear any previous input/output state
+            await rt.clear_input()
+
+            # Reset output stream to avoid replaying old audio
+            if hasattr(rt, "reset_output_stream"):
+                rt.reset_output_stream()
+
+            # Set up transcript tracking
+            user_tr = ""
+            asst_tr = ""
+            input_segments: List[str] = []
+
+            async def _drain_in_tr():
+                nonlocal user_tr
+                async for t in rt.iter_input_transcript():
+                    if not t:
+                        continue
+                    input_segments.append(t)
+                    if not user_tr:
+                        user_tr = t
+                        continue
+                    if t == user_tr:
+                        continue
+                    if t.startswith(user_tr):
+                        user_tr += t[len(user_tr) :]
+                        continue
+                    # Handle overlaps
+                    overlap = 0
+                    max_check = min(len(user_tr), len(t))
+                    for k in range(max_check, 0, -1):
+                        if user_tr.endswith(t[:k]):
+                            overlap = k
+                            break
+                    user_tr += t[overlap:]
+
+            async def _drain_out_tr():
+                nonlocal asst_tr
+                async for t in rt.iter_output_transcript():
+                    if t:
+                        asst_tr += t
+
+            # Start transcript tasks
+            in_task = asyncio.create_task(_drain_in_tr())
+            out_task = asyncio.create_task(_drain_out_tr())
+
+            try:
+                # Send input to session
+                if is_audio_bytes:
+                    await rt.append_audio(bytes(query))
+                    vad_enabled = bool(vad) if vad is not None else True
+                    if not vad_enabled:
+                        await rt.commit_input()
+                        await rt.create_response({})
+                    else:
+                        logger.debug("VAD enabled — skipping manual response.create")
+                else:
+                    # Text input
+                    await rt.create_conversation_item(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": str(query)}],
+                        }
+                    )
+                    await rt.create_response(
+                        {
+                            "modalities": ["audio"]
+                            if output_format == "audio"
+                            else ["text"]
+                        }
+                    )
+
+                # Stream output
+                if output_format == "text":
+                    async for t in rt.iter_output_transcript():
+                        if t:
+                            yield t
+                else:
+                    async for audio_chunk in rt.iter_output_audio_encoded():
+                        yield audio_chunk
+
+            finally:
+                # Clean up transcript tasks
+                try:
+                    await asyncio.wait_for(in_task, timeout=0.05)
+                except Exception:
+                    in_task.cancel()
+                try:
+                    await asyncio.wait_for(out_task, timeout=0.05)
+                except Exception:
+                    out_task.cancel()
+
+                # Store conversation if we have memory provider
+                if self.memory_provider and (user_tr or asst_tr):
+                    try:
+                        final_user_tr = (
+                            user_tr or str(query) if not is_audio_bytes else ""
+                        )
+                        if final_user_tr and asst_tr:
+                            await self._store_conversation(
+                                user_id=user_id,
+                                user_message=final_user_tr,
+                                assistant_message=asst_tr,
+                                agent_name=agent_name,
+                            )
+                    except Exception as e:
+                        logger.error(f"Error storing conversation: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in realtime_send for session {session_id}: {e}")
+            raise
+
+    def list_realtime_sessions(
+        self, user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List active persistent realtime sessions."""
+        if not hasattr(self, "_persistent_sessions"):
+            return []
+
+        sessions = []
+        for session_id, info in self._persistent_sessions.items():
+            if user_id is None or info["user_id"] == user_id:
+                sessions.append(
+                    {
+                        "session_id": session_id,
+                        "user_id": info["user_id"],
+                        "agent_name": info["agent_name"],
+                        "created_at": info["created_at"],
+                        "last_used": info["last_used"],
+                        "age_seconds": asyncio.get_event_loop().time()
+                        - info["created_at"],
+                    }
+                )
+        return sessions
+
     # --- Realtime persistence helpers (used by client/server using realtime service) ---
     async def realtime_begin_turn(
         self, user_id: str
