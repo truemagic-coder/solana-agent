@@ -393,7 +393,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                     gen = int(getattr(self, "_response_generation", 0))
                                 except Exception:
                                     gen = None
-                                logger.info(
+                                logger.debug(
                                     "Audio delta bytes=%d owner=%s rid=%s gen=%s",
                                     len(chunk),
                                     owner,
@@ -421,7 +421,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                             delta = data.get("delta") or ""
                             if delta:
                                 self._in_tr_queue.put_nowait(delta)
-                                logger.info("Input transcript delta: %r", delta[:120])
+                                logger.debug("Input transcript delta: %r", delta[:120])
                             else:
                                 logger.debug("Input transcript delta: empty")
                     elif etype in (
@@ -513,7 +513,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         delta = data.get("delta") or ""
                         if delta:
                             self._in_tr_queue.put_nowait(delta)
-                            logger.info("Input transcript delta (GA): %r", delta[:120])
+                            logger.debug("Input transcript delta (GA): %r", delta[:120])
                         else:
                             logger.debug("Input transcript delta (GA): empty")
                     elif etype in (
@@ -548,7 +548,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                                 self._last_commit_ts = asyncio.get_event_loop().time()
                             except Exception:
                                 pass
-                            logger.info(
+                            logger.debug(
                                 "Realtime WS: input_audio_buffer committed: item_id=%s",
                                 item_id,
                             )
@@ -1269,7 +1269,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             {"type": "input_audio_buffer.commit"}, label="input_audio_buffer.commit"
         )
         try:
-            logger.info("Realtime WS: input_audio_buffer.commit sent")
+            logger.debug("Realtime WS: input_audio_buffer.commit sent")
             self._pending_input_bytes = 0
             self._last_commit_ts = asyncio.get_event_loop().time()
         except Exception:
@@ -1401,7 +1401,7 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
             rp["input"] = [{"type": "item_reference", "id": self._last_input_item_id}]
         try:
             has_ref = bool(self._last_input_item_id)
-            logger.info(
+            logger.debug(
                 "Realtime WS: sending response.create (input_ref=%s)",
                 has_ref,
             )

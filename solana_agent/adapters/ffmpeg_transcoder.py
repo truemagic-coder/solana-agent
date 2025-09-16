@@ -21,7 +21,7 @@ class FFmpegTranscoder(AudioTranscoder):
     async def _run_ffmpeg(
         self, args: List[str], data: bytes
     ) -> bytes:  # pragma: no cover
-        logger.info("FFmpeg: starting process args=%s, input_len=%d", args, len(data))
+        logger.debug("FFmpeg: starting process args=%s, input_len=%d", args, len(data))
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
             *args,
@@ -34,7 +34,7 @@ class FFmpegTranscoder(AudioTranscoder):
             err = (stderr or b"").decode("utf-8", errors="ignore")
             logger.error("FFmpeg failed (code=%s): %s", proc.returncode, err[:2000])
             raise RuntimeError("ffmpeg failed to transcode audio")
-        logger.info("FFmpeg: finished successfully, output_len=%d", len(stdout or b""))
+        logger.debug("FFmpeg: finished successfully, output_len=%d", len(stdout or b""))
         if stderr:
             logger.debug(
                 "FFmpeg stderr: %s", stderr.decode("utf-8", errors="ignore")[:2000]
@@ -45,7 +45,7 @@ class FFmpegTranscoder(AudioTranscoder):
         self, audio_bytes: bytes, input_mime: str, rate_hz: int
     ) -> bytes:
         """Decode compressed audio to mono PCM16LE at rate_hz."""
-        logger.info(
+        logger.debug(
             "Transcode to PCM16: input_mime=%s, rate_hz=%d, input_len=%d",
             input_mime,
             rate_hz,
@@ -95,7 +95,7 @@ class FFmpegTranscoder(AudioTranscoder):
                     "pipe:1",
                 ]
                 out = await self._run_ffmpeg(args, b"")
-                logger.info(
+                logger.debug(
                     "Transcoded (MP4/M4A temp-file) to PCM16: output_len=%d", len(out)
                 )
                 return out
@@ -148,14 +148,14 @@ class FFmpegTranscoder(AudioTranscoder):
             "pipe:1",
         ]
         out = await self._run_ffmpeg(args, audio_bytes)
-        logger.info("Transcoded to PCM16: output_len=%d", len(out))
+        logger.debug("Transcoded to PCM16: output_len=%d", len(out))
         return out
 
     async def from_pcm16(  # pragma: no cover
         self, pcm16_bytes: bytes, output_mime: str, rate_hz: int
     ) -> bytes:
         """Encode PCM16LE to desired format (AAC ADTS, fragmented MP4, or MP3)."""
-        logger.info(
+        logger.debug(
             "Encode from PCM16: output_mime=%s, rate_hz=%d, input_len=%d",
             output_mime,
             rate_hz,
@@ -185,7 +185,7 @@ class FFmpegTranscoder(AudioTranscoder):
                 "pipe:1",
             ]
             out = await self._run_ffmpeg(args, pcm16_bytes)
-            logger.info(
+            logger.debug(
                 "Encoded from PCM16 to %s: output_len=%d", output_mime, len(out)
             )
             return out
@@ -213,7 +213,7 @@ class FFmpegTranscoder(AudioTranscoder):
                 "pipe:1",
             ]
             out = await self._run_ffmpeg(args, pcm16_bytes)
-            logger.info(
+            logger.debug(
                 "Encoded from PCM16 to %s: output_len=%d", output_mime, len(out)
             )
             return out
@@ -244,13 +244,13 @@ class FFmpegTranscoder(AudioTranscoder):
                 "pipe:1",
             ]
             out = await self._run_ffmpeg(args, pcm16_bytes)
-            logger.info(
+            logger.debug(
                 "Encoded from PCM16 to %s (fMP4): output_len=%d", output_mime, len(out)
             )
             return out
 
         # Default: passthrough
-        logger.info("Encode passthrough (no change), output_len=%d", len(pcm16_bytes))
+        logger.debug("Encode passthrough (no change), output_len=%d", len(pcm16_bytes))
         return pcm16_bytes
 
     async def resample_pcm16(
@@ -343,7 +343,7 @@ class FFmpegTranscoder(AudioTranscoder):
             args += ["-c:a", "pcm_s16le", "-f", "wav", "pipe:1"]
         else:
             args += ["-f", "s16le", "pipe:1"]
-        logger.info("FFmpeg(resample stream): starting args=%s", args)
+        logger.debug("FFmpeg(resample stream): starting args=%s", args)
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
             *args,
@@ -476,7 +476,7 @@ class FFmpegTranscoder(AudioTranscoder):
                 yield chunk
             return
 
-        logger.info("FFmpeg(stream): starting args=%s", args)
+        logger.debug("FFmpeg(stream): starting args=%s", args)
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
             *args,

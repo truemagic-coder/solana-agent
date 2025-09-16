@@ -991,7 +991,7 @@ class QueryService(QueryServiceInterface):
                     if is_audio_bytes and not wants_audio:
                         # Feed audio solely for transcription (no audio output requested)
                         bq = bytes(query)
-                        logger.info(
+                        logger.debug(
                             "Realtime: appending input audio for transcription only, len=%d, fmt=%s",
                             len(bq),
                             audio_input_format,
@@ -1044,7 +1044,7 @@ class QueryService(QueryServiceInterface):
                                             )
                                         )
                                         await rt.append_audio(pcm16_24k)
-                                        logger.info(
+                                        logger.debug(
                                             "Expo preset ingress: upsampled 16k %s -> 24k PCM len_in=%d len_out=%d",
                                             "WAV" if fmt_lower == "wav" else "raw PCM",
                                             len(pcm16_16k),
@@ -1060,7 +1060,7 @@ class QueryService(QueryServiceInterface):
                                 else:
                                     await rt.append_audio(bq)
                             else:
-                                logger.info(
+                                logger.debug(
                                     "Realtime: appending input audio to WS via FFmpeg, len=%d, fmt=%s",
                                     len(bq),
                                     audio_input_format,
@@ -1271,7 +1271,7 @@ class QueryService(QueryServiceInterface):
             user_text = ""
             if not isinstance(query, str):
                 try:
-                    logger.info(
+                    logger.debug(
                         f"Received audio input, transcribing format: {audio_input_format}"
                     )
                     async for tpart in self.agent_service.llm_provider.transcribe_audio(  # type: ignore[attr-defined]
@@ -2136,7 +2136,7 @@ class QueryService(QueryServiceInterface):
             "last_used": asyncio.get_event_loop().time(),
         }
 
-        logger.info(
+        logger.debug(
             f"Created persistent realtime session {session_id} for user {user_id}"
         )
         return session_id
@@ -2160,7 +2160,7 @@ class QueryService(QueryServiceInterface):
                 lock.release()
 
             del self._persistent_sessions[session_id]
-            logger.info(f"Closed persistent realtime session {session_id}")
+            logger.debug(f"Closed persistent realtime session {session_id}")
             return True
         except Exception as e:
             logger.error(f"Error closing session {session_id}: {e}")
