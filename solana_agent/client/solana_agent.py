@@ -7,6 +7,7 @@ the agent system without dealing with internal implementation details.
 
 import json
 import importlib.util
+import logging
 from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 from solana_agent.interfaces.providers.realtime import RealtimeChunk
+
+logger = logging.getLogger(__name__)
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -504,6 +507,7 @@ class SolanaAgent(SolanaAgentInterface):
                 vad=vad,
                 output_format=output_format,
             ):
+                logger.debug(f"client realtime_send yielding chunk size={len(chunk)}")
                 yield chunk
 
     async def close_realtime_session(self, session_id: str) -> bool:

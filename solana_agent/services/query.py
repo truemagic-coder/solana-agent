@@ -2276,6 +2276,9 @@ class QueryService(QueryServiceInterface):
                             yield t
                 else:
                     async for audio_chunk in rt.iter_output_audio_encoded():
+                        logger.debug(
+                            f"realtime_send yielding audio chunk size={len(audio_chunk)}"
+                        )
                         yield audio_chunk
 
             finally:

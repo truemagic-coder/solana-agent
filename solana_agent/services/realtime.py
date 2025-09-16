@@ -663,19 +663,29 @@ class TwinRealtimeService:
 
         async def _pcm_iter():
             if first_chunk:
+                logger.debug(
+                    f"TwinRealtimeService yielding first chunk size={len(first_chunk)}"
+                )
                 yield first_chunk
             async for c in pcm_gen:
                 if not c:
                     continue
+                logger.debug(f"TwinRealtimeService yielding pcm chunk size={len(c)}")
                 yield c
 
         if self._encode_output and self._transcoder:
             async for out in self._transcoder.stream_from_pcm16(
                 _pcm_iter(), self._client_output_mime, self._conv_opts.output_rate_hz
             ):
+                logger.debug(
+                    f"TwinRealtimeService yielding encoded chunk size={len(out)}"
+                )
                 yield out
         else:
             async for chunk in _pcm_iter():
+                logger.debug(
+                    f"TwinRealtimeService yielding raw chunk size={len(chunk)}"
+                )
                 yield chunk
 
     def iter_input_transcript(self) -> AsyncGenerator[str, None]:  # pragma: no cover
