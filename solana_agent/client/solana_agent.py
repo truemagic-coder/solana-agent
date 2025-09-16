@@ -334,7 +334,7 @@ class SolanaAgent(SolanaAgentInterface):
 
         Args:
             user_id: User ID for the session
-            vad: Whether to use voice activity detection (server_vad)
+            vad: Whether to use voice activity detection (semantic_vad)
             audio_input_format: Input audio format
             audio_output_format: Output audio format
             rt_output_modalities: Modalities to return (default both if None)
