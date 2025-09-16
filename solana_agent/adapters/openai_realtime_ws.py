@@ -607,7 +607,16 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         except Exception:
                             pass
                         try:
-                            self._audio_queue.put_nowait(None)
+                            # Don't immediately terminate audio queue on audio.done
+                            # Wait for response.done to ensure we don't miss any trailing audio
+                            # Store that audio is done but don't close the queue yet
+                            rid = (data.get("response") or {}).get("id") or getattr(
+                                self, "_active_response_id", None
+                            )
+                            if rid:
+                                if not hasattr(self, "_audio_done_responses"):
+                                    self._audio_done_responses = set()
+                                self._audio_done_responses.add(rid)
                         except Exception:
                             pass
                         try:
@@ -654,6 +663,22 @@ class OpenAIRealtimeWebSocketSession(BaseRealtimeSession):
                         try:
                             # Response lifecycle ended; clear active id
                             self._active_response_id = None
+                        except Exception:
+                            pass
+                        # Now that response is completely done, terminate the audio queue if audio was done
+                        try:
+                            rid = (data.get("response") or {}).get("id")
+                            if (
+                                rid
+                                and hasattr(self, "_audio_done_responses")
+                                and rid in self._audio_done_responses
+                            ):
+                                self._audio_queue.put_nowait(None)
+                                self._audio_done_responses.discard(rid)
+                                logger.debug(
+                                    "Audio queue terminated after response.done for rid=%s",
+                                    rid,
+                                )
                         except Exception:
                             pass
                     elif etype in ("response.text.done", "response.output_text.done"):

@@ -295,7 +295,9 @@ class RealtimeService:
         async def _produce_pcm():
             max_wait_pending_sec = 600.0  # allow up to 10 minutes while tools run
             waited_while_pending = 0.0
-            base_idle_timeout = 12.0
+            base_idle_timeout = (
+                12.0  # Keep original timeout since we fixed the root cause
+            )
             idle_slice = 1.0
 
             while True:
