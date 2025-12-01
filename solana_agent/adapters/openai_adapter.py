@@ -78,7 +78,9 @@ class OpenAIAdapter(LLMProvider):
                 self.logfire = True
                 # Instrument the main client immediately after configuring logfire
                 logfire.instrument_openai(self.client)
-                logger.info("Logfire configured and OpenAI client instrumented successfully.")
+                logger.info(
+                    "Logfire configured and OpenAI client instrumented successfully."
+                )
             except Exception as e:
                 logger.error(f"Failed to configure Logfire: {e}")
                 self.logfire = False

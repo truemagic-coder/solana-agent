@@ -295,7 +295,9 @@ class TestSolanaAgentFactory:
     def test_missing_openai_section(self, config_missing_openai_section):
         """Test factory creation when the entire openai section is missing."""
         # This should raise ValueError since OpenAI or Grok API key is required
-        with pytest.raises(ValueError, match="Either OpenAI or Grok API key is required in config."):
+        with pytest.raises(
+            ValueError, match="Either OpenAI or Grok API key is required in config."
+        ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
@@ -1615,7 +1617,9 @@ class TestSolanaAgentFactory:
     def test_logfire_config_missing_openai_key(self, logfire_config_missing_openai):
         """Test handling of Logfire config when OpenAI key is missing."""
         # Based on the current factory code, this should raise a ValueError
-        with pytest.raises(ValueError, match="Either OpenAI or Grok API key is required in config."):
+        with pytest.raises(
+            ValueError, match="Either OpenAI or Grok API key is required in config."
+        ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")

@@ -20,10 +20,10 @@ def mock_llm_provider():
     provider = MagicMock()
     provider.parse_structured_output = AsyncMock()
     provider.transcribe_audio = AsyncMock(return_value=iter([]))
-    
+
     async def mock_chat_stream(*args, **kwargs):
         yield "Test response"
-    
+
     provider.chat_stream = mock_chat_stream
     return provider
 
@@ -44,7 +44,7 @@ def single_agent_service(mock_llm_provider):
 def multi_agent_service(mock_llm_provider):
     """Create an agent service with multiple agents."""
     service = AgentService(llm_provider=mock_llm_provider)
-    
+
     service.register_ai_agent(
         name="research_agent",
         instructions="You are a research specialist.",
@@ -55,7 +55,7 @@ def multi_agent_service(mock_llm_provider):
         instructions="You are a support specialist.",
         specialization="Customer support",
     )
-    
+
     return service
 
 
@@ -81,22 +81,22 @@ class TestSingleAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=single_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=single_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Patch _detect_switch_intent to track if it's called
         with patch.object(
             query_service, "_detect_switch_intent", new_callable=AsyncMock
         ) as mock_detect:
             mock_detect.return_value = (False, None, False)
-            
+
             # Process a query
             async for _ in query_service.process("user123", "Hello, how are you?"):
                 pass
-            
+
             # _detect_switch_intent should NOT be called with single agent
             mock_detect.assert_not_called()
 
@@ -109,22 +109,22 @@ class TestSingleAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=single_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=single_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Patch route_query to track if it's called
         with patch.object(
             routing_service, "route_query", new_callable=AsyncMock
         ) as mock_route:
             mock_route.return_value = "solo_agent"
-            
+
             # Process a query
             async for _ in query_service.process("user123", "Hello, how are you?"):
                 pass
-            
+
             # route_query should NOT be called with single agent
             mock_route.assert_not_called()
 
@@ -137,27 +137,29 @@ class TestSingleAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=single_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=single_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Track LLM calls
         llm_call_count = 0
         original_parse = mock_llm_provider.parse_structured_output
-        
+
         async def counting_parse(*args, **kwargs):
             nonlocal llm_call_count
             llm_call_count += 1
             return await original_parse(*args, **kwargs)
-        
-        mock_llm_provider.parse_structured_output = AsyncMock(side_effect=counting_parse)
-        
+
+        mock_llm_provider.parse_structured_output = AsyncMock(
+            side_effect=counting_parse
+        )
+
         # Process a query
         async for _ in query_service.process("user123", "Hello, how are you?"):
             pass
-        
+
         # No parse_structured_output calls for routing (only for agent response if any)
         # The key is that routing-specific calls should be 0
         # We check that _detect_switch_intent wasn't invoked by verifying parse wasn't called
@@ -176,22 +178,22 @@ class TestMultiAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=multi_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=multi_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Patch _detect_switch_intent to track if it's called
         with patch.object(
             query_service, "_detect_switch_intent", new_callable=AsyncMock
         ) as mock_detect:
             mock_detect.return_value = (False, None, False)
-            
+
             # Process a query
             async for _ in query_service.process("user123", "Hello, how are you?"):
                 pass
-            
+
             # _detect_switch_intent SHOULD be called with multiple agents
             mock_detect.assert_called_once()
 
@@ -204,28 +206,28 @@ class TestMultiAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=multi_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=multi_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Patch _detect_switch_intent to not request a switch
         with patch.object(
             query_service, "_detect_switch_intent", new_callable=AsyncMock
         ) as mock_detect:
             mock_detect.return_value = (False, None, False)
-            
+
             # Patch route_query to track calls
             with patch.object(
                 routing_service, "route_query", new_callable=AsyncMock
             ) as mock_route:
                 mock_route.return_value = "research_agent"
-                
+
                 # Process a query
                 async for _ in query_service.process("user123", "What is AI?"):
                     pass
-                
+
                 # route_query SHOULD be called exactly once
                 mock_route.assert_called_once()
 
@@ -238,31 +240,33 @@ class TestMultiAgentRouting:
             llm_provider=mock_llm_provider,
             agent_service=multi_agent_service,
         )
-        
+
         query_service = QueryService(
             agent_service=multi_agent_service,
             routing_service=routing_service,
         )
-        
+
         # Set up a sticky session
-        query_service._set_sticky_agent("user123", "research_agent", required_complete=False)
-        
+        query_service._set_sticky_agent(
+            "user123", "research_agent", required_complete=False
+        )
+
         # Patch _detect_switch_intent to not request a switch
         with patch.object(
             query_service, "_detect_switch_intent", new_callable=AsyncMock
         ) as mock_detect:
             mock_detect.return_value = (False, None, False)
-            
+
             # Patch route_query to track calls
             with patch.object(
                 routing_service, "route_query", new_callable=AsyncMock
             ) as mock_route:
                 mock_route.return_value = "research_agent"
-                
+
                 # Process a query
                 async for _ in query_service.process("user123", "Tell me more"):
                     pass
-                
+
                 # route_query should NOT be called when sticky session exists
                 mock_route.assert_not_called()
 
@@ -279,13 +283,13 @@ class TestRoutingServiceSingleAgent:
             llm_provider=mock_llm_provider,
             agent_service=single_agent_service,
         )
-        
+
         # Call route_query
         result = await routing_service.route_query("What is AI?")
-        
+
         # Should return the only agent
         assert result == "solo_agent"
-        
+
         # No LLM calls should be made
         mock_llm_provider.parse_structured_output.assert_not_called()
 
@@ -296,6 +300,7 @@ class TestRoutingServiceSingleAgent:
         """RoutingService should make LLM call with multiple agents."""
         # Set up mock to return a valid analysis
         from solana_agent.domains.routing import QueryAnalysis
+
         mock_llm_provider.parse_structured_output.return_value = QueryAnalysis(
             primary_agent="research_agent",
             secondary_agents=[],
@@ -303,17 +308,17 @@ class TestRoutingServiceSingleAgent:
             topics=["AI"],
             confidence=0.9,
         )
-        
+
         routing_service = RoutingService(
             llm_provider=mock_llm_provider,
             agent_service=multi_agent_service,
         )
-        
+
         # Call route_query
         result = await routing_service.route_query("What is AI?")
-        
+
         # Should return the routed agent
         assert result == "research_agent"
-        
+
         # LLM call should be made
         mock_llm_provider.parse_structured_output.assert_called_once()
