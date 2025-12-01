@@ -27,13 +27,23 @@ class RoutingService(RoutingServiceInterface):
         Args:
             llm_provider: Provider for language model interactions
             agent_service: Service for agent management
+            api_key: Optional API key for custom LLM provider
+            base_url: Optional base URL for custom LLM provider (e.g., Grok)
+            model: Optional model name to use for routing
         """
         self.llm_provider = llm_provider
         self.agent_service = agent_service
         self.api_key = api_key
         self.base_url = base_url
-        # Use a small, cheap model for routing unless explicitly provided
-        self.model = model or "gpt-4.1-mini"
+        # Use provided model, or default based on whether using custom provider
+        if model:
+            self.model = model
+        elif base_url:
+            # Using custom provider (e.g., Grok) but no model specified - use provider's default
+            self.model = None  # Will use adapter's default
+        else:
+            # Using OpenAI - default to small, cheap model for routing
+            self.model = "gpt-4.1-mini"
         # Simple sticky session: remember last routed agent in-process
         self._last_agent = None
 

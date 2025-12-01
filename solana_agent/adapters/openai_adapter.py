@@ -55,23 +55,47 @@ GPT41_NANO_MULTIPLIER = 2.46
 class OpenAIAdapter(LLMProvider):
     """OpenAI implementation of LLMProvider with web search capabilities."""
 
-    def __init__(self, api_key: str, logfire_api_key: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        logfire_api_key: Optional[str] = None,
+    ):
         self.api_key = api_key
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.base_url = base_url
+
+        # Create client with base_url if provided (for Grok support)
+        if base_url:
+            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        else:
+            self.client = AsyncOpenAI(api_key=api_key)
 
         self.logfire = False
         if logfire_api_key:
             try:
                 logfire.configure(token=logfire_api_key)
                 self.logfire = True
-                logger.info("Logfire configured successfully.")
+                # Instrument the main client immediately after configuring logfire
+                logfire.instrument_openai(self.client)
+                logger.info("Logfire configured and OpenAI client instrumented successfully.")
             except Exception as e:
                 logger.error(f"Failed to configure Logfire: {e}")
                 self.logfire = False
 
-        self.parse_model = DEFAULT_PARSE_MODEL
-        self.text_model = DEFAULT_CHAT_MODEL
-        self.vision_model = DEFAULT_VISION_MODEL  # Add vision model attribute
+        # Use provided model or defaults (for Grok or OpenAI)
+        if model:
+            # Custom model provided (e.g., from Grok config)
+            self.parse_model = model
+            self.text_model = model
+            self.vision_model = model
+        else:
+            # Use OpenAI defaults
+            self.parse_model = DEFAULT_PARSE_MODEL
+            self.text_model = DEFAULT_CHAT_MODEL
+            self.vision_model = DEFAULT_VISION_MODEL
+
+        # These remain OpenAI-specific
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
         self.tts_model = DEFAULT_TTS_MODEL
         self.embedding_model = DEFAULT_EMBEDDING_MODEL
@@ -409,6 +433,8 @@ class OpenAIAdapter(LLMProvider):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         """Stream chat completions with optional tool calls, yielding normalized events."""
         try:
@@ -420,7 +446,12 @@ class OpenAIAdapter(LLMProvider):
             if tools:
                 request_params["tools"] = tools
 
-            client = self.client
+            # Use custom client if api_key and base_url provided, otherwise use default
+            if api_key and base_url:
+                client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            else:
+                client = self.client
+
             if self.logfire:
                 logfire.instrument_openai(client)
 
