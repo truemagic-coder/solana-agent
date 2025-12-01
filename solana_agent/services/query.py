@@ -1277,44 +1277,49 @@ class QueryService(QueryServiceInterface):
             agents = self.agent_service.get_all_ai_agents() or {}
             available_agent_names = list(agents.keys())
 
-            # LLM detects switch intent
-            (
-                switch_requested,
-                requested_agent_raw,
-                start_new,
-            ) = await self._detect_switch_intent(user_text, available_agent_names)
-
-            # Normalize requested agent to an exact available key
-            requested_agent = None
-            if requested_agent_raw:
-                raw_lower = requested_agent_raw.lower()
-                for a in available_agent_names:
-                    if a.lower() == raw_lower or raw_lower in a.lower():
-                        requested_agent = a
-                        break
-
-            sticky_agent = self._get_sticky_agent(user_id)
-
-            if sticky_agent and not switch_requested:
-                agent_name = sticky_agent
-            else:
-                try:
-                    if start_new:
-                        # Start fresh
-                        self._clear_sticky_agent(user_id)
-                    if requested_agent:
-                        agent_name = requested_agent
-                    else:
-                        # Route if no explicit target
-                        if router:
-                            agent_name = await router.route_query(routing_input)
-                        else:
-                            agent_name = await self.routing_service.route_query(
-                                routing_input
-                            )
-                except Exception:
-                    agent_name = next(iter(agents.keys())) if agents else "default"
+            # Fast path: if only one agent, skip all routing logic entirely
+            if len(available_agent_names) == 1:
+                agent_name = available_agent_names[0]
                 self._set_sticky_agent(user_id, agent_name, required_complete=False)
+            else:
+                # LLM detects switch intent (only needed with multiple agents)
+                (
+                    switch_requested,
+                    requested_agent_raw,
+                    start_new,
+                ) = await self._detect_switch_intent(user_text, available_agent_names)
+
+                # Normalize requested agent to an exact available key
+                requested_agent = None
+                if requested_agent_raw:
+                    raw_lower = requested_agent_raw.lower()
+                    for a in available_agent_names:
+                        if a.lower() == raw_lower or raw_lower in a.lower():
+                            requested_agent = a
+                            break
+
+                sticky_agent = self._get_sticky_agent(user_id)
+
+                if sticky_agent and not switch_requested:
+                    agent_name = sticky_agent
+                else:
+                    try:
+                        if start_new:
+                            # Start fresh
+                            self._clear_sticky_agent(user_id)
+                        if requested_agent:
+                            agent_name = requested_agent
+                        else:
+                            # Route if no explicit target
+                            if router:
+                                agent_name = await router.route_query(routing_input)
+                            else:
+                                agent_name = await self.routing_service.route_query(
+                                    routing_input
+                                )
+                    except Exception:
+                        agent_name = next(iter(agents.keys())) if agents else "default"
+                    self._set_sticky_agent(user_id, agent_name, required_complete=False)
 
             # 7) Captured data context + incremental save using previous assistant message
             capture_context = ""

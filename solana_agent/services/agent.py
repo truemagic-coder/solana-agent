@@ -360,6 +360,8 @@ class AgentService(AgentServiceInterface):
                     messages=messages,
                     model=self.model,
                     tools=tools if tools else None,
+                    api_key=self.api_key,
+                    base_url=self.base_url,
                 ):
                     etype = event.get("type")
                     if etype == "content":

@@ -39,6 +39,8 @@ class LLMProvider(ABC):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream chat completion deltas and tool call deltas.
 

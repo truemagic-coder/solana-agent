@@ -104,20 +104,39 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
+        # Determine which LLM provider to use (Grok or OpenAI)
+        # Priority: grok > openai
+        llm_api_key = None
+        llm_base_url = None
+        llm_model = None
+
+        if "grok" in config and "api_key" in config["grok"]:
+            llm_api_key = config["grok"]["api_key"]
+            llm_base_url = config["grok"].get("base_url", "https://api.x.ai/v1")
+            llm_model = config["grok"].get("model", "grok-4-1-fast-non-reasoning")
+            logger.info(f"Using Grok as LLM provider with model: {llm_model}")
+        elif "openai" in config and "api_key" in config["openai"]:
+            llm_api_key = config["openai"]["api_key"]
+            llm_base_url = None  # Use default OpenAI endpoint
+            llm_model = None  # Will use OpenAI adapter defaults
+            logger.info("Using OpenAI as LLM provider")
+        else:
+            raise ValueError("Either OpenAI or Grok API key is required in config.")
+
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
                 raise ValueError("Pydantic Logfire API key is required.")
-            if "openai" not in config or "api_key" not in config["openai"]:
-                raise ValueError("OpenAI API key is required.")
             llm_adapter = OpenAIAdapter(
-                api_key=config["openai"]["api_key"],
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+                model=llm_model,
                 logfire_api_key=config["logfire"].get("api_key"),
             )
         else:
-            if "openai" not in config or "api_key" not in config["openai"]:
-                raise ValueError("OpenAI API key is required.")
             llm_adapter = OpenAIAdapter(
-                api_key=config["openai"].get("api_key"),
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+                model=llm_model,
             )
 
         # Create business mission if specified in config
@@ -172,19 +191,27 @@ class SolanaAgentFactory:
             llm_provider=llm_adapter,
             business_mission=business_mission,
             config=config,
+            api_key=llm_api_key,
+            base_url=llm_base_url,
+            model=llm_model,
             output_guardrails=output_guardrails,
         )
 
         # Create routing service
-        # Optional routing model override (use small, cheap model by default in service)
-        routing_model = (
-            config.get("openai", {}).get("routing_model")
-            if isinstance(config.get("openai"), dict)
-            else None
-        )
+        # Use Grok model if configured, otherwise check for OpenAI routing_model override
+        routing_model = llm_model  # Use the same model as the main LLM by default
+        if not routing_model:
+            # Fall back to OpenAI routing_model config if no Grok model
+            routing_model = (
+                config.get("openai", {}).get("routing_model")
+                if isinstance(config.get("openai"), dict)
+                else None
+            )
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
+            api_key=llm_api_key,
+            base_url=llm_base_url,
             model=routing_model,
         )
 
