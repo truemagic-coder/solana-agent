@@ -125,8 +125,11 @@ class SolanaAgentFactory:
         elif "openai" in config and "api_key" in config["openai"]:
             llm_api_key = config["openai"]["api_key"]
             llm_base_url = None  # Use default OpenAI endpoint
-            llm_model = None  # Will use OpenAI adapter defaults
-            logger.info("Using OpenAI as LLM provider")
+            llm_model = config["openai"].get("model")  # Optional model override
+            if llm_model:
+                logger.info(f"Using OpenAI as LLM provider with model: {llm_model}")
+            else:
+                logger.info("Using OpenAI as LLM provider")
         else:
             raise ValueError(
                 "Either OpenAI, Grok, or Groq API key is required in config."
