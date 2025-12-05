@@ -65,7 +65,7 @@ class OpenAIAdapter(LLMProvider):
         self.api_key = api_key
         self.base_url = base_url
 
-        # Create client with base_url if provided (for Grok support)
+        # Create client with base_url if provided (for Grok/Groq support)
         if base_url:
             self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         else:
@@ -85,9 +85,9 @@ class OpenAIAdapter(LLMProvider):
                 logger.error(f"Failed to configure Logfire: {e}")
                 self.logfire = False
 
-        # Use provided model or defaults (for Grok or OpenAI)
+        # Use provided model or defaults (for Grok/Groq or OpenAI)
         if model:
-            # Custom model provided (e.g., from Grok config)
+            # Custom model provided (e.g., from Grok or Groq config)
             self.parse_model = model
             self.text_model = model
             self.vision_model = model
