@@ -323,7 +323,8 @@ class TestSolanaAgentFactory:
         """Test factory creation when the entire openai section is missing."""
         # This should raise ValueError since OpenAI, Grok, or Groq API key is required
         with pytest.raises(
-            ValueError, match="Either OpenAI, Grok, or Groq API key is required in config."
+            ValueError,
+            match="Either OpenAI, Grok, or Groq API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
@@ -1645,7 +1646,8 @@ class TestSolanaAgentFactory:
         """Test handling of Logfire config when OpenAI key is missing."""
         # Based on the current factory code, this should raise a ValueError
         with pytest.raises(
-            ValueError, match="Either OpenAI, Grok, or Groq API key is required in config."
+            ValueError,
+            match="Either OpenAI, Grok, or Groq API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 
