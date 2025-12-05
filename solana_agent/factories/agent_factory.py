@@ -104,8 +104,8 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        # Determine which LLM provider to use (Grok or OpenAI)
-        # Priority: grok > openai
+        # Determine which LLM provider to use (Grok, Groq, or OpenAI)
+        # Priority: grok > groq > openai
         llm_api_key = None
         llm_base_url = None
         llm_model = None
@@ -115,13 +115,22 @@ class SolanaAgentFactory:
             llm_base_url = config["grok"].get("base_url", "https://api.x.ai/v1")
             llm_model = config["grok"].get("model", "grok-4-1-fast-non-reasoning")
             logger.info(f"Using Grok as LLM provider with model: {llm_model}")
+        elif "groq" in config and "api_key" in config["groq"]:
+            llm_api_key = config["groq"]["api_key"]
+            llm_base_url = config["groq"].get(
+                "base_url", "https://api.groq.com/openai/v1"
+            )
+            llm_model = config["groq"].get("model", "openai/gpt-oss-120b")
+            logger.info(f"Using Groq as LLM provider with model: {llm_model}")
         elif "openai" in config and "api_key" in config["openai"]:
             llm_api_key = config["openai"]["api_key"]
             llm_base_url = None  # Use default OpenAI endpoint
             llm_model = None  # Will use OpenAI adapter defaults
             logger.info("Using OpenAI as LLM provider")
         else:
-            raise ValueError("Either OpenAI or Grok API key is required in config.")
+            raise ValueError(
+                "Either OpenAI, Grok, or Groq API key is required in config."
+            )
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
@@ -198,10 +207,10 @@ class SolanaAgentFactory:
         )
 
         # Create routing service
-        # Use Grok model if configured, otherwise check for OpenAI routing_model override
+        # Use Grok/Groq model if configured, otherwise check for OpenAI routing_model override
         routing_model = llm_model  # Use the same model as the main LLM by default
         if not routing_model:
-            # Fall back to OpenAI routing_model config if no Grok model
+            # Fall back to OpenAI routing_model config if no Grok/Groq model
             routing_model = (
                 config.get("openai", {}).get("routing_model")
                 if isinstance(config.get("openai"), dict)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "31.4.0"
+version = "31.5.0"
 description = "AI Agents for Solana"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
@@ -24,17 +24,17 @@ testpaths = ["tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.12,<4.0"
-openai = "2.8.1"
+openai = "2.9.0"
 pydantic = ">=2"
-pymongo = "4.15.4"
+pymongo = "4.15.5"
 zep-cloud = "3.13.0"
 instructor = "1.13.0"
 pinecone = { version = "8.0.0", extras = ["asyncio"] }
-llama-index-core = "0.14.8"
+llama-index-core = "0.14.10"
 llama-index-embeddings-openai = "0.5.1"
 pypdf = "6.4.0"
 scrubadub = "2.0.1"
-logfire = "4.15.1"
+logfire = "4.16.0"
 typer = "0.20.0"
 rich = ">=13,<14.0"
 pillow = "12.0.0"

@@ -87,6 +87,7 @@ Smart workflows are as easy as combining your tools and prompts.
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - AI Model Provider
 * [Grok](https://x.ai) - Alternative AI Model Provider (optional)
+* [Groq](https://groq.com) - Alternative AI Model Provider (optional)
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
@@ -549,6 +550,40 @@ config = {
         "api_key": "your-grok-api-key",
         "base_url": "https://api.x.ai/v1",  # Optional, defaults to https://api.x.ai/v1
         "model": "grok-4-1-fast-non-reasoning"  # Optional, defaults to grok-4-1-fast-non-reasoning
+    },
+    # You can still include OpenAI for embeddings, TTS, and STT
+    "openai": {
+        "api_key": "your-openai-api-key"
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher.",
+            "specialization": "Research",
+        }
+    ],
+}
+```
+
+**Verified Capabilities:**
+- ✅ Chat completions
+- ✅ Streaming responses
+- ✅ Function calling/Tool usage
+- ✅ Structured outputs (via Instructor TOOLS_STRICT and JSON modes)
+- ✅ Native JSON mode
+
+### Groq
+
+Solana Agent supports using Groq as an alternative to OpenAI. When Groq is configured, it will be used for all LLM operations except embeddings, TTS, and STT (which still require OpenAI).
+
+**Note:** Grok configuration takes priority over Groq, and Groq takes priority over OpenAI. If multiple are present, the highest priority provider will be used.
+
+```python
+config = {
+    "groq": {
+        "api_key": "your-groq-api-key",
+        "base_url": "https://api.groq.com/openai/v1",  # Optional, defaults to https://api.groq.com/openai/v1
+        "model": "openai/gpt-oss-120b"  # Optional, defaults to openai/gpt-oss-120b
     },
     # You can still include OpenAI for embeddings, TTS, and STT
     "openai": {
