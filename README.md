@@ -583,7 +583,7 @@ config = {
     "groq": {
         "api_key": "your-groq-api-key",
         "base_url": "https://api.groq.com/openai/v1",  # Optional, defaults to https://api.groq.com/openai/v1
-        "model": "llama-3.3-70b-versatile"  # Optional, defaults to llama-3.3-70b-versatile
+        "model": "openai/gpt-oss-120b"  # Optional, defaults to openai/gpt-oss-120b
     },
     # You can still include OpenAI for embeddings, TTS, and STT
     "openai": {
