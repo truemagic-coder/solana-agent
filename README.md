@@ -164,6 +164,7 @@ from solana_agent import SolanaAgent
 config = {
     "openai": {
         "api_key": "your-openai-api-key",
+        "model": "gpt-4.1",  # Optional, defaults to gpt-4.1
     },
     "agents": [
         {

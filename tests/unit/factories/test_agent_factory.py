@@ -251,6 +251,24 @@ def groq_with_logfire_config(groq_config):
 
 
 @pytest.fixture
+def openai_with_model_config():
+    """Config with OpenAI and a custom model specified."""
+    return {
+        "openai": {
+            "api_key": "test-openai-key",
+            "model": "gpt-4.1-mini",
+        },
+        "agents": [
+            {
+                "name": "test_agent",
+                "instructions": "You are a test agent.",
+                "specialization": "Testing",
+            }
+        ],
+    }
+
+
+@pytest.fixture
 def invalid_logfire_config_missing_key(base_config):
     """Config with logfire section missing api_key."""
     config = deepcopy(base_config)
@@ -1849,6 +1867,47 @@ class TestSolanaAgentFactory:
             api_key="test-groq-key",
             base_url="https://api.groq.com/openai/v1",
             model="llama-3.3-70b-versatile",
+        )
+        # Verify other services were called
+        mock_agent_service.assert_called_once()
+        mock_routing_service.assert_called_once()
+        mock_query_service.assert_called_once()
+        assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_openai_with_model(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        openai_with_model_config,
+    ):
+        """Test creating services with OpenAI and a custom model specified."""
+        # Setup mocks
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        # Call the factory
+        result = SolanaAgentFactory.create_from_config(openai_with_model_config)
+
+        # Verify OpenAIAdapter was called with OpenAI config and custom model
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-openai-key",
+            base_url=None,
+            model="gpt-4.1-mini",
         )
         # Verify other services were called
         mock_agent_service.assert_called_once()
