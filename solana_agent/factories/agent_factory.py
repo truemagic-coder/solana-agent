@@ -104,8 +104,8 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        # Determine which LLM provider to use (Grok, Groq, or OpenAI)
-        # Priority: grok > groq > openai
+        # Determine which LLM provider to use (Grok, Groq, Cerebras, or OpenAI)
+        # Priority: grok > groq > cerebras > openai
         llm_api_key = None
         llm_base_url = None
         llm_model = None
@@ -122,6 +122,13 @@ class SolanaAgentFactory:
             )
             llm_model = config["groq"].get("model", "openai/gpt-oss-120b")
             logger.info(f"Using Groq as LLM provider with model: {llm_model}")
+        elif "cerebras" in config and "api_key" in config["cerebras"]:
+            llm_api_key = config["cerebras"]["api_key"]
+            llm_base_url = config["cerebras"].get(
+                "base_url", "https://api.cerebras.ai/v1"
+            )
+            llm_model = config["cerebras"].get("model", "gpt-oss-120b")
+            logger.info(f"Using Cerebras as LLM provider with model: {llm_model}")
         elif "openai" in config and "api_key" in config["openai"]:
             llm_api_key = config["openai"]["api_key"]
             llm_base_url = None  # Use default OpenAI endpoint
@@ -132,7 +139,7 @@ class SolanaAgentFactory:
                 logger.info("Using OpenAI as LLM provider")
         else:
             raise ValueError(
-                "Either OpenAI, Grok, or Groq API key is required in config."
+                "Either OpenAI, Grok, Groq, or Cerebras API key is required in config."
             )
 
         if "logfire" in config:
@@ -210,10 +217,10 @@ class SolanaAgentFactory:
         )
 
         # Create routing service
-        # Use Grok/Groq model if configured, otherwise check for OpenAI routing_model override
+        # Use Grok/Groq/Cerebras model if configured, otherwise check for OpenAI routing_model override
         routing_model = llm_model  # Use the same model as the main LLM by default
         if not routing_model:
-            # Fall back to OpenAI routing_model config if no Grok/Groq model
+            # Fall back to OpenAI routing_model config if no Grok/Groq/Cerebras model
             routing_model = (
                 config.get("openai", {}).get("routing_model")
                 if isinstance(config.get("openai"), dict)

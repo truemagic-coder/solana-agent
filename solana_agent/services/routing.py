@@ -39,7 +39,7 @@ class RoutingService(RoutingServiceInterface):
         if model:
             self.model = model
         elif base_url:
-            # Using custom provider (e.g., Grok or Groq) but no model specified - use provider's default
+            # Using custom provider (e.g., Grok, Groq, or Cerebras) but no model specified - use provider's default
             self.model = None  # Will use adapter's default
         else:
             # Using OpenAI - default to small, cheap model for routing
