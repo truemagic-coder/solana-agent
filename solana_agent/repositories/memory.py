@@ -25,7 +25,6 @@ class MemoryRepository(MemoryProvider):
             self.mongo = None
             self.collection = None
             self.captures_collection = "captures"
-            self.stream_collection = "conversation_stream"
         else:
             self.mongo = mongo_adapter
             self.collection = "conversations"
@@ -57,143 +56,8 @@ class MemoryRepository(MemoryProvider):
                 logger.error(f"Error initializing MongoDB captures collection: {e}")
                 self.captures_collection = "captures"
 
-            # Defer stream collection creation to first use to preserve legacy init expectations
-            self.stream_collection = "conversation_stream"
-
         # Zep setup
         self.zep = AsyncZepCloud(api_key=zep_api_key) if zep_api_key else None
-
-    # --- Realtime streaming helpers (Mongo only) ---
-    async def begin_stream_turn(
-        self, user_id: str
-    ) -> Optional[str]:  # pragma: no cover
-        """Begin a realtime turn by creating/returning a turn_id (Mongo only)."""
-        if not self.mongo:
-            return None
-        from uuid import uuid4
-
-        turn_id = str(uuid4())
-        try:
-            now = datetime.now(timezone.utc)
-            # Ensure stream collection and indexes exist lazily
-            try:
-                if not self.mongo.collection_exists(self.stream_collection):
-                    self.mongo.create_collection(self.stream_collection)
-                    self.mongo.create_index(self.stream_collection, [("user_id", 1)])
-                    self.mongo.create_index(
-                        self.stream_collection, [("turn_id", 1)], unique=True
-                    )
-                    self.mongo.create_index(self.stream_collection, [("partial", 1)])
-                    self.mongo.create_index(self.stream_collection, [("timestamp", 1)])
-            except Exception:  # pragma: no cover
-                pass
-            self.mongo.insert_one(
-                self.stream_collection,
-                {
-                    "user_id": user_id,
-                    "turn_id": turn_id,
-                    "user_partial": "",
-                    "assistant_partial": "",
-                    "partial": True,
-                    "timestamp": now,
-                    "created_at": now,
-                },
-            )
-            return turn_id
-        except Exception as e:  # pragma: no cover
-            logger.error(f"MongoDB begin_stream_turn error: {e}")
-            return None
-
-    async def update_stream_user(
-        self, user_id: str, turn_id: str, delta: str
-    ) -> None:  # pragma: no cover
-        if not self.mongo or not delta:
-            return
-        try:
-            doc = self.mongo.find_one(
-                self.stream_collection, {"turn_id": turn_id, "user_id": user_id}
-            )
-            if not doc:
-                return
-            content = (doc.get("user_partial") or "") + delta
-            self.mongo.update_one(
-                self.stream_collection,
-                {"turn_id": turn_id, "user_id": user_id},
-                {
-                    "$set": {
-                        "user_partial": content,
-                        "timestamp": datetime.now(timezone.utc),
-                    }
-                },
-                upsert=False,
-            )
-        except Exception as e:  # pragma: no cover
-            logger.error(f"MongoDB update_stream_user error: {e}")
-
-    async def update_stream_assistant(  # pragma: no cover
-        self, user_id: str, turn_id: str, delta: str
-    ) -> None:
-        if not self.mongo or not delta:
-            return
-        try:
-            doc = self.mongo.find_one(
-                self.stream_collection, {"turn_id": turn_id, "user_id": user_id}
-            )
-            if not doc:
-                return
-            content = (doc.get("assistant_partial") or "") + delta
-            self.mongo.update_one(
-                self.stream_collection,
-                {"turn_id": turn_id, "user_id": user_id},
-                {
-                    "$set": {
-                        "assistant_partial": content,
-                        "timestamp": datetime.now(timezone.utc),
-                    }
-                },
-                upsert=False,
-            )
-        except Exception as e:  # pragma: no cover
-            logger.error(f"MongoDB update_stream_assistant error: {e}")
-
-    async def finalize_stream_turn(
-        self, user_id: str, turn_id: str
-    ) -> None:  # pragma: no cover
-        if not self.mongo:
-            return
-        try:
-            doc = self.mongo.find_one(
-                self.stream_collection, {"turn_id": turn_id, "user_id": user_id}
-            )
-            if not doc:
-                return
-            user_text = doc.get("user_partial", "")
-            assistant_text = doc.get("assistant_partial", "")
-            now = datetime.now(timezone.utc)
-            self.mongo.update_one(
-                self.stream_collection,
-                {"turn_id": turn_id, "user_id": user_id},
-                {"$set": {"partial": False, "timestamp": now, "finalized_at": now}},
-                upsert=False,
-            )
-            # Also persist to conversations collection as a complete turn
-            if user_text or assistant_text:
-                try:
-                    self.mongo.insert_one(
-                        self.collection,
-                        {
-                            "user_id": user_id,
-                            "user_message": user_text,
-                            "assistant_message": assistant_text,
-                            "timestamp": now,
-                        },
-                    )
-                except Exception as e:  # pragma: no cover
-                    logger.error(
-                        f"MongoDB finalize_stream_turn insert conversations error: {e}"
-                    )
-        except Exception as e:  # pragma: no cover
-            logger.error(f"MongoDB finalize_stream_turn error: {e}")
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         if not user_id or not isinstance(user_id, str):
@@ -272,43 +136,54 @@ class MemoryRepository(MemoryProvider):
                 except Exception as e:  # pragma: no cover
                     logger.error(f"Zep memory addition error: {e}")
 
-    async def retrieve(self, user_id: str) -> str:  # pragma: no cover
+    async def retrieve(self, user_id: str) -> str:
+        """Retrieve memory for a user combining Zep context and recent Mongo messages."""
         try:
-            # Preferred: Zep user context
-            memories = ""
+            zep_context = ""
+            mongo_history = ""
+
+            # Get Zep semantic context if available
             if self.zep:
                 try:
                     memory = await self.zep.thread.get_user_context(thread_id=user_id)
                     if memory and memory.context:
-                        memories = memory.context
+                        zep_context = memory.context
                 except Exception as e:  # pragma: no cover
                     logger.error(f"Zep retrieval error: {e}")
 
-            # Fallback: Build lightweight conversation history from Mongo if available
-            if not memories and self.mongo:
+            # Always get last 10 Mongo messages for working memory
+            if self.mongo:
                 try:
-                    # Fetch last 10 conversations for this user in ascending time order
+                    # Fetch last 10 conversations for this user in descending order, then reverse
                     docs = self.mongo.find(
                         self.collection,
                         {"user_id": user_id},
-                        sort=[("timestamp", 1)],
+                        sort=[("timestamp", -1)],
                         limit=10,
                     )
                     if docs:
+                        # Reverse to chronological order
+                        docs = list(reversed(docs))
                         parts: List[str] = []
                         for d in docs:
                             u = (d or {}).get("user_message") or ""
                             a = (d or {}).get("assistant_message") or ""
-                            # Only include complete turns to avoid partial/ambiguous history
+                            # Only include complete turns
                             if u and a:
                                 parts.append(f"User: {u}")
                                 parts.append(f"Assistant: {a}")
-                                parts.append("")  # blank line between turns
-                        memories = "\n".join(parts).strip()
+                        mongo_history = "\n".join(parts)
                 except Exception as e:  # pragma: no cover
-                    logger.error(f"Mongo fallback retrieval error: {e}")
+                    logger.error(f"Mongo retrieval error: {e}")
 
-            return memories or ""
+            # Combine both sources
+            if zep_context and mongo_history:
+                return f"## Long-term Memory\n{zep_context}\n\n## Recent Conversation\n{mongo_history}"
+            elif zep_context:
+                return zep_context
+            elif mongo_history:
+                return f"## Recent Conversation\n{mongo_history}"
+            return ""
         except Exception as e:  # pragma: no cover
             logger.error(f"Error retrieving memories: {e}")
             return ""
