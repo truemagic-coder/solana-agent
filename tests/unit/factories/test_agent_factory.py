@@ -197,87 +197,6 @@ def logfire_config(base_config):
 
 
 @pytest.fixture
-def grok_config():
-    """Config with Grok as the LLM provider."""
-    return {
-        "grok": {
-            "api_key": "test-grok-key",
-            "base_url": "https://api.x.ai/v1",
-            "model": "grok-beta",
-        },
-        "agents": [
-            {
-                "name": "test_agent",
-                "instructions": "You are a test agent.",
-                "specialization": "Testing",
-            }
-        ],
-    }
-
-
-@pytest.fixture
-def grok_with_logfire_config(grok_config):
-    """Config with Grok and Logfire enabled."""
-    config = deepcopy(grok_config)
-    config["logfire"] = {"api_key": "test-logfire-key"}
-    return config
-
-
-@pytest.fixture
-def groq_config():
-    """Config with Groq as the LLM provider."""
-    return {
-        "groq": {
-            "api_key": "test-groq-key",
-            "base_url": "https://api.groq.com/openai/v1",
-            "model": "llama-3.3-70b-versatile",
-        },
-        "agents": [
-            {
-                "name": "test_agent",
-                "instructions": "You are a test agent.",
-                "specialization": "Testing",
-            }
-        ],
-    }
-
-
-@pytest.fixture
-def groq_with_logfire_config(groq_config):
-    """Config with Groq and Logfire enabled."""
-    config = deepcopy(groq_config)
-    config["logfire"] = {"api_key": "test-logfire-key"}
-    return config
-
-
-@pytest.fixture
-def cerebras_config():
-    """Config with Cerebras as the LLM provider."""
-    return {
-        "cerebras": {
-            "api_key": "test-cerebras-key",
-            "base_url": "https://api.cerebras.ai/v1",
-            "model": "gpt-oss-120b",
-        },
-        "agents": [
-            {
-                "name": "test_agent",
-                "instructions": "You are a test agent.",
-                "specialization": "Testing",
-            }
-        ],
-    }
-
-
-@pytest.fixture
-def cerebras_with_logfire_config(cerebras_config):
-    """Config with Cerebras and Logfire enabled."""
-    config = deepcopy(cerebras_config)
-    config["logfire"] = {"api_key": "test-logfire-key"}
-    return config
-
-
-@pytest.fixture
 def openai_with_model_config():
     """Config with OpenAI and a custom model specified."""
     return {
@@ -353,7 +272,8 @@ class TestSolanaAgentFactory:
 
         # Verify calls
         mock_openai_adapter.assert_called_once_with(
-            api_key="test-openai-key", base_url=None, model=None
+            api_key="test-openai-key",
+            model=None,
         )
         mock_agent_service.assert_called_once()
         mock_routing_service.assert_called_once()
@@ -366,10 +286,10 @@ class TestSolanaAgentFactory:
 
     def test_missing_openai_section(self, config_missing_openai_section):
         """Test factory creation when the entire openai section is missing."""
-        # This should raise ValueError since OpenAI, Grok, Groq, or Cerebras API key is required
+        # This should raise ValueError since OpenAI API key is required
         with pytest.raises(
             ValueError,
-            match="Either OpenAI, Grok, Groq, or Cerebras API key is required in config.",
+            match="OpenAI API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
@@ -487,8 +407,6 @@ class TestSolanaAgentFactory:
             llm_provider=mock_openai_instance,
             business_mission=mock_business_instance,
             config=business_config,
-            api_key="test-openai-key",
-            base_url=None,
             model=None,
             output_guardrails=[],
         )
@@ -1669,7 +1587,6 @@ class TestSolanaAgentFactory:
         # Verify OpenAIAdapter was called with both keys
         mock_openai_adapter.assert_called_once_with(
             api_key="test-openai-key",
-            base_url=None,
             model=None,
             logfire_api_key="test-logfire-key",
         )
@@ -1692,7 +1609,7 @@ class TestSolanaAgentFactory:
         # Based on the current factory code, this should raise a ValueError
         with pytest.raises(
             ValueError,
-            match="Either OpenAI, Grok, Groq, or Cerebras API key is required in config.",
+            match="OpenAI API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 
@@ -1727,256 +1644,8 @@ class TestSolanaAgentFactory:
 
         # Verify OpenAIAdapter was called only with OpenAI key
         mock_openai_adapter.assert_called_once_with(
-            api_key="test-openai-key", base_url=None, model=None
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_grok_with_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        grok_with_logfire_config,
-    ):
-        """Test creating services with Grok and Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(grok_with_logfire_config)
-
-        # Verify OpenAIAdapter was called with Grok config and logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-grok-key",
-            base_url="https://api.x.ai/v1",
-            model="grok-beta",
-            logfire_api_key="test-logfire-key",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_grok_without_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        grok_config,
-    ):
-        """Test creating services with Grok but no Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(grok_config)
-
-        # Verify OpenAIAdapter was called with Grok config but no logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-grok-key",
-            base_url="https://api.x.ai/v1",
-            model="grok-beta",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_groq_with_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        groq_with_logfire_config,
-    ):
-        """Test creating services with Groq and Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(groq_with_logfire_config)
-
-        # Verify OpenAIAdapter was called with Groq config and logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-groq-key",
-            base_url="https://api.groq.com/openai/v1",
-            model="llama-3.3-70b-versatile",
-            logfire_api_key="test-logfire-key",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_groq_without_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        groq_config,
-    ):
-        """Test creating services with Groq but no Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(groq_config)
-
-        # Verify OpenAIAdapter was called with Groq config but no logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-groq-key",
-            base_url="https://api.groq.com/openai/v1",
-            model="llama-3.3-70b-versatile",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_cerebras_with_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        cerebras_with_logfire_config,
-    ):
-        """Test creating services with Cerebras and Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(cerebras_with_logfire_config)
-
-        # Verify OpenAIAdapter was called with Cerebras config and logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-cerebras-key",
-            base_url="https://api.cerebras.ai/v1",
-            model="gpt-oss-120b",
-            logfire_api_key="test-logfire-key",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_cerebras_without_logfire(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        cerebras_config,
-    ):
-        """Test creating services with Cerebras but no Logfire configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(cerebras_config)
-
-        # Verify OpenAIAdapter was called with Cerebras config but no logfire key
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-cerebras-key",
-            base_url="https://api.cerebras.ai/v1",
-            model="gpt-oss-120b",
+            api_key="test-openai-key",
+            model=None,
         )
         # Verify other services were called
         mock_agent_service.assert_called_once()
@@ -2016,7 +1685,6 @@ class TestSolanaAgentFactory:
         # Verify OpenAIAdapter was called with OpenAI config and custom model
         mock_openai_adapter.assert_called_once_with(
             api_key="test-openai-key",
-            base_url=None,
             model="gpt-4.1-mini",
         )
         # Verify other services were called

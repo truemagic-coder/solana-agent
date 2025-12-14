@@ -4,7 +4,6 @@ from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Uni
 from pydantic import BaseModel
 
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
-from solana_agent.interfaces.providers.realtime import RealtimeChunk
 
 
 class QueryService(ABC):
@@ -16,19 +15,6 @@ class QueryService(ABC):
         user_id: str,
         query: Union[str, bytes],
         output_format: Literal["text", "audio"] = "text",
-        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
-        rt_voice: Literal[
-            "alloy",
-            "ash",
-            "ballad",
-            "cedar",
-            "coral",
-            "echo",
-            "marin",
-            "sage",
-            "shimmer",
-            "verse",
-        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -53,7 +39,7 @@ class QueryService(ABC):
         output_model: Optional[Type[BaseModel]] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
-    ) -> AsyncGenerator[Union[str, bytes, BaseModel, RealtimeChunk], None]:
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process the user request and generate a response."""
         pass
 

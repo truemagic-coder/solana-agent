@@ -17,7 +17,7 @@ Build your AI agents in three lines of code!
 ## Why?
 * Three lines of code setup
 * Simple Agent Definition
-* Streaming or Realtime Responses
+* Streaming Responses
 * Solana Integration
 * Multi-Agent Swarm
 * Multi-Modal (Images & Audio & Text)
@@ -62,7 +62,6 @@ Smart workflows are as easy as combining your tools and prompts.
 * Simple agent definition using JSON
 * Designed for a multi-agent swarm 
 * Fast multi-modal processing of text, audio, and images
-* Dual modality realtime streaming with simultaneous audio and text output
 * Smart workflows that keep flows simple and smart
 * Interact with the Solana blockchain with many useful tools
 * MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
@@ -86,9 +85,6 @@ Smart workflows are as easy as combining your tools and prompts.
 
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - AI Model Provider
-* [Grok](https://x.ai) - Alternative AI Model Provider (optional)
-* [Groq](https://groq.com) - Alternative AI Model Provider (optional)
-* [Cerebras](https://cerebras.ai) - Alternative AI Model Provider (optional)
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pinecone](https://pinecone.io) - Knowledge Base (optional)
@@ -100,7 +96,6 @@ Smart workflows are as easy as combining your tools and prompts.
 **OpenAI**
 * [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
-* [gpt-realtime](https://platform.openai.com/docs/models/gpt-realtime) (realtime audio agent with dual modality support)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
@@ -250,7 +245,6 @@ async for response in solana_agent.process("user123", "What is the latest news o
 ### Audio/Text Streaming
 
 ```python
-## Realtime Usage
 from solana_agent import SolanaAgent
 
 config = {
@@ -277,152 +271,6 @@ audio_content = await audio_file.read()
 
 async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
     print(response, end="")
-```
-
-### Realtime Audio Streaming
-
-If input and/or output is encoded (compressed) like mp4/mp3 then you must have `ffmpeg` installed.
-
-Due to the overhead of the router (API call) - realtime only supports a single agent setup.
-
-Realtime uses MongoDB for memory so Zep is not needed.
-
-By default, when `realtime=True` and you supply raw/encoded audio bytes as input, the system **always skips the HTTP transcription (STT) path** and relies solely on the realtime websocket session for input transcription. If you don't specify `rt_transcription_model`, a sensible default (`gpt-4o-mini-transcribe`) is auto-selected so you still receive input transcript events with minimal latency.
-
-Implications:
-- `llm_provider.transcribe_audio` is never invoked for realtime turns.
-- Lower end-to-end latency (no duplicate network round trip for STT).
-- Unified transcript sourcing from realtime events.
-- If you explicitly want to disable transcription altogether, send text (not audio bytes) or ignore transcript events client-side.
-
-This example will work using expo-audio on Android and iOS.
-
-```python
-from solana_agent import SolanaAgent
-
-solana_agent = SolanaAgent(config=config)
-        user_id="user123", 
-        message=audio_content,
-        realtime=True,
-        rt_encode_input=True,
-        rt_encode_output=True,
-        rt_output_modalities=["audio"],
-        rt_voice="marin",
-        output_format="audio",
-        audio_output_format="mp3",
-        audio_input_format="mp4",
-    ):
-        yield chunk
-
-return StreamingResponse(
-    content=generate(),
-    media_type="audio/mp3",
-    headers={
-        "Cache-Control": "no-store",
-        "Pragma": "no-cache",
-        "Content-Disposition": "inline; filename=stream.mp3",
-        "X-Accel-Buffering": "no",
-    },
-)
-```
-
-### Realtime Text Streaming
-
-Due to the overhead of the router (API call) - realtime only supports a single agent setup.
-
-Realtime uses MongoDB for memory so Zep is not needed.
-
-When using realtime with text input, no audio transcription is needed. The same bypass rules apply—HTTP STT is never called in realtime mode.
-
-```python
-from solana_agent import SolanaAgent
-
-solana_agent = SolanaAgent(config=config)
-
-async def generate():
-    async for chunk in solana_agent.process(
-        user_id="user123", 
-        message="What is the latest news on Solana?",
-        realtime=True,
-        rt_output_modalities=["text"],
-    ):
-        yield chunk
-```
-
-### Dual Modality Realtime Streaming
-
-Solana Agent supports **dual modality realtime streaming**, allowing you to stream both audio and text simultaneously from a single realtime session. This enables rich conversational experiences where users can receive both voice responses and text transcripts in real-time.
-
-#### Features
-- **Simultaneous Audio & Text**: Stream both modalities from the same conversation
-- **Flexible Output**: Choose audio-only, text-only, or both modalities
-- **Real-time Demuxing**: Automatically separate audio and text streams
-- **Mobile Optimized**: Works seamlessly with compressed audio formats (MP4/AAC)
-- **Memory Efficient**: Smart buffering and streaming for optimal performance
-
-#### Mobile App Integration Example
-
-```python
-from fastapi import UploadFile
-from fastapi.responses import StreamingResponse
-from solana_agent import SolanaAgent
-from solana_agent.interfaces.providers.realtime import RealtimeChunk
-import base64
-
-solana_agent = SolanaAgent(config=config)
-
-@app.post("/realtime/dual")
-async def realtime_dual_endpoint(audio_file: UploadFile):
-    """
-    Dual modality (audio + text) realtime endpoint using Server-Sent Events (SSE).
-    Emits:
-      event: audio      (base64 encoded audio frames)
-      event: transcript (incremental text)
-    Notes:
-      - Do NOT set output_format when using both modalities.
-      - If only one modality is requested, plain str (text) or raw audio bytes may be yielded instead of RealtimeChunk.
-    """
-    audio_content = await audio_file.read()
-
-    async def event_stream():
-        async for chunk in solana_agent.process(
-            user_id="mobile_user",
-            message=audio_content,
-            realtime=True,
-            rt_encode_input=True,
-            rt_encode_output=True,
-            rt_output_modalities=["audio", "text"],
-            rt_voice="marin",
-            audio_input_format="mp4",
-            audio_output_format="mp3",
-            # Optionally lock transcription model (otherwise default is auto-selected):
-            # rt_transcription_model="gpt-4o-mini-transcribe",
-        ):
-            if isinstance(chunk, RealtimeChunk):
-                if chunk.is_audio and chunk.audio_data:
-                    b64 = base64.b64encode(chunk.audio_data).decode("ascii")
-                    yield f"event: audio\ndata: {b64}\n\n"
-                elif chunk.is_text and chunk.text_data:
-                    # Incremental transcript (not duplicated at finalize)
-                    yield f"event: transcript\ndata: {chunk.text_data}\n\n"
-                continue
-            # (Defensive) fallback: if something else appears
-            if isinstance(chunk, bytes):
-                b64 = base64.b64encode(chunk).decode("ascii")
-                yield f"event: audio\ndata: {b64}\n\n"
-            elif isinstance(chunk, str):
-                yield f"event: transcript\ndata: {chunk}\n\n"
-
-        yield "event: done\ndata: end\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-store",
-            "Access-Control-Allow-Origin": "*",
-        },
-    )
 ```
 
 ### Image/Text Streaming
@@ -539,108 +387,6 @@ uvx solana-agent --user-id my_cli_session --config ./my_agent_config.json
 ```
 
 ## Optional Feature Configs
-
-### Grok
-
-Solana Agent supports using Grok from xAI as an alternative to OpenAI. When Grok is configured, it will be used for all LLM operations except embeddings, TTS, and STT (which still require OpenAI).
-
-**Note:** Grok configuration takes priority over OpenAI. If both are present, Grok will be used.
-
-```python
-config = {
-    "grok": {
-        "api_key": "your-grok-api-key",
-        "base_url": "https://api.x.ai/v1",  # Optional, defaults to https://api.x.ai/v1
-        "model": "grok-4-1-fast-non-reasoning"  # Optional, defaults to grok-4-1-fast-non-reasoning
-    },
-    # You can still include OpenAI for embeddings, TTS, and STT
-    "openai": {
-        "api_key": "your-openai-api-key"
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher.",
-            "specialization": "Research",
-        }
-    ],
-}
-```
-
-**Verified Capabilities:**
-- ✅ Chat completions
-- ✅ Streaming responses
-- ✅ Function calling/Tool usage
-- ✅ Structured outputs (via Instructor TOOLS_STRICT and JSON modes)
-- ✅ Native JSON mode
-
-### Groq
-
-Solana Agent supports using Groq as an alternative to OpenAI. When Groq is configured, it will be used for all LLM operations except embeddings, TTS, and STT (which still require OpenAI).
-
-**Note:** Grok configuration takes priority over Groq, and Groq takes priority over OpenAI. If multiple are present, the highest priority provider will be used.
-
-```python
-config = {
-    "groq": {
-        "api_key": "your-groq-api-key",
-        "base_url": "https://api.groq.com/openai/v1",  # Optional, defaults to https://api.groq.com/openai/v1
-        "model": "openai/gpt-oss-120b"  # Optional, defaults to openai/gpt-oss-120b
-    },
-    # You can still include OpenAI for embeddings, TTS, and STT
-    "openai": {
-        "api_key": "your-openai-api-key"
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher.",
-            "specialization": "Research",
-        }
-    ],
-}
-```
-
-**Verified Capabilities:**
-- ✅ Chat completions
-- ✅ Streaming responses
-- ✅ Function calling/Tool usage
-- ✅ Structured outputs (via Instructor TOOLS_STRICT and JSON modes)
-- ✅ Native JSON mode
-
-### Cerebras
-
-Solana Agent supports using Cerebras as an alternative to OpenAI. When Cerebras is configured, it will be used for all LLM operations except embeddings, TTS, and STT (which still require OpenAI).
-
-**Note:** Grok takes priority over Groq, Groq takes priority over Cerebras, and Cerebras takes priority over OpenAI. If multiple are present, the highest priority provider will be used.
-
-```python
-config = {
-    "cerebras": {
-        "api_key": "your-cerebras-api-key",
-        "base_url": "https://api.cerebras.ai/v1",  # Optional, defaults to https://api.cerebras.ai/v1
-        "model": "gpt-oss-120b"  # Optional, defaults to gpt-oss-120b
-    },
-    # You can still include OpenAI for embeddings, TTS, and STT
-    "openai": {
-        "api_key": "your-openai-api-key"
-    },
-    "agents": [
-        {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher.",
-            "specialization": "Research",
-        }
-    ],
-}
-```
-
-**Verified Capabilities:**
-- ✅ Chat completions
-- ✅ Streaming responses
-- ✅ Function calling/Tool usage
-- ✅ Structured outputs (via Instructor TOOLS_STRICT and JSON modes)
-- ✅ Native JSON mode
 
 ### Business Alignment
 

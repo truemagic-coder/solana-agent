@@ -16,7 +16,6 @@ from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInte
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.services.knowledge_base import KnowledgeBaseService
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
-from solana_agent.interfaces.providers.realtime import RealtimeChunk
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -53,24 +52,6 @@ class SolanaAgent(SolanaAgentInterface):
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
-        # Realtime (WebSocket) options — used when realtime=True
-        realtime: bool = False,
-        vad: Optional[bool] = False,
-        rt_encode_input: bool = False,
-        rt_encode_output: bool = False,
-        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
-        rt_voice: Literal[
-            "alloy",
-            "ash",
-            "ballad",
-            "cedar",
-            "coral",
-            "echo",
-            "marin",
-            "sage",
-            "shimmer",
-            "verse",
-        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -92,9 +73,7 @@ class SolanaAgent(SolanaAgentInterface):
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
-    ) -> AsyncGenerator[
-        Union[str, bytes, BaseModel, RealtimeChunk], None
-    ]:  # pragma: no cover
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Process a user message (text or audio) and optional images, returning the response stream.
 
         Args:
@@ -104,12 +83,6 @@ class SolanaAgent(SolanaAgentInterface):
             output_format: Response format ("text" or "audio")
             capture_schema: Optional Pydantic schema for structured output
             capture_name: Optional name for structured output capture
-            realtime: Whether to use realtime (WebSocket) processing
-            vad: Whether to use voice activity detection (for audio input)
-            rt_encode_input: Whether to re-encode input audio for compatibility
-            rt_encode_output: Whether to re-encode output audio for compatibility
-            rt_output_modalities: Modalities to return in realtime (default both if None)
-            rt_voice: Voice to use for realtime audio output
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
             audio_input_format: Audio input format
@@ -125,12 +98,6 @@ class SolanaAgent(SolanaAgentInterface):
             query=message,
             images=images,
             output_format=output_format,
-            realtime=realtime,
-            vad=vad,
-            rt_encode_input=rt_encode_input,
-            rt_encode_output=rt_encode_output,
-            rt_output_modalities=rt_output_modalities,
-            rt_voice=rt_voice,
             audio_voice=audio_voice,
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
@@ -199,8 +166,7 @@ class SolanaAgent(SolanaAgentInterface):
             and self.query_service.knowledge_base
         ):
             return self.query_service.knowledge_base
-        else:
-            raise AttributeError("Knowledge base service not configured or available.")
+        raise ValueError("Knowledge base not configured")
 
     async def kb_add_document(
         self,
@@ -213,16 +179,21 @@ class SolanaAgent(SolanaAgentInterface):
         Add a document to the knowledge base.
 
         Args:
-            text: Document text content.
-            metadata: Document metadata.
-            document_id: Optional document ID.
-            namespace: Optional Pinecone namespace.
+            text: Document text
+            metadata: Document metadata
+            document_id: Optional document ID
+            namespace: Optional namespace
 
         Returns:
-            The document ID.
+            Document ID
         """
         kb = self._ensure_kb()
-        return await kb.add_document(text, metadata, document_id, namespace)
+        return await kb.add_document(
+            text=text,
+            metadata=metadata,
+            document_id=document_id,
+            namespace=namespace,
+        )
 
     async def kb_query(
         self,
@@ -237,19 +208,24 @@ class SolanaAgent(SolanaAgentInterface):
         Query the knowledge base.
 
         Args:
-            query_text: Search query text.
-            filter: Optional filter criteria.
-            top_k: Maximum number of results.
-            namespace: Optional Pinecone namespace.
-            include_content: Include document content in results.
-            include_metadata: Include document metadata in results.
+            query_text: Query text
+            filter: Optional metadata filter
+            top_k: Number of results
+            namespace: Optional namespace
+            include_content: Whether to include content
+            include_metadata: Whether to include metadata
 
         Returns:
-            List of matching documents.
+            List of matching documents
         """
         kb = self._ensure_kb()
         return await kb.query(
-            query_text, filter, top_k, namespace, include_content, include_metadata
+            query_text=query_text,
+            filter=filter,
+            top_k=top_k,
+            namespace=namespace,
+            include_content=include_content,
+            include_metadata=include_metadata,
         )
 
     async def kb_delete_document(
@@ -259,14 +235,17 @@ class SolanaAgent(SolanaAgentInterface):
         Delete a document from the knowledge base.
 
         Args:
-            document_id: ID of document to delete.
-            namespace: Optional Pinecone namespace.
+            document_id: Document ID
+            namespace: Optional namespace
 
         Returns:
-            True if successful.
+            True if successful
         """
         kb = self._ensure_kb()
-        return await kb.delete_document(document_id, namespace)
+        return await kb.delete_document(
+            document_id=document_id,
+            namespace=namespace,
+        )
 
     async def kb_add_pdf_document(
         self,
@@ -277,22 +256,23 @@ class SolanaAgent(SolanaAgentInterface):
         chunk_batch_size: int = 50,
     ) -> str:
         """
-        Add a PDF document to the knowledge base via the client.
+        Add a PDF document to the knowledge base.
 
         Args:
-            pdf_data: PDF content as bytes or a path to the PDF file.
-            metadata: Document metadata.
-            document_id: Optional parent document ID.
-            namespace: Optional Pinecone namespace for chunks.
-            chunk_batch_size: Batch size for upserting chunks.
+            pdf_data: PDF bytes or file path
+            metadata: Document metadata
+            document_id: Optional document ID
+            namespace: Optional namespace
+            chunk_batch_size: Batch size for chunking
 
         Returns:
-            The parent document ID.
+            Document ID
         """
         kb = self._ensure_kb()
-        # Type check added for clarity, though handled in service
-        if not isinstance(pdf_data, (bytes, str)):
-            raise TypeError("pdf_data must be bytes or a file path string.")
         return await kb.add_pdf_document(
-            pdf_data, metadata, document_id, namespace, chunk_batch_size
+            pdf_data=pdf_data,
+            metadata=metadata,
+            document_id=document_id,
+            namespace=namespace,
+            chunk_batch_size=chunk_batch_size,
         )

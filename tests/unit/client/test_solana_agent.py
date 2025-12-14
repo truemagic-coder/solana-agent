@@ -192,7 +192,10 @@ class TestSolanaAgent:
 
             assert result == doc_id
             mock_query_service.knowledge_base.add_document.assert_called_once_with(
-                doc_text, doc_meta, doc_id, namespace
+                text=doc_text,
+                metadata=doc_meta,
+                document_id=doc_id,
+                namespace=namespace,
             )
 
     @pytest.mark.asyncio
@@ -224,7 +227,12 @@ class TestSolanaAgent:
 
             assert results == expected_results
             mock_query_service.knowledge_base.query.assert_called_once_with(
-                query, kb_filter, top_k, namespace, False, True
+                query_text=query,
+                filter=kb_filter,
+                top_k=top_k,
+                namespace=namespace,
+                include_content=False,
+                include_metadata=True,
             )
 
     @pytest.mark.asyncio
@@ -248,7 +256,7 @@ class TestSolanaAgent:
 
             assert result is True
             mock_query_service.knowledge_base.delete_document.assert_called_once_with(
-                doc_id, namespace
+                document_id=doc_id, namespace=namespace
             )
 
     @pytest.mark.asyncio
@@ -279,7 +287,11 @@ class TestSolanaAgent:
 
             assert result_id == pdf_id
             mock_query_service.knowledge_base.add_pdf_document.assert_called_once_with(
-                pdf_bytes, pdf_meta, pdf_id, namespace, chunk_size
+                pdf_data=pdf_bytes,
+                metadata=pdf_meta,
+                document_id=pdf_id,
+                namespace=namespace,
+                chunk_batch_size=chunk_size,
             )
 
     @pytest.mark.asyncio
@@ -310,32 +322,16 @@ class TestSolanaAgent:
 
             assert result_id == pdf_id
             mock_query_service.knowledge_base.add_pdf_document.assert_called_once_with(
-                pdf_path, pdf_meta, pdf_id, namespace, chunk_size
+                pdf_data=pdf_path,
+                metadata=pdf_meta,
+                document_id=pdf_id,
+                namespace=namespace,
+                chunk_batch_size=chunk_size,
             )
-
-    @pytest.mark.asyncio
-    async def test_kb_add_pdf_document_invalid_type(
-        self, config_dict, mock_query_service
-    ):
-        """Test adding a PDF document with invalid data type raises TypeError."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory:
-            mock_factory.create_from_config.return_value = mock_query_service
-            agent = SolanaAgent(config=config_dict)
-
-            with pytest.raises(
-                TypeError, match="pdf_data must be bytes or a file path string."
-            ):
-                await agent.kb_add_pdf_document(
-                    pdf_data=12345,  # Invalid type
-                    metadata={"title": "Invalid PDF"},
-                )
-            mock_query_service.knowledge_base.add_pdf_document.assert_not_called()
 
     # --- Test _ensure_kb ---
     def test_ensure_kb_missing(self, config_dict, mock_query_service):
-        """Test _ensure_kb raises AttributeError if knowledge_base service is missing."""
+        """Test _ensure_kb raises ValueError if knowledge_base service is missing."""
         # Remove the knowledge_base mock for this test
         del mock_query_service.knowledge_base
 
@@ -346,8 +342,8 @@ class TestSolanaAgent:
             agent = SolanaAgent(config=config_dict)
 
             with pytest.raises(
-                AttributeError,
-                match="Knowledge base service not configured or available.",
+                ValueError,
+                match="Knowledge base not configured",
             ):
                 agent._ensure_kb()  # Call the internal method directly for testing
 

@@ -53,23 +53,16 @@ GPT41_NANO_MULTIPLIER = 2.46
 
 
 class OpenAIAdapter(LLMProvider):
-    """OpenAI implementation of LLMProvider with web search capabilities."""
+    """OpenAI implementation of LLMProvider using the Responses API."""
 
     def __init__(
         self,
         api_key: str,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
         logfire_api_key: Optional[str] = None,
     ):
         self.api_key = api_key
-        self.base_url = base_url
-
-        # Create client with base_url if provided (for Grok/Groq/Cerebras support)
-        if base_url:
-            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        else:
-            self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(api_key=api_key)
 
         self.logfire = False
         if logfire_api_key:
@@ -85,9 +78,8 @@ class OpenAIAdapter(LLMProvider):
                 logger.error(f"Failed to configure Logfire: {e}")
                 self.logfire = False
 
-        # Use provided model or defaults (for Grok/Groq/Cerebras or OpenAI)
+        # Use provided model or defaults
         if model:
-            # Custom model provided (e.g., from Grok, Groq, or Cerebras config)
             self.parse_model = model
             self.text_model = model
             self.vision_model = model
@@ -97,7 +89,7 @@ class OpenAIAdapter(LLMProvider):
             self.text_model = DEFAULT_CHAT_MODEL
             self.vision_model = DEFAULT_VISION_MODEL
 
-        # These remain OpenAI-specific
+        # OpenAI-specific models
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
         self.tts_model = DEFAULT_TTS_MODEL
         self.embedding_model = DEFAULT_EMBEDDING_MODEL
@@ -191,34 +183,41 @@ class OpenAIAdapter(LLMProvider):
         self,
         prompt: str,
         system_prompt: str = "",
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:  # pragma: no cover
-        """Generate text or function call from OpenAI models."""
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        request_params = {
-            "messages": messages,
+    ) -> Any:  # pragma: no cover
+        """Generate text using OpenAI Responses API."""
+        request_params: Dict[str, Any] = {
             "model": model or self.text_model,
+            "input": prompt,
         }
-        if tools:
-            request_params["tools"] = tools
 
-        if api_key and base_url:
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        else:
-            client = self.client
+        if system_prompt:
+            request_params["instructions"] = system_prompt
+
+        if tools:
+            # Convert tools to Responses API format (internally tagged)
+            responses_tools = []
+            for tool in tools:
+                if tool.get("type") == "function":
+                    func = tool.get("function", {})
+                    responses_tools.append(
+                        {
+                            "type": "function",
+                            "name": func.get("name"),
+                            "description": func.get("description", ""),
+                            "parameters": func.get("parameters", {}),
+                        }
+                    )
+                else:
+                    responses_tools.append(tool)
+            request_params["tools"] = responses_tools
 
         if self.logfire:
-            logfire.instrument_openai(client)
+            logfire.instrument_openai(self.client)
 
         try:
-            response = await client.chat.completions.create(**request_params)
+            response = await self.client.responses.create(**request_params)
             return response
         except OpenAIError as e:
             logger.error(f"OpenAI API error during text generation: {e}")
@@ -435,74 +434,87 @@ class OpenAIAdapter(LLMProvider):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
-        """Stream chat completions with optional tool calls, yielding normalized events."""
+        """Stream responses with optional tool calls using OpenAI Responses API."""
         try:
+            # Extract system prompt from messages if present
+            instructions = None
+            input_items = []
+            for msg in messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "system":
+                    instructions = content
+                else:
+                    input_items.append({"role": role, "content": content})
+
             request_params: Dict[str, Any] = {
-                "messages": messages,
                 "model": model or self.text_model,
+                "input": input_items,
                 "stream": True,
             }
-            if tools:
-                request_params["tools"] = tools
 
-            # Use custom client if api_key and base_url provided, otherwise use default
-            if api_key and base_url:
-                client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            else:
-                client = self.client
+            if instructions:
+                request_params["instructions"] = instructions
+
+            if tools:
+                # Convert tools to Responses API format
+                responses_tools = []
+                for tool in tools:
+                    if tool.get("type") == "function":
+                        func = tool.get("function", {})
+                        responses_tools.append(
+                            {
+                                "type": "function",
+                                "name": func.get("name"),
+                                "description": func.get("description", ""),
+                                "parameters": func.get("parameters", {}),
+                            }
+                        )
+                    else:
+                        responses_tools.append(tool)
+                request_params["tools"] = responses_tools
 
             if self.logfire:
-                logfire.instrument_openai(client)
+                logfire.instrument_openai(self.client)
 
-            stream = await client.chat.completions.create(**request_params)
-            async for chunk in stream:
+            stream = await self.client.responses.create(**request_params)
+            async for event in stream:
                 try:
-                    if not chunk or not getattr(chunk, "choices", None):
-                        continue
-                    ch = chunk.choices[0]
-                    delta = getattr(ch, "delta", None)
-                    if delta is None:
-                        # Some SDKs use 'message' instead of 'delta'
-                        delta = getattr(ch, "message", None)
-                    if delta is None:
-                        # Finish event
-                        finish = getattr(ch, "finish_reason", None)
-                        if finish:
-                            yield {"type": "message_end", "finish_reason": finish}
-                        continue
+                    event_type = getattr(event, "type", None)
 
-                    # Content delta
-                    content_piece = getattr(delta, "content", None)
-                    if content_piece:
-                        yield {"type": "content", "delta": content_piece}
+                    if event_type == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            yield {"type": "content", "delta": delta}
 
-                    # Tool call deltas
-                    tool_calls = getattr(delta, "tool_calls", None)
-                    if tool_calls:
-                        for idx, tc in enumerate(tool_calls):
-                            try:
-                                tc_id = getattr(tc, "id", None)
-                                func = getattr(tc, "function", None)
-                                name = getattr(func, "name", None) if func else None
-                                args_piece = (
-                                    getattr(func, "arguments", "") if func else ""
-                                )
-                                yield {
-                                    "type": "tool_call_delta",
-                                    "id": tc_id,
-                                    "index": getattr(tc, "index", idx),
-                                    "name": name,
-                                    "arguments_delta": args_piece or "",
-                                }
-                            except Exception:
-                                continue
+                    elif event_type == "response.function_call_arguments.delta":
+                        yield {
+                            "type": "tool_call_delta",
+                            "id": getattr(event, "call_id", None),
+                            "index": getattr(event, "output_index", 0),
+                            "name": getattr(event, "name", None),
+                            "arguments_delta": getattr(event, "delta", ""),
+                        }
+
+                    elif event_type == "response.output_item.added":
+                        item = getattr(event, "item", None)
+                        if item and getattr(item, "type", None) == "function_call":
+                            yield {
+                                "type": "tool_call_delta",
+                                "id": getattr(item, "call_id", None),
+                                "index": getattr(event, "output_index", 0),
+                                "name": getattr(item, "name", None),
+                                "arguments_delta": "",
+                            }
+
+                    elif event_type == "response.completed":
+                        yield {"type": "message_end", "finish_reason": "stop"}
+
                 except Exception as parse_err:
-                    logger.debug(f"Error parsing stream chunk: {parse_err}")
+                    logger.debug(f"Error parsing stream event: {parse_err}")
                     continue
-            # End of stream (SDK may not emit finish event in all cases)
+
             yield {"type": "message_end", "finish_reason": "end_of_stream"}
         except Exception as e:
             logger.exception(f"Error in chat_stream: {e}")
@@ -513,90 +525,65 @@ class OpenAIAdapter(LLMProvider):
         prompt: str,
         system_prompt: str,
         model_class: Type[T],
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> T:  # pragma: no cover
-        """Generate structured output using Pydantic model parsing with Instructor."""
-
-        messages = []
-        messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+        """Generate structured output using OpenAI Responses API with JSON schema."""
+        current_parse_model = model or self.parse_model
 
         try:
-            if api_key and base_url:
-                client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-            else:
-                client = self.client
-
             if self.logfire:
-                logfire.instrument_openai(client)
+                logfire.instrument_openai(self.client)
 
-            # Use the provided model or the default parse model
-            current_parse_model = model or self.parse_model
+            # Use Responses API with text.format for structured output
+            response = await self.client.responses.create(
+                model=current_parse_model,
+                instructions=system_prompt,
+                input=prompt,
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": model_class.__name__,
+                        "strict": True,
+                        "schema": model_class.model_json_schema(),
+                    }
+                },
+            )
 
-            patched_client = instructor.from_openai(client, mode=Mode.TOOLS_STRICT)
+            # Extract the JSON from response and parse with Pydantic
+            json_str = response.output_text
+            return model_class.model_validate_json(json_str)
 
-            create_args = {
-                "model": current_parse_model,
-                "messages": messages,
-                "response_model": model_class,
-                "max_retries": 2,  # Automatically retry on validation errors
-            }
-            if tools:
-                create_args["tools"] = tools
-
-            response = await patched_client.chat.completions.create(**create_args)
-            return response
         except Exception as e:
-            logger.warning(
-                f"Instructor parsing (TOOLS_STRICT mode) failed: {e}"
-            )  # Log warning
+            logger.warning(f"Responses API structured output failed: {e}")
 
             try:
-                # Determine client again for fallback
-                if api_key and base_url:
-                    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-                else:
-                    client = self.client
+                # Fallback: Use instructor with chat completions
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ]
 
-                if self.logfire:  # Instrument again if needed
-                    logfire.instrument_openai(client)
+                if self.logfire:
+                    logfire.instrument_openai(self.client)
 
-                # Use the provided model or the default parse model
-                current_parse_model = model or self.parse_model
-
-                # First fallback: Try regular JSON mode
-                logger.info("Falling back to instructor JSON mode.")  # Log info
-                patched_client = instructor.from_openai(client, mode=Mode.JSON)
+                patched_client = instructor.from_openai(
+                    self.client, mode=Mode.TOOLS_STRICT
+                )
                 response = await patched_client.chat.completions.create(
-                    model=current_parse_model,  # Use the determined model
+                    model=current_parse_model,
                     messages=messages,
                     response_model=model_class,
-                    max_retries=1,
+                    max_retries=2,
                 )
                 return response
-            except Exception as json_error:
-                logger.warning(
-                    f"Instructor JSON mode fallback also failed: {json_error}"
-                )  # Log warning
+
+            except Exception as instructor_error:
+                logger.warning(f"Instructor fallback also failed: {instructor_error}")
 
                 try:
-                    # Determine client again for final fallback
-                    if api_key and base_url:
-                        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-                    else:
-                        client = self.client
-
-                    if self.logfire:  # Instrument again if needed
-                        logfire.instrument_openai(client)
-
-                    # Use the provided model or the default parse model
-                    current_parse_model = model or self.parse_model
-
-                    # Final fallback: Manual extraction with a detailed prompt
-                    logger.info("Falling back to manual JSON extraction.")  # Log info
+                    # Final fallback: Manual JSON extraction
+                    logger.info("Falling back to manual JSON extraction.")
                     fallback_system_prompt = f"""
                     {system_prompt}
 
@@ -606,9 +593,8 @@ class OpenAIAdapter(LLMProvider):
                     Ensure the response contains ONLY the JSON object and nothing else.
                     """
 
-                    # Regular completion without instructor
-                    completion = await client.chat.completions.create(
-                        model=current_parse_model,  # Use the determined model
+                    completion = await self.client.chat.completions.create(
+                        model=current_parse_model,
                         messages=[
                             {"role": "system", "content": fallback_system_prompt},
                             {"role": "user", "content": prompt},
@@ -616,19 +602,15 @@ class OpenAIAdapter(LLMProvider):
                         response_format={"type": "json_object"},
                     )
 
-                    # Extract and parse the JSON response
                     json_str = completion.choices[0].message.content
-
-                    # Use Pydantic to parse and validate
                     return model_class.model_validate_json(json_str)
 
                 except Exception as fallback_error:
-                    # Log the final exception with traceback
                     logger.exception(
-                        f"All structured output fallback methods failed: {fallback_error}"
+                        f"All structured output methods failed: {fallback_error}"
                     )
                     raise ValueError(
-                        f"Failed to generate structured output: {e}. All fallbacks failed."
+                        f"Failed to generate structured output: {e}"
                     ) from e
 
     async def embed_text(

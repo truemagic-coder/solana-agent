@@ -25,8 +25,6 @@ class LLMProvider(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:
@@ -39,10 +37,8 @@ class LLMProvider(ABC):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream chat completion deltas and tool call deltas.
+        """Stream response deltas and tool call deltas.
 
             Yields normalized events:
             - {"type": "content", "delta": str}
@@ -58,8 +54,6 @@ class LLMProvider(ABC):
         prompt: str,
         system_prompt: str,
         model_class: Type[T],
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> T:
