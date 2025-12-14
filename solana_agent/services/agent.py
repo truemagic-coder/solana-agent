@@ -34,12 +34,8 @@ class AgentService(AgentServiceInterface):
         llm_provider: LLMProvider,
         business_mission: Optional[BusinessMission] = None,
         config: Optional[Dict[str, Any]] = None,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
-        output_guardrails: List[
-            OutputGuardrail
-        ] = None,  # <-- Add output_guardrails parameter
+        output_guardrails: List[OutputGuardrail] = None,
     ):
         """Initialize the agent service.
 
@@ -47,8 +43,6 @@ class AgentService(AgentServiceInterface):
             llm_provider: Provider for language model interactions
             business_mission: Optional business mission and values
             config: Optional service configuration
-            api_key: API key for the LLM provider
-            base_url: Base URL for the LLM provider
             model: Model name for the LLM provider
             output_guardrails: List of output guardrail instances
         """
@@ -58,10 +52,8 @@ class AgentService(AgentServiceInterface):
         self.last_text_response = ""
         self.tool_registry = ToolRegistry(config=self.config)
         self.agents: List[AIAgent] = []
-        self.api_key = api_key
-        self.base_url = base_url
         self.model = model
-        self.output_guardrails = output_guardrails or []  # <-- Store guardrails
+        self.output_guardrails = output_guardrails or []
 
         self.plugin_manager = PluginManager(
             config=self.config,
@@ -318,8 +310,6 @@ class AgentService(AgentServiceInterface):
                     prompt=full_prompt,
                     system_prompt=system_prompt,
                     model_class=output_model,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
                     model=self.model,
                     tools=tools if tools else None,
                 )
@@ -360,8 +350,6 @@ class AgentService(AgentServiceInterface):
                     messages=messages,
                     model=self.model,
                     tools=tools if tools else None,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
                 ):
                     etype = event.get("type")
                     if etype == "content":

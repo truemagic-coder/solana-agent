@@ -10,7 +10,6 @@ import logging
 from typing import Dict, Any, List
 
 # Service imports
-from solana_agent.adapters.pinecone_adapter import PineconeAdapter
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
     OutputGuardrail,
@@ -18,8 +17,6 @@ from solana_agent.interfaces.guardrails.guardrails import (
 from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
-from solana_agent.services.knowledge_base import KnowledgeBaseService
-# Realtime is now managed per-call in QueryService.process; no factory wiring
 
 # Repository imports
 from solana_agent.repositories.memory import MemoryRepository
@@ -104,57 +101,28 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        # Determine which LLM provider to use (Grok, Groq, Cerebras, or OpenAI)
-        # Priority: grok > groq > cerebras > openai
-        llm_api_key = None
-        llm_base_url = None
-        llm_model = None
+        # OpenAI is the only supported LLM provider
+        if "openai" not in config or "api_key" not in config["openai"]:
+            raise ValueError("OpenAI API key is required in config.")
 
-        if "grok" in config and "api_key" in config["grok"]:
-            llm_api_key = config["grok"]["api_key"]
-            llm_base_url = config["grok"].get("base_url", "https://api.x.ai/v1")
-            llm_model = config["grok"].get("model", "grok-4-1-fast-non-reasoning")
-            logger.info(f"Using Grok as LLM provider with model: {llm_model}")
-        elif "groq" in config and "api_key" in config["groq"]:
-            llm_api_key = config["groq"]["api_key"]
-            llm_base_url = config["groq"].get(
-                "base_url", "https://api.groq.com/openai/v1"
-            )
-            llm_model = config["groq"].get("model", "openai/gpt-oss-120b")
-            logger.info(f"Using Groq as LLM provider with model: {llm_model}")
-        elif "cerebras" in config and "api_key" in config["cerebras"]:
-            llm_api_key = config["cerebras"]["api_key"]
-            llm_base_url = config["cerebras"].get(
-                "base_url", "https://api.cerebras.ai/v1"
-            )
-            llm_model = config["cerebras"].get("model", "gpt-oss-120b")
-            logger.info(f"Using Cerebras as LLM provider with model: {llm_model}")
-        elif "openai" in config and "api_key" in config["openai"]:
-            llm_api_key = config["openai"]["api_key"]
-            llm_base_url = None  # Use default OpenAI endpoint
-            llm_model = config["openai"].get("model")  # Optional model override
-            if llm_model:
-                logger.info(f"Using OpenAI as LLM provider with model: {llm_model}")
-            else:
-                logger.info("Using OpenAI as LLM provider")
+        llm_api_key = config["openai"]["api_key"]
+        llm_model = config["openai"].get("model")  # Optional model override
+        if llm_model:
+            logger.info(f"Using OpenAI as LLM provider with model: {llm_model}")
         else:
-            raise ValueError(
-                "Either OpenAI, Grok, Groq, or Cerebras API key is required in config."
-            )
+            logger.info("Using OpenAI as LLM provider")
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
                 raise ValueError("Pydantic Logfire API key is required.")
             llm_adapter = OpenAIAdapter(
                 api_key=llm_api_key,
-                base_url=llm_base_url,
                 model=llm_model,
                 logfire_api_key=config["logfire"].get("api_key"),
             )
         else:
             llm_adapter = OpenAIAdapter(
                 api_key=llm_api_key,
-                base_url=llm_base_url,
                 model=llm_model,
             )
 
@@ -210,17 +178,14 @@ class SolanaAgentFactory:
             llm_provider=llm_adapter,
             business_mission=business_mission,
             config=config,
-            api_key=llm_api_key,
-            base_url=llm_base_url,
             model=llm_model,
             output_guardrails=output_guardrails,
         )
 
         # Create routing service
-        # Use Grok/Groq/Cerebras model if configured, otherwise check for OpenAI routing_model override
         routing_model = llm_model  # Use the same model as the main LLM by default
         if not routing_model:
-            # Fall back to OpenAI routing_model config if no Grok/Groq/Cerebras model
+            # Fall back to OpenAI routing_model config
             routing_model = (
                 config.get("openai", {}).get("routing_model")
                 if isinstance(config.get("openai"), dict)
@@ -229,8 +194,6 @@ class SolanaAgentFactory:
         routing_service = RoutingService(
             llm_provider=llm_adapter,
             agent_service=agent_service,
-            api_key=llm_api_key,
-            base_url=llm_base_url,
             model=routing_model,
         )
 
@@ -282,90 +245,11 @@ class SolanaAgentFactory:
                 for tool_name in tools:
                     agent_service.assign_tool_for_agent(agent_name, tool_name)
 
-        # Initialize Knowledge Base if configured
-        knowledge_base = None
-        kb_config = config.get("knowledge_base")
-        # Requires both KB config section and MongoDB adapter
-        if kb_config and db_adapter:
-            try:
-                pinecone_config = kb_config.get("pinecone", {})
-                splitter_config = kb_config.get("splitter", {})
-                # Get OpenAI embedding config (used by KBService)
-                openai_embed_config = kb_config.get("openai_embeddings", {})
-
-                # Determine OpenAI model and dimensions for KBService
-                openai_model_name = openai_embed_config.get(
-                    "model_name", "text-embedding-3-large"
-                )
-                if openai_model_name == "text-embedding-3-large":
-                    openai_dimensions = 3072
-                elif openai_model_name == "text-embedding-3-small":  # pragma: no cover
-                    openai_dimensions = 1536  # pragma: no cover
-                else:  # pragma: no cover
-                    logger.warning(
-                        f"Unknown OpenAI embedding model '{openai_model_name}' specified for KB. Defaulting dimensions to 3072."
-                    )  # pragma: no cover
-                    openai_dimensions = 3072  # pragma: no cover
-
-                # Create Pinecone adapter for KB
-                # It now relies on external embeddings, so dimension MUST match OpenAI model
-                pinecone_adapter = PineconeAdapter(
-                    api_key=pinecone_config.get("api_key"),
-                    index_name=pinecone_config.get("index_name"),
-                    # This dimension MUST match the OpenAI model used by KBService
-                    embedding_dimensions=openai_dimensions,
-                    cloud_provider=pinecone_config.get("cloud_provider", "aws"),
-                    region=pinecone_config.get("region", "us-east-1"),
-                    metric=pinecone_config.get("metric", "cosine"),
-                    create_index_if_not_exists=pinecone_config.get(
-                        "create_index", True
-                    ),
-                    # Reranking config
-                    use_reranking=pinecone_config.get("use_reranking", False),
-                    rerank_model=pinecone_config.get("rerank_model"),
-                    rerank_top_k=pinecone_config.get("rerank_top_k", 3),
-                    initial_query_top_k_multiplier=pinecone_config.get(
-                        "initial_query_top_k_multiplier", 5
-                    ),
-                    rerank_text_field=pinecone_config.get("rerank_text_field", "text"),
-                )
-
-                # Create the KB service using OpenAI embeddings
-                knowledge_base = KnowledgeBaseService(
-                    pinecone_adapter=pinecone_adapter,
-                    mongodb_adapter=db_adapter,
-                    # Pass OpenAI config directly
-                    openai_api_key=openai_embed_config.get("api_key")
-                    or config.get("openai", {}).get("api_key"),
-                    openai_model_name=openai_model_name,
-                    collection_name=kb_config.get(
-                        "collection_name", "knowledge_documents"
-                    ),
-                    # Pass rerank config (though PineconeAdapter handles the logic)
-                    rerank_results=pinecone_config.get("use_reranking", False),
-                    rerank_top_k=pinecone_config.get("rerank_top_k", 3),
-                    # Pass splitter config
-                    splitter_buffer_size=splitter_config.get("buffer_size", 1),
-                    splitter_breakpoint_percentile=splitter_config.get(
-                        "breakpoint_percentile", 95
-                    ),
-                )
-                logger.info(
-                    "Knowledge Base Service initialized successfully."
-                )  # Use logger.info
-
-            except Exception as e:
-                # Use logger.exception to include traceback automatically
-                logger.exception(f"Failed to initialize Knowledge Base: {e}")
-                knowledge_base = None  # Ensure KB is None if init fails
-
         # Create and return the query service
         query_service = QueryService(
             agent_service=agent_service,
             routing_service=routing_service,
             memory_provider=memory_provider,
-            knowledge_base=knowledge_base,  # Pass the potentially created KB
-            kb_results_count=kb_config.get("results_count", 3) if kb_config else 3,
             input_guardrails=input_guardrails,
         )
 

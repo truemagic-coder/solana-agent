@@ -4,7 +4,6 @@ from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Uni
 from pydantic import BaseModel
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
-from solana_agent.interfaces.providers.realtime import RealtimeChunk
 
 
 class SolanaAgent(ABC):
@@ -19,23 +18,6 @@ class SolanaAgent(ABC):
         output_format: Literal["text", "audio"] = "text",
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
-        realtime: bool = False,
-        vad: bool = False,
-        rt_encode_input: bool = False,
-        rt_encode_output: bool = False,
-        rt_output_modalities: Optional[List[Literal["audio", "text"]]] = None,
-        rt_voice: Literal[
-            "alloy",
-            "ash",
-            "ballad",
-            "cedar",
-            "coral",
-            "echo",
-            "marin",
-            "sage",
-            "shimmer",
-            "verse",
-        ] = "marin",
         audio_voice: Literal[
             "alloy",
             "ash",
@@ -57,7 +39,7 @@ class SolanaAgent(ABC):
         router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
-    ) -> AsyncGenerator[Union[str, bytes, BaseModel, RealtimeChunk], None]:
+    ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process a user message and return the response stream."""
         pass
 
@@ -80,47 +62,4 @@ class SolanaAgent(ABC):
     @abstractmethod
     def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """Register a tool with the agent system."""
-        pass
-
-    @abstractmethod
-    async def kb_add_document(
-        self,
-        text: str,
-        metadata: Dict[str, Any],
-        document_id: Optional[str] = None,
-        namespace: Optional[str] = None,
-    ) -> str:
-        """Add a document to the knowledge base."""
-        pass
-
-    @abstractmethod
-    async def kb_query(
-        self,
-        query_text: str,
-        filter: Optional[Dict[str, Any]] = None,
-        top_k: int = 5,
-        namespace: Optional[str] = None,
-        include_content: bool = True,
-        include_metadata: bool = True,
-    ) -> List[Dict[str, Any]]:
-        """Query the knowledge base."""
-        pass
-
-    @abstractmethod
-    async def kb_delete_document(
-        self, document_id: str, namespace: Optional[str] = None
-    ) -> bool:
-        """Delete a document from the knowledge base."""
-        pass
-
-    @abstractmethod
-    async def kb_add_pdf_document(
-        self,
-        pdf_data: Union[bytes, str],
-        metadata: Dict[str, Any],
-        document_id: Optional[str] = None,
-        namespace: Optional[str] = None,
-        chunk_batch_size: int = 50,
-    ) -> str:
-        """Add a PDF document to the knowledge base."""
         pass

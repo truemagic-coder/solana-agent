@@ -18,8 +18,6 @@ class RoutingService(RoutingServiceInterface):
         self,
         llm_provider: LLMProvider,
         agent_service: AgentService,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
         """Initialize the routing service.
@@ -27,23 +25,16 @@ class RoutingService(RoutingServiceInterface):
         Args:
             llm_provider: Provider for language model interactions
             agent_service: Service for agent management
-            api_key: Optional API key for custom LLM provider
-            base_url: Optional base URL for custom LLM provider (e.g., Grok)
             model: Optional model name to use for routing
         """
         self.llm_provider = llm_provider
         self.agent_service = agent_service
-        self.api_key = api_key
-        self.base_url = base_url
-        # Use provided model, or default based on whether using custom provider
+        # Use provided model or default to small, efficient model for routing
         if model:
             self.model = model
-        elif base_url:
-            # Using custom provider (e.g., Grok, Groq, or Cerebras) but no model specified - use provider's default
-            self.model = None  # Will use adapter's default
         else:
-            # Using OpenAI - default to small, cheap model for routing
-            self.model = "gpt-4.1-mini"
+            # Default to small, cheap model for routing
+            self.model = "gpt-5.2"
         # Simple sticky session: remember last routed agent in-process
         self._last_agent = None
 
@@ -102,8 +93,6 @@ class RoutingService(RoutingServiceInterface):
                 prompt=prompt,
                 system_prompt="You are an expert at routing user queries to the most appropriate AI agent. Always return the exact agent name that best matches the user's needs based on the specializations provided. If the user mentions a specific topic, prioritize agents whose specialization matches that topic.",
                 model_class=QueryAnalysis,
-                api_key=self.api_key,
-                base_url=self.base_url,
                 model=self.model,
             )
 
