@@ -370,118 +370,6 @@ Observability and Tracing - Optional
       },
    }
 
-Knowledge Base - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The Knowledge Base (KB) is meant to store text values and/or small PDFs.
-
-.. code-block:: python
-
-   config = {
-      "knowledge_base": {
-         "pinecone": {
-               "api_key": "your-pinecone-api-key",
-               "index_name": "your-pinecone-index-name",
-         }
-      },
-      "mongo": {
-         "connection_string": "your-mongo-connection-string",
-         "database": "your-database-name"
-      },
-   }
-
-
-Example for KB (text) - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "knowledge_base": {
-         "pinecone": {
-               "api_key": "your-pinecone-api-key",
-               "index_name": "your-pinecone-index-name",
-         }
-      },
-      "mongo": {
-         "connection_string": "your-mongo-connection-string",
-         "database": "your-database-name"
-      },
-      "agents": [
-         {
-               "name": "kb_expert",
-               "instructions": "You answer questions based on the provided knowledge base documents.",
-               "specialization": "Company Knowledge",
-         }
-      ]
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   doc_text = "Solana Agent is a Python framework for building multi-agent AI systems."
-   doc_metadata = {
-      "source": "internal_docs",
-      "version": "1.0",
-      "tags": ["framework", "python", "ai"]
-   }
-   await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
-
-   async for response in solana_agent.process("user123", "What is Solana Agent?"):
-      print(response, end="")
-
-Example for KB (pdf) - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "knowledge_base": {
-         "pinecone": {
-               "api_key": "your-pinecone-api-key",
-               "index_name": "your-pinecone-index-name",
-         }
-      },
-      "mongo": {
-         "connection_string": "your-mongo-connection-string",
-         "database": "your-database-name"
-      },
-      "agents": [
-         {
-               "name": "kb_expert",
-               "instructions": "You answer questions based on the provided knowledge base documents.",
-               "specialization": "Company Knowledge",
-         }
-      ]
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   pdf_bytes = await pdf_file.read()
-
-   pdf_metadata = {
-      "source": "annual_report_2024.pdf",
-      "year": 2024,
-      "tags": ["finance", "report"]
-   }
-
-   await solana_agent.kb_add_pdf_document(
-      pdf_data=pdf_bytes,
-      metadata=pdf_metadata,
-   )
-
-   async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
-      print(response, end="")
-
 Guardrails - Optional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -665,7 +553,7 @@ Advanced Configuration
 Prompt Injection at Runtime Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Useful for Knowledge Base answers and FAQs.
+Useful for adding additional context to agent responses.
 
 .. code-block:: python
 

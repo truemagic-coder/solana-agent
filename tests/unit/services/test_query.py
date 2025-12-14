@@ -93,14 +93,11 @@ def mock_memory_provider():
 @pytest.fixture
 def query_service(mock_agent_service, mock_routing_service, mock_memory_provider):
     # Ensure all dependencies are correctly passed and match __init__
-    # Assuming QueryService expects knowledge_base, not kb_provider
     return QueryService(
         agent_service=mock_agent_service,
         routing_service=mock_routing_service,
         memory_provider=mock_memory_provider,
-        knowledge_base=None,  # Corrected parameter name based on query.py
-        input_guardrails=[],  # Ensure default is list if None not allowed
-        kb_results_count=3,  # Add if missing default
+        input_guardrails=[],
     )
 
 
@@ -179,9 +176,7 @@ async def test_get_user_history_no_memory_provider():
         agent_service=mock_agent_svc,
         routing_service=mock_routing_svc,
         memory_provider=None,  # Explicitly None
-        knowledge_base=None,
         input_guardrails=[],
-        kb_results_count=3,
     )
 
     result = await service.get_user_history(TEST_USER_ID)
@@ -207,9 +202,7 @@ async def test_delete_user_history_no_provider():
         agent_service=mock_agent_svc,
         routing_service=mock_routing_svc,
         memory_provider=None,  # Explicitly None
-        knowledge_base=None,
         input_guardrails=[],
-        kb_results_count=3,
     )
     await service.delete_user_history(TEST_USER_ID)
     # No assertion needed on mocks as none should be called

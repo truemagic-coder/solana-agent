@@ -34,7 +34,7 @@ class RoutingService(RoutingServiceInterface):
             self.model = model
         else:
             # Default to small, cheap model for routing
-            self.model = "gpt-4.1-mini"
+            self.model = "gpt-5.2"
         # Simple sticky session: remember last routed agent in-process
         self._last_agent = None
 

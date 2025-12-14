@@ -122,36 +122,6 @@ def agent_tools_config(base_config):
 
 
 @pytest.fixture
-def knowledge_base_config(mongo_config):
-    config = deepcopy(mongo_config)
-    config["knowledge_base"] = {
-        "collection": "test_kb",
-        "results_count": 5,
-        "pinecone": {
-            "api_key": "test-pinecone-key",
-            "index_name": "test-index",
-            "embedding_dimensions": 768,
-            # Renamed 'create_index' to 'create_index_if_not_exists'
-            "create_index_if_not_exists": True,
-            "cloud_provider": "aws",
-            "region": "us-east-1",
-            "metric": "cosine",
-            "use_pinecone_embeddings": True,
-            # Renamed 'embedding_model' to 'pinecone_embedding_model'
-            "pinecone_embedding_model": "multilingual-e5-large",
-            # Renamed 'embedding_dimension_override' to 'pinecone_embedding_dimension_override'
-            "pinecone_embedding_dimension_override": 512,
-            "use_reranking": True,
-            "rerank_model": "cohere-rerank-3.5",
-            "rerank_top_k": 3,
-            "initial_query_top_k_multiplier": 5,
-            "rerank_text_field": "content",
-        },
-    }
-    return config
-
-
-@pytest.fixture
 def zep_config(mongo_config):
     config = deepcopy(mongo_config)
     config["zep"] = {"api_key": "test-zep-key"}
@@ -202,7 +172,7 @@ def openai_with_model_config():
     return {
         "openai": {
             "api_key": "test-openai-key",
-            "model": "gpt-4.1-mini",
+            "model": "gpt-5.2",
         },
         "agents": [
             {
@@ -653,180 +623,6 @@ class TestSolanaAgentFactory:
         assert mock_agent_instance.assign_tool_for_agent.call_count == 2
         mock_agent_instance.assign_tool_for_agent.assert_any_call("test_agent", "tool1")
         mock_agent_instance.assign_tool_for_agent.assert_any_call("test_agent", "tool2")
-
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.PineconeAdapter")
-    # Added create=True
-    @patch("solana_agent.factories.agent_factory.KnowledgeBaseService", create=True)
-    # Added MemoryRepository mock
-    @patch("solana_agent.factories.agent_factory.MemoryRepository")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    # Patches are applied bottom-up, arguments should match this order
-    def test_create_from_config_with_knowledge_base(
-        # Corrected argument order
-        self,
-        mock_query_service,
-        mock_memory_repo,
-        mock_knowledge_base,
-        mock_pinecone_adapter,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        knowledge_base_config,
-    ):
-        """Test creating services with knowledge base configuration."""
-        # Setup mocks
-        mock_mongo_instance = MagicMock()
-        mock_mongo_adapter.return_value = mock_mongo_instance
-
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-
-        mock_pinecone_instance = MagicMock()
-        mock_pinecone_adapter.return_value = mock_pinecone_instance
-
-        mock_kb_instance = MagicMock()
-        mock_knowledge_base.return_value = mock_kb_instance
-
-        # Mock MemoryRepository instance - should be created
-        mock_memory_instance = MagicMock()
-        mock_memory_repo.return_value = mock_memory_instance
-
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(knowledge_base_config)
-
-        # Verify calls
-        # Adjusted assertion to match the actual call from the error log
-        mock_pinecone_adapter.assert_called_once_with(
-            api_key="test-pinecone-key",
-            index_name="test-index",
-            embedding_dimensions=3072,
-            create_index_if_not_exists=True,
-            use_reranking=True,
-            rerank_model="cohere-rerank-3.5",
-            cloud_provider="aws",
-            region="us-east-1",
-            metric="cosine",
-            rerank_top_k=3,
-            initial_query_top_k_multiplier=5,
-            rerank_text_field="content",
-        )
-
-        # The KnowledgeBaseService assertion might also need adjustment depending on
-        # whether it relies on the missing PineconeAdapter arguments.
-        # Assuming it only needs the adapter instance and basic config for now.
-        mock_knowledge_base.assert_called_once_with(
-            pinecone_adapter=mock_pinecone_instance,
-            mongodb_adapter=mock_mongo_instance,
-            openai_api_key="test-openai-key",  # From config
-            openai_model_name="text-embedding-3-large",
-            collection_name="knowledge_documents",  # From config
-            rerank_results=True,  # From config (pinecone.use_reranking)
-            rerank_top_k=3,  # From config (knowledge_base.results_count)
-            splitter_buffer_size=1,  # Default
-            splitter_breakpoint_percentile=95,  # Default
-        )
-
-        # Verify MemoryRepository was called
-        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
-
-        mock_query_service.assert_called_once_with(
-            agent_service=mock_agent_instance,
-            routing_service=mock_routing_instance,
-            memory_provider=mock_memory_instance,  # Expect memory instance
-            knowledge_base=mock_kb_instance,
-            kb_results_count=5,
-            input_guardrails=[],
-        )
-
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.PineconeAdapter")
-    # Added create=True
-    @patch("solana_agent.factories.agent_factory.KnowledgeBaseService", create=True)
-    # Added MemoryRepository mock
-    @patch("solana_agent.factories.agent_factory.MemoryRepository")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    # Patches are applied bottom-up, arguments should match this order
-    def test_create_from_config_with_kb_error_case_1(
-        # Corrected argument order
-        self,
-        mock_query_service,
-        mock_memory_repo,
-        mock_knowledge_base,
-        mock_pinecone_adapter,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        knowledge_base_config,
-    ):
-        """Test creating services when knowledge base initialization fails."""
-        # Setup mocks
-        mock_mongo_instance = MagicMock()
-        mock_mongo_adapter.return_value = mock_mongo_instance
-
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-
-        # Simulate Pinecone error causing KB init failure
-        # No need to mock pinecone instance if side_effect is Exception
-        mock_pinecone_adapter.side_effect = Exception("Pinecone error")
-
-        # Mock MemoryRepository instance - should still be created
-        mock_memory_instance = MagicMock()
-        mock_memory_repo.return_value = mock_memory_instance
-
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory - should handle knowledge base error gracefully
-        result = SolanaAgentFactory.create_from_config(knowledge_base_config)
-
-        # Verify MemoryRepository was still called
-        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
-
-        # Verify PineconeAdapter was called (attempted)
-        mock_pinecone_adapter.assert_called_once()
-        # Verify KnowledgeBaseService constructor was NOT called because Pinecone failed first
-        mock_knowledge_base.assert_not_called()
-
-        # Verify QueryService call includes the memory provider even if KB failed
-        mock_query_service.assert_called_once_with(
-            agent_service=mock_agent_instance,
-            routing_service=mock_routing_instance,
-            memory_provider=mock_memory_instance,  # Expect the memory instance
-            knowledge_base=None,
-            kb_results_count=5,  # Comes from knowledge_base_config
-            input_guardrails=[],
-        )
 
         assert result == mock_query_instance
 
@@ -1685,7 +1481,7 @@ class TestSolanaAgentFactory:
         # Verify OpenAIAdapter was called with OpenAI config and custom model
         mock_openai_adapter.assert_called_once_with(
             api_key="test-openai-key",
-            model="gpt-4.1-mini",
+            model="gpt-5.2",
         )
         # Verify other services were called
         mock_agent_service.assert_called_once()

@@ -31,9 +31,6 @@ from solana_agent.interfaces.services.routing import (
 from solana_agent.interfaces.providers.memory import (
     MemoryProvider as MemoryProviderInterface,
 )
-from solana_agent.interfaces.services.knowledge_base import (
-    KnowledgeBaseService as KnowledgeBaseInterface,
-)
 from solana_agent.interfaces.guardrails.guardrails import InputGuardrail
 
 from solana_agent.services.agent import AgentService
@@ -50,16 +47,12 @@ class QueryService(QueryServiceInterface):
         agent_service: AgentService,
         routing_service: RoutingService,
         memory_provider: Optional[MemoryProviderInterface] = None,
-        knowledge_base: Optional[KnowledgeBaseInterface] = None,
-        kb_results_count: int = 3,
         input_guardrails: List[InputGuardrail] = None,
     ):
         """Initialize the query service."""
         self.agent_service = agent_service
         self.routing_service = routing_service
         self.memory_provider = memory_provider
-        self.knowledge_base = knowledge_base
-        self.kb_results_count = kb_results_count
         self.input_guardrails = input_guardrails or []
         # Per-user sticky sessions (in-memory)
         # { user_id: { 'agent': str, 'started_at': float, 'last_updated': float, 'required_complete': bool } }
@@ -110,26 +103,6 @@ class QueryService(QueryServiceInterface):
                 memory_context = await self.memory_provider.retrieve(user_id)
             except Exception:
                 memory_context = ""
-
-        # KB context
-        kb_context = ""
-        if self.knowledge_base:
-            try:
-                kb_results = await self.knowledge_base.query(
-                    query_text=user_text,
-                    top_k=self.kb_results_count,
-                    include_content=True,
-                    include_metadata=False,
-                )
-                if kb_results:
-                    kb_lines = [
-                        "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**"
-                    ]
-                    for i, r in enumerate(kb_results, 1):
-                        kb_lines.append(f"[{i}] {r.get('content', '').strip()}\n")
-                    kb_context = "\n".join(kb_lines)
-            except Exception:
-                kb_context = ""
 
         # Capture context
         capture_context = ""
@@ -244,13 +217,11 @@ class QueryService(QueryServiceInterface):
             combined_context += capture_context
         if memory_context:
             combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
-        if kb_context:
-            combined_context += kb_context + "\n"
 
         guide = (
             "PRIORITIZATION GUIDE:\n"
             "- Prefer Captured User Data for user-specific fields.\n"
-            "- Prefer KB/tools for facts.\n"
+            "- Prefer tools for facts.\n"
             "- History is for tone and continuity.\n\n"
             "FORM FLOW RULES:\n"
             "- Ask exactly one field per turn.\n"
@@ -307,7 +278,7 @@ class QueryService(QueryServiceInterface):
                             prompt=user_prompt,
                             system_prompt=instruction,
                             model_class=QueryService._SwitchIntentModel,
-                            model="gpt-4.1-mini",
+                            model="gpt-5.2",
                         )
                     )
                 except TypeError:
@@ -445,27 +416,7 @@ class QueryService(QueryServiceInterface):
                 except Exception:
                     memory_context = ""
 
-            # 4) Knowledge base context
-            kb_context = ""
-            if self.knowledge_base:
-                try:
-                    kb_results = await self.knowledge_base.query(
-                        query_text=user_text,
-                        top_k=self.kb_results_count,
-                        include_content=True,
-                        include_metadata=False,
-                    )
-                    if kb_results:
-                        kb_lines = [
-                            "**KNOWLEDGE BASE (CRITICAL: MAKE THIS INFORMATION THE TOP PRIORITY):**"
-                        ]
-                        for i, r in enumerate(kb_results, 1):
-                            kb_lines.append(f"[{i}] {r.get('content', '').strip()}\n")
-                        kb_context = "\n".join(kb_lines)
-                except Exception:
-                    kb_context = ""
-
-            # 5) Determine agent (sticky session aware; allow explicit switch/new conversation)
+            # 4) Determine agent (sticky session aware; allow explicit switch/new conversation)
             agent_name = "default"
             prev_assistant = ""
             routing_input = user_text
@@ -615,7 +566,7 @@ class QueryService(QueryServiceInterface):
                                 prompt=user_prompt,
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
-                                model="gpt-4.1-mini",
+                                model="gpt-5.2",
                             )
                         except TypeError:
                             # Provider may not accept 'model' kwarg
@@ -894,13 +845,11 @@ class QueryService(QueryServiceInterface):
                 combined_context += capture_context
             if memory_context:
                 combined_context += f"CONVERSATION HISTORY (Use for continuity; not authoritative for facts):\n{memory_context}\n\n"
-            if kb_context:
-                combined_context += kb_context + "\n"
             if combined_context:
                 combined_context += (
                     "PRIORITIZATION GUIDE:\n"
                     "- Prefer Captured User Data for user-specific fields.\n"
-                    "- Prefer KB/tools for facts.\n"
+                    "- Prefer tools for facts.\n"
                     "- History is for tone and continuity.\n\n"
                     "FORM FLOW RULES:\n"
                     "- Ask exactly one field per turn.\n"

@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-4.1"
-DEFAULT_VISION_MODEL = "gpt-4.1"
-DEFAULT_PARSE_MODEL = "gpt-4.1"
+DEFAULT_CHAT_MODEL = "gpt-5.2"
+DEFAULT_VISION_MODEL = "gpt-5.2"
+DEFAULT_PARSE_MODEL = "gpt-5.2"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
 DEFAULT_EMBEDDING_DIMENSIONS = 3072
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
@@ -392,16 +392,16 @@ class OpenAIAdapter(LLMProvider):
             )
             return f"Error: Total image size ({total_size_mb:.2f}MB) exceeds limit ({MAX_TOTAL_IMAGE_SIZE_MB}MB)."
 
-        messages: List[Dict[str, Any]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": content_list})
+        # Build input for Responses API
+        input_content = content_list
 
-        request_params = {
-            "messages": messages,
+        request_params: Dict[str, Any] = {
             "model": target_model,
-            # "max_tokens": 300 # Optional: Add max_tokens if needed
+            "input": [{"role": "user", "content": input_content}],
         }
+
+        if system_prompt:
+            request_params["instructions"] = system_prompt
 
         if self.logfire:
             logfire.instrument_openai(self.client)
@@ -411,14 +411,15 @@ class OpenAIAdapter(LLMProvider):
         )
 
         try:
-            response = await self.client.chat.completions.create(**request_params)
-            if response.choices and response.choices[0].message.content:
+            response = await self.client.responses.create(**request_params)
+            # Extract text from Responses API response
+            if hasattr(response, "output_text") and response.output_text:
                 # Log actual usage if available
-                if response.usage:
+                if hasattr(response, "usage") and response.usage:
                     logger.info(
-                        f"OpenAI API Usage: Prompt={response.usage.prompt_tokens}, Completion={response.usage.completion_tokens}, Total={response.usage.total_tokens}"
+                        f"OpenAI API Usage: Input={response.usage.input_tokens}, Output={response.usage.output_tokens}, Total={response.usage.total_tokens}"
                     )
-                return response.choices[0].message.content
+                return response.output_text
             else:
                 logger.warning("Received vision response with no content.")
                 return ""

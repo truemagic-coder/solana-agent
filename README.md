@@ -29,7 +29,6 @@ Build your AI agents in three lines of code!
 * Autonomous Operation
 * Smart Workflows
 * Agentic Forms
-* Knowledge Base
 * MCP Support
 * Guardrails
 * Image Generation
@@ -37,6 +36,7 @@ Build your AI agents in three lines of code!
 * Tested & Secure
 * Built in Python
 * Powers [CometHeart](https://cometheart.com)
+* Powers [Solana Agent Bot][https://t.me/solana_agent_bot]
 
 ## Unique Selling Proposition (USP) - Smart Workflows
 
@@ -73,7 +73,6 @@ Smart workflows are as easy as combining your tools and prompts.
 * Unified value system ensuring brand-aligned agent responses
 * Powerful tool integration using standard Python packages and/or inline tools
 * Assigned tools are utilized by agents automatically and effectively
-* Integrated Knowledge Base with semantic search and automatic PDF chunking
 * Input and output guardrails for content filtering, safety, and data sanitization
 * Generate custom images based on text prompts with storage on S3 compatible services
 * Deterministic agentic form filling in natural conversation
@@ -87,14 +86,13 @@ Smart workflows are as easy as combining your tools and prompts.
 * [OpenAI](https://openai.com) - AI Model Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
-* [Pinecone](https://pinecone.io) - Knowledge Base (optional)
 * [Zapier](https://zapier.com) - App Integrations (optional)
 * [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
 
 ### AI Models Used
 
 **OpenAI**
-* [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1) (agent & router)
+* [gpt-5.2](https://platform.openai.com/docs/models/gpt-5.2) (agent & router)
 * [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
@@ -160,7 +158,7 @@ from solana_agent import SolanaAgent
 config = {
     "openai": {
         "api_key": "your-openai-api-key",
-        "model": "gpt-4.1",  # Optional, defaults to gpt-4.1
+        "model": "gpt-5.2",  # Optional, defaults to gpt-5.2
     },
     "agents": [
         {
@@ -435,114 +433,6 @@ config = {
         "api_key": "your-logfire-write-token",
     },
 }
-```
-
-### Knowledge Base
-
-The Knowledge Base (KB) is meant to store text values and/or PDFs (extracts text) - can handle very large PDFs.
-
-```python
-config = {
-    "knowledge_base": {
-        "pinecone": {
-            "api_key": "your-pinecone-api-key",
-            "index_name": "your-pinecone-index-name",
-        }
-    },
-    "mongo": {
-        "connection_string": "your-mongo-connection-string",
-        "database": "your-database-name"
-    },
-}
-```
-
-#### Example for KB (text)
-
-```python
-from solana_agent import SolanaAgent
-
-config = {
-    "openai": {
-        "api_key": "your-openai-api-key",
-    },
-    "knowledge_base": {
-        "pinecone": {
-            "api_key": "your-pinecone-api-key",
-            "index_name": "your-pinecone-index-name",
-        }
-    },
-    "mongo": {
-        "connection_string": "your-mongo-connection-string",
-        "database": "your-database-name"
-    },
-    "agents": [
-        {
-            "name": "kb_expert",
-            "instructions": "You answer questions based on the provided knowledge base documents.",
-            "specialization": "Company Knowledge",
-        }
-    ]
-}
-
-solana_agent = SolanaAgent(config=config)
-
-doc_text = "Solana Agent is a Python framework for building multi-agent AI systems."
-doc_metadata = {
-    "source": "internal_docs",
-    "version": "1.0",
-    "tags": ["framework", "python", "ai"]
-}
-await solana_agent.kb_add_document(text=doc_text, metadata=doc_metadata)
-
-async for response in solana_agent.process("user123", "What is Solana Agent?"):
-    print(response, end="")
-```
-
-#### Example for KB (pdf)
-
-```python
-from solana_agent import SolanaAgent
-
-config = {
-    "openai": {
-        "api_key": "your-openai-api-key",
-    },
-    "knowledge_base": {
-        "pinecone": {
-            "api_key": "your-pinecone-api-key",
-            "index_name": "your-pinecone-index-name",
-        }
-    },
-    "mongo": {
-        "connection_string": "your-mongo-connection-string",
-        "database": "your-database-name"
-    },
-    "agents": [
-        {
-            "name": "kb_expert",
-            "instructions": "You answer questions based on the provided knowledge base documents.",
-            "specialization": "Company Knowledge",
-        }
-    ]
-}
-
-solana_agent = SolanaAgent(config=config)
-
-pdf_bytes = await pdf_file.read()
-
-pdf_metadata = {
-    "source": "annual_report_2024.pdf",
-    "year": 2024,
-    "tags": ["finance", "report"]
-}
-
-await solana_agent.kb_add_pdf_document(
-    pdf_data=pdf_bytes,
-    metadata=pdf_metadata,
-)
-
-async for response in solana_agent.process("user123", "Summarize the annual report for 2024."):
-    print(response, end="")
 ```
 
 ### Guardrails
