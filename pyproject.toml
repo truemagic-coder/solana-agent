@@ -13,8 +13,8 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 packages = [{ include = "solana_agent" }]
@@ -23,17 +23,16 @@ packages = [{ include = "solana_agent" }]
 testpaths = ["tests"]
 
 [tool.poetry.dependencies]
-python = ">=3.12,<4.0"
-openai = "2.9.0"
+python = ">=3.13,<4.0"
+openai = "^2.11.0"
 pydantic = ">=2"
-pymongo = "4.15.5"
-zep-cloud = "3.13.0"
-instructor = "1.13.0"
-scrubadub = "2.0.1"
-logfire = "4.16.0"
-typer = "0.20.0"
+pymongo = "^4.15.5"
+zep-cloud = "^3.13.0"
+scrubadub = "^2.0.1"
+logfire = "^4.16.0"
+typer = "^0.20.0"
 rich = ">=13,<14.0"
-pillow = "12.0.0"
+pillow = "^12.0.0"
 websockets = ">=13,<16"
 
 [tool.poetry.group.dev.dependencies]

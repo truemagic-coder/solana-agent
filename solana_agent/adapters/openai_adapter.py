@@ -22,8 +22,6 @@ from typing import (
 from PIL import Image
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel
-import instructor
-from instructor import Mode
 import logfire
 
 from solana_agent.interfaces.providers.llm import LLMProvider
@@ -559,60 +557,37 @@ class OpenAIAdapter(LLMProvider):
             logger.warning(f"Responses API structured output failed: {e}")
 
             try:
-                # Fallback: Use instructor with chat completions
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ]
+                # Fallback: Use chat completions with response_format
+                logger.info("Falling back to chat completions with JSON schema.")
+                fallback_system_prompt = f"""
+{system_prompt}
+
+You must respond with valid JSON that matches this schema:
+{model_class.model_json_schema()}
+
+Respond with ONLY the JSON object.
+"""
 
                 if self.logfire:
                     logfire.instrument_openai(self.client)
 
-                patched_client = instructor.from_openai(
-                    self.client, mode=Mode.TOOLS_STRICT
-                )
-                response = await patched_client.chat.completions.create(
+                completion = await self.client.chat.completions.create(
                     model=current_parse_model,
-                    messages=messages,
-                    response_model=model_class,
-                    max_retries=2,
+                    messages=[
+                        {"role": "system", "content": fallback_system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
                 )
-                return response
 
-            except Exception as instructor_error:
-                logger.warning(f"Instructor fallback also failed: {instructor_error}")
+                json_str = completion.choices[0].message.content
+                return model_class.model_validate_json(json_str)
 
-                try:
-                    # Final fallback: Manual JSON extraction
-                    logger.info("Falling back to manual JSON extraction.")
-                    fallback_system_prompt = f"""
-                    {system_prompt}
-
-                    You must respond with valid JSON that can be parsed as the following Pydantic model:
-                    {model_class.model_json_schema()}
-
-                    Ensure the response contains ONLY the JSON object and nothing else.
-                    """
-
-                    completion = await self.client.chat.completions.create(
-                        model=current_parse_model,
-                        messages=[
-                            {"role": "system", "content": fallback_system_prompt},
-                            {"role": "user", "content": prompt},
-                        ],
-                        response_format={"type": "json_object"},
-                    )
-
-                    json_str = completion.choices[0].message.content
-                    return model_class.model_validate_json(json_str)
-
-                except Exception as fallback_error:
-                    logger.exception(
-                        f"All structured output methods failed: {fallback_error}"
-                    )
-                    raise ValueError(
-                        f"Failed to generate structured output: {e}"
-                    ) from e
+            except Exception as fallback_error:
+                logger.exception(
+                    f"All structured output methods failed: {fallback_error}"
+                )
+                raise ValueError(f"Failed to generate structured output: {e}") from e
 
     async def embed_text(
         self, text: str, model: Optional[str] = None, dimensions: Optional[int] = None
