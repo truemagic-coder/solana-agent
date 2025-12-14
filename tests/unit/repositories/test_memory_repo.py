@@ -293,3 +293,88 @@ class TestMemoryRepository:
         mock_mongo_adapter.find.return_value = [{"user_message": "Hello"}]
         result = await repo.retrieve("user123")
         assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_returns_recent_conversation(self, mock_mongo_adapter):
+        """Test that retrieve returns formatted recent conversation from Mongo."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.return_value = [
+            {"user_message": "Hello", "assistant_message": "Hi there"},
+            {"user_message": "How are you?", "assistant_message": "I'm doing well!"},
+        ]
+        result = await repo.retrieve("user123")
+        assert "## Recent Conversation" in result
+        assert "User: Hello" in result
+        assert "Assistant: Hi there" in result
+        assert "User: How are you?" in result
+        assert "Assistant: I'm doing well!" in result
+
+    @pytest.mark.asyncio
+    async def test_retrieve_zep_only_returns_context(self, mock_zep):
+        """Test that retrieve returns Zep context without Mongo."""
+        repo = MemoryRepository(zep_api_key="test_key")
+        repo.zep = mock_zep
+        mock_memory = MagicMock()
+        mock_memory.context = "User preferences: likes Python"
+        mock_zep.thread.get_user_context.return_value = mock_memory
+        result = await repo.retrieve("user123")
+        assert result == "User preferences: likes Python"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_combines_zep_and_mongo(self, mock_mongo_adapter, mock_zep):
+        """Test that retrieve combines Zep long-term memory with Mongo recent history."""
+        repo = MemoryRepository(
+            mongo_adapter=mock_mongo_adapter, zep_api_key="test_key"
+        )
+        repo.zep = mock_zep
+
+        # Setup Zep response
+        mock_memory = MagicMock()
+        mock_memory.context = "User preferences: likes Python programming"
+        mock_zep.thread.get_user_context.return_value = mock_memory
+
+        # Setup Mongo response
+        mock_mongo_adapter.find.return_value = [
+            {
+                "user_message": "Tell me about Python",
+                "assistant_message": "Python is great!",
+            },
+        ]
+
+        result = await repo.retrieve("user123")
+        assert "## Long-term Memory" in result
+        assert "User preferences: likes Python programming" in result
+        assert "## Recent Conversation" in result
+        assert "User: Tell me about Python" in result
+        assert "Assistant: Python is great!" in result
+
+    @pytest.mark.asyncio
+    async def test_retrieve_mongo_skips_incomplete_turns(self, mock_mongo_adapter):
+        """Test that retrieve skips turns with missing user or assistant message."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.return_value = [
+            {"user_message": "Hello", "assistant_message": "Hi"},
+            {"user_message": "Missing assistant", "assistant_message": ""},
+            {"user_message": "", "assistant_message": "Missing user"},
+            {"user_message": "Complete", "assistant_message": "Also complete"},
+        ]
+        result = await repo.retrieve("user123")
+        assert "User: Hello" in result
+        assert "Assistant: Hi" in result
+        assert "User: Complete" in result
+        assert "Assistant: Also complete" in result
+        assert "Missing assistant" not in result
+        assert "Missing user" not in result
+
+    @pytest.mark.asyncio
+    async def test_retrieve_respects_limit_of_10(self, mock_mongo_adapter):
+        """Test that retrieve requests only 10 most recent messages."""
+        repo = MemoryRepository(mongo_adapter=mock_mongo_adapter)
+        mock_mongo_adapter.find.return_value = []
+        await repo.retrieve("user123")
+        mock_mongo_adapter.find.assert_called_once_with(
+            "conversations",
+            {"user_id": "user123"},
+            sort=[("timestamp", -1)],
+            limit=10,
+        )
