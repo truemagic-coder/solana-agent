@@ -436,16 +436,45 @@ class OpenAIAdapter(LLMProvider):
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         """Stream responses with optional tool calls using OpenAI Responses API."""
         try:
-            # Extract system prompt from messages if present
+            # Extract system prompt from messages and convert to Responses API format
             instructions = None
             input_items = []
             for msg in messages:
                 role = msg.get("role", "")
-                content = msg.get("content", "")
+                content = msg.get("content")
+
                 if role == "system":
                     instructions = content
-                else:
-                    input_items.append({"role": role, "content": content})
+                elif role == "user":
+                    # User messages: simple text content
+                    input_items.append({"role": "user", "content": content or ""})
+                elif role == "assistant":
+                    # Assistant messages may have tool_calls or text content
+                    tool_calls = msg.get("tool_calls")
+                    if tool_calls:
+                        # Convert each tool call to Responses API function_call format
+                        for tc in tool_calls:
+                            func = tc.get("function", {})
+                            input_items.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": tc.get("id", ""),
+                                    "name": func.get("name", ""),
+                                    "arguments": func.get("arguments", "{}"),
+                                }
+                            )
+                    elif content:
+                        # Regular assistant text response
+                        input_items.append({"role": "assistant", "content": content})
+                elif role == "tool":
+                    # Tool result messages: convert to function_call_output format
+                    input_items.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": msg.get("tool_call_id", ""),
+                            "output": content or "",
+                        }
+                    )
 
             request_params: Dict[str, Any] = {
                 "model": model or self.text_model,
