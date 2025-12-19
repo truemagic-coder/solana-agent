@@ -188,6 +188,7 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": model or self.text_model,
             "input": prompt,
+            "reasoning": {"effort": "low"},
         }
 
         if system_prompt:
@@ -396,6 +397,7 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": target_model,
             "input": [{"role": "user", "content": input_content}],
+            "reasoning": {"effort": "low"},
         }
 
         if system_prompt:
@@ -480,6 +482,7 @@ class OpenAIAdapter(LLMProvider):
                 "model": model or self.text_model,
                 "input": input_items,
                 "stream": True,
+                "reasoning": {"effort": "low"},
             }
 
             if instructions:
