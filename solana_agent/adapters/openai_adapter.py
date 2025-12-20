@@ -88,8 +88,6 @@ class OpenAIAdapter(LLMProvider):
         # OpenAI-specific models
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
         self.tts_model = DEFAULT_TTS_MODEL
-        self.embedding_model = DEFAULT_EMBEDDING_MODEL
-        self.embedding_dimensions = DEFAULT_EMBEDDING_DIMENSIONS
 
     def get_api_key(self) -> Optional[str]:  # pragma: no cover
         """Return the API key used to configure the OpenAI client."""
