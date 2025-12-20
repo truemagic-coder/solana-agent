@@ -34,8 +34,6 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_CHAT_MODEL = "gpt-5.2"
 DEFAULT_VISION_MODEL = "gpt-5.2"
 DEFAULT_PARSE_MODEL = "gpt-5.2"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
-DEFAULT_EMBEDDING_DIMENSIONS = 3072
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 DEFAULT_TTS_MODEL = "tts-1"
 
@@ -620,50 +618,3 @@ Respond with ONLY the JSON object.
                     f"All structured output methods failed: {fallback_error}"
                 )
                 raise ValueError(f"Failed to generate structured output: {e}") from e
-
-    async def embed_text(
-        self, text: str, model: Optional[str] = None, dimensions: Optional[int] = None
-    ) -> List[float]:  # pragma: no cover
-        """Generate an embedding for the given text using OpenAI.
-
-        Args:
-            text: The text to embed.
-            model: The embedding model to use (defaults to text-embedding-3-large).
-            dimensions: Desired output dimensions for the embedding.
-
-        Returns:
-            A list of floats representing the embedding vector.
-        """
-        if not text:
-            # Log error instead of raising immediately, let caller handle empty input if needed
-            logger.error("Attempted to embed empty text.")
-            raise ValueError("Text cannot be empty")
-
-        try:
-            # Use provided model/dimensions or fall back to defaults
-            embedding_model = model or self.embedding_model
-            embedding_dimensions = dimensions or self.embedding_dimensions
-
-            # Replace newlines with spaces as recommended by OpenAI
-            text = text.replace("\n", " ")
-
-            if self.logfire:  # Instrument only if logfire is enabled
-                logfire.instrument_openai(self.client)
-
-            response = await self.client.embeddings.create(
-                input=[text], model=embedding_model, dimensions=embedding_dimensions
-            )
-
-            if response.data and response.data[0].embedding:
-                return response.data[0].embedding
-            else:
-                # Log warning about unexpected response structure
-                logger.warning(
-                    "Failed to retrieve embedding from OpenAI response structure."
-                )
-                raise ValueError("Failed to retrieve embedding from OpenAI response")
-
-        except Exception as e:
-            # Log the exception with traceback before raising
-            logger.exception(f"Error generating embedding: {e}")
-            raise  # Re-raise the original exception
