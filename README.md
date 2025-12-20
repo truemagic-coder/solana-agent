@@ -16,7 +16,7 @@ Build production-ready AI agents in three lines of code.
 
 ## Why Solana Agent?
 
-Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling with precise instruction following. This is the foundation for building reliable, production-grade agents like the [Solana Agent Trading Copilot](https://t.me/solana_agent_bot).
+Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling with precise instruction following. This is the foundation for building reliable, production-grade agents like the [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot).
 
 ### What Makes This Different
 
@@ -41,7 +41,7 @@ Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling wi
 ### Built With Solana Agent
 
 * [CometHeart](https://cometheart.com) - AI mobile companion
-* [Solana Agent Trading Copilot](https://t.me/solana_agent_bot) - Telegram trading bot with zero hallucinations
+* [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot) - Telegram trading bot with zero hallucinations
 
 ## The Power of GPT-5.2
 
