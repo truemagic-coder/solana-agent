@@ -12,71 +12,59 @@
 
 ## AI Agents for Solana
 
-Build your AI agents in three lines of code!
+Build production-ready AI agents in three lines of code.
 
-## Why?
+## Why Solana Agent?
+
+Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling with precise instruction following. This is the foundation for building reliable, production-grade agents like the [Solana Agent Trading Copilot](https://t.me/solana_agent_bot).
+
+### What Makes This Different
+
+* **No Hallucinations** - GPT-5.2's superior instruction following means agents do exactly what you tell them and don't make up results
+* **Reliable Tool Calling** - Tools execute correctly, every time, with proper argument handling
+* **True Multi-Agent Orchestration** - Agents collaborate seamlessly with intelligent routing
+* **Persistent Memory** - Context preserved across all interactions for coherent conversations
+* **Production Proven** - Powers real applications handling real users and real transactions
+
+### Core Capabilities
+
 * Three lines of code setup
-* Simple Agent Definition
-* Streaming Responses
-* Solana Integration
-* Multi-Agent Swarm
-* Multi-Modal (Images & Audio & Text)
-* Conversational Memory & History
-* Internet Search
-* Intelligent Routing
-* Business Alignment
-* Extensible Tooling
-* Autonomous Operation
-* Smart Workflows
-* Agentic Forms
-* MCP Support
-* Guardrails
-* Image Generation
-* Pydantic Logfire
-* Tested & Secure
-* Built in Python
-* Powers [CometHeart](https://cometheart.com)
-* Powers [Solana Agent Bot][https://t.me/solana_agent_bot]
+* Simple JSON agent definitions
+* Multi-modal support (text, audio, images)
+* Streaming responses
+* Solana blockchain integration
+* Smart workflows with automatic tool chaining
+* Agentic forms for structured data collection
+* Input/output guardrails
+* Observability via Pydantic Logfire
 
-## Unique Selling Proposition (USP) - Smart Workflows
+### Built With Solana Agent
 
-Solana Agent is the first AI agent framework to deliver truly intelligent, dynamic workflows.
+* [CometHeart](https://cometheart.com) - AI mobile companion
+* [Solana Agent Trading Copilot](https://t.me/solana_agent_bot) - Telegram trading bot with zero hallucinations
 
-With Solana Agent, you can seamlessly define and integrate tools — such as Zapier MCP (for sending emails via Mailgun) and the Solana Balance tool — directly into your agent’s capabilities.
+## The Power of GPT-5.2
 
-Then prompt your agent with natural language, for example:  
-“Get my balances for my Solana wallet and then email them to me.”
+Solana Agent leverages GPT-5.2's breakthrough capabilities:
 
-Solana Agent will automatically orchestrate the workflow:  
-It will first use the Solana Balance tool to retrieve your balances, then invoke the Zapier MCP tool to send the results via email — all without manual intervention or brittle, hardcoded logic.
+**Precise Tool Execution** - When your agent needs to check a wallet balance, execute a trade, or send an email, it happens exactly as instructed. No made-up parameters. No phantom tool calls.
 
-You can also chain tool outputs (structured or unstructured) as inputs for subsequent tasks, enabling complex, multi-step automations with ease.
+**Instruction Fidelity** - Agent instructions are followed to the letter. Define an agent's personality, constraints, and behavior—and that's exactly what you get.
 
-**The result?**  
-A framework that is both powerful and simple — eliminating the need for static, fragile workflow definitions.  
-Smart workflows are as easy as combining your tools and prompts.
+**Complex Workflow Handling** - Chain multiple tools together naturally. "Get my SOL balance and email it to me" just works, with each step executing correctly in sequence.
 
-## Features
+## Smart Workflows
 
-* Easy three lines of code setup
-* Simple agent definition using JSON
-* Designed for a multi-agent swarm 
-* Fast multi-modal processing of text, audio, and images
-* Smart workflows that keep flows simple and smart
-* Interact with the Solana blockchain with many useful tools
-* MCP tool usage with first-class support for [Zapier](https://zapier.com/mcp)
-* Integrated observability and tracing via [Pydantic Logfire](https://pydantic.dev/logfire)
-* Persistent memory that preserves context across all agent interactions
-* Quick Internet search to answer users' queries
-* Streamlined message history for all agent interactions
-* Intelligent query routing to agents with optimal domain expertise or your own custom routing
-* Unified value system ensuring brand-aligned agent responses
-* Powerful tool integration using standard Python packages and/or inline tools
-* Assigned tools are utilized by agents automatically and effectively
-* Input and output guardrails for content filtering, safety, and data sanitization
-* Generate custom images based on text prompts with storage on S3 compatible services
-* Deterministic agentic form filling in natural conversation
-* Combine with event-driven systems to create autonomous agents
+Define tools, write natural language prompts, and let Solana Agent orchestrate the rest.
+
+**Example:** "Get my balances for my Solana wallet and then email them to me."
+
+Solana Agent automatically:
+1. Calls the Solana Balance tool to retrieve your balances
+2. Passes the result to the Zapier MCP tool
+3. Sends the email via Mailgun
+
+No brittle workflow definitions. No manual orchestration. Just tools and prompts.
 
 ## Stack
 
@@ -86,14 +74,12 @@ Smart workflows are as easy as combining your tools and prompts.
 * [OpenAI](https://openai.com) - AI Model Provider
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
-* [Zapier](https://zapier.com) - App Integrations (optional)
 * [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
 
 ### AI Models Used
 
 **OpenAI**
 * [gpt-5.2](https://platform.openai.com/docs/models/gpt-5.2) (agent & router)
-* [text-embedding-3-large](https://platform.openai.com/docs/models/text-embedding-3-large) (embedding)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
@@ -710,12 +696,6 @@ The official collection of tools in one plugin
 The official example app written in FastAPI and Next.js
 
 [Solana Agent Example App](https://github.com/truemagic-coder/solana-agent-app)
-
-## Demo App
-
-The official demo app written in FastAPI and Next.js
-
-[Solana Agent Demo App](https://demo.solana-agent.com)
 
 ## Agent Framework Comparisons
 
