@@ -101,30 +101,44 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        # OpenAI is the only supported LLM provider
-        if "openai" not in config or "api_key" not in config["openai"]:
-            raise ValueError("OpenAI API key is required in config.")
+        # OpenAI-compatible LLM providers (OpenAI or Groq)
+        provider_key = "openai"
+        provider_label = "OpenAI"
+        provider_config = config.get("openai")
+        if not provider_config and "groq" in config:
+            provider_key = "groq"
+            provider_label = "Groq"
+            provider_config = config.get("groq")
 
-        llm_api_key = config["openai"]["api_key"]
-        llm_model = config["openai"].get("model")  # Optional model override
+        if not provider_config or "api_key" not in provider_config:
+            raise ValueError("OpenAI or Groq API key is required in config.")
+
+        llm_api_key = provider_config["api_key"]
+        llm_model = provider_config.get("model")  # Optional model override
+        llm_base_url = provider_config.get("base_url")
+        if provider_key == "groq" and not llm_base_url:
+            llm_base_url = "https://api.groq.com/openai/v1"
+
         if llm_model:
-            logger.info(f"Using OpenAI as LLM provider with model: {llm_model}")
+            logger.info(
+                f"Using {provider_label} as LLM provider with model: {llm_model}"
+            )
         else:
-            logger.info("Using OpenAI as LLM provider")
+            logger.info(f"Using {provider_label} as LLM provider")
+
+        llm_adapter_kwargs: Dict[str, Any] = {
+            "api_key": llm_api_key,
+            "model": llm_model,
+        }
+        if llm_base_url:
+            llm_adapter_kwargs["base_url"] = llm_base_url
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
                 raise ValueError("Pydantic Logfire API key is required.")
-            llm_adapter = OpenAIAdapter(
-                api_key=llm_api_key,
-                model=llm_model,
-                logfire_api_key=config["logfire"].get("api_key"),
-            )
-        else:
-            llm_adapter = OpenAIAdapter(
-                api_key=llm_api_key,
-                model=llm_model,
-            )
+            llm_adapter_kwargs["logfire_api_key"] = config["logfire"].get("api_key")
+
+        llm_adapter = OpenAIAdapter(**llm_adapter_kwargs)
 
         # Create business mission if specified in config
         business_mission = None
@@ -187,8 +201,8 @@ class SolanaAgentFactory:
         if not routing_model:
             # Fall back to OpenAI routing_model config
             routing_model = (
-                config.get("openai", {}).get("routing_model")
-                if isinstance(config.get("openai"), dict)
+                provider_config.get("routing_model")
+                if isinstance(provider_config, dict)
                 else None
             )
         routing_service = RoutingService(

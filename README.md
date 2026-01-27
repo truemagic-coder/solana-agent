@@ -72,6 +72,7 @@ No brittle workflow definitions. No manual orchestration. Just tools and prompts
 
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - AI Model Provider
+* [Groq](https://groq.com) - OpenAI-Compatible Model Provider (optional)
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
@@ -82,6 +83,9 @@ No brittle workflow definitions. No manual orchestration. Just tools and prompts
 * [gpt-5.2](https://platform.openai.com/docs/models/gpt-5.2) (agent & router)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
+
+**Groq (OpenAI-compatible)**
+* [openai/gpt-oss-120b](https://console.groq.com/docs/model/openai/gpt-oss-120b) (agent & router)
 
 ## Installation
 
@@ -419,6 +423,34 @@ config = {
         "api_key": "your-logfire-write-token",
     },
 }
+```
+
+### Groq (OpenAI-Compatible)
+
+Solana Agent supports Groq - don't include OpenAI keys - it is groq or openai.
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "groq": {
+        "api_key": "your-groq-api-key",
+        "model": "openai/gpt-oss-120b",
+        "base_url": "https://api.groq.com/openai/v1",  # Optional (default for Groq)
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+    print(response, end="")
 ```
 
 ### Guardrails
