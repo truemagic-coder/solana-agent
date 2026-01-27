@@ -55,10 +55,14 @@ class OpenAIAdapter(LLMProvider):
         self,
         api_key: str,
         model: Optional[str] = None,
+        base_url: Optional[str] = None,
         logfire_api_key: Optional[str] = None,
     ):
         self.api_key = api_key
-        self.client = AsyncOpenAI(api_key=api_key)
+        if base_url:
+            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        else:
+            self.client = AsyncOpenAI(api_key=api_key)
 
         self.logfire = False
         if logfire_api_key:
