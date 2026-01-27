@@ -59,6 +59,8 @@ class OpenAIAdapter(LLMProvider):
         logfire_api_key: Optional[str] = None,
     ):
         self.api_key = api_key
+        self.base_url = base_url
+        self._is_openai_endpoint = base_url is None or "api.openai.com" in base_url
         if base_url:
             self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         else:
@@ -67,13 +69,18 @@ class OpenAIAdapter(LLMProvider):
         self.logfire = False
         if logfire_api_key:
             try:
-                logfire.configure(token=logfire_api_key)
-                self.logfire = True
-                # Instrument the main client immediately after configuring logfire
-                logfire.instrument_openai(self.client)
-                logger.info(
-                    "Logfire configured and OpenAI client instrumented successfully."
-                )
+                if self._is_openai_endpoint:
+                    logfire.configure(token=logfire_api_key)
+                    self.logfire = True
+                    # Instrument the main client immediately after configuring logfire
+                    logfire.instrument_openai(self.client)
+                    logger.info(
+                        "Logfire configured and OpenAI client instrumented successfully."
+                    )
+                else:
+                    logger.warning(
+                        "Logfire OpenAI instrumentation disabled for non-OpenAI base_url."
+                    )
             except Exception as e:
                 logger.error(f"Failed to configure Logfire: {e}")
                 self.logfire = False
