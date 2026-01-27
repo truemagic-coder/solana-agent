@@ -417,6 +417,8 @@ config = {
 
 ### Observability and Tracing
 
+Note: Logfire only works with OpenAI and not Groq
+
 ```python
 config = {
     "logfire": {
