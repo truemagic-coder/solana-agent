@@ -73,6 +73,7 @@ No brittle workflow definitions. No manual orchestration. Just tools and prompts
 * [Python](https://python.org) - Programming Language
 * [OpenAI](https://openai.com) - AI Model Provider
 * [Groq](https://groq.com) - OpenAI-Compatible Model Provider (optional)
+* [Cerebras](https://cerebras.ai) - OpenAI-Compatible Model Provider (optional)
 * [MongoDB](https://mongodb.com) - Conversational History (optional)
 * [Zep Cloud](https://getzep.com) - Conversational Memory (optional)
 * [Pydantic Logfire](https://pydantic.dev/logfire) - Observability and Tracing (optional)
@@ -85,7 +86,10 @@ No brittle workflow definitions. No manual orchestration. Just tools and prompts
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
 **Groq (OpenAI-compatible)**
-* [openai/gpt-oss-120b](https://console.groq.com/docs/model/openai/gpt-oss-120b) (agent & router)
+* [Model list](https://groq.com) (configure via the `model` field)
+
+**Cerebras (OpenAI-compatible)**
+* [Model list](https://cerebras.ai) (configure via the `model` field)
 
 ## Installation
 
@@ -417,7 +421,7 @@ config = {
 
 ### Observability and Tracing
 
-Note: Logfire only works with OpenAI and not Groq
+Note: Logfire only works with OpenAI and not Groq or Cerebras
 
 ```python
 config = {
@@ -455,9 +459,37 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
+### Cerebras (OpenAI-Compatible)
+
+Solana Agent supports Cerebras - don't include OpenAI keys - it is cerebras or openai.
+
+```python
+from solana_agent import SolanaAgent
+
+config = {
+    "cerebras": {
+        "api_key": "your-cerebras-api-key",
+        "model": "cerebras/llama3.1-70b",
+        "base_url": "https://api.cerebras.ai/v1",  # Optional (default for Cerebras)
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        }
+    ],
+}
+
+solana_agent = SolanaAgent(config=config)
+
+async for response in solana_agent.process("user123", "What are the latest AI developments?"):
+    print(response, end="")
+```
+
 ### Reasoning Effort
 
-Configure the reasoning effort level for OpenAI and Groq models. This parameter controls how much computational effort the model uses for reasoning tasks. By default, the parameter is not included in API calls.
+Configure the reasoning effort level for OpenAI, Groq, and Cerebras models. This parameter controls how much computational effort the model uses for reasoning tasks. By default, the parameter is not included in API calls.
 
 Available options:
 - `"low"` - Fast responses with minimal reasoning
@@ -490,6 +522,25 @@ config = {
     "groq": {
         "api_key": "your-groq-api-key",
         "model": "openai/gpt-oss-120b",
+        "reasoning_effort": "medium",  # Optional: "low", "medium", or "high"
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        }
+    ],
+}
+```
+
+**Cerebras Example:**
+
+```python
+config = {
+    "cerebras": {
+        "api_key": "your-cerebras-api-key",
+        "model": "gpt-oss-120b",
         "reasoning_effort": "medium",  # Optional: "low", "medium", or "high"
     },
     "agents": [

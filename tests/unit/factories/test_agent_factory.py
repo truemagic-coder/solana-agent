@@ -204,6 +204,25 @@ def groq_with_model_config():
 
 
 @pytest.fixture
+def cerebras_with_model_config():
+    """Config with Cerebras and a custom model specified."""
+    return {
+        "cerebras": {
+            "api_key": "test-cerebras-key",
+            "model": "cerebras/llama3.1-70b",
+            "base_url": "https://api.cerebras.ai/v1",
+        },
+        "agents": [
+            {
+                "name": "test_agent",
+                "instructions": "You are a test agent.",
+                "specialization": "Testing",
+            }
+        ],
+    }
+
+
+@pytest.fixture
 def openai_with_reasoning_effort_config():
     """Config with OpenAI and reasoning_effort specified."""
     return {
@@ -222,6 +241,26 @@ def groq_with_reasoning_effort_config():
             "api_key": "test-groq-key",
             "model": "openai/gpt-oss-120b",
             "base_url": "https://api.groq.com/openai/v1",
+            "reasoning_effort": "medium",
+        },
+        "agents": [
+            {
+                "name": "test_agent",
+                "instructions": "You are a test agent.",
+                "specialization": "Testing",
+            }
+        ],
+    }
+
+
+@pytest.fixture
+def cerebras_with_reasoning_effort_config():
+    """Config with Cerebras and reasoning_effort specified."""
+    return {
+        "cerebras": {
+            "api_key": "test-cerebras-key",
+            "model": "cerebras/llama3.1-70b",
+            "base_url": "https://api.cerebras.ai/v1",
             "reasoning_effort": "medium",
         },
         "agents": [
@@ -309,7 +348,7 @@ class TestSolanaAgentFactory:
         # This should raise ValueError since OpenAI API key is required
         with pytest.raises(
             ValueError,
-            match="OpenAI or Groq API key is required in config.",
+            match="OpenAI, Groq, or Cerebras API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
@@ -1455,7 +1494,7 @@ class TestSolanaAgentFactory:
         # Based on the current factory code, this should raise a ValueError
         with pytest.raises(
             ValueError,
-            match="OpenAI or Groq API key is required in config.",
+            match="OpenAI, Groq, or Cerebras API key is required in config.",
         ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 
@@ -1585,6 +1624,47 @@ class TestSolanaAgentFactory:
     @patch("solana_agent.factories.agent_factory.AgentService")
     @patch("solana_agent.factories.agent_factory.RoutingService")
     @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_cerebras_with_model(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        cerebras_with_model_config,
+    ):
+        """Test creating services with Cerebras and a custom model specified."""
+        # Setup mocks
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        # Call the factory
+        result = SolanaAgentFactory.create_from_config(cerebras_with_model_config)
+
+        # Verify OpenAIAdapter was called with Cerebras config and custom model
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-cerebras-key",
+            model="cerebras/llama3.1-70b",
+            base_url="https://api.cerebras.ai/v1",
+        )
+        # Verify other services were called
+        mock_agent_service.assert_called_once()
+        mock_routing_service.assert_called_once()
+        mock_query_service.assert_called_once()
+        assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
     def test_create_openai_with_reasoning_effort(
         self,
         mock_query_service,
@@ -1649,6 +1729,43 @@ class TestSolanaAgentFactory:
             api_key="test-groq-key",
             model="openai/gpt-oss-120b",
             base_url="https://api.groq.com/openai/v1",
+            reasoning_effort="medium",
+        )
+        assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_cerebras_with_reasoning_effort(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        cerebras_with_reasoning_effort_config,
+    ):
+        """Test creating services with Cerebras and reasoning_effort specified."""
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        result = SolanaAgentFactory.create_from_config(
+            cerebras_with_reasoning_effort_config
+        )
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-cerebras-key",
+            model="cerebras/llama3.1-70b",
+            base_url="https://api.cerebras.ai/v1",
             reasoning_effort="medium",
         )
         assert result == mock_query_instance
