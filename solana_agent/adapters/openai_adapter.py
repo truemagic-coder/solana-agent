@@ -102,6 +102,18 @@ class OpenAIAdapter(LLMProvider):
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
         self.tts_model = DEFAULT_TTS_MODEL
 
+    def _supports_responses_api(self) -> bool:
+        """Check if the configured endpoint supports the OpenAI Responses API.
+
+        OpenAI and Groq support the Responses API. Cerebras and other
+        providers only support the Chat Completions API.
+        """
+        if self._is_openai_endpoint:
+            return True
+        if self.base_url and "api.groq.com" in self.base_url:
+            return True
+        return False
+
     def get_api_key(self) -> Optional[str]:  # pragma: no cover
         """Return the API key used to configure the OpenAI client."""
         return getattr(self, "api_key", None)
@@ -193,41 +205,57 @@ class OpenAIAdapter(LLMProvider):
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:  # pragma: no cover
-        """Generate text using OpenAI Responses API."""
-        request_params: Dict[str, Any] = {
-            "model": model or self.text_model,
-            "input": prompt,
-        }
-
-        if self.reasoning_effort and not self.base_url:
-            request_params["reasoning"] = {"effort": self.reasoning_effort}
-
-        if system_prompt:
-            request_params["instructions"] = system_prompt
-
-        if tools:
-            # Convert tools to Responses API format (internally tagged)
-            responses_tools = []
-            for tool in tools:
-                if tool.get("type") == "function":
-                    func = tool.get("function", {})
-                    responses_tools.append(
-                        {
-                            "type": "function",
-                            "name": func.get("name"),
-                            "description": func.get("description", ""),
-                            "parameters": func.get("parameters", {}),
-                        }
-                    )
-                else:
-                    responses_tools.append(tool)
-            request_params["tools"] = responses_tools
-
+        """Generate text using Responses API or Chat Completions API."""
         if self.logfire:
             logfire.instrument_openai(self.client)
 
         try:
-            response = await self.client.responses.create(**request_params)
+            if self._supports_responses_api():
+                request_params: Dict[str, Any] = {
+                    "model": model or self.text_model,
+                    "input": prompt,
+                }
+
+                if self.reasoning_effort and not self.base_url:
+                    request_params["reasoning"] = {"effort": self.reasoning_effort}
+
+                if system_prompt:
+                    request_params["instructions"] = system_prompt
+
+                if tools:
+                    responses_tools = []
+                    for tool in tools:
+                        if tool.get("type") == "function":
+                            func = tool.get("function", {})
+                            responses_tools.append(
+                                {
+                                    "type": "function",
+                                    "name": func.get("name"),
+                                    "description": func.get("description", ""),
+                                    "parameters": func.get("parameters", {}),
+                                }
+                            )
+                        else:
+                            responses_tools.append(tool)
+                    request_params["tools"] = responses_tools
+
+                response = await self.client.responses.create(**request_params)
+                return response
+
+            # Chat Completions API path (e.g., Cerebras)
+            messages: List[Dict[str, Any]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            cc_params: Dict[str, Any] = {
+                "model": model or self.text_model,
+                "messages": messages,
+            }
+            if tools:
+                cc_params["tools"] = tools
+
+            response = await self.client.chat.completions.create(**cc_params)
             return response
         except OpenAIError as e:
             logger.error(f"OpenAI API error during text generation: {e}")
@@ -283,6 +311,29 @@ class OpenAIAdapter(LLMProvider):
         detail: Literal["low", "high", "auto"] = "auto",
     ) -> str:  # pragma: no cover
         """Generate text from OpenAI models using text and image inputs."""
+        if not self._supports_responses_api():
+            logger.warning(
+                "Vision requests require the Responses API. "
+                "Falling back to text-only Chat Completions."
+            )
+            try:
+                if self.logfire:
+                    logfire.instrument_openai(self.client)
+                fallback_messages: List[Dict[str, Any]] = []
+                if system_prompt:
+                    fallback_messages.append(
+                        {"role": "system", "content": system_prompt}
+                    )
+                fallback_messages.append({"role": "user", "content": prompt})
+                completion = await self.client.chat.completions.create(
+                    model=self.text_model,
+                    messages=fallback_messages,
+                )
+                return completion.choices[0].message.content or ""
+            except Exception as e:
+                logger.exception(f"Error in text-only fallback for images: {e}")
+                return ""
+
         if not images:
             logger.warning(
                 "generate_text_with_images called with no images. Falling back to generate_text."
@@ -449,119 +500,167 @@ class OpenAIAdapter(LLMProvider):
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
-        """Stream responses with optional tool calls using OpenAI Responses API."""
+        """Stream responses with optional tool calls."""
         try:
-            # Extract system prompt from messages and convert to Responses API format
-            instructions = None
-            input_items = []
-            for msg in messages:
-                role = msg.get("role", "")
-                content = msg.get("content")
-
-                if role == "system":
-                    instructions = content
-                elif role == "user":
-                    # User messages: simple text content
-                    input_items.append({"role": "user", "content": content or ""})
-                elif role == "assistant":
-                    # Assistant messages may have tool_calls or text content
-                    tool_calls = msg.get("tool_calls")
-                    if tool_calls:
-                        # Convert each tool call to Responses API function_call format
-                        for tc in tool_calls:
-                            func = tc.get("function", {})
-                            input_items.append(
-                                {
-                                    "type": "function_call",
-                                    "call_id": tc.get("id", ""),
-                                    "name": func.get("name", ""),
-                                    "arguments": func.get("arguments", "{}"),
-                                }
-                            )
-                    elif content:
-                        # Regular assistant text response
-                        input_items.append({"role": "assistant", "content": content})
-                elif role == "tool":
-                    # Tool result messages: convert to function_call_output format
-                    input_items.append(
-                        {
-                            "type": "function_call_output",
-                            "call_id": msg.get("tool_call_id", ""),
-                            "output": content or "",
-                        }
-                    )
-
-            request_params: Dict[str, Any] = {
-                "model": model or self.text_model,
-                "input": input_items,
-                "stream": True,
-            }
-
-            if self.reasoning_effort and not self.base_url:
-                request_params["reasoning"] = {"effort": self.reasoning_effort}
-
-            if instructions:
-                request_params["instructions"] = instructions
-
-            if tools:
-                # Convert tools to Responses API format
-                responses_tools = []
-                for tool in tools:
-                    if tool.get("type") == "function":
-                        func = tool.get("function", {})
-                        responses_tools.append(
-                            {
-                                "type": "function",
-                                "name": func.get("name"),
-                                "description": func.get("description", ""),
-                                "parameters": func.get("parameters", {}),
-                            }
-                        )
-                    else:
-                        responses_tools.append(tool)
-                request_params["tools"] = responses_tools
-
             if self.logfire:
                 logfire.instrument_openai(self.client)
 
-            stream = await self.client.responses.create(**request_params)
-            async for event in stream:
-                try:
-                    event_type = getattr(event, "type", None)
+            if self._supports_responses_api():
+                # Responses API path (OpenAI, Groq)
+                instructions = None
+                input_items = []
+                for msg in messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content")
 
-                    if event_type == "response.output_text.delta":
-                        delta = getattr(event, "delta", "")
-                        if delta:
-                            yield {"type": "content", "delta": delta}
+                    if role == "system":
+                        instructions = content
+                    elif role == "user":
+                        input_items.append({"role": "user", "content": content or ""})
+                    elif role == "assistant":
+                        tool_calls = msg.get("tool_calls")
+                        if tool_calls:
+                            for tc in tool_calls:
+                                func = tc.get("function", {})
+                                input_items.append(
+                                    {
+                                        "type": "function_call",
+                                        "call_id": tc.get("id", ""),
+                                        "name": func.get("name", ""),
+                                        "arguments": func.get("arguments", "{}"),
+                                    }
+                                )
+                        elif content:
+                            input_items.append(
+                                {"role": "assistant", "content": content}
+                            )
+                    elif role == "tool":
+                        input_items.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": msg.get("tool_call_id", ""),
+                                "output": content or "",
+                            }
+                        )
 
-                    elif event_type == "response.function_call_arguments.delta":
-                        yield {
-                            "type": "tool_call_delta",
-                            "id": getattr(event, "call_id", None),
-                            "index": getattr(event, "output_index", 0),
-                            "name": getattr(event, "name", None),
-                            "arguments_delta": getattr(event, "delta", ""),
-                        }
+                request_params: Dict[str, Any] = {
+                    "model": model or self.text_model,
+                    "input": input_items,
+                    "stream": True,
+                }
 
-                    elif event_type == "response.output_item.added":
-                        item = getattr(event, "item", None)
-                        if item and getattr(item, "type", None) == "function_call":
+                if self.reasoning_effort and not self.base_url:
+                    request_params["reasoning"] = {"effort": self.reasoning_effort}
+
+                if instructions:
+                    request_params["instructions"] = instructions
+
+                if tools:
+                    responses_tools = []
+                    for tool in tools:
+                        if tool.get("type") == "function":
+                            func = tool.get("function", {})
+                            responses_tools.append(
+                                {
+                                    "type": "function",
+                                    "name": func.get("name"),
+                                    "description": func.get("description", ""),
+                                    "parameters": func.get("parameters", {}),
+                                }
+                            )
+                        else:
+                            responses_tools.append(tool)
+                    request_params["tools"] = responses_tools
+
+                stream = await self.client.responses.create(**request_params)
+                async for event in stream:
+                    try:
+                        event_type = getattr(event, "type", None)
+
+                        if event_type == "response.output_text.delta":
+                            delta = getattr(event, "delta", "")
+                            if delta:
+                                yield {"type": "content", "delta": delta}
+
+                        elif event_type == "response.function_call_arguments.delta":
                             yield {
                                 "type": "tool_call_delta",
-                                "id": getattr(item, "call_id", None),
+                                "id": getattr(event, "call_id", None),
                                 "index": getattr(event, "output_index", 0),
-                                "name": getattr(item, "name", None),
-                                "arguments_delta": "",
+                                "name": getattr(event, "name", None),
+                                "arguments_delta": getattr(event, "delta", ""),
                             }
 
-                    elif event_type == "response.completed":
-                        yield {"type": "message_end", "finish_reason": "stop"}
+                        elif event_type == "response.output_item.added":
+                            item = getattr(event, "item", None)
+                            if item and getattr(item, "type", None) == "function_call":
+                                yield {
+                                    "type": "tool_call_delta",
+                                    "id": getattr(item, "call_id", None),
+                                    "index": getattr(event, "output_index", 0),
+                                    "name": getattr(item, "name", None),
+                                    "arguments_delta": "",
+                                }
 
-                except Exception as parse_err:
-                    logger.debug(f"Error parsing stream event: {parse_err}")
-                    continue
+                        elif event_type == "response.completed":
+                            yield {"type": "message_end", "finish_reason": "stop"}
 
-            yield {"type": "message_end", "finish_reason": "end_of_stream"}
+                    except Exception as parse_err:
+                        logger.debug(f"Error parsing stream event: {parse_err}")
+                        continue
+
+                yield {"type": "message_end", "finish_reason": "end_of_stream"}
+            else:
+                # Chat Completions API path (e.g., Cerebras)
+                cc_params: Dict[str, Any] = {
+                    "model": model or self.text_model,
+                    "messages": messages,
+                    "stream": True,
+                }
+                if tools:
+                    cc_params["tools"] = tools
+
+                stream = await self.client.chat.completions.create(**cc_params)
+                async for event in stream:
+                    try:
+                        if not getattr(event, "choices", None):
+                            continue
+                        choice = event.choices[0]
+                        delta = getattr(choice, "delta", None)
+                        if delta:
+                            content = getattr(delta, "content", None)
+                            if content:
+                                yield {"type": "content", "delta": content}
+
+                            tc_list = getattr(delta, "tool_calls", None)
+                            if tc_list:
+                                for tc in tc_list:
+                                    func = getattr(tc, "function", None)
+                                    yield {
+                                        "type": "tool_call_delta",
+                                        "id": getattr(tc, "id", None),
+                                        "index": getattr(tc, "index", 0),
+                                        "name": getattr(func, "name", None)
+                                        if func
+                                        else None,
+                                        "arguments_delta": getattr(
+                                            func, "arguments", ""
+                                        )
+                                        if func
+                                        else "",
+                                    }
+
+                        finish_reason = getattr(choice, "finish_reason", None)
+                        if finish_reason:
+                            yield {
+                                "type": "message_end",
+                                "finish_reason": finish_reason,
+                            }
+                    except Exception as parse_err:
+                        logger.debug(f"Error parsing chat stream event: {parse_err}")
+                        continue
+
+                yield {"type": "message_end", "finish_reason": "end_of_stream"}
         except Exception as e:
             logger.exception(f"Error in chat_stream: {e}")
             yield {"type": "error", "error": str(e)}
@@ -574,10 +673,15 @@ class OpenAIAdapter(LLMProvider):
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> T:  # pragma: no cover
-        """Generate structured output using OpenAI Responses API with JSON schema."""
+        """Generate structured output using Responses API or Chat Completions fallback."""
         current_parse_model = model or self.parse_model
 
         try:
+            if not self._supports_responses_api():
+                raise RuntimeError(
+                    "Responses API not supported; using Chat Completions fallback."
+                )
+
             if self.logfire:
                 logfire.instrument_openai(self.client)
 
