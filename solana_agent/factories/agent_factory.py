@@ -115,9 +115,7 @@ class SolanaAgentFactory:
             provider_config = config.get("cerebras")
 
         if not provider_config or "api_key" not in provider_config:
-            raise ValueError(
-                "OpenAI, Groq, or Cerebras API key is required in config."
-            )
+            raise ValueError("OpenAI, Groq, or Cerebras API key is required in config.")
 
         llm_api_key = provider_config["api_key"]
         llm_model = provider_config.get("model")  # Optional model override
