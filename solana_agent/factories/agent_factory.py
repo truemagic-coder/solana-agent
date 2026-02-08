@@ -116,6 +116,9 @@ class SolanaAgentFactory:
         llm_api_key = provider_config["api_key"]
         llm_model = provider_config.get("model")  # Optional model override
         llm_base_url = provider_config.get("base_url")
+        llm_reasoning_effort = provider_config.get(
+            "reasoning_effort"
+        )  # Optional: "low", "medium", or "high"
         if provider_key == "groq" and not llm_base_url:
             llm_base_url = "https://api.groq.com/openai/v1"
 
@@ -132,6 +135,8 @@ class SolanaAgentFactory:
         }
         if llm_base_url:
             llm_adapter_kwargs["base_url"] = llm_base_url
+        if llm_reasoning_effort:
+            llm_adapter_kwargs["reasoning_effort"] = llm_reasoning_effort
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:

@@ -455,6 +455,56 @@ async for response in solana_agent.process("user123", "What are the latest AI de
     print(response, end="")
 ```
 
+### Reasoning Effort
+
+Configure the reasoning effort level for OpenAI and Groq models. This parameter controls how much computational effort the model uses for reasoning tasks. By default, the parameter is not included in API calls.
+
+Available options:
+- `"low"` - Fast responses with minimal reasoning
+- `"medium"` - Balanced reasoning and speed
+- `"high"` - Maximum reasoning effort for complex tasks
+
+**OpenAI Example:**
+
+```python
+config = {
+    "openai": {
+        "api_key": "your-openai-api-key",
+        "model": "gpt-5.2",
+        "reasoning_effort": "high",  # Optional: "low", "medium", or "high"
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        }
+    ],
+}
+```
+
+**Groq Example:**
+
+```python
+config = {
+    "groq": {
+        "api_key": "your-groq-api-key",
+        "model": "openai/gpt-oss-120b",
+        "reasoning_effort": "medium",  # Optional: "low", "medium", or "high"
+    },
+    "agents": [
+        {
+            "name": "research_specialist",
+            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
+            "specialization": "Research and knowledge synthesis",
+        }
+    ],
+}
+```
+
+**Note:** When `reasoning_effort` is omitted from the config, the parameter is not sent to the LLM API, allowing the model to use its default behavior.
+```
+
 ### Guardrails
 
 Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.

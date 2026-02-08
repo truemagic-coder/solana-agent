@@ -204,6 +204,37 @@ def groq_with_model_config():
 
 
 @pytest.fixture
+def openai_with_reasoning_effort_config():
+    """Config with OpenAI and reasoning_effort specified."""
+    return {
+        "openai": {
+            "api_key": "test-openai-key",
+            "reasoning_effort": "high",
+        },
+    }
+
+
+@pytest.fixture
+def groq_with_reasoning_effort_config():
+    """Config with Groq and reasoning_effort specified."""
+    return {
+        "groq": {
+            "api_key": "test-groq-key",
+            "model": "openai/gpt-oss-120b",
+            "base_url": "https://api.groq.com/openai/v1",
+            "reasoning_effort": "medium",
+        },
+        "agents": [
+            {
+                "name": "test_agent",
+                "instructions": "You are a test agent.",
+                "specialization": "Testing",
+            }
+        ],
+    }
+
+
+@pytest.fixture
 def invalid_logfire_config_missing_key(base_config):
     """Config with logfire section missing api_key."""
     config = deepcopy(base_config)
@@ -1547,4 +1578,77 @@ class TestSolanaAgentFactory:
         mock_agent_service.assert_called_once()
         mock_routing_service.assert_called_once()
         mock_query_service.assert_called_once()
+        assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_openai_with_reasoning_effort(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        openai_with_reasoning_effort_config,
+    ):
+        """Test creating services with OpenAI and reasoning_effort specified."""
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        result = SolanaAgentFactory.create_from_config(
+            openai_with_reasoning_effort_config
+        )
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-openai-key",
+            model=None,
+            reasoning_effort="high",
+        )
+        assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_groq_with_reasoning_effort(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        mock_mongo_adapter,
+        groq_with_reasoning_effort_config,
+    ):
+        """Test creating services with Groq and reasoning_effort specified."""
+        mock_openai_instance = MagicMock()
+        mock_openai_adapter.return_value = mock_openai_instance
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        result = SolanaAgentFactory.create_from_config(
+            groq_with_reasoning_effort_config
+        )
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="test-groq-key",
+            model="openai/gpt-oss-120b",
+            base_url="https://api.groq.com/openai/v1",
+            reasoning_effort="medium",
+        )
         assert result == mock_query_instance

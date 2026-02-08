@@ -57,9 +57,11 @@ class OpenAIAdapter(LLMProvider):
         model: Optional[str] = None,
         base_url: Optional[str] = None,
         logfire_api_key: Optional[str] = None,
+        reasoning_effort: Optional[Literal["low", "medium", "high"]] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
+        self.reasoning_effort = reasoning_effort
         self._is_openai_endpoint = base_url is None or "api.openai.com" in base_url
         if base_url:
             self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -195,10 +197,10 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": model or self.text_model,
             "input": prompt,
-            "reasoning": {"effort": "low"}
-            if not self.base_url
-            else None,  # Only set reasoning if using OpenAI endpoint
         }
+
+        if self.reasoning_effort and not self.base_url:
+            request_params["reasoning"] = {"effort": self.reasoning_effort}
 
         if system_prompt:
             request_params["instructions"] = system_prompt
@@ -406,10 +408,10 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": target_model,
             "input": [{"role": "user", "content": input_content}],
-            "reasoning": {"effort": "low"}
-            if not self.base_url
-            else None,  # Only set reasoning if using OpenAI endpoint
         }
+
+        if self.reasoning_effort and not self.base_url:
+            request_params["reasoning"] = {"effort": self.reasoning_effort}
 
         if system_prompt:
             request_params["instructions"] = system_prompt
@@ -493,10 +495,10 @@ class OpenAIAdapter(LLMProvider):
                 "model": model or self.text_model,
                 "input": input_items,
                 "stream": True,
-                "reasoning": {"effort": "low"}
-                if not self.base_url
-                else None,  # Only set reasoning if using OpenAI endpoint
             }
+
+            if self.reasoning_effort and not self.base_url:
+                request_params["reasoning"] = {"effort": self.reasoning_effort}
 
             if instructions:
                 request_params["instructions"] = instructions
