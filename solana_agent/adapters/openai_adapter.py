@@ -195,7 +195,9 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": model or self.text_model,
             "input": prompt,
-            "reasoning": {"effort": "low"},
+            "reasoning": {"effort": "low"}
+            if not self.base_url
+            else None,  # Only set reasoning if using OpenAI endpoint
         }
 
         if system_prompt:
@@ -404,7 +406,9 @@ class OpenAIAdapter(LLMProvider):
         request_params: Dict[str, Any] = {
             "model": target_model,
             "input": [{"role": "user", "content": input_content}],
-            "reasoning": {"effort": "low"},
+            "reasoning": {"effort": "low"}
+            if not self.base_url
+            else None,  # Only set reasoning if using OpenAI endpoint
         }
 
         if system_prompt:
@@ -489,7 +493,9 @@ class OpenAIAdapter(LLMProvider):
                 "model": model or self.text_model,
                 "input": input_items,
                 "stream": True,
-                "reasoning": {"effort": "low"},
+                "reasoning": {"effort": "low"}
+                if not self.base_url
+                else None,  # Only set reasoning if using OpenAI endpoint
             }
 
             if instructions:
