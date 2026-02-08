@@ -101,7 +101,7 @@ class SolanaAgentFactory:
         else:
             db_adapter = None
 
-        # OpenAI-compatible LLM providers (OpenAI or Groq)
+        # OpenAI-compatible LLM providers (OpenAI, Groq, or Cerebras)
         provider_key = "openai"
         provider_label = "OpenAI"
         provider_config = config.get("openai")
@@ -109,9 +109,13 @@ class SolanaAgentFactory:
             provider_key = "groq"
             provider_label = "Groq"
             provider_config = config.get("groq")
+        if not provider_config and "cerebras" in config:
+            provider_key = "cerebras"
+            provider_label = "Cerebras"
+            provider_config = config.get("cerebras")
 
         if not provider_config or "api_key" not in provider_config:
-            raise ValueError("OpenAI or Groq API key is required in config.")
+            raise ValueError("OpenAI, Groq, or Cerebras API key is required in config.")
 
         llm_api_key = provider_config["api_key"]
         llm_model = provider_config.get("model")  # Optional model override
@@ -121,6 +125,8 @@ class SolanaAgentFactory:
         )  # Optional: "low", "medium", or "high"
         if provider_key == "groq" and not llm_base_url:
             llm_base_url = "https://api.groq.com/openai/v1"
+        if provider_key == "cerebras" and not llm_base_url:
+            llm_base_url = "https://api.cerebras.ai/v1"
 
         if llm_model:
             logger.info(
