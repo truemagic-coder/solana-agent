@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_CHAT_MODEL = "gpt-5.2"
-DEFAULT_VISION_MODEL = "gpt-5.2"
-DEFAULT_PARSE_MODEL = "gpt-5.2"
+DEFAULT_CHAT_MODEL = "gpt-5.4"
+DEFAULT_VISION_MODEL = "gpt-5.4"
+DEFAULT_PARSE_MODEL = "gpt-5.4"
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 DEFAULT_TTS_MODEL = "tts-1"
 

@@ -172,7 +172,7 @@ def openai_with_model_config():
     return {
         "openai": {
             "api_key": "test-openai-key",
-            "model": "gpt-5.2",
+            "model": "gpt-5.4",
         },
         "agents": [
             {
@@ -1570,7 +1570,7 @@ class TestSolanaAgentFactory:
         # Verify OpenAIAdapter was called with OpenAI config and custom model
         mock_openai_adapter.assert_called_once_with(
             api_key="test-openai-key",
-            model="gpt-5.2",
+            model="gpt-5.4",
         )
         # Verify other services were called
         mock_agent_service.assert_called_once()
