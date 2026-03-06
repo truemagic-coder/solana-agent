@@ -278,7 +278,7 @@ class QueryService(QueryServiceInterface):
                             prompt=user_prompt,
                             system_prompt=instruction,
                             model_class=QueryService._SwitchIntentModel,
-                            model="gpt-5.2",
+                            model="gpt-5.4",
                         )
                     )
                 except TypeError:
@@ -566,7 +566,7 @@ class QueryService(QueryServiceInterface):
                                 prompt=user_prompt,
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
-                                model="gpt-5.2",
+                                model="gpt-5.4",
                             )
                         except TypeError:
                             # Provider may not accept 'model' kwarg

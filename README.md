@@ -16,11 +16,11 @@ Build production-ready AI agents in three lines of code.
 
 ## Why Solana Agent?
 
-Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling with precise instruction following. This is the foundation for building reliable, production-grade agents like the [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot).
+Powered by GPT-5.4, Solana Agent delivers **zero-hallucination** tool calling with precise instruction following. This is the foundation for building reliable, production-grade agents like the [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot).
 
 ### What Makes This Different
 
-* **No Hallucinations** - GPT-5.2's superior instruction following means agents do exactly what you tell them and don't make up results
+* **No Hallucinations** - GPT-5.4's superior instruction following means agents do exactly what you tell them and don't make up results
 * **Reliable Tool Calling** - Tools execute correctly, every time, with proper argument handling
 * **True Multi-Agent Orchestration** - Agents collaborate seamlessly with intelligent routing
 * **Persistent Memory** - Context preserved across all interactions for coherent conversations
@@ -43,9 +43,9 @@ Powered by GPT-5.2, Solana Agent delivers **zero-hallucination** tool calling wi
 * [CometHeart](https://cometheart.com) - AI mobile companion
 * [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot) - Telegram trading bot with zero hallucinations
 
-## The Power of GPT-5.2
+## The Power of GPT-5.4
 
-Solana Agent leverages GPT-5.2's breakthrough capabilities:
+Solana Agent leverages GPT-5.4's breakthrough capabilities:
 
 **Precise Tool Execution** - When your agent needs to check a wallet balance, execute a trade, or send an email, it happens exactly as instructed. No made-up parameters. No phantom tool calls.
 
@@ -81,7 +81,7 @@ No brittle workflow definitions. No manual orchestration. Just tools and prompts
 ### AI Models Used
 
 **OpenAI**
-* [gpt-5.2](https://platform.openai.com/docs/models/gpt-5.2) (agent & router)
+* [gpt-5.4](https://platform.openai.com/docs/models/gpt-5.4) (agent & router)
 * [tts-1](https://platform.openai.com/docs/models/tts-1) (audio TTS)
 * [gpt-4o-mini-transcribe](https://platform.openai.com/docs/models/gpt-4o-mini-transcribe) (audio transcription)
 
@@ -152,7 +152,7 @@ from solana_agent import SolanaAgent
 config = {
     "openai": {
         "api_key": "your-openai-api-key",
-        "model": "gpt-5.2",  # Optional, defaults to gpt-5.2
+        "model": "gpt-5.4",  # Optional, defaults to gpt-5.4
     },
     "agents": [
         {
@@ -502,7 +502,7 @@ Available options:
 config = {
     "openai": {
         "api_key": "your-openai-api-key",
-        "model": "gpt-5.2",
+        "model": "gpt-5.4",
         "reasoning_effort": "high",  # Optional: "low", "medium", or "high"
     },
     "agents": [
