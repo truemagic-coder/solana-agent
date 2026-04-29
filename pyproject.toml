@@ -22,7 +22,7 @@ testpaths = ["tests"]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-openai = "^2.33.0
+openai = "^2.33.0"
 pydantic = ">=2"
 pymongo = "^4.17.0"
 scrubadub = "^2.0.1"
