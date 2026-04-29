@@ -190,9 +190,16 @@ class TestMultiAgentRouting:
         ) as mock_detect:
             mock_detect.return_value = (False, None, False)
 
-            # Process a query
-            async for _ in query_service.process("user123", "Hello, how are you?"):
-                pass
+            with patch.object(
+                routing_service, "route_query", new_callable=AsyncMock
+            ) as mock_route:
+                mock_route.return_value = "research_agent"
+
+                # Process a query
+                async for _ in query_service.process(
+                    "user123", "Hello, how are you?"
+                ):
+                    pass
 
             # _detect_switch_intent SHOULD be called with multiple agents
             mock_detect.assert_called_once()
@@ -322,3 +329,36 @@ class TestRoutingServiceSingleAgent:
 
         # LLM call should be made
         mock_llm_provider.parse_structured_output.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_routing_service_passes_runtime_context_to_llm(
+        self, mock_llm_provider, multi_agent_service
+    ):
+        """Routing analysis should forward runtime context to the LLM provider."""
+        from solana_agent.domains.routing import QueryAnalysis
+
+        mock_llm_provider.parse_structured_output.return_value = QueryAnalysis(
+            primary_agent="support_agent",
+            secondary_agents=[],
+            complexity_level=1,
+            topics=["support"],
+            confidence=0.9,
+        )
+
+        routing_service = RoutingService(
+            llm_provider=mock_llm_provider,
+            agent_service=multi_agent_service,
+        )
+
+        result = await routing_service.route_query(
+            "Need help",
+            runtime_context={"privy_wallet_id": "wallet-123"},
+        )
+
+        assert result == "support_agent"
+        assert (
+            mock_llm_provider.parse_structured_output.await_args.kwargs[
+                "runtime_context"
+            ]
+            == {"privy_wallet_id": "wallet-123"}
+        )

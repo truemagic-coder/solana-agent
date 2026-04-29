@@ -17,11 +17,13 @@ def mongo_client():
         yield client, db
         # Cleanup after tests
         client.drop_database("test_db")
+        client.close()
     else:
         # Use mongomock for unit tests
         client = mongomock.MongoClient()
         db = client["test_db"]
         yield client, db
+        client.close()
 
 
 @pytest.fixture
@@ -29,10 +31,14 @@ def mongodb_adapter(mongo_client):
     """Fixture for MongoDB adapter."""
     client, _ = mongo_client
     adapter = MongoDBAdapter(connection_string=client.HOST, database_name="test_db")
+    original_client = adapter.client
     # Replace the real client with our fixture
     adapter.client = client
     adapter.db = client["test_db"]
-    return adapter
+    if original_client is not client:
+        original_client.close()
+    yield adapter
+    adapter.client.close()
 
 
 @pytest.fixture
@@ -55,6 +61,7 @@ class TestMongoDBAdapter:
         client, _ = mongo_client
         adapter = MongoDBAdapter(connection_string=client.HOST, database_name="test_db")
         assert adapter.db.name == "test_db"
+        adapter.client.close()
 
     def test_create_collection(self, mongodb_adapter):
         """Test creating a collection."""

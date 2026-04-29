@@ -5,7 +5,10 @@ Tests for the QueryService implementation.
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from solana_agent.services.query import QueryService
+from solana_agent.services.query import (
+    QueryService,
+    REMOTE_HISTORY_UNAVAILABLE_ERROR,
+)
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 from solana_agent.interfaces.providers.memory import MemoryProvider
@@ -15,21 +18,22 @@ from solana_agent.interfaces.providers.memory import MemoryProvider
 def mock_agent_service():
     """Create a mock agent service."""
     service = AsyncMock(spec=AgentService)
+    service.get_all_ai_agents.return_value = {"default": MagicMock()}
     service.last_text_response = "Test response"
-    service.llm_provider = AsyncMock()
+    service.llm_provider = MagicMock()
 
-    async def mock_tts():
+    async def mock_tts(*args, **kwargs):
         yield b"audio_data"
 
-    async def mock_transcribe():
+    async def mock_transcribe(*args, **kwargs):
         yield "transcribed text"
 
-    async def mock_generate():
+    async def mock_generate(**kwargs):
         yield "generated text"
 
-    service.llm_provider.tts.side_effect = mock_tts
-    service.llm_provider.transcribe_audio.side_effect = mock_transcribe
-    service.generate_response.side_effect = mock_generate
+    service.llm_provider.tts = MagicMock(side_effect=mock_tts)
+    service.llm_provider.transcribe_audio = MagicMock(side_effect=mock_transcribe)
+    service.generate_response = MagicMock(side_effect=mock_generate)
     return service
 
 
@@ -45,16 +49,18 @@ def mock_routing_service():
 def mock_memory_provider():
     """Create a mock memory provider."""
     provider = AsyncMock(spec=MemoryProvider)
-    provider.retrieve.return_value = "memory context"
-    provider.find.return_value = [
+    provider.retrieve = AsyncMock(return_value="memory context")
+    provider.store = AsyncMock(return_value=None)
+    provider.delete = AsyncMock(return_value=None)
+    provider.find = MagicMock(return_value=[
         {
             "_id": "123",
             "user_message": "hello",
             "assistant_message": "hi",
             "timestamp": MagicMock(),
         }
-    ]
-    provider.count_documents.return_value = 1
+    ])
+    provider.count_documents = MagicMock(return_value=1)
     return provider
 
 
@@ -83,9 +89,13 @@ class TestQueryService:
         mock_memory_provider,  # Add mock_memory_provider if needed for init
     ):
         """Test error handling during processing."""
-        # Ensure generate_response is an AsyncMock for async iteration
-        mock_agent_service.generate_response = AsyncMock(
-            side_effect=Exception("Test error")
+        async def mock_generate_error(**kwargs):
+            if False:
+                yield ""
+            raise Exception("Test error")
+
+        mock_agent_service.generate_response = MagicMock(
+            side_effect=mock_generate_error
         )
 
         # Instantiate QueryService with all required args, including input_guardrails
@@ -137,7 +147,7 @@ class TestQueryService:
         """Test getting user history without memory provider."""
         service = QueryService(mock_agent_service, mock_routing_service)
         result = await service.get_user_history("user123")
-        assert result["error"] == "Memory provider not available"
+        assert result["error"] == REMOTE_HISTORY_UNAVAILABLE_ERROR
         assert result["data"] == []
 
     @pytest.mark.asyncio

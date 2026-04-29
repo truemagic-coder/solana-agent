@@ -235,6 +235,7 @@ class AgentService(AgentServiceInterface):
         agent_name: str,
         user_id: str,
         query: Union[str, bytes],
+        runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
@@ -312,6 +313,7 @@ class AgentService(AgentServiceInterface):
                     model_class=output_model,
                     model=self.model,
                     tools=tools if tools else None,
+                    runtime_context=runtime_context,
                 )
                 yield model_instance
                 return
@@ -319,7 +321,10 @@ class AgentService(AgentServiceInterface):
             # Vision fallback (non-streaming for now)
             if images:
                 vision_text = await self.llm_provider.generate_text_with_images(
-                    prompt=full_prompt, images=images, system_prompt=system_prompt
+                    prompt=full_prompt,
+                    images=images,
+                    system_prompt=system_prompt,
+                    runtime_context=runtime_context,
                 )
                 if output_format == "audio":
                     cleaned_audio_buffer = self._clean_for_audio(vision_text)
@@ -350,6 +355,7 @@ class AgentService(AgentServiceInterface):
                     messages=messages,
                     model=self.model,
                     tools=tools if tools else None,
+                    runtime_context=runtime_context,
                 ):
                     etype = event.get("type")
                     if etype == "content":

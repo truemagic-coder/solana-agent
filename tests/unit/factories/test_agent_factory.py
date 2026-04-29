@@ -6,10 +6,14 @@ creates and initializes all components of the Solana Agent system.
 """
 
 import pytest
+import re
 from unittest.mock import patch, MagicMock
 from copy import deepcopy
 
-from solana_agent.factories.agent_factory import SolanaAgentFactory
+from solana_agent.factories.agent_factory import (
+    LOCAL_MEMORY_CONFIG_ERROR,
+    SolanaAgentFactory,
+)
 from solana_agent.interfaces.guardrails.guardrails import (
     InputGuardrail,
     OutputGuardrail,
@@ -185,6 +189,42 @@ def openai_with_model_config():
 
 
 @pytest.fixture
+def x402_private_key_config():
+    """Config with AGI x402 private-key auth and remote-memory defaults."""
+    return {
+        "openai": {
+            "auth_mode": "x402_private_key",
+            "private_key": "test-private-key",
+        },
+    }
+
+
+@pytest.fixture
+def x402_stateless_override_config():
+    """Config with AGI x402 private-key auth and a stateless model alias."""
+    return {
+        "openai": {
+            "auth_mode": "x402_private_key",
+            "private_key": "test-private-key",
+            "model": "stateless",
+            "stateless_model": "solana-agent-chat",
+        },
+    }
+
+
+@pytest.fixture
+def x402_privy_config():
+    """Config with AGI x402 Privy auth and remote-memory defaults."""
+    return {
+        "openai": {
+            "auth_mode": "x402_privy",
+            "privy_app_id": "app-123",
+            "privy_app_secret": "secret-123",
+        },
+    }
+
+
+@pytest.fixture
 def groq_with_model_config():
     """Config with Groq and a custom model specified."""
     return {
@@ -348,36 +388,25 @@ class TestSolanaAgentFactory:
         # This should raise ValueError since OpenAI API key is required
         with pytest.raises(
             ValueError,
-            match="OpenAI, Groq, or Cerebras API key is required in config.",
+            match=r"OpenAI-compatible config is required in config\['openai'\].",
         ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")
     @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.MemoryRepository")
     @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_mongo(
+    def test_create_from_config_with_x402_private_key_remote_memory_defaults(
         self,
         mock_query_service,
-        mock_memory_repo,
         mock_routing_service,
         mock_agent_service,
         mock_openai_adapter,
-        mock_mongo_adapter,
-        mongo_config,
+        x402_private_key_config,
     ):
-        """Test creating services with MongoDB configuration."""
-        # Setup mocks
-        mock_mongo_instance = MagicMock()
-        mock_mongo_adapter.return_value = mock_mongo_instance
-
+        """x402 AGI mode should default to remote memory and skip local repositories."""
         mock_openai_instance = MagicMock()
         mock_openai_adapter.return_value = mock_openai_instance
-
-        mock_memory_instance = MagicMock()
-        mock_memory_repo.return_value = mock_memory_instance
 
         mock_agent_instance = MagicMock()
         mock_agent_service.return_value = mock_agent_instance
@@ -389,29 +418,154 @@ class TestSolanaAgentFactory:
         mock_query_instance = MagicMock()
         mock_query_service.return_value = mock_query_instance
 
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(mongo_config)
+        result = SolanaAgentFactory.create_from_config(x402_private_key_config)
 
-        # Verify calls
-        mock_mongo_adapter.assert_called_once_with(
-            connection_string="mongodb://localhost:27017", database_name="test_db"
+        mock_openai_adapter.assert_called_once_with(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="http://127.0.0.1:8000/v1",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
         )
-        mock_memory_repo.assert_called_once_with(mongo_adapter=mock_mongo_instance)
-
+        mock_query_service.assert_called_once_with(
+            agent_service=mock_agent_instance,
+            routing_service=mock_routing_instance,
+            memory_provider=None,
+            input_guardrails=[],
+        )
         assert result == mock_query_instance
+
+    def test_rejects_legacy_local_memory_config_even_in_x402_mode(self):
+        """Phase 3 rejects local memory config even when x402 auth is used."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
+            SolanaAgentFactory.create_from_config(
+            {
+                "openai": {
+                    "auth_mode": "x402_private_key",
+                    "private_key": "test-private-key",
+                },
+                "mongo": {
+                    "connection_string": "mongodb://localhost:27017",
+                },
+            }
+        )
+
+    def test_x402_private_key_requires_signing_key(self):
+        """x402 private-key mode should fail fast when the signing key is missing."""
+        with pytest.raises(
+            ValueError,
+            match="OpenAI x402 signing key is required when auth_mode is x402_private_key.",
+        ):
+            SolanaAgentFactory.create_from_config(
+                {
+                    "openai": {
+                        "auth_mode": "x402_private_key",
+                    }
+                }
+            )
+
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_create_from_config_with_x402_privy_remote_memory_defaults(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        x402_privy_config,
+    ):
+        """x402 Privy mode should default to remote memory and skip local repositories."""
+        mock_openai_adapter.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        result = SolanaAgentFactory.create_from_config(x402_privy_config)
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="http://127.0.0.1:8000/v1",
+            auth_mode="x402_privy",
+            private_key=None,
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
+        )
+        assert result == mock_query_instance
+
+    def test_x402_privy_requires_app_credentials(self):
+        """x402 Privy mode should fail fast when app credentials are missing."""
+        with pytest.raises(
+            ValueError,
+            match=(
+                "Privy app credentials are required when auth_mode is x402_privy. "
+                "Set privy_app_id and privy_app_secret; pass privy_wallet_id at runtime."
+            ),
+        ):
+            SolanaAgentFactory.create_from_config(
+                {
+                    "openai": {
+                        "auth_mode": "x402_privy",
+                    }
+                }
+            )
+
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_x402_private_key_resolves_stateless_model_alias(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        x402_stateless_override_config,
+    ):
+        """AGI config should allow an explicit stateless model override alias."""
+        mock_openai_adapter.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_instance = MagicMock()
+        mock_routing_service.return_value = mock_routing_instance
+        mock_query_instance = MagicMock()
+        mock_query_service.return_value = mock_query_instance
+
+        result = SolanaAgentFactory.create_from_config(x402_stateless_override_config)
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="x402",
+            model="solana-agent-chat",
+            base_url="http://127.0.0.1:8000/v1",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
+        )
+        assert result == mock_query_instance
+
+    def test_rejects_mongo_config(self, mongo_config):
+        """Phase 3 rejects Mongo-backed local memory config."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
+            SolanaAgentFactory.create_from_config(mongo_config)
 
     def test_invalid_mongo_config_missing_connection(
         self, invalid_mongo_config_missing_conn
     ):
-        """Test handling of invalid MongoDB config (missing connection string)."""
-        with pytest.raises(ValueError, match="MongoDB connection string is required."):
+        """Any Mongo config is rejected before per-field validation in Phase 3."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
             SolanaAgentFactory.create_from_config(invalid_mongo_config_missing_conn)
 
     def test_invalid_mongo_config_missing_database(
         self, invalid_mongo_config_missing_db
     ):
-        """Test handling of invalid MongoDB config (missing database name)."""
-        with pytest.raises(ValueError, match="MongoDB database name is required."):
+        """Any Mongo config is rejected before per-field validation in Phase 3."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
             SolanaAgentFactory.create_from_config(invalid_mongo_config_missing_db)
 
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
@@ -472,92 +626,15 @@ class TestSolanaAgentFactory:
 
         assert result == mock_query_instance
 
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.MemoryRepository")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_zep_and_mongo(
-        self,
-        mock_query_service,
-        mock_memory_repo,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        zep_config,
-    ):
-        """Test creating services with Zep and MongoDB configuration."""
-        # Setup mocks
-        mock_mongo_instance = MagicMock()
-        mock_mongo_adapter.return_value = mock_mongo_instance
+    def test_rejects_zep_and_mongo_config(self, zep_config):
+        """Phase 3 rejects combined Zep and Mongo local memory config."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
+            SolanaAgentFactory.create_from_config(zep_config)
 
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-
-        mock_memory_instance = MagicMock()
-        mock_memory_repo.return_value = mock_memory_instance
-
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(zep_config)
-
-        # Verify calls
-        mock_memory_repo.assert_called_once_with(
-            mongo_adapter=mock_mongo_instance, zep_api_key="test-zep-key"
-        )
-
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.MemoryRepository")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_from_config_with_zep_only(
-        self,
-        mock_query_service,
-        mock_memory_repo,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        zep_only_config,
-    ):
-        """Test creating services with Zep only configuration."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-
-        mock_memory_instance = MagicMock()
-        mock_memory_repo.return_value = mock_memory_instance
-
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(zep_only_config)
-
-        # Verify calls
-        mock_memory_repo.assert_called_once_with(zep_api_key="test-zep-key")
-
-        assert result == mock_query_instance
+    def test_rejects_zep_only_config(self, zep_only_config):
+        """Phase 3 rejects Zep-backed local memory config."""
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
+            SolanaAgentFactory.create_from_config(zep_only_config)
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
     @patch("solana_agent.factories.agent_factory.AgentService")
@@ -586,8 +663,8 @@ class TestSolanaAgentFactory:
         mock_query_instance = MagicMock()
         mock_query_service.return_value = mock_query_instance
 
-        # Call the factory - should raise ValueError
-        with pytest.raises(ValueError, match="Zep API key is required"):
+        # Call the factory - should reject local-memory config before legacy validation.
+        with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
             SolanaAgentFactory.create_from_config(invalid_zep_config)
 
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
@@ -1494,7 +1571,7 @@ class TestSolanaAgentFactory:
         # Based on the current factory code, this should raise a ValueError
         with pytest.raises(
             ValueError,
-            match="OpenAI, Groq, or Cerebras API key is required in config.",
+            match=r"OpenAI-compatible config is required in config\['openai'\].",
         ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 
@@ -1578,87 +1655,21 @@ class TestSolanaAgentFactory:
         mock_query_service.assert_called_once()
         assert result == mock_query_instance
 
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_groq_with_model(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        groq_with_model_config,
-    ):
-        """Test creating services with Groq and a custom model specified."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
+    def test_rejects_groq_provider_section(self, groq_with_model_config):
+        """Legacy provider sections should fail fast in the v34 contract."""
+        with pytest.raises(
+            ValueError,
+            match="Legacy provider sections are no longer supported: groq.",
+        ):
+            SolanaAgentFactory.create_from_config(groq_with_model_config)
 
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(groq_with_model_config)
-
-        # Verify OpenAIAdapter was called with Groq config and custom model
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-groq-key",
-            model="openai/gpt-oss-120b",
-            base_url="https://api.groq.com/openai/v1",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_cerebras_with_model(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        cerebras_with_model_config,
-    ):
-        """Test creating services with Cerebras and a custom model specified."""
-        # Setup mocks
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        # Call the factory
-        result = SolanaAgentFactory.create_from_config(cerebras_with_model_config)
-
-        # Verify OpenAIAdapter was called with Cerebras config and custom model
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-cerebras-key",
-            model="cerebras/llama3.1-70b",
-            base_url="https://api.cerebras.ai/v1",
-        )
-        # Verify other services were called
-        mock_agent_service.assert_called_once()
-        mock_routing_service.assert_called_once()
-        mock_query_service.assert_called_once()
-        assert result == mock_query_instance
+    def test_rejects_cerebras_provider_section(self, cerebras_with_model_config):
+        """Legacy provider sections should fail fast in the v34 contract."""
+        with pytest.raises(
+            ValueError,
+            match="Legacy provider sections are no longer supported: cerebras.",
+        ):
+            SolanaAgentFactory.create_from_config(cerebras_with_model_config)
 
     @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
     @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
@@ -1696,76 +1707,24 @@ class TestSolanaAgentFactory:
         )
         assert result == mock_query_instance
 
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_groq_with_reasoning_effort(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        groq_with_reasoning_effort_config,
+    def test_rejects_groq_provider_section_with_reasoning_effort(
+        self, groq_with_reasoning_effort_config
     ):
-        """Test creating services with Groq and reasoning_effort specified."""
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
+        """Legacy provider sections should stay unsupported with extra config."""
+        with pytest.raises(
+            ValueError,
+            match="Legacy provider sections are no longer supported: groq.",
+        ):
+            SolanaAgentFactory.create_from_config(groq_with_reasoning_effort_config)
 
-        result = SolanaAgentFactory.create_from_config(
-            groq_with_reasoning_effort_config
-        )
-
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-groq-key",
-            model="openai/gpt-oss-120b",
-            base_url="https://api.groq.com/openai/v1",
-            reasoning_effort="medium",
-        )
-        assert result == mock_query_instance
-
-    @patch("solana_agent.factories.agent_factory.MongoDBAdapter")
-    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
-    @patch("solana_agent.factories.agent_factory.AgentService")
-    @patch("solana_agent.factories.agent_factory.RoutingService")
-    @patch("solana_agent.factories.agent_factory.QueryService")
-    def test_create_cerebras_with_reasoning_effort(
-        self,
-        mock_query_service,
-        mock_routing_service,
-        mock_agent_service,
-        mock_openai_adapter,
-        mock_mongo_adapter,
-        cerebras_with_reasoning_effort_config,
+    def test_rejects_cerebras_provider_section_with_reasoning_effort(
+        self, cerebras_with_reasoning_effort_config
     ):
-        """Test creating services with Cerebras and reasoning_effort specified."""
-        mock_openai_instance = MagicMock()
-        mock_openai_adapter.return_value = mock_openai_instance
-        mock_agent_instance = MagicMock()
-        mock_agent_service.return_value = mock_agent_instance
-        mock_agent_instance.tool_registry.list_all_tools.return_value = []
-        mock_routing_instance = MagicMock()
-        mock_routing_service.return_value = mock_routing_instance
-        mock_query_instance = MagicMock()
-        mock_query_service.return_value = mock_query_instance
-
-        result = SolanaAgentFactory.create_from_config(
-            cerebras_with_reasoning_effort_config
-        )
-
-        mock_openai_adapter.assert_called_once_with(
-            api_key="test-cerebras-key",
-            model="cerebras/llama3.1-70b",
-            base_url="https://api.cerebras.ai/v1",
-            reasoning_effort="medium",
-        )
-        assert result == mock_query_instance
+        """Legacy provider sections should stay unsupported with extra config."""
+        with pytest.raises(
+            ValueError,
+            match="Legacy provider sections are no longer supported: cerebras.",
+        ):
+            SolanaAgentFactory.create_from_config(
+                cerebras_with_reasoning_effort_config
+            )

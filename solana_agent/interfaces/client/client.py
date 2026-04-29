@@ -14,6 +14,7 @@ class SolanaAgent(ABC):
         self,
         user_id: str,
         message: Union[str, bytes],
+        runtime_context: Optional[Dict[str, Any]] = None,
         prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
         capture_schema: Optional[Dict[str, Any]] = None,

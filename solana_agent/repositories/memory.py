@@ -1,10 +1,19 @@
 import logging
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime, timezone
 from copy import deepcopy
 
-from zep_cloud.client import AsyncZep as AsyncZepCloud
-from zep_cloud.types import Message
+try:
+    from zep_cloud.client import AsyncZep as AsyncZepCloud
+    from zep_cloud.types import Message
+except ModuleNotFoundError:
+    AsyncZepCloud = None
+
+    @dataclass
+    class Message:
+        content: str
+        role: str
 
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
@@ -57,7 +66,11 @@ class MemoryRepository(MemoryProvider):
                 self.captures_collection = "captures"
 
         # Zep setup
-        self.zep = AsyncZepCloud(api_key=zep_api_key) if zep_api_key else None
+        if zep_api_key and AsyncZepCloud is None:
+            logger.warning("zep_cloud is not installed; Zep memory is disabled")
+            self.zep = None
+        else:
+            self.zep = AsyncZepCloud(api_key=zep_api_key) if zep_api_key else None
 
     async def store(self, user_id: str, messages: List[Dict[str, Any]]) -> None:
         if not user_id or not isinstance(user_id, str):

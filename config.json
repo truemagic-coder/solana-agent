@@ -1,15 +1,16 @@
 {
     "openai": {
-        "api_key": "your-openai-api-key"
-    },
-    "grok": {
-        "api_key": "your-grok-api-key"
+        "auth_mode": "x402_private_key",
+        "private_key": "your-base58-solana-private-key",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "model": "memory",
+        "stateless_model": "solana-agent-chat"
     },
     "agents": [
         {
             "name": "default_agent",
             "description": "A helpful assistant.",
-            "instructions": "You are a helpful AI assistant.",
+            "instructions": "You are a helpful Solana AI assistant.",
             "specialization": "general"
         }
     ]

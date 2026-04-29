@@ -27,6 +27,7 @@ class AgentService(ABC):
         agent_name: str,
         user_id: str,
         query: Union[str, bytes],
+        runtime_context: Optional[Dict[str, Any]] = None,
         memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
