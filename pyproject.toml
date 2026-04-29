@@ -58,6 +58,7 @@ myst-parser = "^4.0.1"
 sphinx-autobuild = "^2025.08.25"
 mongomock = "^4.3.0"
 ruff = "^0.15.12"
+respx = "^0.23.1"
 
 [tool.poetry.scripts]
 solana-agent = "solana_agent.cli:app"
