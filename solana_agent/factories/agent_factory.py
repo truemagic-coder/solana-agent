@@ -152,7 +152,9 @@ class SolanaAgentFactory:
         llm_api_key = provider_config.get("api_key")
         requested_model = str(provider_config.get("model") or "").strip() or None
         stateless_model = (
-            str(provider_config.get("stateless_model") or DEFAULT_AGI_STATELESS_MODEL).strip()
+            str(
+                provider_config.get("stateless_model") or DEFAULT_AGI_STATELESS_MODEL
+            ).strip()
             or DEFAULT_AGI_STATELESS_MODEL
         )
         llm_model = requested_model

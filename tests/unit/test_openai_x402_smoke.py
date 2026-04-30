@@ -36,6 +36,7 @@ class _FakeAgent:
         async for chunk in _fake_agent_process():
             yield chunk
 
+
 @pytest.mark.asyncio
 async def test_collect_agent_text_response_joins_streamed_chunks() -> None:
     content, elapsed_ms = await smoke._collect_agent_text_response(
