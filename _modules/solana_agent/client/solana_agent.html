@@ -43,6 +43,14 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API Reference</a></li>
+</ul>
 
         </div>
       </div>
@@ -122,6 +130,7 @@
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
         <span class="n">message</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">],</span>
+        <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">capture_schema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">capture_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -170,6 +179,7 @@
         <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="o">.</span><span class="n">process</span><span class="p">(</span>
             <span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span>
             <span class="n">query</span><span class="o">=</span><span class="n">message</span><span class="p">,</span>
+            <span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">,</span>
             <span class="n">images</span><span class="o">=</span><span class="n">images</span><span class="p">,</span>
             <span class="n">output_format</span><span class="o">=</span><span class="n">output_format</span><span class="p">,</span>
             <span class="n">audio_voice</span><span class="o">=</span><span class="n">audio_voice</span><span class="p">,</span>

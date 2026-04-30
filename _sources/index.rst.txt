@@ -7,405 +7,388 @@ Solana Agent Documentation
 
    api/index
 
-Welcome to Solana Agent's documentation. Solana Agent enables you to build an AI business in three lines of code!
+Overview
+--------
 
-Getting Started
+Solana Agent runs on a local-first AGI x402 runtime contract.
+
+Current public runtime expectations:
+
+- the canonical AI config section is ``ai``
+- ``openai`` remains supported as a compatibility alias
+- ``auth_mode: "x402_private_key"`` and ``auth_mode: "x402_privy"`` are the funded AGI paths
+- ``solana-agent-memory`` is the default model behavior
+- ``solana-agent-chat`` is the explicit stateless override
+- remote AGI memory is the only supported memory mode
+- local Mongo and Zep are not part of the runtime path
+- the official first-party tool surface ships in this package and registers through ``solana_agent.plugins``
+
+Quick Start
+-----------
+
+Install local development dependencies:
+
+.. code-block:: bash
+
+   poetry install
+   cp .env.example .env
+
+Set at least these values in ``.env``:
+
+- ``X402_PRIVATE_KEY``
+- ``SOLANA_RPC_URL`` when your local x402 settlement flow needs an explicit RPC endpoint
+
+Minimal Config
 --------------
 
-Installation
-~~~~~~~~~~~
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "ai": {
+         "auth_mode": "x402_private_key",
+         "private_key": "your-base58-solana-private-key",
+         "base_url": "http://127.0.0.1:8000/v1",
+         "model": "memory",
+         "stateless_model": "solana-agent-chat",
+      },
+      "agents": [
+         {
+            "name": "default_agent",
+            "instructions": "You are a helpful Solana AI assistant.",
+            "specialization": "general",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+Model Selection
+---------------
+
+In AGI x402 mode:
+
+- omit ``model`` or set it to ``"memory"`` to use ``solana-agent-memory``
+- set ``model`` to ``"stateless"`` to resolve through ``stateless_model``
+- set ``model`` directly to ``"solana-agent-chat"`` for the explicit stateless SKU
+
+Privy Payer Example
+-------------------
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "ai": {
+         "auth_mode": "x402_privy",
+         "privy_app_id": "your-privy-app-id",
+         "privy_app_secret": "your-privy-app-secret",
+         "base_url": "http://127.0.0.1:8000/v1",
+         "model": "memory",
+         "stateless_model": "solana-agent-chat",
+      },
+      "agents": [
+         {
+            "name": "default_agent",
+            "instructions": "You are a helpful Solana AI assistant.",
+            "specialization": "general",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   runtime_context = {"privy_wallet_id": "wallet-id-from-privy"}
+
+   async for response in solana_agent.process(
+      "user123",
+      "Check my wallet activity.",
+      runtime_context=runtime_context,
+   ):
+      print(response, end="")
+
+Bundled Tool Surface
+--------------------
+
+The official first-party tools are bundled directly in ``solana_agent.tools``. Do not install Solana Agent Kit as a separate runtime dependency for v34.
+
+The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.
+
+Local Smoke Validation
+----------------------
+
+Run the fast local success bundle:
 
 .. code-block:: bash
 
-   pip install solana-agent
+   make x402-smoke
 
-
-Flows
-~~~~~~
-
-In both flows of single and multiple agents - it is one user query to one agent using one or many tools (if needed).
-
-An agent can have multiple tools and will choose the best ones to fulfill the user's query.
-
-Routing is determined by optimal domain expertise of the agent for the user's query.
-
-When the agent uses tools it feeds the tools output back to itself to generate the final response.
-
-This is important as tools generally output unstructured and unformatted data that the agent needs to prepare for the user.
-
-Keep this in mind while designing your agentic systems using Solana Agent.
-
-.. code-block:: ascii
-
-                        Single Agent                                     
-                                                                           
-      ┌────────┐        ┌─────────┐        ┌────────-┐                    
-      │        │        │         │        │         │                    
-      │        │        │         │        │         │                    
-      │  User  │◄──────►│  Agent  │◄──────►│  Tools  │                    
-      │        │        │         │        │         │                    
-      │        │        │         │        │         │                    
-      └────────┘        └─────────┘        └────────-┘                    
-                                                                           
-                                                                           
-                                                                           
-                                                                           
-                                                                           
-                        Multiple Agents                                   
-                                                                           
-        ┌────────┐        ┌──────────┐        ┌─────────┐        ┌────────-┐
-        │        │        │          │        │         │        │         │
-        │        │        │          │        │         │        │         │
-   ┌───►│  User  ├───────►│  Router  ├───────►│  Agent  │◄──────►│  Tools  │
-   │    │        │        │          │        │         │        │         │
-   │    │        │        │          │        │         │        │         │
-   │    └────────┘        └──────────┘        └────┬────┘        └────────-┘
-   │                                               │                       
-   │                                               │                       
-   │                                               │                       
-   │                                               │                       
-   └───────────────────────────────────────────────┘                       
-
-Usage
-~~~~~~
-
-Text/Text Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-         },
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-      print(response, end="")
-
-Audio/Audio Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-         },
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   audio_content = audio_file.read()
-
-   async for response in solana_agent.process("user123", audio_content, output_format="audio", audio_voice="nova", audio_input_format="webm", audio_output_format="aac"):
-      print(response, end="")
-
-
-Text/Audio Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-         },
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What is the latest news on Elon Musk?", output_format="audio", audio_voice="nova", audio_output_format="aac"):
-      print(response, end="")
-
-
-Audio/Text Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-            "name": "research_specialist",
-            "instructions": "You are an expert researcher who synthesizes complex information clearly.",
-            "specialization": "Research and knowledge synthesis",
-         },
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   audio_content = audio_file.read()
-
-   async for response in solana_agent.process("user123", audio_content, audio_input_format="aac"):
-      print(response, end="")
-
-
-Image/Text Streaming
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-               "name": "vision_expert",
-               "instructions": "You are an expert at analyzing images and answering questions about them.",
-               "specialization": "Image analysis",
-         }
-      ],
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   # Example with an image URL
-   image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-
-   # Example reading image bytes from a file
-   image_bytes = await image_file.read()
-
-   # You can mix URLs and bytes in the list
-   images_to_process = [
-      image_url,
-      image_bytes,
-   ]
-
-   async for response in solana_agent.process("user123", "What is in this image? Describe the scene.", images=images_to_process):
-      print(response, end="")
-
-
-Agentic Forms
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-You can attach a JSON Schema to any agent in your config so it can collect structured data conversationally.
-
-.. code-block:: python
-
-   from solana_agent import SolanaAgent
-
-   config = {
-      "openai": {
-         "api_key": "your-openai-api-key",
-      },
-      "agents": [
-         {
-            "name": "customer_support",
-            "instructions": "You provide friendly, helpful customer support responses.",
-            "specialization": "Customer inquiries",
-            "capture_name": "contact_info",
-            "capture_schema": {
-               "type": "object",
-               "properties": {
-                  "email": { "type": "string" },
-                  "phone": { "type": "string" },
-                  "newsletter_subscribe": { "type": "boolean" }
-               },
-               "required": ["email"]
-            }
-         }
-      ]
-   }
-
-   solana_agent = SolanaAgent(config=config)
-
-   async for response in solana_agent.process("user123", "What are the latest AI developments?"):
-      print(response, end="")
-
-
-Command Line Interface (CLI)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Solana Agent includes a command-line interface (CLI) for text-based chat using a configuration file.
-
-Ensure you have a valid configuration file (e.g., `config.json`) containing at least your OpenAI API key and agent definitions.
-
-.. code-block:: json
-
-   // config.json
-   {
-      "openai": {
-         "api_key": "your-openai-api-key"
-      },
-      "agents": [
-         {
-               "name": "default_agent",
-               "instructions": "You are a helpful AI assistant.",
-               "specialization": "general"
-         }
-      ]
-   }
-
-Also ensure that you have `pip install uv` to call `uvx`.
+Run the full local matrix:
 
 .. code-block:: bash
 
-   uvx solana-agent [OPTIONS]
+   make x402-smoke SCENARIO=all
 
-   Options:
+Run one targeted scenario directly:
 
-   --user-id TEXT: The user ID for the conversation (default: cli_user).
-   --config TEXT: Path to the configuration JSON file (default: config.json).
-   --prompt TEXT: Optional system prompt override for the agent.
-   --help: Show help message and exit.
+.. code-block:: bash
 
-   # Using default config.json and user_id
-   uvx solana-agent
+   poetry run python scripts/openai_x402_smoke.py --scenario memory-stream
 
-   # Specifying user ID and config path
-   uvx solana-agent --user-id my_cli_session --config ./my_agent_config.json
+The smoke harness covers:
 
-Optional Configurations
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- ``health``
+- ``stateless``
+- ``memory``
+- ``memory-stream``
+- ``duplicate``
+- ``stream``
+- public error scenarios
+- internal fault-injection scenarios when the local AGI service enables them
 
-Business Alignment - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+After local validation is green, point ``base_url`` at ``https://ai.solana-agent.com/v1`` and rerun the same scenarios before production use.
 
-.. code-block:: python
+Migration Notes
+---------------
 
-   config = {
-      "business": {
-         "mission": "To provide users with a one-stop shop for their queries.",
-         "values": {
-               "Friendliness": "Users must be treated fairly, openly, and with friendliness.",
-               "Ethical": "Agents must use a strong ethical framework in their interactions with users.",
-         },
-         "goals": [
-               "Empower users with great answers to their queries.",
-         ],
-         "voice": "The voice of the brand is that of a research business."
-      },
-   }
+When moving from the v33 contract to the v34 runtime path:
 
-Conversational History - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- replace direct provider sections such as ``groq``, ``cerebras``, and ``grok`` with a single ``ai`` transport section
+- replace upstream model-provider API keys with x402 payer configuration
+- replace local-memory assumptions with the AGI remote-memory default
+- use ``model: "stateless"`` or ``model: "solana-agent-chat"`` when you need the stateless SKU
+- use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime
+- treat conversation history and memory as remote-only runtime behavior
 
-.. code-block:: python
+The broader migration plan is tracked in ``V34_AGI_X402_CHECKLIST.md``.
 
-   config = {
-      "mongo": {
-         "connection_string": "your-mongo-connection-string",
-         "database": "your-database-name",
-      },
-   }
+Development
+-----------
 
-Conversational Memory - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Useful local commands:
 
-.. code-block:: python
-   
-   config = {
-      "zep": {
-         "api_key": "your-zep-api-key",
-      },
-   }
+.. code-block:: bash
 
-Observability and Tracing - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   poetry run pytest tests/unit -q -W error
+   poetry run python scripts/openai_x402_smoke.py --scenario all
+   make livehtml
+Solana Agent Documentation
+=========================
 
-.. code-block:: python
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
 
-   config = {
-      "logfire": {
-         "api_key": "your-logfire-write-token",
-      },
-   }
+   api/index
 
-Guardrails - Optional
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Overview
+--------
 
-Guardrails allow you to process and potentially modify user input before it reaches the agent (Input Guardrails) and agent output before it's sent back to the user (Output Guardrails). This is useful for implementing safety checks, content moderation, data sanitization, or custom transformations.
+Solana Agent runs on a local-first AGI x402 runtime contract.
 
-Guardrails don't apply to structured outputs.
+Current public runtime expectations:
 
-Solana Agent provides a built-in PII scrubber based on scrubadub.
+- the canonical AI config section is ``ai``
+- ``openai`` remains supported as a compatibility alias
+- ``auth_mode: "x402_private_key"`` and ``auth_mode: "x402_privy"`` are the funded AGI paths
+- ``solana-agent-memory`` is the default model behavior
+- ``solana-agent-chat`` is the explicit stateless override
+- remote AGI memory is the only supported memory mode
+- local Mongo and Zep are not part of the runtime path
+- the official first-party tool surface ships in this package and registers through ``solana_agent.plugins``
+
+Quick Start
+-----------
+
+Install local development dependencies:
+
+.. code-block:: bash
+
+   poetry install
+   cp .env.example .env
+
+Set at least these values in ``.env``:
+
+- ``X402_PRIVATE_KEY``
+- ``SOLANA_RPC_URL`` when your local x402 settlement flow needs an explicit RPC endpoint
+
+Minimal Config
+--------------
 
 .. code-block:: python
 
    from solana_agent import SolanaAgent
 
    config = {
-      "guardrails": {
-         "input": [
-               # Example using a custom input guardrail
-               {
-                  "class": "MyInputGuardrail",
-                  "config": {"setting1": "value1"}
-               },
-               # Example using the built-in PII guardrail for input
-               {
-                  "class": "solana_agent.guardrails.pii.PII",
-                  "config": {
-                     "locale": "en_GB", # Optional: Specify locale (default: en_US)
-                     "replacement": "[REDACTED]" # Optional: Custom replacement format
-                  }
-               }
-         ],
-         "output": [
-               # Example using a custom output guardrail
-               {
-                  "class": "MyOutputGuardrail",
-                  "config": {"filter_level": "high"}
-               },
+      "ai": {
+         "auth_mode": "x402_private_key",
+         "private_key": "your-base58-solana-private-key",
+         "base_url": "http://127.0.0.1:8000/v1",
+         "model": "memory",
+         "stateless_model": "solana-agent-chat",
+      },
+      "agents": [
+         {
+            "name": "default_agent",
+            "instructions": "You are a helpful Solana AI assistant.",
+            "specialization": "general",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+Model Selection
+---------------
+
+In AGI x402 mode:
+
+- omit ``model`` or set it to ``"memory"`` to use ``solana-agent-memory``
+- set ``model`` to ``"stateless"`` to resolve through ``stateless_model``
+- set ``model`` directly to ``"solana-agent-chat"`` for the explicit stateless SKU
+
+Privy Payer Example
+-------------------
+
+.. code-block:: python
+
+   from solana_agent import SolanaAgent
+
+   config = {
+      "ai": {
+         "auth_mode": "x402_privy",
+         "privy_app_id": "your-privy-app-id",
+         "privy_app_secret": "your-privy-app-secret",
+         "base_url": "http://127.0.0.1:8000/v1",
+         "model": "memory",
+         "stateless_model": "solana-agent-chat",
+      },
+      "agents": [
+         {
+            "name": "default_agent",
+            "instructions": "You are a helpful Solana AI assistant.",
+            "specialization": "general",
+         }
+      ],
+   }
+
+   solana_agent = SolanaAgent(config=config)
+
+   runtime_context = {"privy_wallet_id": "wallet-id-from-privy"}
+
+   async for response in solana_agent.process(
+      "user123",
+      "Check my wallet activity.",
+      runtime_context=runtime_context,
+   ):
+      print(response, end="")
+
+Bundled Tool Surface
+--------------------
+
+The official first-party tools are bundled directly in ``solana_agent.tools``. Do not install Solana Agent Kit as a separate runtime dependency for v34.
+
+The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.
+
+Local Smoke Validation
+----------------------
+
+Run the fast local success bundle:
+
+.. code-block:: bash
+
+   make x402-smoke
+
+Run the full local matrix:
+
+.. code-block:: bash
+
+   make x402-smoke SCENARIO=all
+
+Run one targeted scenario directly:
+
+.. code-block:: bash
+
+   poetry run python scripts/openai_x402_smoke.py --scenario memory-stream
+
+The smoke harness covers:
+
+- ``health``
+- ``stateless``
+- ``memory``
+- ``memory-stream``
+- ``duplicate``
+- ``stream``
+- public error scenarios
+- internal fault-injection scenarios when the local AGI service enables them
+
+After local validation is green, point ``base_url`` at ``https://ai.solana-agent.com/v1`` and rerun the same scenarios before production use.
+
+Migration Notes
+---------------
+
+When moving from the v33 contract to the v34 runtime path:
+
+- replace direct provider sections such as ``groq``, ``cerebras``, and ``grok`` with a single ``ai`` transport section
+- replace upstream model-provider API keys with x402 payer configuration
+- replace local-memory assumptions with the AGI remote-memory default
+- use ``model: "stateless"`` or ``model: "solana-agent-chat"`` when you need the stateless SKU
+- use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime
+- treat conversation history and memory as remote-only runtime behavior
+
+The broader migration plan is tracked in ``V34_AGI_X402_CHECKLIST.md``.
+
+Development
+-----------
+
+Useful local commands:
+
+.. code-block:: bash
+
+   poetry run pytest tests/unit -q -W error
+   poetry run python scripts/openai_x402_smoke.py --scenario all
+   make livehtml
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+   api/index
+
+Overview
+--------
+
+Solana Agent runs on a local-first AGI x402 runtime contract.
+
+Current public runtime expectations:
+
+- the canonical AI config section is ``ai``
+- ``openai`` remains supported as a compatibility alias
+- ``auth_mode: "x402_private_key"`` and ``auth_mode: "x402_privy"`` are the funded AGI paths
+- ``solana-agent-memory`` is the default model behavior
+- ``solana-agent-chat`` is the explicit stateless override
+- remote AGI memory is the only supported memory mode
+- local Mongo and Zep are not part of the runtime path
+- the official first-party tool surface ships in this package and registers through ``solana_agent.plugins``
+
+Quick Start
+-----------
+
+Install local development dependencies:
+
+.. code-block:: bash
+
+   poetry install
+   cp .env.example .env
+
+Set at least these values in ``.env``:
+
+- ``X402_PRIVATE_KEY``
+- ``SOLANA_RPC_URL`` when your local x402 settlement flow needs an explicit RPC endpoint
+
+Minimal Config
+--------------
                # Example using the built-in PII guardrail for output (with defaults)
                {
                   "class": "solana_agent.guardrails.pii.PII"
@@ -520,7 +503,7 @@ Inline Tool Example
             }
 
    config = {
-      "openai": {
+      "ai": {
          "api_key": "your-openai-api-key",
       },
       "agents": [
@@ -560,7 +543,7 @@ Useful for adding additional context to agent responses.
    from solana_agent import SolanaAgent
 
    config = {
-      "openai": {
+      "ai": {
          "api_key": "your-openai-api-key",
       },
       "agents": [
@@ -591,7 +574,7 @@ Custom Routing Example
    from solana_agent.interfaces.services.routing import RoutingService as RoutingServiceInterface
 
    config = {
-      "openai": {
+      "ai": {
          "api_key": "your-openai-api-key",
       },
       "agents": [
