@@ -1,5 +1,6 @@
 """Focused tests for OpenAIAdapter auth-mode wiring."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -109,3 +110,138 @@ class TestOpenAIAdapter:
             match="x402_privy requires runtime_context.privy_wallet_id for each request",
         ):
             await adapter._get_client({})
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_non_openai_chat_completions_send_budgeted_max_tokens(
+        self,
+        mock_async_openai,
+    ):
+        """Non-Responses chat requests should include a context-safe max_tokens."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=10,
+            max_output_tokens=32,
+        )
+
+        result = await adapter.generate_text("hello")
+
+        assert result is not None
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["max_tokens"] == 3
+        assert kwargs["extra_headers"]["Idempotency-Key"]
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_completions_forward_memory_extensions(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted memory calls should forward conversation isolation hints."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        result = await adapter.generate_text(
+            "hello",
+            runtime_context={
+                "conversation_id": "conv-123",
+                "memory_ttl_tier": "project",
+            },
+        )
+
+        assert result is not None
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["extra_body"]["conversation_id"] == "conv-123"
+        assert kwargs["extra_body"]["memory_ttl_tier"] == "project"
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_completion_stream_forwards_memory_extensions(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted streaming calls should send memory extensions in extra_body."""
+        async def mock_stream():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="ok", tool_calls=None),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        responses = [
+            event
+            async for event in adapter.chat_stream(
+                [{"role": "user", "content": "hello"}],
+                runtime_context={
+                    "conversation_id": "conv-123",
+                    "memory_ttl_tier": "project",
+                },
+            )
+        ]
+
+        assert responses[-1]["type"] == "message_end"
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["extra_body"]["conversation_id"] == "conv-123"
+        assert kwargs["extra_body"]["memory_ttl_tier"] == "project"
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_non_openai_chat_completions_fail_fast_when_prompt_fills_context(
+        self,
+        mock_async_openai,
+    ):
+        """The adapter should stop locally when no output budget remains."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock()
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=7,
+            max_output_tokens=32,
+        )
+
+        result = await adapter.generate_text("hello")
+
+        assert result is None
+        mock_client.chat.completions.create.assert_not_awaited()

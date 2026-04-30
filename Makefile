@@ -9,12 +9,13 @@ SOURCEDIR     = ./docs
 BUILDDIR      = ./docs/_build
 PYTHON        ?= poetry run python
 SCENARIO      ?= success
+SDK_SCENARIO  ?= sdk-success
 
 # Put it first so that "make" without argument is like "make help".
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help Makefile clean html serve x402-smoke
+.PHONY: help Makefile clean html serve x402-smoke x402-sdk-smoke
 
 # Target for building HTML documentation
 html:
@@ -36,6 +37,9 @@ livehtml: html
 
 x402-smoke:
 	@$(PYTHON) scripts/openai_x402_smoke.py --scenario $(SCENARIO)
+
+x402-sdk-smoke:
+	@$(PYTHON) scripts/openai_x402_smoke.py --scenario $(SDK_SCENARIO)
 
 # Catch-all target: route all unknown targets to Sphinx
 %: Makefile

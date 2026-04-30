@@ -5,10 +5,13 @@ These adapters implement the LLMProvider interface for different LLM services.
 """
 
 import asyncio
-import logging
 import base64
 import io
+import json
+import logging
 import math
+import uuid
+from functools import lru_cache
 from typing import (
     AsyncGenerator,
     List,
@@ -21,9 +24,10 @@ from typing import (
     Union,
 )
 from PIL import Image
+import logfire
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel
-import logfire
+import tiktoken
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.tools.utils.x402 import (
@@ -53,6 +57,70 @@ GPT41_PATCH_SIZE = 32
 GPT41_MAX_PATCHES = 1536
 GPT41_MINI_MULTIPLIER = 1.62
 GPT41_NANO_MULTIPLIER = 2.46
+DEFAULT_TOKENIZER_MODEL = "gpt-oss-120b"
+DEFAULT_CONTEXT_WINDOW_TOKENS = 131000
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
+DEFAULT_FALLBACK_ENCODING = "o200k_base"
+GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
+TOKENS_PER_MESSAGE = 4
+TOKENS_PER_NAME = 1
+TOKENS_PER_REPLY_PRIMER = 2
+
+
+def _tokenizer_candidates(model_name: str | None) -> tuple[str, ...]:
+    raw_name = str(model_name or "").strip()
+    candidates: list[str] = []
+    if raw_name:
+        candidates.append(raw_name)
+        if "/" in raw_name:
+            suffix = raw_name.rsplit("/", 1)[-1].strip()
+            if suffix and suffix not in candidates:
+                candidates.append(suffix)
+    if DEFAULT_TOKENIZER_MODEL not in candidates:
+        candidates.append(DEFAULT_TOKENIZER_MODEL)
+    return tuple(candidates)
+
+
+def _fallback_encoding_name(model_name: str | None) -> str:
+    normalized = str(model_name or "").strip().lower()
+    if "gpt-oss" in normalized:
+        return GPT_OSS_FALLBACK_ENCODING
+    return DEFAULT_FALLBACK_ENCODING
+
+
+@lru_cache(maxsize=32)
+def _encoding_for_model(model_name: str | None):
+    for candidate in _tokenizer_candidates(model_name):
+        try:
+            return tiktoken.encoding_for_model(candidate)
+        except KeyError:
+            continue
+    return tiktoken.get_encoding(_fallback_encoding_name(model_name))
+
+
+def _flatten_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                part_type = str(item.get("type") or "").strip().lower()
+                if part_type == "text":
+                    text = str(item.get("text") or "").strip()
+                    if text:
+                        parts.append(text)
+                    continue
+                parts.append(json.dumps(item, sort_keys=True, separators=(",", ":")))
+                continue
+            if item is not None:
+                parts.append(str(item).strip())
+        return "\n".join(part for part in parts if part).strip()
+    if content is None:
+        return ""
+    if isinstance(content, dict):
+        return json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return str(content).strip()
 
 
 class OpenAIAdapter(LLMProvider):
@@ -73,6 +141,9 @@ class OpenAIAdapter(LLMProvider):
         privy_request_expiry: Optional[str] = None,
         privy_api_url: Optional[str] = None,
         x402_rpc_url: Optional[str] = None,
+        context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        tokenizer_model: Optional[str] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
@@ -85,6 +156,12 @@ class OpenAIAdapter(LLMProvider):
         self.privy_request_expiry = privy_request_expiry
         self.privy_api_url = privy_api_url
         self.x402_rpc_url = x402_rpc_url
+        self.context_window_tokens = max(1, int(context_window_tokens))
+        self.max_output_tokens = max(1, int(max_output_tokens))
+        resolved_tokenizer_model = str(
+            tokenizer_model or model or DEFAULT_TOKENIZER_MODEL
+        ).strip()
+        self.tokenizer_model = resolved_tokenizer_model or DEFAULT_TOKENIZER_MODEL
         self._is_openai_endpoint = base_url is None or "api.openai.com" in base_url
         self._client_lock = asyncio.Lock()
         self._privy_clients: Dict[str, AsyncOpenAI] = {}
@@ -237,6 +314,85 @@ class OpenAIAdapter(LLMProvider):
             base_url=base_url,
             http_client=http_client,
         )
+
+    def _resolve_tokenizer_model(self, model: Optional[str] = None) -> str:
+        candidate = str(model or self.tokenizer_model or DEFAULT_TOKENIZER_MODEL).strip()
+        return candidate or DEFAULT_TOKENIZER_MODEL
+
+    def _estimate_text_tokens(self, text: str, model: Optional[str] = None) -> int:
+        raw_text = str(text or "")
+        if not raw_text:
+            return 0
+        return len(_encoding_for_model(self._resolve_tokenizer_model(model)).encode(raw_text))
+
+    def _estimate_chat_completion_input_tokens(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+    ) -> int:
+        total = 0
+        for message in messages:
+            total += TOKENS_PER_MESSAGE
+            total += self._estimate_text_tokens(
+                _flatten_message_content(message.get("content")),
+                model,
+            )
+            name = str(message.get("name") or "").strip()
+            if name:
+                total += TOKENS_PER_NAME
+                total += self._estimate_text_tokens(name, model)
+        return max(1, total + TOKENS_PER_REPLY_PRIMER)
+
+    def _resolve_chat_completion_max_tokens(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+    ) -> int:
+        prompt_tokens = self._estimate_chat_completion_input_tokens(messages, model)
+        remaining_tokens = self.context_window_tokens - prompt_tokens
+        if remaining_tokens <= 0:
+            raise ValueError(
+                "Prompt exceeds the configured context window before output tokens are reserved. "
+                f"prompt_tokens={prompt_tokens}, context_window_tokens={self.context_window_tokens}."
+            )
+        max_tokens = min(self.max_output_tokens, remaining_tokens)
+        if max_tokens < self.max_output_tokens:
+            logger.debug(
+                "Clamped chat completion max_tokens from %s to %s for model %s.",
+                self.max_output_tokens,
+                max_tokens,
+                model or self.text_model,
+            )
+        return max_tokens
+
+    def _chat_completion_request_options(self) -> Dict[str, Any]:
+        return {"extra_headers": {"Idempotency-Key": uuid.uuid4().hex}}
+
+    def _hosted_chat_completion_extensions(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not self.text_model.startswith("solana-agent-") and self.auth_mode not in {
+            "x402_private_key",
+            "x402_privy",
+        }:
+            return {}
+
+        context = dict(runtime_context or {})
+        extensions: Dict[str, Any] = {}
+
+        conversation_id = str(context.get("conversation_id") or "").strip()
+        if conversation_id:
+            extensions["conversation_id"] = conversation_id
+
+        memory_ttl_tier = str(context.get("memory_ttl_tier") or "").strip()
+        if memory_ttl_tier:
+            extensions["memory_ttl_tier"] = memory_ttl_tier
+
+        if not extensions:
+            return {}
+
+        return {"extra_body": extensions}
 
     def _instrument_client(self, client: AsyncOpenAI) -> None:
         """Instrument a lazily created client if logfire is enabled."""
@@ -394,6 +550,12 @@ class OpenAIAdapter(LLMProvider):
             cc_params: Dict[str, Any] = {
                 "model": model or self.text_model,
                 "messages": messages,
+                "max_tokens": self._resolve_chat_completion_max_tokens(
+                    messages,
+                    model or self.text_model,
+                ),
+                **self._chat_completion_request_options(),
+                **self._hosted_chat_completion_extensions(runtime_context),
             }
             if tools:
                 cc_params["tools"] = tools
@@ -473,6 +635,12 @@ class OpenAIAdapter(LLMProvider):
                 completion = await client.chat.completions.create(
                     model=self.text_model,
                     messages=fallback_messages,
+                    max_tokens=self._resolve_chat_completion_max_tokens(
+                        fallback_messages,
+                        self.text_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 )
                 return completion.choices[0].message.content or ""
             except Exception as e:
@@ -763,6 +931,12 @@ class OpenAIAdapter(LLMProvider):
                     "model": model or self.text_model,
                     "messages": messages,
                     "stream": True,
+                    "max_tokens": self._resolve_chat_completion_max_tokens(
+                        messages,
+                        model or self.text_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 }
                 if tools:
                     cc_params["tools"] = tools
@@ -873,6 +1047,15 @@ Respond with ONLY the JSON object.
                         {"role": "user", "content": prompt},
                     ],
                     response_format={"type": "json_object"},
+                    max_tokens=self._resolve_chat_completion_max_tokens(
+                        [
+                            {"role": "system", "content": fallback_system_prompt},
+                            {"role": "user", "content": prompt},
+                        ],
+                        current_parse_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 )
 
                 json_str = completion.choices[0].message.content

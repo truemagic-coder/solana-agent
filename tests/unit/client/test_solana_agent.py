@@ -16,7 +16,7 @@ from solana_agent.interfaces.plugins.plugins import Tool
 def config_dict():
     """Fixture providing test configuration."""
     return {
-        "openai": {"api_key": "test_key"},
+        "ai": {"api_key": "test_key"},
         "agents": [
             {
                 "name": "test_agent",

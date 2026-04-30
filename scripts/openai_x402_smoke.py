@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from solana_agent import SolanaAgent  # noqa: E402
 from solana_agent.tools.utils.x402 import request_with_x402_private_key  # noqa: E402
 
 
@@ -61,6 +62,9 @@ def _parse_args() -> argparse.Namespace:
             "memory-stream",
             "duplicate",
             "stream",
+            "sdk-stateless",
+            "sdk-memory",
+            "sdk-success",
             "error-bad-json",
             "error-missing-idempotency",
             "error-invalid-model",
@@ -241,6 +245,64 @@ def _chat_body(
     if memory_ttl_tier:
         body["memory_ttl_tier"] = memory_ttl_tier
     return body
+
+
+def _sdk_base_url(base_url: str) -> str:
+    return f"{_normalize_base_url(base_url)}/v1"
+
+
+def _sdk_config(
+    *,
+    base_url: str,
+    private_key: str,
+    model: str,
+    max_output_tokens: int,
+    rpc_url: str | None,
+) -> dict[str, Any]:
+    openai_config: dict[str, Any] = {
+        "auth_mode": "x402_private_key",
+        "private_key": private_key,
+        "base_url": _sdk_base_url(base_url),
+        "model": model,
+        "max_output_tokens": max_output_tokens,
+    }
+    if rpc_url:
+        openai_config["x402_rpc_url"] = rpc_url
+
+    return {
+        "ai": openai_config,
+        "agents": [
+            {
+                "name": "default",
+                "instructions": (
+                    "You are a helpful Solana AI assistant. "
+                    "Follow the user's requested output format exactly and do not add extra commentary."
+                ),
+                "specialization": "general",
+            }
+        ],
+    }
+
+
+async def _collect_agent_text_response(
+    agent: SolanaAgent,
+    *,
+    user_id: str,
+    message: str,
+    runtime_context: dict[str, Any] | None = None,
+) -> tuple[str, float]:
+    started = time.perf_counter()
+    chunks: list[str] = []
+    async for chunk in agent.process(
+        user_id,
+        message,
+        runtime_context=runtime_context,
+    ):
+        if isinstance(chunk, bytes):
+            chunks.append(chunk.decode("utf-8", errors="replace"))
+        else:
+            chunks.append(str(chunk))
+    return "".join(chunks).strip(), (time.perf_counter() - started) * 1000
 
 
 async def _health_check(base_url: str, timeout: float) -> SmokeResult:
@@ -494,7 +556,7 @@ async def _memory_check(args: argparse.Namespace, private_key: str, base_url: st
         model="solana-agent-memory",
         prompt=(
             f"What token did I ask you to remember? "
-            f"Reply with ONLY the token: {token}"
+            "Reply with ONLY the token."
         ),
         max_tokens=args.max_tokens,
         user=args.user,
@@ -562,7 +624,7 @@ async def _memory_stream_check(
         model="solana-agent-memory",
         prompt=(
             f"What token did I ask you to remember? "
-            f"Reply with ONLY the token: {token}"
+            "Reply with ONLY the token."
         ),
         max_tokens=args.max_tokens,
         user=args.user,
@@ -730,6 +792,97 @@ async def _stream_check(args: argparse.Namespace, private_key: str, base_url: st
     except Exception as exc:
         return SmokeResult(
             "streaming",
+            False,
+            (time.perf_counter() - started) * 1000,
+            str(exc),
+        )
+
+
+async def _sdk_stateless_check(
+    args: argparse.Namespace,
+    private_key: str,
+    base_url: str,
+) -> SmokeResult:
+    token = f"SDK-STATELESS-{secrets.token_hex(4).upper()}"
+    try:
+        agent = SolanaAgent(
+            config=_sdk_config(
+                base_url=base_url,
+                private_key=private_key,
+                model="stateless",
+                max_output_tokens=args.max_tokens,
+                rpc_url=args.rpc_url,
+            )
+        )
+        content, elapsed_ms = await _collect_agent_text_response(
+            agent,
+            user_id=args.user,
+            message=f"Reply with ONLY this token: {token}",
+        )
+        ok = _contains_token(content, token)
+        detail = f"reply={_compact_text(content)}"
+        return SmokeResult("sdk-stateless", ok, elapsed_ms, detail)
+    except Exception as exc:
+        return SmokeResult("sdk-stateless", False, 0.0, str(exc))
+
+
+async def _sdk_memory_check(
+    args: argparse.Namespace,
+    private_key: str,
+    base_url: str,
+) -> SmokeResult:
+    token = f"SDK-MEMORY-{secrets.token_hex(4).upper()}"
+    conversation_id = args.conversation_id or f"sdk-smoke-{token.lower()}"
+    started = time.perf_counter()
+    try:
+        agent = SolanaAgent(
+            config=_sdk_config(
+                base_url=base_url,
+                private_key=private_key,
+                model="memory",
+                max_output_tokens=args.max_tokens,
+                rpc_url=args.rpc_url,
+            )
+        )
+        runtime_context = {
+            "conversation_id": conversation_id,
+            "memory_ttl_tier": args.memory_ttl_tier,
+        }
+        first_content, first_ms = await _collect_agent_text_response(
+            agent,
+            user_id=args.user,
+            message=(
+                f"Remember this exact token for later: {token}. "
+                f"Reply with ONLY: STORED {token}"
+            ),
+            runtime_context=runtime_context,
+        )
+        second_content, second_ms = await _collect_agent_text_response(
+            agent,
+            user_id=args.user,
+            message=(
+                "What token did I ask you to remember? "
+                "Reply with ONLY the token."
+            ),
+            runtime_context=runtime_context,
+        )
+        ok = _contains_token(first_content, token) and _contains_token(
+            second_content,
+            token,
+        )
+        detail = (
+            f"store={first_ms:.1f} ms; recall={second_ms:.1f} ms; "
+            f"reply={_compact_text(second_content)}"
+        )
+        return SmokeResult(
+            "sdk-memory",
+            ok,
+            (time.perf_counter() - started) * 1000,
+            detail,
+        )
+    except Exception as exc:
+        return SmokeResult(
+            "sdk-memory",
             False,
             (time.perf_counter() - started) * 1000,
             str(exc),
@@ -1072,6 +1225,9 @@ async def _run(args: argparse.Namespace) -> int:
         "memory-stream": ["health", "memory-stream"],
         "duplicate": ["health", "duplicate"],
         "stream": ["health", "stream"],
+        "sdk-stateless": ["health", "sdk-stateless"],
+        "sdk-memory": ["health", "sdk-memory"],
+        "sdk-success": ["health", "sdk-stateless", "sdk-memory"],
         "error-bad-json": ["health", "error-bad-json"],
         "error-missing-idempotency": ["health", "error-missing-idempotency"],
         "error-invalid-model": ["health", "error-invalid-model"],
@@ -1139,6 +1295,10 @@ async def _run(args: argparse.Namespace) -> int:
             results.append(await _duplicate_check(args, private_key, base_url))
         elif name == "stream":
             results.append(await _stream_check(args, private_key, base_url))
+        elif name == "sdk-stateless":
+            results.append(await _sdk_stateless_check(args, private_key, base_url))
+        elif name == "sdk-memory":
+            results.append(await _sdk_memory_check(args, private_key, base_url))
         elif name == "error-bad-json":
             results.append(await _bad_json_error(base_url, args.timeout))
         elif name == "error-missing-idempotency":

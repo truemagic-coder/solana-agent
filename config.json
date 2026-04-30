@@ -1,5 +1,5 @@
 {
-    "openai": {
+    "ai": {
         "auth_mode": "x402_private_key",
         "private_key": "your-base58-solana-private-key",
         "base_url": "http://127.0.0.1:8000/v1",

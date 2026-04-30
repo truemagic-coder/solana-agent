@@ -127,12 +127,18 @@ class MCPTool(AutoTool):
                 self._llm_model = "grok-4-1-fast"
             logger.info(f"MCPTool: Using Grok with model {self._llm_model}")
         else:  # pragma: no cover
-            # Fallback to OpenAI
+            # Fallback to the configured AI runtime or direct OpenAI.
             self._llm_provider = "openai"
-            if "openai" in config and isinstance(config["openai"], dict):
-                self._llm_api_key = config["openai"].get("api_key")
+            runtime_config = None
+            if "ai" in config and isinstance(config["ai"], dict):
+                runtime_config = config["ai"]
+            elif "openai" in config and isinstance(config["openai"], dict):
+                runtime_config = config["openai"]
+
+            if runtime_config is not None:
+                self._llm_api_key = runtime_config.get("api_key")
                 if not self._llm_model:
-                    self._llm_model = config["openai"].get("model")
+                    self._llm_model = runtime_config.get("model")
             elif "tools" in config and "mcp" in config["tools"]:
                 self._llm_api_key = config["tools"]["mcp"].get("api_key")
 

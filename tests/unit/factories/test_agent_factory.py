@@ -77,7 +77,7 @@ def guardrails_config(base_config):
 # Base configuration for testing
 @pytest.fixture
 def base_config():
-    return {"openai": {"api_key": "test-openai-key"}}
+    return {"ai": {"api_key": "test-openai-key"}}
 
 
 @pytest.fixture
@@ -174,7 +174,7 @@ def logfire_config(base_config):
 def openai_with_model_config():
     """Config with OpenAI and a custom model specified."""
     return {
-        "openai": {
+        "ai": {
             "api_key": "test-openai-key",
             "model": "gpt-5.4",
         },
@@ -192,7 +192,7 @@ def openai_with_model_config():
 def x402_private_key_config():
     """Config with AGI x402 private-key auth and remote-memory defaults."""
     return {
-        "openai": {
+        "ai": {
             "auth_mode": "x402_private_key",
             "private_key": "test-private-key",
         },
@@ -203,7 +203,7 @@ def x402_private_key_config():
 def x402_stateless_override_config():
     """Config with AGI x402 private-key auth and a stateless model alias."""
     return {
-        "openai": {
+        "ai": {
             "auth_mode": "x402_private_key",
             "private_key": "test-private-key",
             "model": "stateless",
@@ -216,7 +216,7 @@ def x402_stateless_override_config():
 def x402_privy_config():
     """Config with AGI x402 Privy auth and remote-memory defaults."""
     return {
-        "openai": {
+        "ai": {
             "auth_mode": "x402_privy",
             "privy_app_id": "app-123",
             "privy_app_secret": "secret-123",
@@ -266,7 +266,7 @@ def cerebras_with_model_config():
 def openai_with_reasoning_effort_config():
     """Config with OpenAI and reasoning_effort specified."""
     return {
-        "openai": {
+        "ai": {
             "api_key": "test-openai-key",
             "reasoning_effort": "high",
         },
@@ -388,7 +388,7 @@ class TestSolanaAgentFactory:
         # This should raise ValueError since OpenAI API key is required
         with pytest.raises(
             ValueError,
-            match=r"OpenAI-compatible config is required in config\['openai'\].",
+            match=r"AI config is required in config\['ai'\].",
         ):
             SolanaAgentFactory.create_from_config(config_missing_openai_section)
 
@@ -423,7 +423,7 @@ class TestSolanaAgentFactory:
         mock_openai_adapter.assert_called_once_with(
             api_key="x402",
             model="solana-agent-memory",
-            base_url="http://127.0.0.1:8000/v1",
+            base_url="https://ai.solana-agent.com/v1",
             auth_mode="x402_private_key",
             private_key="test-private-key",
         )
@@ -440,7 +440,7 @@ class TestSolanaAgentFactory:
         with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
             SolanaAgentFactory.create_from_config(
             {
-                "openai": {
+                "ai": {
                     "auth_mode": "x402_private_key",
                     "private_key": "test-private-key",
                 },
@@ -454,11 +454,11 @@ class TestSolanaAgentFactory:
         """x402 private-key mode should fail fast when the signing key is missing."""
         with pytest.raises(
             ValueError,
-            match="OpenAI x402 signing key is required when auth_mode is x402_private_key.",
+            match="AI x402 signing key is required when auth_mode is x402_private_key.",
         ):
             SolanaAgentFactory.create_from_config(
                 {
-                    "openai": {
+                    "ai": {
                         "auth_mode": "x402_private_key",
                     }
                 }
@@ -491,7 +491,7 @@ class TestSolanaAgentFactory:
         mock_openai_adapter.assert_called_once_with(
             api_key="x402",
             model="solana-agent-memory",
-            base_url="http://127.0.0.1:8000/v1",
+            base_url="https://ai.solana-agent.com/v1",
             auth_mode="x402_privy",
             private_key=None,
             privy_app_id="app-123",
@@ -510,7 +510,7 @@ class TestSolanaAgentFactory:
         ):
             SolanaAgentFactory.create_from_config(
                 {
-                    "openai": {
+                    "ai": {
                         "auth_mode": "x402_privy",
                     }
                 }
@@ -543,11 +543,49 @@ class TestSolanaAgentFactory:
         mock_openai_adapter.assert_called_once_with(
             api_key="x402",
             model="solana-agent-chat",
-            base_url="http://127.0.0.1:8000/v1",
+            base_url="https://ai.solana-agent.com/v1",
             auth_mode="x402_private_key",
             private_key="test-private-key",
         )
         assert result == mock_query_instance
+
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_x402_private_key_passes_through_adapter_budget_config(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        x402_private_key_config,
+    ):
+        """Adapter budgeting settings should be configurable through the public runtime config."""
+        config = deepcopy(x402_private_key_config)
+        config["ai"]["max_output_tokens"] = 64
+        config["ai"]["context_window_tokens"] = 131000
+        config["ai"]["tokenizer_model"] = "gpt-oss-120b"
+
+        mock_openai_adapter.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_service.return_value = MagicMock()
+        mock_query_service.return_value = MagicMock()
+
+        SolanaAgentFactory.create_from_config(config)
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=131000,
+            max_output_tokens=64,
+            tokenizer_model="gpt-oss-120b",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
+        )
 
     def test_rejects_mongo_config(self, mongo_config):
         """Phase 3 rejects Mongo-backed local memory config."""
@@ -1571,7 +1609,7 @@ class TestSolanaAgentFactory:
         # Based on the current factory code, this should raise a ValueError
         with pytest.raises(
             ValueError,
-            match=r"OpenAI-compatible config is required in config\['openai'\].",
+            match=r"AI config is required in config\['ai'\].",
         ):
             SolanaAgentFactory.create_from_config(logfire_config_missing_openai)
 

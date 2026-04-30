@@ -33,12 +33,14 @@ from solana_agent.plugins.manager import PluginManager
 # Setup logger for this module
 logger = logging.getLogger(__name__)
 
-DEFAULT_AGI_BASE_URL = "http://127.0.0.1:8000/v1"
+DEFAULT_AGI_BASE_URL = "https://ai.solana-agent.com/v1"
 DEFAULT_AGI_MEMORY_MODEL = "solana-agent-memory"
 DEFAULT_AGI_STATELESS_MODEL = "solana-agent-chat"
+PRIMARY_AI_CONFIG_KEY = "ai"
+LEGACY_AI_CONFIG_KEY = "openai"
 LOCAL_MEMORY_CONFIG_ERROR = (
     "Local mongo/zep memory configuration is no longer supported in the v34 AGI runtime. "
-    "Use config['openai'] with remote AGI memory instead."
+    "Use config['ai'] with remote AGI memory instead."
 )
 
 
@@ -105,18 +107,28 @@ class SolanaAgentFactory:
             joined = ", ".join(sorted(legacy_provider_keys))
             raise ValueError(
                 f"Legacy provider sections are no longer supported: {joined}. "
-                "Use config['openai'] with the AGI x402 transport instead."
+                "Use config['ai'] with the AGI x402 transport instead."
             )
 
         if "mongo" in config or "zep" in config:
             raise ValueError(LOCAL_MEMORY_CONFIG_ERROR)
 
-        # OpenAI-compatible runtime config for the AGI transport path.
-        provider_label = "OpenAI"
-        provider_config = config.get("openai")
+        # AI runtime config for the AGI transport path.
+        provider_label = "AI"
+        provider_config_key = None
+        provider_config = None
+        if PRIMARY_AI_CONFIG_KEY in config:
+            provider_config_key = PRIMARY_AI_CONFIG_KEY
+            provider_config = config.get(PRIMARY_AI_CONFIG_KEY)
+        elif LEGACY_AI_CONFIG_KEY in config:
+            provider_config_key = LEGACY_AI_CONFIG_KEY
+            provider_config = config.get(LEGACY_AI_CONFIG_KEY)
+            logger.warning("config['openai'] is deprecated; use config['ai'] instead.")
 
-        if not provider_config:
-            raise ValueError("OpenAI-compatible config is required in config['openai'].")
+        if provider_config_key is None:
+            raise ValueError("AI config is required in config['ai'].")
+        if not isinstance(provider_config, dict):
+            raise ValueError("AI config in config['ai'] must be a mapping.")
 
         auth_mode = provider_config.get("auth_mode", "api_key")
         if auth_mode not in {"api_key", "x402_private_key", "x402_privy"}:
@@ -150,12 +162,15 @@ class SolanaAgentFactory:
         llm_reasoning_effort = provider_config.get(
             "reasoning_effort"
         )  # Optional: "low", "medium", or "high"
+        llm_context_window_tokens = provider_config.get("context_window_tokens")
+        llm_max_output_tokens = provider_config.get("max_output_tokens")
+        llm_tokenizer_model = provider_config.get("tokenizer_model")
 
         if use_remote_memory:
             if auth_mode == "x402_private_key":
                 if not llm_private_key:
                     raise ValueError(
-                        "OpenAI x402 signing key is required when auth_mode is x402_private_key."
+                        "AI x402 signing key is required when auth_mode is x402_private_key."
                     )
             elif not (llm_privy_app_id and llm_privy_app_secret):
                 raise ValueError(
@@ -173,7 +188,7 @@ class SolanaAgentFactory:
             provider_label = "Solana Agent AGI"
         elif not llm_api_key:
             raise ValueError(
-                "OpenAI API key is required unless auth_mode is x402_private_key or x402_privy."
+                "AI API key is required unless auth_mode is x402_private_key or x402_privy."
             )
 
         if llm_model:
@@ -191,6 +206,12 @@ class SolanaAgentFactory:
             llm_adapter_kwargs["base_url"] = llm_base_url
         if llm_reasoning_effort:
             llm_adapter_kwargs["reasoning_effort"] = llm_reasoning_effort
+        if llm_context_window_tokens is not None:
+            llm_adapter_kwargs["context_window_tokens"] = llm_context_window_tokens
+        if llm_max_output_tokens is not None:
+            llm_adapter_kwargs["max_output_tokens"] = llm_max_output_tokens
+        if llm_tokenizer_model:
+            llm_adapter_kwargs["tokenizer_model"] = llm_tokenizer_model
         if use_remote_memory:
             llm_adapter_kwargs["auth_mode"] = auth_mode
             llm_adapter_kwargs["private_key"] = llm_private_key
