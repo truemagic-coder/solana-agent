@@ -19,9 +19,7 @@ def load_mcp_module():
     fake_fastmcp.Client = MagicMock(name="Client")
     fake_fastmcp_client = types.ModuleType("fastmcp.client")
     fake_transports = types.ModuleType("fastmcp.client.transports")
-    fake_transports.StreamableHttpTransport = MagicMock(
-        name="StreamableHttpTransport"
-    )
+    fake_transports.StreamableHttpTransport = MagicMock(name="StreamableHttpTransport")
     fake_openai = types.ModuleType("openai")
     fake_openai.AsyncOpenAI = MagicMock(name="AsyncOpenAI")
 

@@ -439,16 +439,16 @@ class TestSolanaAgentFactory:
         """Phase 3 rejects local memory config even when x402 auth is used."""
         with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):
             SolanaAgentFactory.create_from_config(
-            {
-                "ai": {
-                    "auth_mode": "x402_private_key",
-                    "private_key": "test-private-key",
-                },
-                "mongo": {
-                    "connection_string": "mongodb://localhost:27017",
-                },
-            }
-        )
+                {
+                    "ai": {
+                        "auth_mode": "x402_private_key",
+                        "private_key": "test-private-key",
+                    },
+                    "mongo": {
+                        "connection_string": "mongodb://localhost:27017",
+                    },
+                }
+            )
 
     def test_x402_private_key_requires_signing_key(self):
         """x402 private-key mode should fail fast when the signing key is missing."""
@@ -1763,6 +1763,4 @@ class TestSolanaAgentFactory:
             ValueError,
             match="Legacy provider sections are no longer supported: cerebras.",
         ):
-            SolanaAgentFactory.create_from_config(
-                cerebras_with_reasoning_effort_config
-            )
+            SolanaAgentFactory.create_from_config(cerebras_with_reasoning_effort_config)

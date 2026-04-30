@@ -316,14 +316,18 @@ class OpenAIAdapter(LLMProvider):
         )
 
     def _resolve_tokenizer_model(self, model: Optional[str] = None) -> str:
-        candidate = str(model or self.tokenizer_model or DEFAULT_TOKENIZER_MODEL).strip()
+        candidate = str(
+            model or self.tokenizer_model or DEFAULT_TOKENIZER_MODEL
+        ).strip()
         return candidate or DEFAULT_TOKENIZER_MODEL
 
     def _estimate_text_tokens(self, text: str, model: Optional[str] = None) -> int:
         raw_text = str(text or "")
         if not raw_text:
             return 0
-        return len(_encoding_for_model(self._resolve_tokenizer_model(model)).encode(raw_text))
+        return len(
+            _encoding_for_model(self._resolve_tokenizer_model(model)).encode(raw_text)
+        )
 
     def _estimate_chat_completion_input_tokens(
         self,

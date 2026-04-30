@@ -38,9 +38,7 @@ from solana_agent.services.routing import RoutingService
 
 logger = logging.getLogger(__name__)
 
-REMOTE_HISTORY_UNAVAILABLE_ERROR = (
-    "Conversation history is managed by the AGI runtime and is not available through local history APIs."
-)
+REMOTE_HISTORY_UNAVAILABLE_ERROR = "Conversation history is managed by the AGI runtime and is not available through local history APIs."
 
 
 class QueryService(QueryServiceInterface):

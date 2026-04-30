@@ -196,9 +196,7 @@ class TestMultiAgentRouting:
                 mock_route.return_value = "research_agent"
 
                 # Process a query
-                async for _ in query_service.process(
-                    "user123", "Hello, how are you?"
-                ):
+                async for _ in query_service.process("user123", "Hello, how are you?"):
                     pass
 
             # _detect_switch_intent SHOULD be called with multiple agents
@@ -356,9 +354,6 @@ class TestRoutingServiceSingleAgent:
         )
 
         assert result == "support_agent"
-        assert (
-            mock_llm_provider.parse_structured_output.await_args.kwargs[
-                "runtime_context"
-            ]
-            == {"privy_wallet_id": "wallet-123"}
-        )
+        assert mock_llm_provider.parse_structured_output.await_args.kwargs[
+            "runtime_context"
+        ] == {"privy_wallet_id": "wallet-123"}

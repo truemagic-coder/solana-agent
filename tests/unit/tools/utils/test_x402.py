@@ -48,10 +48,13 @@ def test_resolve_x402_private_key_returns_only_private_key_mode():
         )
         == "direct-key"
     )
-    assert resolve_x402_private_key(
-        auth_mode="x402_private_key",
-        private_key="",
-    ) is None
+    assert (
+        resolve_x402_private_key(
+            auth_mode="x402_private_key",
+            private_key="",
+        )
+        is None
+    )
     assert (
         resolve_x402_private_key(
             auth_mode="x402_privy",
@@ -123,7 +126,9 @@ async def test_export_privy_wallet_private_key_success(privy_export_config):
     http_client = MagicMock()
     http_client.post = AsyncMock(return_value=response)
     recipient_key_pair = SimpleNamespace(
-        public_key=SimpleNamespace(to_public_bytes=MagicMock(return_value=b"public-key")),
+        public_key=SimpleNamespace(
+            to_public_bytes=MagicMock(return_value=b"public-key")
+        ),
         private_key="recipient-private-key",
     )
     fake_suite = SimpleNamespace(
@@ -131,22 +136,30 @@ async def test_export_privy_wallet_private_key_success(privy_export_config):
         open=MagicMock(return_value=b"decrypted-private-key"),
     )
 
-    with patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"), patch(
-        "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
-        fake_suite,
-    ), patch(
-        "solana_agent.tools.utils.x402.httpx.AsyncClient",
-        return_value=make_async_context_manager(http_client),
-    ) as mock_async_client, patch(
-        "solana_agent.tools.utils.x402._normalize_privy_exported_private_key",
-        return_value="normalized-key",
-    ) as mock_normalize:
+    with (
+        patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"),
+        patch(
+            "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
+            fake_suite,
+        ),
+        patch(
+            "solana_agent.tools.utils.x402.httpx.AsyncClient",
+            return_value=make_async_context_manager(http_client),
+        ) as mock_async_client,
+        patch(
+            "solana_agent.tools.utils.x402._normalize_privy_exported_private_key",
+            return_value="normalized-key",
+        ) as mock_normalize,
+    ):
         resolved_key = await export_privy_wallet_private_key(privy_export_config)
 
     assert resolved_key == "normalized-key"
     mock_async_client.assert_called_once_with(timeout=15.0)
     http_client.post.assert_awaited_once()
-    assert http_client.post.await_args.args[0] == "https://api.privy.io/v1/wallets/wallet-123/export"
+    assert (
+        http_client.post.await_args.args[0]
+        == "https://api.privy.io/v1/wallets/wallet-123/export"
+    )
     assert http_client.post.await_args.kwargs["headers"] == {
         "privy-app-id": "app-123",
         "Content-Type": "application/json",
@@ -186,12 +199,16 @@ async def test_export_privy_wallet_private_key_rejects_unsupported_encryption_ty
         open=MagicMock(),
     )
 
-    with patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"), patch(
-        "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
-        fake_suite,
-    ), patch(
-        "solana_agent.tools.utils.x402.httpx.AsyncClient",
-        return_value=make_async_context_manager(http_client),
+    with (
+        patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"),
+        patch(
+            "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
+            fake_suite,
+        ),
+        patch(
+            "solana_agent.tools.utils.x402.httpx.AsyncClient",
+            return_value=make_async_context_manager(http_client),
+        ),
     ):
         with pytest.raises(ValueError, match="unsupported encryption_type"):
             await export_privy_wallet_private_key(privy_export_config)
@@ -223,12 +240,16 @@ async def test_export_privy_wallet_private_key_requires_encrypted_payload_fields
         open=MagicMock(),
     )
 
-    with patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"), patch(
-        "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
-        fake_suite,
-    ), patch(
-        "solana_agent.tools.utils.x402.httpx.AsyncClient",
-        return_value=make_async_context_manager(http_client),
+    with (
+        patch("solana_agent.tools.utils.x402.os.urandom", return_value=b"seed"),
+        patch(
+            "solana_agent.tools.utils.x402.PRIVY_HPKE_CIPHER_SUITE",
+            fake_suite,
+        ),
+        patch(
+            "solana_agent.tools.utils.x402.httpx.AsyncClient",
+            return_value=make_async_context_manager(http_client),
+        ),
     ):
         with pytest.raises(ValueError, match="missing encapsulated_key or ciphertext"):
             await export_privy_wallet_private_key(privy_export_config)
@@ -272,13 +293,16 @@ async def test_resolve_x402_signing_key_returns_none_without_config():
 
 @pytest.mark.asyncio
 async def test_create_x402_httpx_client_for_auth_builds_client_from_resolved_key():
-    with patch(
-        "solana_agent.tools.utils.x402.resolve_x402_signing_key",
-        AsyncMock(return_value="resolved-key"),
-    ), patch(
-        "solana_agent.tools.utils.x402.create_x402_httpx_client",
-        return_value="client-object",
-    ) as mock_create_client:
+    with (
+        patch(
+            "solana_agent.tools.utils.x402.resolve_x402_signing_key",
+            AsyncMock(return_value="resolved-key"),
+        ),
+        patch(
+            "solana_agent.tools.utils.x402.create_x402_httpx_client",
+            return_value="client-object",
+        ) as mock_create_client,
+    ):
         client = await create_x402_httpx_client_for_auth(
             auth_mode="x402_privy",
             privy_wallet_id="wallet-123",
@@ -311,15 +335,20 @@ async def test_create_x402_httpx_client_for_auth_raises_without_credentials():
 
 
 def test_create_x402_httpx_client_registers_signer():
-    with patch("solana_agent.tools.utils.x402.x402Client", return_value="x402-client"), patch(
-        "solana_agent.tools.utils.x402.KeypairSigner.from_base58",
-        return_value="signer",
-    ) as mock_signer, patch(
-        "solana_agent.tools.utils.x402.register_exact_svm_client"
-    ) as mock_register, patch(
-        "solana_agent.tools.utils.x402.x402HttpxClient",
-        return_value="http-client",
-    ) as mock_http_client:
+    with (
+        patch("solana_agent.tools.utils.x402.x402Client", return_value="x402-client"),
+        patch(
+            "solana_agent.tools.utils.x402.KeypairSigner.from_base58",
+            return_value="signer",
+        ) as mock_signer,
+        patch(
+            "solana_agent.tools.utils.x402.register_exact_svm_client"
+        ) as mock_register,
+        patch(
+            "solana_agent.tools.utils.x402.x402HttpxClient",
+            return_value="http-client",
+        ) as mock_http_client,
+    ):
         client = create_x402_httpx_client(
             X402PrivateKeyConfig(
                 private_key="base58-key",
@@ -354,13 +383,16 @@ async def test_request_with_x402_privy_requires_runtime_export_config():
 @pytest.mark.asyncio
 async def test_request_with_x402_privy_delegates_to_private_key_request():
     response = object()
-    with patch(
-        "solana_agent.tools.utils.x402.resolve_x402_signing_key",
-        AsyncMock(return_value="resolved-key"),
-    ), patch(
-        "solana_agent.tools.utils.x402.request_with_x402_private_key",
-        AsyncMock(return_value=response),
-    ) as mock_request:
+    with (
+        patch(
+            "solana_agent.tools.utils.x402.resolve_x402_signing_key",
+            AsyncMock(return_value="resolved-key"),
+        ),
+        patch(
+            "solana_agent.tools.utils.x402.request_with_x402_private_key",
+            AsyncMock(return_value=response),
+        ) as mock_request,
+    ):
         result = await request_with_x402_privy(
             "post",
             "https://api.example.com/data",

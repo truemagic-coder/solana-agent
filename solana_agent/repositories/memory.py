@@ -15,6 +15,7 @@ except ModuleNotFoundError:
         content: str
         role: str
 
+
 from solana_agent.interfaces.providers.memory import MemoryProvider
 from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
 

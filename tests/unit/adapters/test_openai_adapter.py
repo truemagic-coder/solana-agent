@@ -184,6 +184,7 @@ class TestOpenAIAdapter:
         mock_async_openai,
     ):
         """Hosted streaming calls should send memory extensions in extra_body."""
+
         async def mock_stream():
             yield SimpleNamespace(
                 choices=[

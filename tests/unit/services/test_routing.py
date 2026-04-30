@@ -52,14 +52,16 @@ def mock_memory_provider():
     provider.retrieve = AsyncMock(return_value="memory context")
     provider.store = AsyncMock(return_value=None)
     provider.delete = AsyncMock(return_value=None)
-    provider.find = MagicMock(return_value=[
-        {
-            "_id": "123",
-            "user_message": "hello",
-            "assistant_message": "hi",
-            "timestamp": MagicMock(),
-        }
-    ])
+    provider.find = MagicMock(
+        return_value=[
+            {
+                "_id": "123",
+                "user_message": "hello",
+                "assistant_message": "hi",
+                "timestamp": MagicMock(),
+            }
+        ]
+    )
     provider.count_documents = MagicMock(return_value=1)
     return provider
 
@@ -89,6 +91,7 @@ class TestQueryService:
         mock_memory_provider,  # Add mock_memory_provider if needed for init
     ):
         """Test error handling during processing."""
+
         async def mock_generate_error(**kwargs):
             if False:
                 yield ""
