@@ -38,6 +38,8 @@ from solana_agent.services.routing import RoutingService
 
 logger = logging.getLogger(__name__)
 
+REMOTE_HISTORY_UNAVAILABLE_ERROR = "Conversation history is managed by the AGI runtime and is not available through local history APIs."
+
 
 class QueryService(QueryServiceInterface):
     """Service for processing user queries and coordinating response generation."""
@@ -245,7 +247,10 @@ class QueryService(QueryServiceInterface):
         start_new: bool = False
 
     async def _detect_switch_intent(
-        self, text: str, available_agents: List[str]
+        self,
+        text: str,
+        available_agents: List[str],
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, Optional[str], bool]:
         """Detect if the user is asking to switch agents or start a new conversation.
 
@@ -279,6 +284,7 @@ class QueryService(QueryServiceInterface):
                             system_prompt=instruction,
                             model_class=QueryService._SwitchIntentModel,
                             model="gpt-5.4",
+                            runtime_context=runtime_context,
                         )
                     )
                 except TypeError:
@@ -288,6 +294,7 @@ class QueryService(QueryServiceInterface):
                             prompt=user_prompt,
                             system_prompt=instruction,
                             model_class=QueryService._SwitchIntentModel,
+                            runtime_context=runtime_context,
                         )
                     )
                 switch = bool(getattr(result, "switch", False))
@@ -319,6 +326,7 @@ class QueryService(QueryServiceInterface):
                 output_format="text",
                 prompt=f"{instruction}\n\n{user_prompt}",
                 output_model=QueryService._SwitchIntentModel,
+                runtime_context=runtime_context,
             ):
                 result = r
                 switch = False
@@ -357,6 +365,7 @@ class QueryService(QueryServiceInterface):
         self,
         user_id: str,
         query: Union[str, bytes],
+        runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
@@ -454,7 +463,11 @@ class QueryService(QueryServiceInterface):
                     switch_requested,
                     requested_agent_raw,
                     start_new,
-                ) = await self._detect_switch_intent(user_text, available_agent_names)
+                ) = await self._detect_switch_intent(
+                    user_text,
+                    available_agent_names,
+                    runtime_context=runtime_context,
+                )
 
                 # Normalize requested agent to an exact available key
                 requested_agent = None
@@ -479,10 +492,14 @@ class QueryService(QueryServiceInterface):
                         else:
                             # Route if no explicit target
                             if router:
-                                agent_name = await router.route_query(routing_input)
+                                agent_name = await router.route_query(
+                                    routing_input,
+                                    runtime_context=runtime_context,
+                                )
                             else:
                                 agent_name = await self.routing_service.route_query(
-                                    routing_input
+                                    routing_input,
+                                    runtime_context=runtime_context,
                                 )
                     except Exception:
                         agent_name = next(iter(agents.keys())) if agents else "default"
@@ -567,6 +584,7 @@ class QueryService(QueryServiceInterface):
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
                                 model="gpt-5.4",
+                                runtime_context=runtime_context,
                             )
                         except TypeError:
                             # Provider may not accept 'model' kwarg
@@ -574,6 +592,7 @@ class QueryService(QueryServiceInterface):
                                 prompt=user_prompt,
                                 system_prompt=instruction,
                                 model_class=_FieldDetect,
+                                runtime_context=runtime_context,
                             )
                         sel = None
                         try:
@@ -604,6 +623,7 @@ class QueryService(QueryServiceInterface):
                         output_format="text",
                         prompt=f"{instruction}\n\n{user_prompt}",
                         output_model=_FieldDetect,
+                        runtime_context=runtime_context,
                     ):
                         fd = r
                         sel = None
@@ -865,6 +885,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
+                    runtime_context=runtime_context,
                     images=images,
                     memory_context=combined_context,
                     output_format="audio",
@@ -903,6 +924,7 @@ class QueryService(QueryServiceInterface):
                             agent_name=agent_name,
                             user_id=user_id,
                             query=user_text,
+                            runtime_context=runtime_context,
                             images=images,
                             memory_context=combined_context,
                             output_format="text",
@@ -925,6 +947,7 @@ class QueryService(QueryServiceInterface):
                     agent_name=agent_name,
                     user_id=user_id,
                     query=user_text,
+                    runtime_context=runtime_context,
                     images=images,
                     memory_context=combined_context,
                     output_format="text",
@@ -995,7 +1018,7 @@ class QueryService(QueryServiceInterface):
             except Exception as e:
                 logger.error(f"Error deleting user history for {user_id}: {e}")
         else:
-            logger.debug("No memory provider; skip delete_user_history")
+            raise NotImplementedError(REMOTE_HISTORY_UNAVAILABLE_ERROR)
 
     async def get_user_history(
         self,
@@ -1012,7 +1035,7 @@ class QueryService(QueryServiceInterface):
                 "page": page_num,
                 "page_size": page_size,
                 "total_pages": 0,
-                "error": "Memory provider not available",
+                "error": REMOTE_HISTORY_UNAVAILABLE_ERROR,
             }
         try:
             skip = (page_num - 1) * page_size

@@ -38,7 +38,9 @@ class RoutingService(RoutingServiceInterface):
         # Simple sticky session: remember last routed agent in-process
         self._last_agent = None
 
-    async def _analyze_query(self, query: str) -> Dict[str, Any]:
+    async def _analyze_query(
+        self, query: str, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Analyze a query to determine routing information.
 
         Args:
@@ -94,6 +96,7 @@ class RoutingService(RoutingServiceInterface):
                 system_prompt="You are an expert at routing user queries to the most appropriate AI agent. Always return the exact agent name that best matches the user's needs based on the specializations provided. If the user mentions a specific topic, prioritize agents whose specialization matches that topic.",
                 model_class=QueryAnalysis,
                 model=self.model,
+                runtime_context=runtime_context,
             )
 
             logger.debug(f"LLM analysis result: {analysis}")
@@ -120,7 +123,9 @@ class RoutingService(RoutingServiceInterface):
                 "confidence": 0.0,
             }
 
-    async def route_query(self, query: str) -> str:  # pragma: no cover
+    async def route_query(
+        self, query: str, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> str:  # pragma: no cover
         """Route a query to the appropriate agent.
 
         Args:
@@ -144,7 +149,7 @@ class RoutingService(RoutingServiceInterface):
             return self._last_agent
 
         # Always analyze with a small model to select the best agent
-        analysis = await self._analyze_query(query)
+        analysis = await self._analyze_query(query, runtime_context=runtime_context)
         logger.debug(f"Routing analysis for query '{query}': {analysis}")
         best_agent = await self._find_best_ai_agent(
             analysis["primary_specialization"], analysis["secondary_specializations"]

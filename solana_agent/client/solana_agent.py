@@ -47,6 +47,7 @@ class SolanaAgent(SolanaAgentInterface):
         self,
         user_id: str,
         message: Union[str, bytes],
+        runtime_context: Optional[Dict[str, Any]] = None,
         prompt: Optional[str] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
@@ -95,6 +96,7 @@ class SolanaAgent(SolanaAgentInterface):
         async for chunk in self.query_service.process(
             user_id=user_id,
             query=message,
+            runtime_context=runtime_context,
             images=images,
             output_format=output_format,
             audio_voice=audio_voice,

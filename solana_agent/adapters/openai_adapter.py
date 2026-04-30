@@ -4,10 +4,14 @@ LLM provider adapters for the Solana Agent system.
 These adapters implement the LLMProvider interface for different LLM services.
 """
 
-import logging
+import asyncio
 import base64
 import io
+import json
+import logging
 import math
+import uuid
+from functools import lru_cache
 from typing import (
     AsyncGenerator,
     List,
@@ -20,11 +24,18 @@ from typing import (
     Union,
 )
 from PIL import Image
+import logfire
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel
-import logfire
+import tiktoken
 
 from solana_agent.interfaces.providers.llm import LLMProvider
+from solana_agent.tools.utils.x402 import (
+    X402PrivateKeyConfig,
+    create_x402_httpx_client_for_auth,
+    create_x402_httpx_client,
+    resolve_x402_private_key,
+)
 
 # Setup logger for this module
 logger = logging.getLogger(__name__)
@@ -46,6 +57,70 @@ GPT41_PATCH_SIZE = 32
 GPT41_MAX_PATCHES = 1536
 GPT41_MINI_MULTIPLIER = 1.62
 GPT41_NANO_MULTIPLIER = 2.46
+DEFAULT_TOKENIZER_MODEL = "gpt-oss-120b"
+DEFAULT_CONTEXT_WINDOW_TOKENS = 131000
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
+DEFAULT_FALLBACK_ENCODING = "o200k_base"
+GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
+TOKENS_PER_MESSAGE = 4
+TOKENS_PER_NAME = 1
+TOKENS_PER_REPLY_PRIMER = 2
+
+
+def _tokenizer_candidates(model_name: str | None) -> tuple[str, ...]:
+    raw_name = str(model_name or "").strip()
+    candidates: list[str] = []
+    if raw_name:
+        candidates.append(raw_name)
+        if "/" in raw_name:
+            suffix = raw_name.rsplit("/", 1)[-1].strip()
+            if suffix and suffix not in candidates:
+                candidates.append(suffix)
+    if DEFAULT_TOKENIZER_MODEL not in candidates:
+        candidates.append(DEFAULT_TOKENIZER_MODEL)
+    return tuple(candidates)
+
+
+def _fallback_encoding_name(model_name: str | None) -> str:
+    normalized = str(model_name or "").strip().lower()
+    if "gpt-oss" in normalized:
+        return GPT_OSS_FALLBACK_ENCODING
+    return DEFAULT_FALLBACK_ENCODING
+
+
+@lru_cache(maxsize=32)
+def _encoding_for_model(model_name: str | None):
+    for candidate in _tokenizer_candidates(model_name):
+        try:
+            return tiktoken.encoding_for_model(candidate)
+        except KeyError:
+            continue
+    return tiktoken.get_encoding(_fallback_encoding_name(model_name))
+
+
+def _flatten_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                part_type = str(item.get("type") or "").strip().lower()
+                if part_type == "text":
+                    text = str(item.get("text") or "").strip()
+                    if text:
+                        parts.append(text)
+                    continue
+                parts.append(json.dumps(item, sort_keys=True, separators=(",", ":")))
+                continue
+            if item is not None:
+                parts.append(str(item).strip())
+        return "\n".join(part for part in parts if part).strip()
+    if content is None:
+        return ""
+    if isinstance(content, dict):
+        return json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return str(content).strip()
 
 
 class OpenAIAdapter(LLMProvider):
@@ -58,15 +133,41 @@ class OpenAIAdapter(LLMProvider):
         base_url: Optional[str] = None,
         logfire_api_key: Optional[str] = None,
         reasoning_effort: Optional[Literal["low", "medium", "high"]] = None,
+        auth_mode: str = "api_key",
+        private_key: Optional[str] = None,
+        privy_app_id: Optional[str] = None,
+        privy_app_secret: Optional[str] = None,
+        privy_authorization_signature: Optional[str] = None,
+        privy_request_expiry: Optional[str] = None,
+        privy_api_url: Optional[str] = None,
+        x402_rpc_url: Optional[str] = None,
+        context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        tokenizer_model: Optional[str] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
         self.reasoning_effort = reasoning_effort
+        self.auth_mode = auth_mode
+        self.private_key = private_key
+        self.privy_app_id = privy_app_id
+        self.privy_app_secret = privy_app_secret
+        self.privy_authorization_signature = privy_authorization_signature
+        self.privy_request_expiry = privy_request_expiry
+        self.privy_api_url = privy_api_url
+        self.x402_rpc_url = x402_rpc_url
+        self.context_window_tokens = max(1, int(context_window_tokens))
+        self.max_output_tokens = max(1, int(max_output_tokens))
+        resolved_tokenizer_model = str(
+            tokenizer_model or model or DEFAULT_TOKENIZER_MODEL
+        ).strip()
+        self.tokenizer_model = resolved_tokenizer_model or DEFAULT_TOKENIZER_MODEL
         self._is_openai_endpoint = base_url is None or "api.openai.com" in base_url
-        if base_url:
-            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        else:
-            self.client = AsyncOpenAI(api_key=api_key)
+        self._client_lock = asyncio.Lock()
+        self._privy_clients: Dict[str, AsyncOpenAI] = {}
+        self.client: Optional[AsyncOpenAI] = None
+        if self.auth_mode != "x402_privy":
+            self.client = self._create_client(api_key=api_key, base_url=base_url)
 
         self.logfire = False
         if logfire_api_key:
@@ -75,10 +176,11 @@ class OpenAIAdapter(LLMProvider):
                     logfire.configure(token=logfire_api_key)
                     self.logfire = True
                     # Instrument the main client immediately after configuring logfire
-                    logfire.instrument_openai(self.client)
-                    logger.info(
-                        "Logfire configured and OpenAI client instrumented successfully."
-                    )
+                    if self.client is not None:
+                        logfire.instrument_openai(self.client)
+                        logger.info(
+                            "Logfire configured and OpenAI client instrumented successfully."
+                        )
                 else:
                     logger.warning(
                         "Logfire OpenAI instrumentation disabled for non-OpenAI base_url."
@@ -101,6 +203,206 @@ class OpenAIAdapter(LLMProvider):
         # OpenAI-specific models
         self.transcription_model = DEFAULT_TRANSCRIPTION_MODEL
         self.tts_model = DEFAULT_TTS_MODEL
+
+    def _create_client(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+    ) -> AsyncOpenAI:
+        """Create an OpenAI-compatible client for the configured auth mode."""
+
+        client_kwargs: Dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        if self.auth_mode == "x402_private_key":
+            resolved_private_key = resolve_x402_private_key(
+                auth_mode=self.auth_mode,
+                private_key=self.private_key,
+            )
+            if not resolved_private_key:
+                raise ValueError(
+                    "x402_private_key requires a configured Solana signing key"
+                )
+            if not base_url:
+                raise ValueError("x402_private_key requires a configured base_url")
+
+            client_kwargs["api_key"] = api_key or "x402"
+            client_kwargs["http_client"] = create_x402_httpx_client(
+                X402PrivateKeyConfig(
+                    private_key=resolved_private_key,
+                    rpc_url=self.x402_rpc_url,
+                )
+            )
+
+        return AsyncOpenAI(**client_kwargs)
+
+    def _resolve_runtime_privy_wallet_id(
+        self, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        wallet_id = str((runtime_context or {}).get("privy_wallet_id") or "").strip()
+        if not wallet_id:
+            raise ValueError(
+                "x402_privy requires runtime_context.privy_wallet_id for each request"
+            )
+        return wallet_id
+
+    async def _get_client(
+        self, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> AsyncOpenAI:
+        """Return the configured client, creating Privy-backed clients lazily."""
+
+        if self.auth_mode != "x402_privy" and self.client is not None:
+            return self.client
+
+        if self.auth_mode == "x402_privy":
+            wallet_id = self._resolve_runtime_privy_wallet_id(runtime_context)
+            cached_client = self._privy_clients.get(wallet_id)
+            if cached_client is not None:
+                return cached_client
+
+        async with self._client_lock:
+            if self.auth_mode != "x402_privy" and self.client is not None:
+                return self.client
+            if self.auth_mode == "x402_privy":
+                wallet_id = self._resolve_runtime_privy_wallet_id(runtime_context)
+                cached_client = self._privy_clients.get(wallet_id)
+                if cached_client is not None:
+                    return cached_client
+                client = await self._create_async_client(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    runtime_context=runtime_context,
+                )
+                self._privy_clients[wallet_id] = client
+                return client
+
+            self.client = await self._create_async_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                runtime_context=runtime_context,
+            )
+            return self.client
+
+    async def _create_async_client(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> AsyncOpenAI:
+        """Create an OpenAI-compatible client for async-only auth flows."""
+
+        if self.auth_mode != "x402_privy":
+            return self._create_client(api_key=api_key, base_url=base_url)
+
+        if not base_url:
+            raise ValueError(f"{self.auth_mode} requires a configured base_url")
+
+        http_client = await create_x402_httpx_client_for_auth(
+            auth_mode=self.auth_mode,
+            private_key=self.private_key,
+            privy_wallet_id=self._resolve_runtime_privy_wallet_id(runtime_context),
+            privy_app_id=self.privy_app_id,
+            privy_app_secret=self.privy_app_secret,
+            privy_authorization_signature=self.privy_authorization_signature,
+            privy_request_expiry=self.privy_request_expiry,
+            privy_api_url=self.privy_api_url,
+            rpc_url=self.x402_rpc_url,
+        )
+        return AsyncOpenAI(
+            api_key=api_key or "x402",
+            base_url=base_url,
+            http_client=http_client,
+        )
+
+    def _resolve_tokenizer_model(self, model: Optional[str] = None) -> str:
+        candidate = str(
+            model or self.tokenizer_model or DEFAULT_TOKENIZER_MODEL
+        ).strip()
+        return candidate or DEFAULT_TOKENIZER_MODEL
+
+    def _estimate_text_tokens(self, text: str, model: Optional[str] = None) -> int:
+        raw_text = str(text or "")
+        if not raw_text:
+            return 0
+        return len(
+            _encoding_for_model(self._resolve_tokenizer_model(model)).encode(raw_text)
+        )
+
+    def _estimate_chat_completion_input_tokens(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+    ) -> int:
+        total = 0
+        for message in messages:
+            total += TOKENS_PER_MESSAGE
+            total += self._estimate_text_tokens(
+                _flatten_message_content(message.get("content")),
+                model,
+            )
+            name = str(message.get("name") or "").strip()
+            if name:
+                total += TOKENS_PER_NAME
+                total += self._estimate_text_tokens(name, model)
+        return max(1, total + TOKENS_PER_REPLY_PRIMER)
+
+    def _resolve_chat_completion_max_tokens(
+        self,
+        messages: List[Dict[str, Any]],
+        model: Optional[str] = None,
+    ) -> int:
+        prompt_tokens = self._estimate_chat_completion_input_tokens(messages, model)
+        remaining_tokens = self.context_window_tokens - prompt_tokens
+        if remaining_tokens <= 0:
+            raise ValueError(
+                "Prompt exceeds the configured context window before output tokens are reserved. "
+                f"prompt_tokens={prompt_tokens}, context_window_tokens={self.context_window_tokens}."
+            )
+        max_tokens = min(self.max_output_tokens, remaining_tokens)
+        if max_tokens < self.max_output_tokens:
+            logger.debug(
+                "Clamped chat completion max_tokens from %s to %s for model %s.",
+                self.max_output_tokens,
+                max_tokens,
+                model or self.text_model,
+            )
+        return max_tokens
+
+    def _chat_completion_request_options(self) -> Dict[str, Any]:
+        return {"extra_headers": {"Idempotency-Key": uuid.uuid4().hex}}
+
+    def _hosted_chat_completion_extensions(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not self.text_model.startswith("solana-agent-") and self.auth_mode not in {
+            "x402_private_key",
+            "x402_privy",
+        }:
+            return {}
+
+        context = dict(runtime_context or {})
+        extensions: Dict[str, Any] = {}
+
+        conversation_id = str(context.get("conversation_id") or "").strip()
+        if conversation_id:
+            extensions["conversation_id"] = conversation_id
+
+        memory_ttl_tier = str(context.get("memory_ttl_tier") or "").strip()
+        if memory_ttl_tier:
+            extensions["memory_ttl_tier"] = memory_ttl_tier
+
+        if not extensions:
+            return {}
+
+        return {"extra_body": extensions}
+
+    def _instrument_client(self, client: AsyncOpenAI) -> None:
+        """Instrument a lazily created client if logfire is enabled."""
+
+        if self.logfire:
+            logfire.instrument_openai(client)
 
     def _supports_responses_api(self) -> bool:
         """Check if the configured endpoint supports the OpenAI Responses API.
@@ -204,10 +506,11 @@ class OpenAIAdapter(LLMProvider):
         system_prompt: str = "",
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Any:  # pragma: no cover
         """Generate text using Responses API or Chat Completions API."""
-        if self.logfire:
-            logfire.instrument_openai(self.client)
+        client = await self._get_client(runtime_context)
+        self._instrument_client(client)
 
         try:
             if self._supports_responses_api():
@@ -239,7 +542,7 @@ class OpenAIAdapter(LLMProvider):
                             responses_tools.append(tool)
                     request_params["tools"] = responses_tools
 
-                response = await self.client.responses.create(**request_params)
+                response = await client.responses.create(**request_params)
                 return response
 
             # Chat Completions API path (e.g., Cerebras)
@@ -251,11 +554,17 @@ class OpenAIAdapter(LLMProvider):
             cc_params: Dict[str, Any] = {
                 "model": model or self.text_model,
                 "messages": messages,
+                "max_tokens": self._resolve_chat_completion_max_tokens(
+                    messages,
+                    model or self.text_model,
+                ),
+                **self._chat_completion_request_options(),
+                **self._hosted_chat_completion_extensions(runtime_context),
             }
             if tools:
                 cc_params["tools"] = tools
 
-            response = await self.client.chat.completions.create(**cc_params)
+            response = await client.chat.completions.create(**cc_params)
             return response
         except OpenAIError as e:
             logger.error(f"OpenAI API error during text generation: {e}")
@@ -309,25 +618,33 @@ class OpenAIAdapter(LLMProvider):
         images: List[Union[str, bytes]],
         system_prompt: str = "",
         detail: Literal["low", "high", "auto"] = "auto",
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> str:  # pragma: no cover
         """Generate text from OpenAI models using text and image inputs."""
+        client = await self._get_client(runtime_context)
+        self._instrument_client(client)
+
         if not self._supports_responses_api():
             logger.warning(
                 "Vision requests require the Responses API. "
                 "Falling back to text-only Chat Completions."
             )
             try:
-                if self.logfire:
-                    logfire.instrument_openai(self.client)
                 fallback_messages: List[Dict[str, Any]] = []
                 if system_prompt:
                     fallback_messages.append(
                         {"role": "system", "content": system_prompt}
                     )
                 fallback_messages.append({"role": "user", "content": prompt})
-                completion = await self.client.chat.completions.create(
+                completion = await client.chat.completions.create(
                     model=self.text_model,
                     messages=fallback_messages,
+                    max_tokens=self._resolve_chat_completion_max_tokens(
+                        fallback_messages,
+                        self.text_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 )
                 return completion.choices[0].message.content or ""
             except Exception as e:
@@ -338,7 +655,11 @@ class OpenAIAdapter(LLMProvider):
             logger.warning(
                 "generate_text_with_images called with no images. Falling back to generate_text."
             )
-            return await self.generate_text(prompt, system_prompt)
+            return await self.generate_text(
+                prompt,
+                system_prompt,
+                runtime_context=runtime_context,
+            )
 
         target_model = self.vision_model
         if "gpt-4.1" not in target_model:  # Basic check for vision model
@@ -467,15 +788,12 @@ class OpenAIAdapter(LLMProvider):
         if system_prompt:
             request_params["instructions"] = system_prompt
 
-        if self.logfire:
-            logfire.instrument_openai(self.client)
-
         logger.info(
             f"Sending request to '{target_model}' with {len(images)} images. Total calculated image tokens (approx): {total_image_tokens}"
         )
 
         try:
-            response = await self.client.responses.create(**request_params)
+            response = await client.responses.create(**request_params)
             # Extract text from Responses API response
             if hasattr(response, "output_text") and response.output_text:
                 # Log actual usage if available
@@ -499,11 +817,12 @@ class OpenAIAdapter(LLMProvider):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         """Stream responses with optional tool calls."""
         try:
-            if self.logfire:
-                logfire.instrument_openai(self.client)
+            client = await self._get_client(runtime_context)
+            self._instrument_client(client)
 
             if self._supports_responses_api():
                 # Responses API path (OpenAI, Groq)
@@ -572,7 +891,7 @@ class OpenAIAdapter(LLMProvider):
                             responses_tools.append(tool)
                     request_params["tools"] = responses_tools
 
-                stream = await self.client.responses.create(**request_params)
+                stream = await client.responses.create(**request_params)
                 async for event in stream:
                     try:
                         event_type = getattr(event, "type", None)
@@ -616,11 +935,17 @@ class OpenAIAdapter(LLMProvider):
                     "model": model or self.text_model,
                     "messages": messages,
                     "stream": True,
+                    "max_tokens": self._resolve_chat_completion_max_tokens(
+                        messages,
+                        model or self.text_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 }
                 if tools:
                     cc_params["tools"] = tools
 
-                stream = await self.client.chat.completions.create(**cc_params)
+                stream = await client.chat.completions.create(**cc_params)
                 async for event in stream:
                     try:
                         if not getattr(event, "choices", None):
@@ -672,9 +997,12 @@ class OpenAIAdapter(LLMProvider):
         model_class: Type[T],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> T:  # pragma: no cover
         """Generate structured output using Responses API or Chat Completions fallback."""
         current_parse_model = model or self.parse_model
+        client = await self._get_client(runtime_context)
+        self._instrument_client(client)
 
         try:
             if not self._supports_responses_api():
@@ -682,11 +1010,8 @@ class OpenAIAdapter(LLMProvider):
                     "Responses API not supported; using Chat Completions fallback."
                 )
 
-            if self.logfire:
-                logfire.instrument_openai(self.client)
-
             # Use Responses API with text.format for structured output
-            response = await self.client.responses.create(
+            response = await client.responses.create(
                 model=current_parse_model,
                 instructions=system_prompt,
                 input=prompt,
@@ -719,16 +1044,22 @@ You must respond with valid JSON that matches this schema:
 Respond with ONLY the JSON object.
 """
 
-                if self.logfire:
-                    logfire.instrument_openai(self.client)
-
-                completion = await self.client.chat.completions.create(
+                completion = await client.chat.completions.create(
                     model=current_parse_model,
                     messages=[
                         {"role": "system", "content": fallback_system_prompt},
                         {"role": "user", "content": prompt},
                     ],
                     response_format={"type": "json_object"},
+                    max_tokens=self._resolve_chat_completion_max_tokens(
+                        [
+                            {"role": "system", "content": fallback_system_prompt},
+                            {"role": "user", "content": prompt},
+                        ],
+                        current_parse_model,
+                    ),
+                    **self._chat_completion_request_options(),
+                    **self._hosted_chat_completion_extensions(runtime_context),
                 )
 
                 json_str = completion.choices[0].message.content

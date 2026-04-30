@@ -27,6 +27,7 @@ class LLMProvider(ABC):
         system_prompt: str = "",
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """Generate text from the language model."""
         pass
@@ -37,6 +38,7 @@ class LLMProvider(ABC):
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream response deltas and tool call deltas.
 
@@ -56,6 +58,7 @@ class LLMProvider(ABC):
         model_class: Type[T],
         model: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> T:
         """Generate structured output using a specific model class."""
         pass
@@ -100,6 +103,7 @@ class LLMProvider(ABC):
         system_prompt: str = "",
         detail: Literal["low", "high", "auto"] = "auto",
         tools: Optional[List[Dict[str, Any]]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Generate text from the language model using images."""
         pass

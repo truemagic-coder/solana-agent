@@ -18,19 +18,28 @@ from solana_agent.services.query import QueryService
 from solana_agent.services.agent import AgentService
 from solana_agent.services.routing import RoutingService
 
-# Repository imports
-from solana_agent.repositories.memory import MemoryRepository
-
 # Adapter imports
 from solana_agent.adapters.openai_adapter import OpenAIAdapter
-from solana_agent.adapters.mongodb_adapter import MongoDBAdapter
-
-# Domain and plugin imports
 from solana_agent.domains.agent import BusinessMission
 from solana_agent.plugins.manager import PluginManager
 
+# Deprecated local-memory hooks remain as sentinels so legacy tests can patch
+# them while the v34 runtime rejects those config paths explicitly.
+MongoDBAdapter = None
+MemoryRepository = None
+
 # Setup logger for this module
 logger = logging.getLogger(__name__)
+
+DEFAULT_AGI_BASE_URL = "https://ai.solana-agent.com/v1"
+DEFAULT_AGI_MEMORY_MODEL = "solana-agent-memory"
+DEFAULT_AGI_STATELESS_MODEL = "solana-agent-chat"
+PRIMARY_AI_CONFIG_KEY = "ai"
+LEGACY_AI_CONFIG_KEY = "openai"
+LOCAL_MEMORY_CONFIG_ERROR = (
+    "Local mongo/zep memory configuration is no longer supported in the v34 AGI runtime. "
+    "Use config['ai'] with remote AGI memory instead."
+)
 
 
 class SolanaAgentFactory:
@@ -87,46 +96,100 @@ class SolanaAgentFactory:
         Returns:
             Configured QueryService instance
         """
-        # Create adapters
-
-        if "mongo" in config:
-            if "connection_string" not in config["mongo"]:
-                raise ValueError("MongoDB connection string is required.")
-            if "database" not in config["mongo"]:
-                raise ValueError("MongoDB database name is required.")
-            db_adapter = MongoDBAdapter(
-                connection_string=config["mongo"]["connection_string"],
-                database_name=config["mongo"]["database"],
+        legacy_provider_keys = [
+            provider_name
+            for provider_name in ("groq", "cerebras", "grok")
+            if provider_name in config
+        ]
+        if legacy_provider_keys:
+            joined = ", ".join(sorted(legacy_provider_keys))
+            raise ValueError(
+                f"Legacy provider sections are no longer supported: {joined}. "
+                "Use config['ai'] with the AGI x402 transport instead."
             )
-        else:
-            db_adapter = None
 
-        # OpenAI-compatible LLM providers (OpenAI, Groq, or Cerebras)
-        provider_key = "openai"
-        provider_label = "OpenAI"
-        provider_config = config.get("openai")
-        if not provider_config and "groq" in config:
-            provider_key = "groq"
-            provider_label = "Groq"
-            provider_config = config.get("groq")
-        if not provider_config and "cerebras" in config:
-            provider_key = "cerebras"
-            provider_label = "Cerebras"
-            provider_config = config.get("cerebras")
+        if "mongo" in config or "zep" in config:
+            raise ValueError(LOCAL_MEMORY_CONFIG_ERROR)
 
-        if not provider_config or "api_key" not in provider_config:
-            raise ValueError("OpenAI, Groq, or Cerebras API key is required in config.")
+        # AI runtime config for the AGI transport path.
+        provider_label = "AI"
+        provider_config_key = None
+        provider_config = None
+        if PRIMARY_AI_CONFIG_KEY in config:
+            provider_config_key = PRIMARY_AI_CONFIG_KEY
+            provider_config = config.get(PRIMARY_AI_CONFIG_KEY)
+        elif LEGACY_AI_CONFIG_KEY in config:
+            provider_config_key = LEGACY_AI_CONFIG_KEY
+            provider_config = config.get(LEGACY_AI_CONFIG_KEY)
+            logger.warning("config['openai'] is deprecated; use config['ai'] instead.")
 
-        llm_api_key = provider_config["api_key"]
-        llm_model = provider_config.get("model")  # Optional model override
+        if provider_config_key is None:
+            raise ValueError("AI config is required in config['ai'].")
+        if not isinstance(provider_config, dict):
+            raise ValueError("AI config in config['ai'] must be a mapping.")
+
+        auth_mode = provider_config.get("auth_mode", "api_key")
+        if auth_mode not in {"api_key", "x402_private_key", "x402_privy"}:
+            raise ValueError(
+                "Unsupported auth_mode. Supported values are: api_key, x402_private_key, x402_privy."
+            )
+
+        use_remote_memory = auth_mode in {"x402_private_key", "x402_privy"}
+        llm_private_key = provider_config.get("private_key")
+        llm_privy_app_id = provider_config.get("privy_app_id") or provider_config.get(
+            "app_id"
+        )
+        llm_privy_app_secret = provider_config.get(
+            "privy_app_secret"
+        ) or provider_config.get("app_secret")
+        llm_privy_authorization_signature = provider_config.get(
+            "privy_authorization_signature"
+        )
+        llm_privy_request_expiry = provider_config.get("privy_request_expiry")
+        llm_privy_api_url = provider_config.get("privy_api_url")
+        llm_x402_rpc_url = provider_config.get("x402_rpc_url")
+
+        llm_api_key = provider_config.get("api_key")
+        requested_model = str(provider_config.get("model") or "").strip() or None
+        stateless_model = (
+            str(
+                provider_config.get("stateless_model") or DEFAULT_AGI_STATELESS_MODEL
+            ).strip()
+            or DEFAULT_AGI_STATELESS_MODEL
+        )
+        llm_model = requested_model
         llm_base_url = provider_config.get("base_url")
         llm_reasoning_effort = provider_config.get(
             "reasoning_effort"
         )  # Optional: "low", "medium", or "high"
-        if provider_key == "groq" and not llm_base_url:
-            llm_base_url = "https://api.groq.com/openai/v1"
-        if provider_key == "cerebras" and not llm_base_url:
-            llm_base_url = "https://api.cerebras.ai/v1"
+        llm_context_window_tokens = provider_config.get("context_window_tokens")
+        llm_max_output_tokens = provider_config.get("max_output_tokens")
+        llm_tokenizer_model = provider_config.get("tokenizer_model")
+
+        if use_remote_memory:
+            if auth_mode == "x402_private_key":
+                if not llm_private_key:
+                    raise ValueError(
+                        "AI x402 signing key is required when auth_mode is x402_private_key."
+                    )
+            elif not (llm_privy_app_id and llm_privy_app_secret):
+                raise ValueError(
+                    "Privy app credentials are required when auth_mode is x402_privy. "
+                    "Set privy_app_id and privy_app_secret; pass privy_wallet_id at runtime."
+                )
+            llm_api_key = llm_api_key or "x402"
+            if requested_model in {None, "memory"}:
+                llm_model = DEFAULT_AGI_MEMORY_MODEL
+            elif requested_model == "stateless":
+                llm_model = stateless_model
+            else:
+                llm_model = requested_model
+            llm_base_url = llm_base_url or DEFAULT_AGI_BASE_URL
+            provider_label = "Solana Agent AGI"
+        elif not llm_api_key:
+            raise ValueError(
+                "AI API key is required unless auth_mode is x402_private_key or x402_privy."
+            )
 
         if llm_model:
             logger.info(
@@ -143,6 +206,29 @@ class SolanaAgentFactory:
             llm_adapter_kwargs["base_url"] = llm_base_url
         if llm_reasoning_effort:
             llm_adapter_kwargs["reasoning_effort"] = llm_reasoning_effort
+        if llm_context_window_tokens is not None:
+            llm_adapter_kwargs["context_window_tokens"] = llm_context_window_tokens
+        if llm_max_output_tokens is not None:
+            llm_adapter_kwargs["max_output_tokens"] = llm_max_output_tokens
+        if llm_tokenizer_model:
+            llm_adapter_kwargs["tokenizer_model"] = llm_tokenizer_model
+        if use_remote_memory:
+            llm_adapter_kwargs["auth_mode"] = auth_mode
+            llm_adapter_kwargs["private_key"] = llm_private_key
+            if llm_privy_app_id:
+                llm_adapter_kwargs["privy_app_id"] = llm_privy_app_id
+            if llm_privy_app_secret:
+                llm_adapter_kwargs["privy_app_secret"] = llm_privy_app_secret
+            if llm_privy_authorization_signature:
+                llm_adapter_kwargs["privy_authorization_signature"] = (
+                    llm_privy_authorization_signature
+                )
+            if llm_privy_request_expiry:
+                llm_adapter_kwargs["privy_request_expiry"] = llm_privy_request_expiry
+            if llm_privy_api_url:
+                llm_adapter_kwargs["privy_api_url"] = llm_privy_api_url
+            if llm_x402_rpc_url:
+                llm_adapter_kwargs["x402_rpc_url"] = llm_x402_rpc_url
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
@@ -167,25 +253,8 @@ class SolanaAgentFactory:
 
         # capture_mode removed: repository now always upserts/merges per capture
 
-        # Create repositories
+        # v34 runtime delegates conversation memory to the AGI service.
         memory_provider = None
-
-        if "zep" in config and "mongo" in config:
-            mem_kwargs: Dict[str, Any] = {
-                "mongo_adapter": db_adapter,
-                "zep_api_key": config["zep"].get("api_key"),
-            }
-            memory_provider = MemoryRepository(**mem_kwargs)
-
-        if "mongo" in config and "zep" not in config:
-            mem_kwargs = {"mongo_adapter": db_adapter}
-            memory_provider = MemoryRepository(**mem_kwargs)
-
-        if "zep" in config and "mongo" not in config:
-            if "api_key" not in config["zep"]:
-                raise ValueError("Zep API key is required.")
-            mem_kwargs = {"zep_api_key": config["zep"].get("api_key")}
-            memory_provider = MemoryRepository(**mem_kwargs)
 
         guardrail_config = config.get("guardrails", {})
         input_guardrails: List[InputGuardrail] = SolanaAgentFactory._create_guardrails(

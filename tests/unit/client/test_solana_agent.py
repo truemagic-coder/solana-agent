@@ -16,11 +16,7 @@ from solana_agent.interfaces.plugins.plugins import Tool
 def config_dict():
     """Fixture providing test configuration."""
     return {
-        "mongo": {
-            "connection_string": "mongodb://localhost:27017",
-            "database": "test_db",
-        },
-        "openai": {"api_key": "test_key"},
+        "ai": {"api_key": "test_key"},
         "agents": [
             {
                 "name": "test_agent",
@@ -39,7 +35,7 @@ def mock_query_service():
     async def mock_process(*args, **kwargs):
         yield "Test response"
 
-    mock.process.side_effect = mock_process
+    mock.process = MagicMock(side_effect=mock_process)
     mock.delete_user_history = AsyncMock()
     mock.get_user_history = AsyncMock(return_value={"messages": [], "total": 0})
 
@@ -90,6 +86,30 @@ class TestSolanaAgent:
             mock_query_service.get_user_history.assert_called_once_with(
                 "test_user", 1, 20, "desc"
             )
+
+    @pytest.mark.asyncio
+    async def test_process_passes_runtime_context(
+        self, config_dict, mock_query_service
+    ):
+        """Process should pass runtime context through to QueryService."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            chunks = []
+            async for chunk in agent.process(
+                user_id="test_user",
+                message="hello",
+                runtime_context={"privy_wallet_id": "wallet-123"},
+            ):
+                chunks.append(chunk)
+
+            assert chunks == ["Test response"]
+            assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
+                "privy_wallet_id": "wallet-123"
+            }
 
     @pytest.mark.asyncio
     async def test_delete_user_history(self, config_dict, mock_query_service):

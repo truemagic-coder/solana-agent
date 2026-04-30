@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from solana_agent.services.query import QueryService
+from solana_agent.services.query import REMOTE_HISTORY_UNAVAILABLE_ERROR
 from solana_agent.services.agent import (
     AgentService,
 )  # Import concrete types if needed for isinstance checks or type hints
@@ -28,6 +29,7 @@ async def mock_async_generator(*args):
 def mock_agent_service():
     # Use AsyncMock for the service object itself
     service = AsyncMock(spec=AgentService)  # Use spec for better mocking
+    service.get_all_ai_agents.return_value = {"default": Mock()}
 
     # Provide a generate_response that returns an async generator honoring kwargs
     async def mock_generate(**kwargs):
@@ -183,7 +185,7 @@ async def test_get_user_history_no_memory_provider():
 
     assert result["total"] == 0
     assert len(result["data"]) == 0
-    assert "Memory provider not available" in result["error"]
+    assert result["error"] == REMOTE_HISTORY_UNAVAILABLE_ERROR
 
 
 @pytest.mark.asyncio
@@ -204,8 +206,8 @@ async def test_delete_user_history_no_provider():
         memory_provider=None,  # Explicitly None
         input_guardrails=[],
     )
-    await service.delete_user_history(TEST_USER_ID)
-    # No assertion needed on mocks as none should be called
+    with pytest.raises(NotImplementedError, match=REMOTE_HISTORY_UNAVAILABLE_ERROR):
+        await service.delete_user_history(TEST_USER_ID)
 
 
 @pytest.mark.asyncio
@@ -217,3 +219,30 @@ async def test_delete_user_history_error(query_service, mock_memory_provider):
     # Call should not raise an error (error is logged internally)
     await query_service.delete_user_history(TEST_USER_ID)
     mock_memory_provider.delete.assert_awaited_once_with(TEST_USER_ID)
+
+
+@pytest.mark.asyncio
+async def test_process_passes_runtime_context_to_agent_and_router(
+    query_service, mock_agent_service, mock_routing_service
+):
+    """Runtime context should be forwarded through routing and response generation."""
+    query_service._detect_switch_intent = AsyncMock(return_value=(False, None, False))
+    mock_agent_service.get_all_ai_agents.return_value = {
+        "alpha": Mock(),
+        "beta": Mock(),
+    }
+    mock_routing_service.route_query.return_value = "alpha"
+
+    async for _ in query_service.process(
+        user_id=TEST_USER_ID,
+        query=TEST_QUERY,
+        runtime_context={"privy_wallet_id": "wallet-123"},
+    ):
+        pass
+
+    assert mock_routing_service.route_query.call_args.kwargs["runtime_context"] == {
+        "privy_wallet_id": "wallet-123"
+    }
+    assert mock_agent_service.generate_response.call_args.kwargs["runtime_context"] == {
+        "privy_wallet_id": "wallet-123"
+    }
