@@ -311,9 +311,7 @@ async def _health_check(base_url: str, timeout: float) -> SmokeResult:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(f"{base_url}/healthz")
         payload = _extract_json(response) or {}
-        quota_profile = (
-            payload.get("quota_profile") if isinstance(payload, dict) else {}
-        )
+        quota_profile = payload.get("quota_profile") if isinstance(payload, dict) else {}
         source = ""
         fault_injection_enabled = False
         if isinstance(quota_profile, dict):
@@ -517,9 +515,7 @@ async def _expect_paid_error(
         return SmokeResult(name, False, 0.0, str(exc))
 
 
-async def _stateless_check(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _stateless_check(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     token = f"STATELESS-{secrets.token_hex(4).upper()}"
     body = _chat_body(
         model="solana-agent-chat",
@@ -545,9 +541,7 @@ async def _stateless_check(
         return SmokeResult("paid-stateless", False, 0.0, str(exc))
 
 
-async def _memory_check(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _memory_check(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     token = f"MEMORY-{secrets.token_hex(4).upper()}"
     conversation_id = args.conversation_id or f"smoke-{token.lower()}"
     store_body = _chat_body(
@@ -560,7 +554,10 @@ async def _memory_check(
     )
     recall_body = _chat_body(
         model="solana-agent-memory",
-        prompt=(f"What token did I ask you to remember? Reply with ONLY the token."),
+        prompt=(
+            "What token did I ask you to remember? "
+            "Reply with ONLY the token."
+        ),
         max_tokens=args.max_tokens,
         user=args.user,
         conversation_id=conversation_id,
@@ -625,7 +622,10 @@ async def _memory_stream_check(
     )
     stream_body = _chat_body(
         model="solana-agent-memory",
-        prompt=(f"What token did I ask you to remember? Reply with ONLY the token."),
+        prompt=(
+            "What token did I ask you to remember? "
+            "Reply with ONLY the token."
+        ),
         max_tokens=args.max_tokens,
         user=args.user,
         conversation_id=conversation_id,
@@ -678,9 +678,7 @@ async def _memory_stream_check(
         )
 
 
-async def _duplicate_check(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _duplicate_check(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     token = f"DUPLICATE-{secrets.token_hex(4).upper()}"
     body = _chat_body(
         model="solana-agent-chat",
@@ -728,16 +726,10 @@ async def _duplicate_check(
 
         first_payload = _extract_json(first)
         second_payload = _extract_json(second)
-        ok = (
-            first.status_code == 200
-            and second.status_code == 200
-            and first_payload == second_payload
-        )
+        ok = first.status_code == 200 and second.status_code == 200 and first_payload == second_payload
         detail = "identical replay response"
         if before_metrics is not None and after_metrics is not None:
-            settlement_delta = _settlement_success_count(
-                after_metrics
-            ) - _settlement_success_count(before_metrics)
+            settlement_delta = _settlement_success_count(after_metrics) - _settlement_success_count(before_metrics)
             replay_delta = _replay_count(after_metrics) - _replay_count(before_metrics)
             ok = ok and settlement_delta == 1 and replay_delta >= 1
             detail = (
@@ -762,9 +754,7 @@ async def _duplicate_check(
         )
 
 
-async def _stream_check(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _stream_check(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     token = f"STREAM-{secrets.token_hex(4).upper()}"
     body = _chat_body(
         model="solana-agent-chat",
@@ -790,7 +780,9 @@ async def _stream_check(
             and "data: [DONE]" in response_text
             and _contains_token(streamed, token)
         )
-        detail = f"status={response.status_code}; streamed={_compact_text(streamed or response_text)}"
+        detail = (
+            f"status={response.status_code}; streamed={_compact_text(streamed or response_text)}"
+        )
         return SmokeResult(
             "streaming",
             ok,
@@ -869,7 +861,8 @@ async def _sdk_memory_check(
             agent,
             user_id=args.user,
             message=(
-                "What token did I ask you to remember? Reply with ONLY the token."
+                "What token did I ask you to remember? "
+                "Reply with ONLY the token."
             ),
             runtime_context=runtime_context,
         )
@@ -956,7 +949,9 @@ async def _payment_required_error(base_url: str, timeout: float) -> SmokeResult:
         ok = response.status_code == 402 and "payment-required" in {
             key.lower() for key in response.headers.keys()
         }
-        detail = f"status={response.status_code}; payment-required={response.headers.get('payment-required', '')}"
+        detail = (
+            f"status={response.status_code}; payment-required={response.headers.get('payment-required', '')}"
+        )
         return SmokeResult("error-payment-required", ok, elapsed_ms, detail)
     except Exception as exc:
         return SmokeResult(
@@ -967,20 +962,14 @@ async def _payment_required_error(base_url: str, timeout: float) -> SmokeResult:
         )
 
 
-async def _ops_unauthorized_error(
-    args: argparse.Namespace, base_url: str
-) -> SmokeResult:
+async def _ops_unauthorized_error(args: argparse.Namespace, base_url: str) -> SmokeResult:
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=args.timeout) as client:
             response = await client.get(f"{base_url}/ops/metrics")
         ok = response.status_code == 401
-        detail = (
-            f"status={response.status_code}; message={_compact_text(response.text)}"
-        )
-        return SmokeResult(
-            "error-ops-unauthorized", ok, (time.perf_counter() - started) * 1000, detail
-        )
+        detail = f"status={response.status_code}; message={_compact_text(response.text)}"
+        return SmokeResult("error-ops-unauthorized", ok, (time.perf_counter() - started) * 1000, detail)
     except Exception as exc:
         return SmokeResult(
             "error-ops-unauthorized",
@@ -1027,18 +1016,9 @@ async def _idempotency_conflict_error(
             body=second_body,
         )
         message = _error_message(second)
-        ok = (
-            first.status_code == 200
-            and second.status_code == 409
-            and "different request body" in message
-        )
+        ok = first.status_code == 200 and second.status_code == 409 and "different request body" in message
         detail = f"first={first.status_code}; second={second.status_code}; message={_compact_text(message)}"
-        return SmokeResult(
-            "error-idempotency-conflict",
-            ok,
-            (time.perf_counter() - started) * 1000,
-            detail,
-        )
+        return SmokeResult("error-idempotency-conflict", ok, (time.perf_counter() - started) * 1000, detail)
     except Exception as exc:
         return SmokeResult(
             "error-idempotency-conflict",
@@ -1048,9 +1028,7 @@ async def _idempotency_conflict_error(
         )
 
 
-async def _quota_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _quota_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-quota",
         base_url=base_url,
@@ -1075,9 +1053,7 @@ async def _quota_error(
     )
 
 
-async def _provider_circuit_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _provider_circuit_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-provider-circuit",
         base_url=base_url,
@@ -1102,9 +1078,7 @@ async def _provider_circuit_error(
     )
 
 
-async def _memory_unavailable_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _memory_unavailable_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-memory-unavailable",
         base_url=base_url,
@@ -1122,8 +1096,7 @@ async def _memory_unavailable_error(
             prompt="Remember this",
             max_tokens=args.max_tokens,
             user=args.user,
-            conversation_id=args.conversation_id
-            or f"smoke-memory-error-{uuid.uuid4().hex}",
+            conversation_id=args.conversation_id or f"smoke-memory-error-{uuid.uuid4().hex}",
             memory_ttl_tier=args.memory_ttl_tier,
         ),
         expected_status=503,
@@ -1132,9 +1105,7 @@ async def _memory_unavailable_error(
     )
 
 
-async def _upstream_failure_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _upstream_failure_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-upstream-failure",
         base_url=base_url,
@@ -1159,9 +1130,7 @@ async def _upstream_failure_error(
     )
 
 
-async def _runtime_unavailable_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _runtime_unavailable_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-runtime-unavailable",
         base_url=base_url,
@@ -1186,9 +1155,7 @@ async def _runtime_unavailable_error(
     )
 
 
-async def _settlement_failure_error(
-    args: argparse.Namespace, private_key: str, base_url: str
-) -> SmokeResult:
+async def _settlement_failure_error(args: argparse.Namespace, private_key: str, base_url: str) -> SmokeResult:
     requirement = await _require_fault_injection(
         name="error-settlement-failure",
         base_url=base_url,
@@ -1212,10 +1179,7 @@ async def _settlement_failure_error(
             ),
             extra_headers={"X-OpenAI-API-Fault": "settlement_failure"},
         )
-        ok = (
-            response.status_code == 402
-            and response.headers.get("payment-required") == "retry"
-        )
+        ok = response.status_code == 402 and response.headers.get("payment-required") == "retry"
         detail = (
             f"status={response.status_code}; payment-required={response.headers.get('payment-required', '')}; "
             f"body={_compact_text(response.text)}"
@@ -1346,9 +1310,7 @@ async def _run(args: argparse.Namespace) -> int:
         elif name == "error-ops-unauthorized":
             results.append(await _ops_unauthorized_error(args, base_url))
         elif name == "error-idempotency-conflict":
-            results.append(
-                await _idempotency_conflict_error(args, private_key, base_url)
-            )
+            results.append(await _idempotency_conflict_error(args, private_key, base_url))
         elif name == "error-quota":
             results.append(await _quota_error(args, private_key, base_url))
         elif name == "error-provider-circuit":
@@ -1358,9 +1320,7 @@ async def _run(args: argparse.Namespace) -> int:
         elif name == "error-upstream-failure":
             results.append(await _upstream_failure_error(args, private_key, base_url))
         elif name == "error-runtime-unavailable":
-            results.append(
-                await _runtime_unavailable_error(args, private_key, base_url)
-            )
+            results.append(await _runtime_unavailable_error(args, private_key, base_url))
         elif name == "error-settlement-failure":
             results.append(await _settlement_failure_error(args, private_key, base_url))
 

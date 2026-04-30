@@ -1,3 +1,5 @@
+import pytest
+
 from scripts import openai_x402_smoke as smoke
 
 
@@ -33,10 +35,6 @@ class _FakeAgent:
         assert runtime_context == {"conversation_id": "conv-123"}
         async for chunk in _fake_agent_process():
             yield chunk
-
-
-import pytest
-
 
 @pytest.mark.asyncio
 async def test_collect_agent_text_response_joins_streamed_chunks() -> None:

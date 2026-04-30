@@ -20,15 +20,13 @@ from solana_agent.services.routing import RoutingService
 
 # Adapter imports
 from solana_agent.adapters.openai_adapter import OpenAIAdapter
+from solana_agent.domains.agent import BusinessMission
+from solana_agent.plugins.manager import PluginManager
 
 # Deprecated local-memory hooks remain as sentinels so legacy tests can patch
 # them while the v34 runtime rejects those config paths explicitly.
 MongoDBAdapter = None
 MemoryRepository = None
-
-# Domain and plugin imports
-from solana_agent.domains.agent import BusinessMission
-from solana_agent.plugins.manager import PluginManager
 
 # Setup logger for this module
 logger = logging.getLogger(__name__)
@@ -154,9 +152,7 @@ class SolanaAgentFactory:
         llm_api_key = provider_config.get("api_key")
         requested_model = str(provider_config.get("model") or "").strip() or None
         stateless_model = (
-            str(
-                provider_config.get("stateless_model") or DEFAULT_AGI_STATELESS_MODEL
-            ).strip()
+            str(provider_config.get("stateless_model") or DEFAULT_AGI_STATELESS_MODEL).strip()
             or DEFAULT_AGI_STATELESS_MODEL
         )
         llm_model = requested_model
