@@ -19,7 +19,7 @@ Stop wrestling with stateless LLMs that forget context after every turn.
 - **Persistent Memory**: Your agents remember user history, preferences, and past actions across sessions — powered by our hosted AGI service.
 - **Seamless x402 Payments**: Real Solana-based payments with private keys or Privy wallets. No more fake demo mode.
 - **Real Execution**: Bundled first-party tools for swaps, transfers, portfolio management, market research, and more. Agents don't just talk — they *act*.
-- **Near-Human Performance**: Proven benchmark leadership with 0.935 mean human ratio on calibrated agentic tasks. Memory, planning, debugging, and tool use that actually works.
+- **Near AGI Performance**: Proven benchmark leadership with 0.935 mean human ratio on calibrated agentic tasks. Memory, planning, debugging, and tool use that actually works.
 
 Whether you're building trading copilots, DeFi automations, or intelligent wallets, Solana Agent lets you ship reliable agents **in minutes, not months**.
 
@@ -42,19 +42,19 @@ Generic LLM wrappers fail at real agent work. They forget context, hallucinate t
 - **Persistent Remote Memory** that maintains coherent context across days or weeks — critical for personalized agents and ongoing workflows.
 - **Native Solana Execution** with x402 payments using real wallets (private key or Privy). Agents can swap, transfer, lend, and interact with protocols without human-in-the-loop.
 - **Production-Grade Tool Suite** — 20+ first-party tools for Jupiter, Kamino, Birdeye, Rugcheck, Privy operations, technical analysis, and more. No separate SDKs required.
-- **Proven Agent Intelligence** — Our hosted service delivers **near-human performance** on the benchmarks that matter for agents: memory retention, multi-step planning, code repair, and commercial decision-making.
+- **Proven Agent Intelligence** — Our hosted service delivers **near AGI performance** on the benchmarks that matter for agents: memory retention, multi-step planning, code repair, and commercial decision-making.
 - **Simple SDK** with powerful runtime context for conversation isolation, memory tiers, and wallet delegation.
 
 **The result?** Agents that ship faster, cost less to maintain, perform better in production, and actually move value on Solana.
 
-## Proven Near-Human Agent Performance
+## Proven Near AGI Agent Performance
 
 Don't trust marketing claims. Trust the numbers.
 
 Our hosted service leads on the hardest agent benchmarks because it was *built* for memory, continuity, tool orchestration, and recovery — not retrofitted.
 
 **Human-Calibrated Cross-Domain Battery** (Latest): **0.842** weighted mean
-- **Mean human ratio: 0.935** (near-human level)
+- **Mean human ratio: 0.935** on the calibrated battery
 - Minimum human ratio: 0.852
 - **Verdict: Production-ready for serious agent workloads**
 
