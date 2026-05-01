@@ -191,6 +191,7 @@ Everything else — hosted endpoint, tool routing, memory sessions, budgeting, o
 | `auth_mode` | `"x402_private_key"` or `"x402_privy"` | Enables seamless onchain payments and wallet actions |
 | `model` | Omit (defaults to memory) or `"stateless"` | Controls persistent memory vs one-shot responses |
 | `base_url` | Omit it | Uses our production hosted service at `https://ai.solana-agent.com/v1` |
+| `x402_preferred_asset` | Optional: `"USDC"` or `"USDT"` | Chooses which stablecoin the client uses when the service offers both |
 | `memory_ttl_tier` (in runtime_context) | `"work"` or `"project"` | Balances retention vs cost for your use case |
 
 ## Quick Start: Ship Your First Agent in < 2 Minutes
@@ -205,6 +206,7 @@ config = {
     "ai": {
         "auth_mode": "x402_private_key",
         "private_key": os.environ["X402_PRIVATE_KEY"],  # Base58 Solana key
+        "x402_preferred_asset": "USDT",  # Optional: prefer USDT settlement
     },
     "agents": [{
         "name": "default_agent",
@@ -237,6 +239,7 @@ config = {
         "auth_mode": "x402_privy",
         "privy_app_id": os.environ["PRIVY_APP_ID"],
         "privy_app_secret": os.environ["PRIVY_APP_SECRET"],
+        "x402_preferred_asset": "USDC",  # Optional: prefer USDC settlement
     },
     "agents": [{
         "name": "trading_agent",
@@ -260,6 +263,8 @@ async for chunk in agent.process(
 ):
     print(chunk, end="")
 ```
+
+When the hosted service offers both stablecoins in the x402 challenge, `x402_preferred_asset` lets the client explicitly choose `USDC` or `USDT` instead of silently taking the first option.
 
 ## Master Your Agent's Memory
 
