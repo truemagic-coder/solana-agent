@@ -23,8 +23,6 @@ Stop wrestling with stateless LLMs that forget context after every turn.
 
 Whether you're building trading copilots, DeFi automations, or intelligent wallets, Solana Agent lets you ship reliable agents **in minutes, not months**.
 
-**Powered by the hosted service at https://ai.solana-agent.com/v1** — the runtime that powers real products like the [Solana Agent Trading Copilot](https://solana-agent.com/trading-copilot) and CometHeart AI companion.
-
 `pip install solana-agent` — Get started with 5 lines of code.
 
 ## Why Solana Agent
