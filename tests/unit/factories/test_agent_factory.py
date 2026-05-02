@@ -587,6 +587,40 @@ class TestSolanaAgentFactory:
             private_key="test-private-key",
         )
 
+    @patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+    @patch("solana_agent.factories.agent_factory.AgentService")
+    @patch("solana_agent.factories.agent_factory.RoutingService")
+    @patch("solana_agent.factories.agent_factory.QueryService")
+    def test_x402_private_key_passes_preferred_asset_default_to_adapter(
+        self,
+        mock_query_service,
+        mock_routing_service,
+        mock_agent_service,
+        mock_openai_adapter,
+        x402_private_key_config,
+    ):
+        """AGI x402 config should pass the preferred settlement asset default into the adapter."""
+        config = deepcopy(x402_private_key_config)
+        config["ai"]["x402_preferred_asset"] = "USDT"
+
+        mock_openai_adapter.return_value = MagicMock()
+        mock_agent_instance = MagicMock()
+        mock_agent_service.return_value = mock_agent_instance
+        mock_agent_instance.tool_registry.list_all_tools.return_value = []
+        mock_routing_service.return_value = MagicMock()
+        mock_query_service.return_value = MagicMock()
+
+        SolanaAgentFactory.create_from_config(config)
+
+        mock_openai_adapter.assert_called_once_with(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
+            x402_preferred_asset="USDT",
+        )
+
     def test_rejects_mongo_config(self, mongo_config):
         """Phase 3 rejects Mongo-backed local memory config."""
         with pytest.raises(ValueError, match=re.escape(LOCAL_MEMORY_CONFIG_ERROR)):

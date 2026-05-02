@@ -43,6 +43,16 @@ class SolanaAgent(SolanaAgentInterface):
 
         self.query_service = SolanaAgentFactory.create_from_config(config)
 
+    def _get_account_reporting_method(self, method_name: str):
+        agent_service = getattr(self.query_service, "agent_service", None)
+        llm_provider = getattr(agent_service, "llm_provider", None)
+        method = getattr(llm_provider, method_name, None)
+        if method is None:
+            raise NotImplementedError(
+                "Account reporting is not available for the configured provider"
+            )
+        return method
+
     async def process(
         self,
         user_id: str,
@@ -159,3 +169,46 @@ class SolanaAgent(SolanaAgentInterface):
                 agent_name, tool.name
             )
         return success
+
+    async def get_account_summary(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get hosted billing and usage summary for the authenticated wallet account."""
+        method = self._get_account_reporting_method("get_account_summary")
+        return await method(runtime_context=runtime_context)
+
+    async def get_usage_report(
+        self,
+        granularity: str,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        group_by: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get hosted usage buckets for the authenticated wallet account."""
+        method = self._get_account_reporting_method("get_usage_report")
+        return await method(
+            granularity,
+            from_date=from_date,
+            to_date=to_date,
+            group_by=group_by,
+            runtime_context=runtime_context,
+        )
+
+    async def get_usage_forecast(
+        self,
+        window_days: int = 30,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get hosted usage forecast for the authenticated wallet account."""
+        method = self._get_account_reporting_method("get_usage_forecast")
+        return await method(window_days=window_days, runtime_context=runtime_context)
+
+    async def get_pricing_info(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get hosted pricing information for the authenticated wallet account."""
+        method = self._get_account_reporting_method("get_pricing_info")
+        return await method(runtime_context=runtime_context)

@@ -64,3 +64,40 @@ class SolanaAgent(ABC):
     def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """Register a tool with the agent system."""
         pass
+
+    @abstractmethod
+    async def get_account_summary(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get billing and usage summary for the authenticated wallet account."""
+        pass
+
+    @abstractmethod
+    async def get_usage_report(
+        self,
+        granularity: str,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        group_by: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get time-series hosted usage buckets for the authenticated wallet account."""
+        pass
+
+    @abstractmethod
+    async def get_usage_forecast(
+        self,
+        window_days: int = 30,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get hosted usage forecast for the authenticated wallet account."""
+        pass
+
+    @abstractmethod
+    async def get_pricing_info(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Get effective hosted pricing details for the authenticated wallet account."""
+        pass

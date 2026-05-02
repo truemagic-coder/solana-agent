@@ -191,7 +191,7 @@ Everything else — hosted endpoint, tool routing, memory sessions, budgeting, o
 | `auth_mode` | `"x402_private_key"` or `"x402_privy"` | Enables seamless onchain payments and wallet actions |
 | `model` | Omit (defaults to memory) or `"stateless"` | Controls persistent memory vs one-shot responses |
 | `base_url` | Omit it | Uses our production hosted service at `https://ai.solana-agent.com/v1` |
-| `x402_preferred_asset` | Optional: `"USDC"` or `"USDT"` | Chooses which stablecoin the client uses when the service offers both |
+| `x402_preferred_asset` | Optional default: `"USDC"` or `"USDT"` | Sets the default stablecoin for x402 settlement; override it per request in `runtime_context` when needed |
 | `memory_ttl_tier` (in runtime_context) | `"work"` or `"project"` | Balances retention vs cost for your use case |
 
 ## Quick Start: Ship Your First Agent in < 2 Minutes
@@ -221,7 +221,10 @@ agent = SolanaAgent(config=config)
 async for chunk in agent.process(
     user_id="trader_42",
     prompt="Analyze my wallet for any unusual token activity and suggest 2 high-conviction trades.",
-    runtime_context={"conversation_id": "session-trader42-2026"}
+    runtime_context={
+        "conversation_id": "session-trader42-2026",
+        "x402_preferred_asset": "USDT",  # Optional per-request override
+    }
 ):
     print(chunk, end="")
 ```
@@ -253,7 +256,8 @@ agent = SolanaAgent(config=config)
 runtime_context = {
     "privy_wallet_id": "user-wallet-from-privy",
     "conversation_id": "defi-session-xyz-2026",
-    "memory_ttl_tier": "project"  # Longer retention for ongoing strategies
+    "memory_ttl_tier": "project",  # Longer retention for ongoing strategies
+    "x402_preferred_asset": "USDC",  # Optional per-request override
 }
 
 async for chunk in agent.process(
@@ -264,7 +268,7 @@ async for chunk in agent.process(
     print(chunk, end="")
 ```
 
-When the hosted service offers both stablecoins in the x402 challenge, `x402_preferred_asset` lets the client explicitly choose `USDC` or `USDT` instead of silently taking the first option.
+When the hosted service offers both stablecoins in the x402 challenge, `x402_preferred_asset` lets the client explicitly choose `USDC` or `USDT` instead of silently taking the first option. Set it in `runtime_context` for per-request control, or set it once in `config["ai"]` as a default.
 
 ## Master Your Agent's Memory
 
@@ -293,6 +297,47 @@ response = await agent.process(
 ```
 
 This is the secret sauce behind coherent, long-running agents that feel truly intelligent. No more "as I explained earlier..." failures.
+
+## Inspect Billing Without a Dashboard
+
+The hosted wallet account surface is available directly from the SDK when you use `x402_private_key` or `x402_privy` auth.
+
+The SDK now handles the hosted wallet challenge flow for you. Account reads automatically fetch a challenge, sign it with the configured wallet, and send the required headers. Hosted chat requests in wallet-backed x402 modes also attach the same wallet auth headers so Explorer allowance and monthly volume discounts can be quoted against the correct wallet account before settlement.
+
+```python
+# Private-key x402 mode: no extra runtime auth context required.
+summary = await agent.get_account_summary()
+pricing = await agent.get_pricing_info()
+
+# Privy x402 mode: include the runtime wallet identity.
+runtime_context = {"privy_wallet_id": "user-wallet-from-privy"}
+
+usage = await agent.get_usage_report(
+    "day",
+    group_by="conversation",
+    runtime_context=runtime_context,
+)
+forecast = await agent.get_usage_forecast(
+    window_days=30,
+    runtime_context=runtime_context,
+)
+```
+
+For `x402_privy`, continue passing `runtime_context = {"privy_wallet_id": "..."}` on both account reads and hosted requests so the SDK can resolve the correct embedded wallet signer.
+
+Use `group_by="conversation"` when your requests include `conversation_id` in `runtime_context` and you want spend and token usage broken out by conversation.
+
+The same hosted account surface is available from the CLI:
+
+```bash
+solana-agent account summary --config config.json
+solana-agent account usage --config config.json --granularity month --group-by conversation
+solana-agent account forecast --config config.json --window-days 30
+solana-agent account pricing --config config.json
+
+# Privy mode
+solana-agent account summary --config config.json --privy-wallet-id wallet-123
+```
 
 ## Complete Solana Agent Toolkit (No Extra Dependencies)
 
