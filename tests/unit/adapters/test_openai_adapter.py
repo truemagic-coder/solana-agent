@@ -535,6 +535,97 @@ class TestOpenAIAdapter:
             await adapter.get_usage_report("week")
 
     @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    @patch(
+        "solana_agent.adapters.openai_adapter.resolve_x402_signing_key",
+        new_callable=AsyncMock,
+    )
+    async def test_get_usage_forecast_forwards_window_days(
+        self,
+        mock_resolve_x402_signing_key,
+        mock_async_client,
+        mock_create_x402_httpx_client,
+        mock_async_openai,
+    ):
+        """Forecast requests should send the requested window length."""
+        keypair = Keypair()
+        private_key = based58.b58encode(bytes(keypair)).decode("ascii")
+        wallet = str(keypair.pubkey())
+        challenge = {
+            "challenge_id": "challenge-789",
+            "wallet": wallet,
+            "message": "sign forecast",
+            "expires_at": "2099-05-01T12:05:00+00:00",
+        }
+        forecast_response = MagicMock()
+        forecast_response.raise_for_status = MagicMock()
+        forecast_response.json.return_value = {"forecast": {"projected_spend": 7.5}}
+        challenge_response = MagicMock()
+        challenge_response.raise_for_status = MagicMock()
+        challenge_response.json.return_value = challenge
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=challenge_response)
+        mock_http_client.get = AsyncMock(return_value=forecast_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_resolve_x402_signing_key.return_value = private_key
+        mock_create_x402_httpx_client.return_value = MagicMock()
+        mock_async_openai.return_value = MagicMock()
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
+        )
+
+        result = await adapter.get_usage_forecast(window_days=45)
+
+        assert result == {"forecast": {"projected_spend": 7.5}}
+        mock_http_client.get.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/forecast",
+            headers={
+                "X-Wallet-Address": wallet,
+                "X-Account-Challenge-Id": "challenge-789",
+                "X-Account-Signature": str(
+                    keypair.sign_message(challenge["message"].encode("utf-8"))
+                ),
+            },
+            params={"window_days": 45},
+        )
+        forecast_response.raise_for_status.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
+    async def test_get_usage_forecast_rejects_non_positive_window_days(
+        self,
+        mock_create_x402_httpx_client,
+        mock_async_openai,
+    ):
+        """Forecast requests should validate window_days locally."""
+        mock_create_x402_httpx_client.return_value = MagicMock()
+        mock_async_openai.return_value = MagicMock()
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="x402_private_key",
+            private_key="test-private-key",
+        )
+
+        with pytest.raises(ValueError, match="window_days must be a positive integer"):
+            await adapter.get_usage_forecast(0)
+
+    @pytest.mark.asyncio
     async def test_account_reporting_requires_x402_auth_mode(self):
         """Account reporting should be unavailable for non-wallet auth modes."""
         adapter = OpenAIAdapter(

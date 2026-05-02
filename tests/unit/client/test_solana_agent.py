@@ -228,6 +228,54 @@ class TestSolanaAgent:
             )
 
     @pytest.mark.asyncio
+    async def test_get_usage_forecast(self, config_dict, mock_query_service):
+        """Client usage forecasts should delegate to the hosted provider."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            expected = {"forecast": {"projected_spend": 12.5}}
+            mock_query_service.agent_service.llm_provider.get_usage_forecast = (
+                AsyncMock(return_value=expected)
+            )
+
+            result = await agent.get_usage_forecast(
+                window_days=14,
+                runtime_context={"privy_wallet_id": "wallet-123"},
+            )
+
+            assert result == expected
+            mock_query_service.agent_service.llm_provider.get_usage_forecast.assert_awaited_once_with(
+                window_days=14,
+                runtime_context={"privy_wallet_id": "wallet-123"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_pricing_info(self, config_dict, mock_query_service):
+        """Client pricing info should delegate to the hosted provider."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            expected = {"pricing": {"explorer": {"included_requests": 25}}}
+            mock_query_service.agent_service.llm_provider.get_pricing_info = AsyncMock(
+                return_value=expected
+            )
+
+            result = await agent.get_pricing_info(
+                runtime_context={"privy_wallet_id": "wallet-123"}
+            )
+
+            assert result == expected
+            mock_query_service.agent_service.llm_provider.get_pricing_info.assert_awaited_once_with(
+                runtime_context={"privy_wallet_id": "wallet-123"}
+            )
+
+    @pytest.mark.asyncio
     async def test_account_reporting_raises_when_provider_lacks_support(
         self, config_dict, mock_query_service
     ):
