@@ -39,7 +39,9 @@ def _load_agent(config: str) -> SolanaAgent:
         raise typer.Exit(code=1)
 
 
-def _account_runtime_context(privy_wallet_id: Optional[str]) -> Optional[dict[str, str]]:
+def _account_runtime_context(
+    privy_wallet_id: Optional[str],
+) -> Optional[dict[str, str]]:
     wallet_id = str(privy_wallet_id or "").strip()
     if not wallet_id:
         return None
@@ -207,9 +209,7 @@ def account_forecast(
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
-    window_days: Annotated[
-        int, typer.Option(help="Forecast window in days.")
-    ] = 30,
+    window_days: Annotated[int, typer.Option(help="Forecast window in days.")] = 30,
     privy_wallet_id: Annotated[
         Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
     ] = None,

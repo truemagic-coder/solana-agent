@@ -183,8 +183,8 @@ class TestSolanaAgent:
             agent = SolanaAgent(config=config_dict)
 
             expected = {"spend": {"month": 42.0}}
-            mock_query_service.agent_service.llm_provider.get_account_summary = AsyncMock(
-                return_value=expected
+            mock_query_service.agent_service.llm_provider.get_account_summary = (
+                AsyncMock(return_value=expected)
             )
 
             result = await agent.get_account_summary(

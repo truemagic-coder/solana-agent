@@ -391,9 +391,7 @@ class OpenAIAdapter(LLMProvider):
             return None
         if normalized not in SUPPORTED_X402_PREFERRED_ASSETS:
             supported_assets = ", ".join(sorted(SUPPORTED_X402_PREFERRED_ASSETS))
-            raise ValueError(
-                f"x402_preferred_asset must be one of: {supported_assets}"
-            )
+            raise ValueError(f"x402_preferred_asset must be one of: {supported_assets}")
         return normalized
 
     def _resolve_x402_preferred_asset(
@@ -498,7 +496,9 @@ class OpenAIAdapter(LLMProvider):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         options = dict(self._hosted_chat_completion_extensions(runtime_context))
-        headers = dict(self._chat_completion_request_options().get("extra_headers") or {})
+        headers = dict(
+            self._chat_completion_request_options().get("extra_headers") or {}
+        )
         if self.auth_mode in {"x402_private_key", "x402_privy"} and self.base_url:
             headers.update(await self._build_account_auth_headers(runtime_context))
         if headers:
@@ -571,9 +571,7 @@ class OpenAIAdapter(LLMProvider):
         normalized_granularity = str(granularity or "").strip().lower()
         if normalized_granularity not in SUPPORTED_USAGE_GRANULARITIES:
             supported_granularities = ", ".join(sorted(SUPPORTED_USAGE_GRANULARITIES))
-            raise ValueError(
-                f"granularity must be one of: {supported_granularities}"
-            )
+            raise ValueError(f"granularity must be one of: {supported_granularities}")
 
         params: Dict[str, Any] = {"granularity": normalized_granularity}
         if from_date:
@@ -859,7 +857,9 @@ class OpenAIAdapter(LLMProvider):
                         fallback_messages,
                         self.text_model,
                     ),
-                    **await self._hosted_chat_completion_request_options(runtime_context),
+                    **await self._hosted_chat_completion_request_options(
+                        runtime_context
+                    ),
                 )
                 return completion.choices[0].message.content or ""
             except Exception as e:
@@ -1154,7 +1154,9 @@ class OpenAIAdapter(LLMProvider):
                         messages,
                         model or self.text_model,
                     ),
-                    **await self._hosted_chat_completion_request_options(runtime_context),
+                    **await self._hosted_chat_completion_request_options(
+                        runtime_context
+                    ),
                 }
                 if tools:
                     cc_params["tools"] = tools
@@ -1272,7 +1274,9 @@ Respond with ONLY the JSON object.
                         ],
                         current_parse_model,
                     ),
-                    **await self._hosted_chat_completion_request_options(runtime_context),
+                    **await self._hosted_chat_completion_request_options(
+                        runtime_context
+                    ),
                 )
 
                 json_str = completion.choices[0].message.content

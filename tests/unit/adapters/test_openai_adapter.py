@@ -251,9 +251,7 @@ class TestOpenAIAdapter:
             ValueError,
             match="x402_preferred_asset must be one of: USDC, USDT",
         ):
-            adapter._hosted_chat_completion_extensions(
-                {"x402_preferred_asset": "bonk"}
-            )
+            adapter._hosted_chat_completion_extensions({"x402_preferred_asset": "bonk"})
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
@@ -531,7 +529,9 @@ class TestOpenAIAdapter:
             private_key="test-private-key",
         )
 
-        with pytest.raises(ValueError, match="granularity must be one of: day, month, year"):
+        with pytest.raises(
+            ValueError, match="granularity must be one of: day, month, year"
+        ):
             await adapter.get_usage_report("week")
 
     @pytest.mark.asyncio

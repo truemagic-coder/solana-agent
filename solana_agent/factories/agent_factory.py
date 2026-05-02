@@ -231,9 +231,7 @@ class SolanaAgentFactory:
             if llm_x402_rpc_url:
                 llm_adapter_kwargs["x402_rpc_url"] = llm_x402_rpc_url
             if llm_x402_preferred_asset:
-                llm_adapter_kwargs["x402_preferred_asset"] = (
-                    llm_x402_preferred_asset
-                )
+                llm_adapter_kwargs["x402_preferred_asset"] = llm_x402_preferred_asset
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:
