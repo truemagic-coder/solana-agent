@@ -124,6 +124,16 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span> <span class="o">=</span> <span class="n">SolanaAgentFactory</span><span class="o">.</span><span class="n">create_from_config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_account_reporting_method</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">agent_service</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">query_service</span><span class="p">,</span> <span class="s2">&quot;agent_service&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">llm_provider</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">agent_service</span><span class="p">,</span> <span class="s2">&quot;llm_provider&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">llm_provider</span><span class="p">,</span> <span class="n">method_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">method</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="s2">&quot;Account reporting is not available for the configured provider&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">method</span>
+
 <div class="viewcode-block" id="SolanaAgent.process">
 <a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.process">[docs]</a>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span>
@@ -251,6 +261,61 @@
                 <span class="n">agent_name</span><span class="p">,</span> <span class="n">tool</span><span class="o">.</span><span class="n">name</span>
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">success</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.get_account_summary">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.get_account_summary">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_account_summary</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get hosted billing and usage summary for the authenticated wallet account.&quot;&quot;&quot;</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_account_reporting_method</span><span class="p">(</span><span class="s2">&quot;get_account_summary&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.get_usage_report">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.get_usage_report">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_usage_report</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">granularity</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">from_date</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">to_date</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">group_by</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get hosted usage buckets for the authenticated wallet account.&quot;&quot;&quot;</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_account_reporting_method</span><span class="p">(</span><span class="s2">&quot;get_usage_report&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span>
+            <span class="n">granularity</span><span class="p">,</span>
+            <span class="n">from_date</span><span class="o">=</span><span class="n">from_date</span><span class="p">,</span>
+            <span class="n">to_date</span><span class="o">=</span><span class="n">to_date</span><span class="p">,</span>
+            <span class="n">group_by</span><span class="o">=</span><span class="n">group_by</span><span class="p">,</span>
+            <span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.get_usage_forecast">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_usage_forecast</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">window_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span><span class="p">,</span>
+        <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get hosted usage forecast for the authenticated wallet account.&quot;&quot;&quot;</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_account_reporting_method</span><span class="p">(</span><span class="s2">&quot;get_usage_forecast&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">window_days</span><span class="o">=</span><span class="n">window_days</span><span class="p">,</span> <span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SolanaAgent.get_pricing_info">
+<a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.get_pricing_info">[docs]</a>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_pricing_info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get hosted pricing information for the authenticated wallet account.&quot;&quot;&quot;</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_account_reporting_method</span><span class="p">(</span><span class="s2">&quot;get_pricing_info&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">)</span></div>
 </div>
 
 </pre></div>
