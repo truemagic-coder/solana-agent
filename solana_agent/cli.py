@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 import typer
 import asyncio
@@ -15,7 +16,47 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s:%(name)s:%(mess
 # --- End Logging Configuration ---
 
 app = typer.Typer()
+account_app = typer.Typer()
+app.add_typer(account_app, name="account")
 console = Console()
+
+
+def _load_agent(config: str) -> SolanaAgent:
+    try:
+        return SolanaAgent(config_path=config)
+    except FileNotFoundError:
+        console.print(
+            f"[bold red]Error:[/bold red] Configuration file not found at '{config}'"
+        )
+        raise typer.Exit(code=1)
+    except ValueError as e:
+        console.print(f"[bold red]Error loading configuration:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(
+            f"[bold red]An unexpected error occurred during initialization:[/bold red] {e}"
+        )
+        raise typer.Exit(code=1)
+
+
+def _account_runtime_context(privy_wallet_id: Optional[str]) -> Optional[dict[str, str]]:
+    wallet_id = str(privy_wallet_id or "").strip()
+    if not wallet_id:
+        return None
+    return {"privy_wallet_id": wallet_id}
+
+
+def _print_json_payload(payload: object) -> None:
+    console.print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def _run_account_call(coro: object) -> None:
+    try:
+        payload = asyncio.run(coro)
+    except Exception as e:
+        console.print(f"[bold red]Account command failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    _print_json_payload(payload)
 
 
 async def stream_agent_response(
@@ -73,25 +114,10 @@ def chat(
     Start an interactive chat session with the Solana Agent.
     Type 'exit' or 'quit' to end the session.
     """
-    try:
-        with console.status("[bold green]Initializing agent...", spinner="dots"):
-            agent = SolanaAgent(config_path=config)
-        console.print("[green]Agent initialized. Start chatting![/green]")
-        console.print("[dim]Type 'exit' or 'quit' to end.[/dim]")
-
-    except FileNotFoundError:
-        console.print(
-            f"[bold red]Error:[/bold red] Configuration file not found at '{config}'"
-        )
-        raise typer.Exit(code=1)
-    except ValueError as e:
-        console.print(f"[bold red]Error loading configuration:[/bold red] {e}")
-        raise typer.Exit(code=1)
-    except Exception as e:
-        console.print(
-            f"[bold red]An unexpected error occurred during initialization:[/bold red] {e}"
-        )
-        raise typer.Exit(code=1)
+    with console.status("[bold green]Initializing agent...", spinner="dots"):
+        agent = _load_agent(config)
+    console.print("[green]Agent initialized. Start chatting![/green]")
+    console.print("[dim]Type 'exit' or 'quit' to end.[/dim]")
 
     # --- Main Interaction Loop ---
     while True:
@@ -122,6 +148,98 @@ def chat(
             )
             # Optionally add a small delay or specific error handling here
             # Consider if you want to break the loop on certain errors
+
+
+@account_app.command("summary")
+def account_summary(
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    privy_wallet_id: Annotated[
+        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+    ] = None,
+):
+    """Print wallet account summary as JSON."""
+    agent = _load_agent(config)
+    _run_account_call(
+        agent.get_account_summary(
+            runtime_context=_account_runtime_context(privy_wallet_id)
+        )
+    )
+
+
+@account_app.command("usage")
+def account_usage(
+    granularity: Annotated[
+        str, typer.Option(help="Usage granularity: day, month, or year.")
+    ],
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    from_date: Annotated[
+        Optional[str], typer.Option(help="Inclusive start date or timestamp.")
+    ] = None,
+    to_date: Annotated[
+        Optional[str], typer.Option(help="Exclusive end date or timestamp.")
+    ] = None,
+    group_by: Annotated[
+        Optional[str], typer.Option(help="Optional usage grouping field.")
+    ] = None,
+    privy_wallet_id: Annotated[
+        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+    ] = None,
+):
+    """Print wallet usage buckets as JSON."""
+    agent = _load_agent(config)
+    _run_account_call(
+        agent.get_usage_report(
+            granularity,
+            from_date=from_date,
+            to_date=to_date,
+            group_by=group_by,
+            runtime_context=_account_runtime_context(privy_wallet_id),
+        )
+    )
+
+
+@account_app.command("forecast")
+def account_forecast(
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    window_days: Annotated[
+        int, typer.Option(help="Forecast window in days.")
+    ] = 30,
+    privy_wallet_id: Annotated[
+        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+    ] = None,
+):
+    """Print wallet usage forecast as JSON."""
+    agent = _load_agent(config)
+    _run_account_call(
+        agent.get_usage_forecast(
+            window_days=window_days,
+            runtime_context=_account_runtime_context(privy_wallet_id),
+        )
+    )
+
+
+@account_app.command("pricing")
+def account_pricing(
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    privy_wallet_id: Annotated[
+        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+    ] = None,
+):
+    """Print effective wallet pricing as JSON."""
+    agent = _load_agent(config)
+    _run_account_call(
+        agent.get_pricing_info(
+            runtime_context=_account_runtime_context(privy_wallet_id)
+        )
+    )
 
 
 if __name__ == "__main__":

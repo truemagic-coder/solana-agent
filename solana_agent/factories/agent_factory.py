@@ -148,6 +148,7 @@ class SolanaAgentFactory:
         llm_privy_request_expiry = provider_config.get("privy_request_expiry")
         llm_privy_api_url = provider_config.get("privy_api_url")
         llm_x402_rpc_url = provider_config.get("x402_rpc_url")
+        llm_x402_preferred_asset = provider_config.get("x402_preferred_asset")
 
         llm_api_key = provider_config.get("api_key")
         requested_model = str(provider_config.get("model") or "").strip() or None
@@ -229,6 +230,10 @@ class SolanaAgentFactory:
                 llm_adapter_kwargs["privy_api_url"] = llm_privy_api_url
             if llm_x402_rpc_url:
                 llm_adapter_kwargs["x402_rpc_url"] = llm_x402_rpc_url
+            if llm_x402_preferred_asset:
+                llm_adapter_kwargs["x402_preferred_asset"] = (
+                    llm_x402_preferred_asset
+                )
 
         if "logfire" in config:
             if "api_key" not in config["logfire"]:

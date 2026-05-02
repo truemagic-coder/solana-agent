@@ -41,6 +41,7 @@ def mock_query_service():
 
     # Configure agent service
     mock.agent_service = MagicMock()
+    mock.agent_service.llm_provider = AsyncMock()
     mock.agent_service.tool_registry = MagicMock()
     mock.agent_service.get_all_ai_agents = MagicMock(return_value=["test_agent"])
     mock.agent_service.assign_tool_for_agent = MagicMock()
@@ -171,3 +172,75 @@ class TestSolanaAgent:
             )
             # Verify assign_tool_for_agent was not called
             mock_query_service.agent_service.assign_tool_for_agent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_account_summary(self, config_dict, mock_query_service):
+        """Client account summary should delegate to the hosted provider."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            expected = {"spend": {"month": 42.0}}
+            mock_query_service.agent_service.llm_provider.get_account_summary = AsyncMock(
+                return_value=expected
+            )
+
+            result = await agent.get_account_summary(
+                runtime_context={"privy_wallet_id": "wallet-123"}
+            )
+
+            assert result == expected
+            mock_query_service.agent_service.llm_provider.get_account_summary.assert_awaited_once_with(
+                runtime_context={"privy_wallet_id": "wallet-123"}
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_usage_report(self, config_dict, mock_query_service):
+        """Client usage reports should delegate query parameters to the hosted provider."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            expected = {"buckets": []}
+            mock_query_service.agent_service.llm_provider.get_usage_report = AsyncMock(
+                return_value=expected
+            )
+
+            result = await agent.get_usage_report(
+                "month",
+                from_date="2026-05-01",
+                to_date="2026-05-31",
+                group_by="conversation",
+                runtime_context={"privy_wallet_id": "wallet-123"},
+            )
+
+            assert result == expected
+            mock_query_service.agent_service.llm_provider.get_usage_report.assert_awaited_once_with(
+                "month",
+                from_date="2026-05-01",
+                to_date="2026-05-31",
+                group_by="conversation",
+                runtime_context={"privy_wallet_id": "wallet-123"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_account_reporting_raises_when_provider_lacks_support(
+        self, config_dict, mock_query_service
+    ):
+        """Client should fail clearly when the configured provider has no account surface."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+            mock_query_service.agent_service.llm_provider = MagicMock(spec=[])
+
+            with pytest.raises(
+                NotImplementedError,
+                match="Account reporting is not available for the configured provider",
+            ):
+                await agent.get_account_summary()

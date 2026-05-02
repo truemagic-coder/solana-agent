@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import uuid
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import (
     AsyncGenerator,
@@ -23,10 +24,12 @@ from typing import (
     Any,
     Union,
 )
+import httpx
 from PIL import Image
 import logfire
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel
+from solders.keypair import Keypair
 import tiktoken
 
 from solana_agent.interfaces.providers.llm import LLMProvider
@@ -35,6 +38,7 @@ from solana_agent.tools.utils.x402 import (
     create_x402_httpx_client_for_auth,
     create_x402_httpx_client,
     resolve_x402_private_key,
+    resolve_x402_signing_key,
 )
 
 # Setup logger for this module
@@ -65,6 +69,9 @@ GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
 TOKENS_PER_MESSAGE = 4
 TOKENS_PER_NAME = 1
 TOKENS_PER_REPLY_PRIMER = 2
+SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC", "USDT"})
+SUPPORTED_USAGE_GRANULARITIES = frozenset({"day", "month", "year"})
+ACCOUNT_AUTH_TIMEOUT_SECONDS = 30.0
 
 
 def _tokenizer_candidates(model_name: str | None) -> tuple[str, ...]:
@@ -141,6 +148,7 @@ class OpenAIAdapter(LLMProvider):
         privy_request_expiry: Optional[str] = None,
         privy_api_url: Optional[str] = None,
         x402_rpc_url: Optional[str] = None,
+        x402_preferred_asset: Optional[str] = None,
         context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         tokenizer_model: Optional[str] = None,
@@ -156,6 +164,9 @@ class OpenAIAdapter(LLMProvider):
         self.privy_request_expiry = privy_request_expiry
         self.privy_api_url = privy_api_url
         self.x402_rpc_url = x402_rpc_url
+        self.x402_preferred_asset = self._normalize_x402_preferred_asset(
+            x402_preferred_asset
+        )
         self.context_window_tokens = max(1, int(context_window_tokens))
         self.max_output_tokens = max(1, int(max_output_tokens))
         resolved_tokenizer_model = str(
@@ -372,6 +383,142 @@ class OpenAIAdapter(LLMProvider):
     def _chat_completion_request_options(self) -> Dict[str, Any]:
         return {"extra_headers": {"Idempotency-Key": uuid.uuid4().hex}}
 
+    def _normalize_x402_preferred_asset(
+        self, preferred_asset: Optional[str]
+    ) -> Optional[str]:
+        normalized = str(preferred_asset or "").strip().upper()
+        if not normalized:
+            return None
+        if normalized not in SUPPORTED_X402_PREFERRED_ASSETS:
+            supported_assets = ", ".join(sorted(SUPPORTED_X402_PREFERRED_ASSETS))
+            raise ValueError(
+                f"x402_preferred_asset must be one of: {supported_assets}"
+            )
+        return normalized
+
+    def _resolve_x402_preferred_asset(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        context = dict(runtime_context or {})
+        if "x402_preferred_asset" in context:
+            return self._normalize_x402_preferred_asset(
+                context.get("x402_preferred_asset")
+            )
+        return self.x402_preferred_asset
+
+    def _require_account_reporting_auth(self) -> None:
+        if self.auth_mode not in {"x402_private_key", "x402_privy"}:
+            raise NotImplementedError(
+                "Account reporting requires x402_private_key or x402_privy auth"
+            )
+        if not self.base_url:
+            raise ValueError("Account reporting requires a configured base_url")
+
+    def _account_endpoint_url(self, endpoint: str) -> str:
+        self._require_account_reporting_auth()
+        normalized_base_url = str(self.base_url or "").rstrip("/")
+        normalized_endpoint = str(endpoint or "").strip().lstrip("/")
+        return f"{normalized_base_url}/account/{normalized_endpoint}"
+
+    async def _resolve_account_auth_keypair(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Keypair:
+        self._require_account_reporting_auth()
+        privy_wallet_id = None
+        if self.auth_mode == "x402_privy":
+            privy_wallet_id = self._resolve_runtime_privy_wallet_id(runtime_context)
+
+        resolved_private_key = await resolve_x402_signing_key(
+            auth_mode=self.auth_mode,
+            private_key=self.private_key,
+            privy_wallet_id=privy_wallet_id,
+            privy_app_id=self.privy_app_id,
+            privy_app_secret=self.privy_app_secret,
+            privy_authorization_signature=self.privy_authorization_signature,
+            privy_request_expiry=self.privy_request_expiry,
+            privy_api_url=self.privy_api_url,
+            timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS,
+            rpc_url=self.x402_rpc_url,
+        )
+        if not resolved_private_key:
+            raise ValueError(
+                f"{self.auth_mode} requires configured x402 signing credentials"
+            )
+        return Keypair.from_base58_string(resolved_private_key)
+
+    async def _create_account_auth_challenge(
+        self,
+        wallet: str,
+    ) -> Dict[str, Any]:
+        challenge_url = self._account_endpoint_url("auth/challenge")
+        async with httpx.AsyncClient(timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS) as client:
+            response = await client.post(challenge_url, json={"wallet": wallet})
+            response.raise_for_status()
+            return response.json()
+
+    async def _build_account_auth_headers(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        keypair = await self._resolve_account_auth_keypair(runtime_context)
+        wallet = str(keypair.pubkey())
+        challenge = await self._create_account_auth_challenge(wallet)
+
+        challenge_id = str(challenge.get("challenge_id") or "").strip()
+        message = str(challenge.get("message") or "")
+        if not challenge_id or not message:
+            raise ValueError(
+                "Account auth challenge response is missing challenge_id or message"
+            )
+
+        challenge_wallet = str(challenge.get("wallet") or wallet).strip()
+        if challenge_wallet and challenge_wallet != wallet:
+            raise ValueError("Account auth challenge wallet mismatch")
+
+        expires_at_raw = str(challenge.get("expires_at") or "").strip()
+        if expires_at_raw:
+            normalized_expires_at = expires_at_raw.replace("Z", "+00:00")
+            expires_at = datetime.fromisoformat(normalized_expires_at)
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                raise ValueError("Account auth challenge already expired")
+
+        signature = str(keypair.sign_message(message.encode("utf-8")))
+        return {
+            "X-Wallet-Address": wallet,
+            "X-Account-Challenge-Id": challenge_id,
+            "X-Account-Signature": signature,
+        }
+
+    async def _hosted_chat_completion_request_options(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        options = dict(self._hosted_chat_completion_extensions(runtime_context))
+        headers = dict(self._chat_completion_request_options().get("extra_headers") or {})
+        if self.auth_mode in {"x402_private_key", "x402_privy"} and self.base_url:
+            headers.update(await self._build_account_auth_headers(runtime_context))
+        if headers:
+            options["extra_headers"] = headers
+        return options
+
+    async def _request_account_json(
+        self,
+        endpoint: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        url = self._account_endpoint_url(endpoint)
+        headers = await self._build_account_auth_headers(runtime_context)
+        async with httpx.AsyncClient(timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS) as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+
     def _hosted_chat_completion_extensions(
         self,
         runtime_context: Optional[Dict[str, Any]] = None,
@@ -393,10 +540,80 @@ class OpenAIAdapter(LLMProvider):
         if memory_ttl_tier:
             extensions["memory_ttl_tier"] = memory_ttl_tier
 
+        preferred_asset = self._resolve_x402_preferred_asset(context)
+        if preferred_asset:
+            extensions["x402_preferred_asset"] = preferred_asset
+
         if not extensions:
             return {}
 
         return {"extra_body": extensions}
+
+    async def get_account_summary(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return the hosted account summary for the authenticated wallet."""
+        return await self._request_account_json(
+            "summary",
+            runtime_context=runtime_context,
+        )
+
+    async def get_usage_report(
+        self,
+        granularity: str,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        group_by: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return hosted usage buckets for the authenticated wallet."""
+        normalized_granularity = str(granularity or "").strip().lower()
+        if normalized_granularity not in SUPPORTED_USAGE_GRANULARITIES:
+            supported_granularities = ", ".join(sorted(SUPPORTED_USAGE_GRANULARITIES))
+            raise ValueError(
+                f"granularity must be one of: {supported_granularities}"
+            )
+
+        params: Dict[str, Any] = {"granularity": normalized_granularity}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        if group_by:
+            params["group_by"] = group_by
+
+        return await self._request_account_json(
+            "usage",
+            params=params,
+            runtime_context=runtime_context,
+        )
+
+    async def get_usage_forecast(
+        self,
+        window_days: int = 30,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return the hosted usage forecast for the authenticated wallet."""
+        normalized_window_days = int(window_days)
+        if normalized_window_days <= 0:
+            raise ValueError("window_days must be a positive integer")
+
+        return await self._request_account_json(
+            "forecast",
+            params={"window_days": normalized_window_days},
+            runtime_context=runtime_context,
+        )
+
+    async def get_pricing_info(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return the hosted pricing view for the authenticated wallet."""
+        return await self._request_account_json(
+            "pricing",
+            runtime_context=runtime_context,
+        )
 
     def _instrument_client(self, client: AsyncOpenAI) -> None:
         """Instrument a lazily created client if logfire is enabled."""
@@ -558,8 +775,7 @@ class OpenAIAdapter(LLMProvider):
                     messages,
                     model or self.text_model,
                 ),
-                **self._chat_completion_request_options(),
-                **self._hosted_chat_completion_extensions(runtime_context),
+                **await self._hosted_chat_completion_request_options(runtime_context),
             }
             if tools:
                 cc_params["tools"] = tools
@@ -643,8 +859,7 @@ class OpenAIAdapter(LLMProvider):
                         fallback_messages,
                         self.text_model,
                     ),
-                    **self._chat_completion_request_options(),
-                    **self._hosted_chat_completion_extensions(runtime_context),
+                    **await self._hosted_chat_completion_request_options(runtime_context),
                 )
                 return completion.choices[0].message.content or ""
             except Exception as e:
@@ -939,8 +1154,7 @@ class OpenAIAdapter(LLMProvider):
                         messages,
                         model or self.text_model,
                     ),
-                    **self._chat_completion_request_options(),
-                    **self._hosted_chat_completion_extensions(runtime_context),
+                    **await self._hosted_chat_completion_request_options(runtime_context),
                 }
                 if tools:
                     cc_params["tools"] = tools
@@ -1058,8 +1272,7 @@ Respond with ONLY the JSON object.
                         ],
                         current_parse_model,
                     ),
-                    **self._chat_completion_request_options(),
-                    **self._hosted_chat_completion_extensions(runtime_context),
+                    **await self._hosted_chat_completion_request_options(runtime_context),
                 )
 
                 json_str = completion.choices[0].message.content
