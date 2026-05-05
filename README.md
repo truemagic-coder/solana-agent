@@ -114,14 +114,6 @@ Included:
 - Plugin loading for `mcp` and `x402_request`.
 - Runtime context forwarding for hosted features such as `conversation_id`, `service_tier`, and wallet identifiers.
 
-Not included:
-
-- Local Mongo or Zep memory.
-- Local conversation history APIs.
-- Guardrail loading.
-- Multi-agent routing.
-- Bundled hosted Solana action tool modules.
-
 ## Hosted Memory
 
 If you want memory, use the hosted platform memory model. The SDK itself does not persist anything locally.
