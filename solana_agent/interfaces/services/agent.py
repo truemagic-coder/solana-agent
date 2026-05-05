@@ -64,7 +64,11 @@ class AgentService(ABC):
 
     @abstractmethod
     async def execute_tool(
-        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
+        self,
+        agent_name: str,
+        tool_name: str,
+        parameters: Dict[str, Any],
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
         pass

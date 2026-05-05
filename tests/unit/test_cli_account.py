@@ -71,3 +71,80 @@ def test_account_usage_command_passes_query_options(
         runtime_context=None,
     )
     assert '"buckets": []' in result.stdout
+
+
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_create_command_calls_client(mock_solana_agent):
+    mock_agent = MagicMock()
+    mock_agent.create_wallet = AsyncMock(
+        return_value={"wallet_id": "wallet-123", "address": "WalletPubkey123"}
+    )
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        [
+            "wallet",
+            "create",
+            "--config",
+            "config.json",
+            "--user-id",
+            "did:privy:user123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with(config_path="config.json")
+    mock_agent.create_wallet.assert_awaited_once_with(
+        user_id="did:privy:user123",
+        chain_type="solana",
+    )
+    assert '"wallet_id": "wallet-123"' in result.stdout
+
+
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_address_command_calls_client(mock_solana_agent):
+    mock_agent = MagicMock()
+    mock_agent.get_wallet_address = AsyncMock(return_value="WalletPubkey123")
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        [
+            "wallet",
+            "address",
+            "--config",
+            "config.json",
+            "--user-id",
+            "did:privy:user123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_agent.get_wallet_address.assert_awaited_once_with(user_id="did:privy:user123")
+    assert '"WalletPubkey123"' in result.stdout
+
+
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_export_command_calls_client(mock_solana_agent):
+    mock_agent = MagicMock()
+    mock_agent.export_wallet_private_key = AsyncMock(return_value="base58-private-key")
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        [
+            "wallet",
+            "export",
+            "--config",
+            "config.json",
+            "--wallet-id",
+            "wallet-123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    mock_agent.export_wallet_private_key.assert_awaited_once_with(
+        wallet_id="wallet-123"
+    )
+    assert '"base58-private-key"' in result.stdout

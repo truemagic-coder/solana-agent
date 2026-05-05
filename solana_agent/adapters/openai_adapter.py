@@ -69,7 +69,7 @@ GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
 TOKENS_PER_MESSAGE = 4
 TOKENS_PER_NAME = 1
 TOKENS_PER_REPLY_PRIMER = 2
-SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC", "USDT"})
+SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC"})
 SUPPORTED_USAGE_GRANULARITIES = frozenset({"day", "month", "year"})
 ACCOUNT_AUTH_TIMEOUT_SECONDS = 30.0
 
@@ -413,11 +413,21 @@ class OpenAIAdapter(LLMProvider):
         if not self.base_url:
             raise ValueError("Account reporting requires a configured base_url")
 
+    def _require_hosted_base_url(self, capability: str) -> None:
+        if not self.base_url:
+            raise ValueError(f"{capability} requires a configured base_url")
+
     def _account_endpoint_url(self, endpoint: str) -> str:
         self._require_account_reporting_auth()
         normalized_base_url = str(self.base_url or "").rstrip("/")
         normalized_endpoint = str(endpoint or "").strip().lstrip("/")
         return f"{normalized_base_url}/account/{normalized_endpoint}"
+
+    def _hosted_endpoint_url(self, endpoint: str, *, capability: str) -> str:
+        self._require_hosted_base_url(capability)
+        normalized_base_url = str(self.base_url or "").rstrip("/")
+        normalized_endpoint = str(endpoint or "").strip().lstrip("/")
+        return f"{normalized_base_url}/{normalized_endpoint}"
 
     async def _resolve_account_auth_keypair(
         self,
@@ -519,6 +529,82 @@ class OpenAIAdapter(LLMProvider):
             response.raise_for_status()
             return response.json()
 
+    async def _request_hosted_json(
+        self,
+        endpoint: str,
+        *,
+        method: str = "get",
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        capability: str,
+    ) -> Dict[str, Any]:
+        url = self._hosted_endpoint_url(endpoint, capability=capability)
+        async with httpx.AsyncClient(timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS) as client:
+            if method == "get":
+                response = await client.get(url, params=params)
+            elif method == "post":
+                response = await client.post(url, json=json_body)
+            else:  # pragma: no cover
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            response.raise_for_status()
+            return response.json()
+
+    def _hosted_search_enabled(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        if not self.text_model.startswith("solana-agent-"):
+            return False
+
+        value = (runtime_context or {}).get("search_enabled")
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off", ""}:
+                return False
+        return bool(value)
+
+    def _chat_completion_response_events(self, response: Any) -> list[Dict[str, Any]]:
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            return [{"type": "message_end", "finish_reason": "stop"}]
+
+        choice = choices[0]
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None)
+        events: list[Dict[str, Any]] = []
+
+        if isinstance(content, str) and content:
+            events.append({"type": "content", "delta": content})
+
+        tool_calls = getattr(message, "tool_calls", None) or []
+        for index, tool_call in enumerate(tool_calls):
+            function = getattr(tool_call, "function", None)
+            events.append(
+                {
+                    "type": "tool_call_delta",
+                    "id": getattr(tool_call, "id", None),
+                    "index": index,
+                    "name": getattr(function, "name", None) if function else None,
+                    "arguments_delta": getattr(function, "arguments", "")
+                    if function
+                    else "",
+                }
+            )
+
+        events.append(
+            {
+                "type": "message_end",
+                "finish_reason": getattr(choice, "finish_reason", None) or "stop",
+            }
+        )
+        return events
+
     def _hosted_chat_completion_extensions(
         self,
         runtime_context: Optional[Dict[str, Any]] = None,
@@ -536,6 +622,20 @@ class OpenAIAdapter(LLMProvider):
         if conversation_id:
             extensions["conversation_id"] = conversation_id
 
+        user_id = str(context.get("user_id") or "").strip()
+        if user_id:
+            extensions["user"] = user_id
+
+        for key in (
+            "privy_user_id",
+            "privy_wallet_id",
+            "privy_wallet_public_key",
+            "privy_wallet_address",
+        ):
+            value = str(context.get(key) or "").strip()
+            if value:
+                extensions[key] = value
+
         memory_ttl_tier = str(context.get("memory_ttl_tier") or "").strip()
         if memory_ttl_tier:
             extensions["memory_ttl_tier"] = memory_ttl_tier
@@ -543,6 +643,9 @@ class OpenAIAdapter(LLMProvider):
         preferred_asset = self._resolve_x402_preferred_asset(context)
         if preferred_asset:
             extensions["x402_preferred_asset"] = preferred_asset
+
+        if self._hosted_search_enabled(context):
+            extensions["search_enabled"] = True
 
         if not extensions:
             return {}
@@ -557,6 +660,43 @@ class OpenAIAdapter(LLMProvider):
         return await self._request_account_json(
             "summary",
             runtime_context=runtime_context,
+        )
+
+    async def create_wallet(
+        self,
+        *,
+        user_id: str,
+        chain_type: str = "solana",
+    ) -> Dict[str, Any]:
+        """Create or return the hosted Privy wallet for a user."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise ValueError("user_id is required")
+
+        normalized_chain_type = str(chain_type or "solana").strip().lower() or "solana"
+        if normalized_chain_type not in {"ethereum", "solana"}:
+            raise ValueError("chain_type must be one of: ethereum, solana")
+
+        return await self._request_hosted_json(
+            "account/wallet",
+            method="post",
+            json_body={
+                "user_id": normalized_user_id,
+                "chain_type": normalized_chain_type,
+            },
+            capability="Hosted wallet management",
+        )
+
+    async def get_wallet_address(self, *, user_id: str) -> Dict[str, Any]:
+        """Return the hosted Privy wallet address payload for a user."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise ValueError("user_id is required")
+
+        return await self._request_hosted_json(
+            "account/wallet/address",
+            params={"user_id": normalized_user_id},
+            capability="Hosted wallet management",
         )
 
     async def get_usage_report(
@@ -1038,6 +1178,26 @@ class OpenAIAdapter(LLMProvider):
         try:
             client = await self._get_client(runtime_context)
             self._instrument_client(client)
+
+            if self._hosted_search_enabled(runtime_context):
+                cc_params: Dict[str, Any] = {
+                    "model": model or self.text_model,
+                    "messages": messages,
+                    "max_tokens": self._resolve_chat_completion_max_tokens(
+                        messages,
+                        model or self.text_model,
+                    ),
+                    **await self._hosted_chat_completion_request_options(
+                        runtime_context
+                    ),
+                }
+                if tools:
+                    cc_params["tools"] = tools
+
+                response = await client.chat.completions.create(**cc_params)
+                for event in self._chat_completion_response_events(response):
+                    yield event
+                return
 
             if self._supports_responses_api():
                 # Responses API path (OpenAI, Groq)

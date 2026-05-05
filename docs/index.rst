@@ -109,12 +109,16 @@ Privy Payer Example
    ):
       print(response, end="")
 
-Bundled Tool Surface
---------------------
+Public SDK Surface
+------------------
 
-The official first-party tools are bundled directly in ``solana_agent.tools``. Do not install Solana Agent Kit as a separate runtime dependency for v34.
+The public SDK surface is intentionally narrow. Use the hosted chat and memory SKUs for built-in Solana workflows.
 
-The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.
+The supported public modules are:
+
+- ``mcp`` for external MCP servers
+- ``x402_request`` for direct paid HTTP access
+- hosted wallet lifecycle methods exposed on ``SolanaAgent``
 
 Local Smoke Validation
 ----------------------
@@ -159,7 +163,7 @@ When moving from the v33 contract to the v34 runtime path:
 - replace upstream model-provider API keys with x402 payer configuration
 - replace local-memory assumptions with the AGI remote-memory default
 - use ``model: "stateless"`` or ``model: "solana-agent-chat"`` when you need the stateless SKU
-- use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime
+- use hosted Solana workflows or external MCP servers instead of expecting bundled public tool modules in this package
 - treat conversation history and memory as remote-only runtime behavior
 
 The broader migration plan is tracked in ``V34_AGI_X402_CHECKLIST.md``.
@@ -285,12 +289,16 @@ Privy Payer Example
    ):
       print(response, end="")
 
-Bundled Tool Surface
---------------------
+Public SDK Surface
+------------------
 
-The official first-party tools are bundled directly in ``solana_agent.tools``. Do not install Solana Agent Kit as a separate runtime dependency for v34.
+The public SDK surface is intentionally narrow. Use the hosted chat and memory SKUs for built-in Solana workflows.
 
-The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.
+The supported public modules are:
+
+- ``mcp`` for external MCP servers
+- ``x402_request`` for direct paid HTTP access
+- hosted wallet lifecycle methods exposed on ``SolanaAgent``
 
 Local Smoke Validation
 ----------------------
@@ -335,7 +343,7 @@ When moving from the v33 contract to the v34 runtime path:
 - replace upstream model-provider API keys with x402 payer configuration
 - replace local-memory assumptions with the AGI remote-memory default
 - use ``model: "stateless"`` or ``model: "solana-agent-chat"`` when you need the stateless SKU
-- use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime
+- use hosted Solana workflows or external MCP servers instead of expecting bundled public tool modules in this package
 - treat conversation history and memory as remote-only runtime behavior
 
 The broader migration plan is tracked in ``V34_AGI_X402_CHECKLIST.md``.

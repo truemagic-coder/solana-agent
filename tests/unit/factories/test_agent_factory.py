@@ -601,7 +601,7 @@ class TestSolanaAgentFactory:
     ):
         """AGI x402 config should pass the preferred settlement asset default into the adapter."""
         config = deepcopy(x402_private_key_config)
-        config["ai"]["x402_preferred_asset"] = "USDT"
+        config["ai"]["x402_preferred_asset"] = "USDC"
 
         mock_openai_adapter.return_value = MagicMock()
         mock_agent_instance = MagicMock()
@@ -618,7 +618,7 @@ class TestSolanaAgentFactory:
             base_url="https://ai.solana-agent.com/v1",
             auth_mode="x402_private_key",
             private_key="test-private-key",
-            x402_preferred_asset="USDT",
+            x402_preferred_asset="USDC",
         )
 
     def test_rejects_mongo_config(self, mongo_config):

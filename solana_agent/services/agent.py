@@ -188,7 +188,11 @@ class AgentService(AgentServiceInterface):
         return self.tool_registry.get_agent_tools(agent_name)
 
     async def execute_tool(
-        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
+        self,
+        agent_name: str,
+        tool_name: str,
+        parameters: Dict[str, Any],
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
 
@@ -213,7 +217,12 @@ class AgentService(AgentServiceInterface):
                 "message": f"Agent '{agent_name}' doesn't have access to tool '{tool_name}'",
             }
 
+        set_runtime_context = getattr(tool, "set_runtime_context", None)
+        clear_runtime_context = getattr(tool, "clear_runtime_context", None)
+
         try:
+            if callable(set_runtime_context):
+                set_runtime_context(runtime_context)
             logger.info(
                 f"Executing tool '{tool_name}' for agent '{agent_name}' with params: {parameters}"
             )
@@ -229,6 +238,9 @@ class AgentService(AgentServiceInterface):
                 f"Error executing tool '{tool_name}': {e}\n{traceback.format_exc()}"
             )
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
+        finally:
+            if callable(clear_runtime_context):
+                clear_runtime_context()
 
     async def generate_response(
         self,
@@ -429,7 +441,10 @@ class AgentService(AgentServiceInterface):
                             f"Streaming: executing tool '{func_name}' with args: {args}"
                         )
                         tool_result = await self.execute_tool(
-                            agent_name, func_name, args
+                            agent_name,
+                            func_name,
+                            args,
+                            runtime_context=runtime_context,
                         )
                         messages.append(
                             {

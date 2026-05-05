@@ -15,6 +15,7 @@ class SolanaAgent(ABC):
         user_id: str,
         message: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
+        search_enabled: Optional[bool] = None,
         prompt: Optional[str] = None,
         output_format: Literal["text", "audio"] = "text",
         capture_schema: Optional[Dict[str, Any]] = None,
@@ -63,6 +64,39 @@ class SolanaAgent(ABC):
     @abstractmethod
     def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """Register a tool with the agent system."""
+        pass
+
+    @abstractmethod
+    async def create_wallet(
+        self,
+        user_id: str,
+        chain_type: Literal["solana", "ethereum"] = "solana",
+    ) -> Dict[str, Any]:
+        """Create or return the hosted Privy wallet for a user."""
+        pass
+
+    @abstractmethod
+    async def get_wallet_address(self, user_id: str) -> str:
+        """Get the hosted Privy wallet public address for a user."""
+        pass
+
+    @abstractmethod
+    async def export_wallet_private_key(
+        self,
+        wallet_id: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Export a Privy wallet private key for self-custody flows."""
+        pass
+
+    @abstractmethod
+    async def prepare_x402_runtime_context(
+        self,
+        user_id: str,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        chain_type: Literal["solana", "ethereum"] = "solana",
+    ) -> Dict[str, Any]:
+        """Create or fetch the hosted Privy wallet and return x402 runtime context."""
         pass
 
     @abstractmethod

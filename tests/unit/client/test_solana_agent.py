@@ -109,7 +109,81 @@ class TestSolanaAgent:
 
             assert chunks == ["Test response"]
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
-                "privy_wallet_id": "wallet-123"
+                "privy_wallet_id": "wallet-123",
+                "user_id": "test_user",
+            }
+
+    @pytest.mark.asyncio
+    async def test_process_merges_search_enabled_into_runtime_context(
+        self, config_dict, mock_query_service
+    ):
+        """Process should expose hosted search without forcing callers into runtime_context."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            chunks = []
+            async for chunk in agent.process(
+                user_id="test_user",
+                message="hello",
+                runtime_context={"conversation_id": "conv-123"},
+                search_enabled=True,
+            ):
+                chunks.append(chunk)
+
+            assert chunks == ["Test response"]
+            assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
+                "conversation_id": "conv-123",
+                "search_enabled": True,
+                "user_id": "test_user",
+            }
+
+    @pytest.mark.asyncio
+    async def test_process_prepares_hosted_privy_wallet_for_x402_privy(
+        self, mock_query_service
+    ):
+        """Process should attach hosted wallet context for x402_privy calls."""
+        config = {
+            "ai": {
+                "auth_mode": "x402_privy",
+                "privy_app_id": "app-123",
+                "privy_app_secret": "secret-123",
+            }
+        }
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config)
+
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock(
+                return_value={
+                    "wallet_id": "wallet-123",
+                    "address": "WalletPubkey123",
+                }
+            )
+
+            chunks = []
+            async for chunk in agent.process(
+                user_id="did:privy:user123",
+                message="hello",
+                runtime_context={"conversation_id": "conv-123"},
+            ):
+                chunks.append(chunk)
+
+            assert chunks == ["Test response"]
+            mock_query_service.agent_service.llm_provider.create_wallet.assert_awaited_once_with(
+                user_id="did:privy:user123",
+                chain_type="solana",
+            )
+            assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
+                "conversation_id": "conv-123",
+                "user_id": "did:privy:user123",
+                "privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     @pytest.mark.asyncio
@@ -195,6 +269,115 @@ class TestSolanaAgent:
             mock_query_service.agent_service.llm_provider.get_account_summary.assert_awaited_once_with(
                 runtime_context={"privy_wallet_id": "wallet-123"}
             )
+
+    @pytest.mark.asyncio
+    async def test_create_wallet(self, config_dict, mock_query_service):
+        """Client wallet creation should delegate to the hosted provider."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            expected = {
+                "user_id": "did:privy:user123",
+                "wallet_id": "wallet-123",
+                "address": "WalletPubkey123",
+                "chain_type": "solana",
+                "created": True,
+            }
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock(
+                return_value=expected
+            )
+
+            result = await agent.create_wallet("did:privy:user123")
+
+            assert result == expected
+            mock_query_service.agent_service.llm_provider.create_wallet.assert_awaited_once_with(
+                user_id="did:privy:user123",
+                chain_type="solana",
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_wallet_address(self, config_dict, mock_query_service):
+        """Client wallet address lookup should return the hosted public address."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.get_wallet_address = (
+                AsyncMock(
+                    return_value={
+                        "user_id": "did:privy:user123",
+                        "address": "WalletPubkey123",
+                    }
+                )
+            )
+
+            result = await agent.get_wallet_address("did:privy:user123")
+
+            assert result == "WalletPubkey123"
+            mock_query_service.agent_service.llm_provider.get_wallet_address.assert_awaited_once_with(
+                user_id="did:privy:user123"
+            )
+
+    @pytest.mark.asyncio
+    async def test_export_wallet_private_key(self, config_dict, mock_query_service):
+        """Client wallet export should reuse the local Privy export helper."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            llm_provider = mock_query_service.agent_service.llm_provider
+            llm_provider.privy_app_id = "app-123"
+            llm_provider.privy_app_secret = "secret-123"
+            llm_provider.privy_authorization_signature = None
+            llm_provider.privy_request_expiry = None
+            llm_provider.privy_api_url = None
+            llm_provider.x402_rpc_url = None
+
+            with patch(
+                "solana_agent.client.solana_agent.export_privy_wallet_private_key",
+                new_callable=AsyncMock,
+                return_value="base58-private-key",
+            ) as mock_export:
+                result = await agent.export_wallet_private_key(wallet_id="wallet-123")
+
+            assert result == "base58-private-key"
+            assert mock_export.await_args.args[0].wallet_id == "wallet-123"
+
+    @pytest.mark.asyncio
+    async def test_prepare_x402_runtime_context(self, config_dict, mock_query_service):
+        """Client helper should return hosted Privy wallet runtime context."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock(
+                return_value={
+                    "wallet_id": "wallet-123",
+                    "address": "WalletPubkey123",
+                }
+            )
+
+            result = await agent.prepare_x402_runtime_context(
+                "did:privy:user123",
+                runtime_context={"conversation_id": "conv-123"},
+            )
+
+            assert result == {
+                "conversation_id": "conv-123",
+                "user_id": "did:privy:user123",
+                "privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
+            }
 
     @pytest.mark.asyncio
     async def test_get_usage_report(self, config_dict, mock_query_service):

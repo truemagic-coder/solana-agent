@@ -128,6 +128,13 @@ def _parse_args() -> argparse.Namespace:
         default=os.getenv("X402_SMOKE_USER", "x402-smoke"),
         help="Optional OpenAI-compatible user field",
     )
+    parser.add_argument(
+        "--search-enabled",
+        action="store_true",
+        default=os.getenv("X402_SMOKE_SEARCH_ENABLED", "0").strip().lower()
+        in {"1", "true", "yes", "on"},
+        help="Enable the hosted search add-on for non-streaming smoke checks.",
+    )
     return parser.parse_args()
 
 
@@ -225,6 +232,7 @@ def _chat_body(
     stream: bool = False,
     conversation_id: str | None = None,
     memory_ttl_tier: str | None = None,
+    search_enabled: bool = False,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": model,
@@ -244,6 +252,8 @@ def _chat_body(
         body["conversation_id"] = conversation_id
     if memory_ttl_tier:
         body["memory_ttl_tier"] = memory_ttl_tier
+    if search_enabled:
+        body["search_enabled"] = True
     return body
 
 
@@ -290,6 +300,7 @@ async def _collect_agent_text_response(
     user_id: str,
     message: str,
     runtime_context: dict[str, Any] | None = None,
+    search_enabled: bool = False,
 ) -> tuple[str, float]:
     started = time.perf_counter()
     chunks: list[str] = []
@@ -297,6 +308,7 @@ async def _collect_agent_text_response(
         user_id,
         message,
         runtime_context=runtime_context,
+        search_enabled=search_enabled,
     ):
         if isinstance(chunk, bytes):
             chunks.append(chunk.decode("utf-8", errors="replace"))
@@ -526,6 +538,7 @@ async def _stateless_check(
         prompt=f"Reply with ONLY this token: {token}",
         max_tokens=args.max_tokens,
         user=args.user,
+        search_enabled=args.search_enabled,
     )
     try:
         response, elapsed_ms = await _paid_chat(
@@ -557,6 +570,7 @@ async def _memory_check(
         user=args.user,
         conversation_id=conversation_id,
         memory_ttl_tier=args.memory_ttl_tier,
+        search_enabled=args.search_enabled,
     )
     recall_body = _chat_body(
         model="solana-agent-memory",
@@ -565,6 +579,7 @@ async def _memory_check(
         user=args.user,
         conversation_id=conversation_id,
         memory_ttl_tier=args.memory_ttl_tier,
+        search_enabled=args.search_enabled,
     )
     started = time.perf_counter()
     try:
@@ -687,6 +702,7 @@ async def _duplicate_check(
         prompt=f"Reply with ONLY this token: {token}",
         max_tokens=args.max_tokens,
         user=args.user,
+        search_enabled=args.search_enabled,
     )
     idempotency_key = f"smoke-duplicate-{uuid.uuid4().hex}"
     started = time.perf_counter()
@@ -826,6 +842,7 @@ async def _sdk_stateless_check(
             agent,
             user_id=args.user,
             message=f"Reply with ONLY this token: {token}",
+            search_enabled=args.search_enabled,
         )
         ok = _contains_token(content, token)
         detail = f"reply={_compact_text(content)}"
@@ -864,6 +881,7 @@ async def _sdk_memory_check(
                 f"Reply with ONLY: STORED {token}"
             ),
             runtime_context=runtime_context,
+            search_enabled=args.search_enabled,
         )
         second_content, second_ms = await _collect_agent_text_response(
             agent,
@@ -872,6 +890,7 @@ async def _sdk_memory_check(
                 "What token did I ask you to remember? Reply with ONLY the token."
             ),
             runtime_context=runtime_context,
+            search_enabled=args.search_enabled,
         )
         ok = _contains_token(first_content, token) and _contains_token(
             second_content,

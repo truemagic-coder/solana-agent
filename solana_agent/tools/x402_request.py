@@ -34,9 +34,15 @@ class X402RequestTool(AutoTool):
         self.privy_authorization_signature = ""
         self.privy_request_expiry = ""
         self.privy_api_url = ""
+        self.privy_wallet_id = ""
         self.x402_rpc_url = None
         self.allowed_hosts: list[str] = []
         self._runtime_context: Dict[str, Any] = {}
+
+    @staticmethod
+    def _config_section(config: Dict[str, Any], key: str) -> Dict[str, Any]:
+        section = config.get(key, {})
+        return section if isinstance(section, dict) else {}
 
     def set_runtime_context(self, runtime_context: Optional[Dict[str, Any]]) -> None:
         self._runtime_context = dict(runtime_context or {})
@@ -45,7 +51,20 @@ class X402RequestTool(AutoTool):
         self._runtime_context = {}
 
     def _get_runtime_privy_wallet_id(self) -> str:
-        return str(self._runtime_context.get("privy_wallet_id") or "").strip()
+        for context_key in ("privy_wallet_id", "hosted_privy_wallet_id"):
+            value = str(self._runtime_context.get(context_key) or "").strip()
+            if value:
+                return value
+
+        wallet_payload = self._runtime_context.get("privy_wallet")
+        if isinstance(wallet_payload, dict):
+            value = str(
+                wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
+            ).strip()
+            if value:
+                return value
+
+        return self.privy_wallet_id
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -92,20 +111,56 @@ class X402RequestTool(AutoTool):
         super().configure(config)
         tool_config = config.get("tools", {}).get("x402_request", {})
         if isinstance(tool_config, dict):
-            self.auth_mode = tool_config.get("auth_mode", "x402_private_key")
-            self.private_key = tool_config.get("private_key", "")
-            self.privy_app_id = tool_config.get("privy_app_id", "") or tool_config.get(
-                "app_id", ""
+            provider_config = self._config_section(
+                config, "ai"
+            ) or self._config_section(config, "openai")
+            explicit_auth_mode = str(tool_config.get("auth_mode") or "").strip()
+            provider_auth_mode = str(provider_config.get("auth_mode") or "").strip()
+            inherited_auth_mode = (
+                provider_auth_mode
+                if provider_auth_mode in {"x402_private_key", "x402_privy"}
+                else "x402_private_key"
             )
-            self.privy_app_secret = tool_config.get(
-                "privy_app_secret", ""
-            ) or tool_config.get("app_secret", "")
-            self.privy_authorization_signature = tool_config.get(
-                "privy_authorization_signature", ""
+            self.auth_mode = explicit_auth_mode or inherited_auth_mode
+            self.private_key = str(
+                tool_config.get("private_key")
+                or provider_config.get("private_key")
+                or ""
             )
-            self.privy_request_expiry = tool_config.get("privy_request_expiry", "")
-            self.privy_api_url = tool_config.get("privy_api_url", "")
-            self.x402_rpc_url = tool_config.get("x402_rpc_url")
+            self.privy_app_id = str(
+                tool_config.get("privy_app_id")
+                or tool_config.get("app_id")
+                or provider_config.get("privy_app_id")
+                or provider_config.get("app_id")
+                or ""
+            )
+            self.privy_app_secret = (
+                tool_config.get("privy_app_secret", "")
+                or tool_config.get("app_secret", "")
+                or provider_config.get("privy_app_secret", "")
+                or provider_config.get("app_secret", "")
+            )
+            self.privy_authorization_signature = str(
+                tool_config.get("privy_authorization_signature")
+                or provider_config.get("privy_authorization_signature")
+                or ""
+            )
+            self.privy_request_expiry = str(
+                tool_config.get("privy_request_expiry")
+                or provider_config.get("privy_request_expiry")
+                or ""
+            )
+            self.privy_api_url = str(
+                tool_config.get("privy_api_url")
+                or provider_config.get("privy_api_url")
+                or ""
+            )
+            self.privy_wallet_id = str(
+                tool_config.get("privy_wallet_id") or tool_config.get("wallet_id") or ""
+            ).strip()
+            self.x402_rpc_url = tool_config.get("x402_rpc_url") or provider_config.get(
+                "x402_rpc_url"
+            )
             allowed_hosts = tool_config.get("allowed_hosts", [])
             if isinstance(allowed_hosts, list):
                 self.allowed_hosts = [
@@ -175,8 +230,9 @@ class X402RequestTool(AutoTool):
                 "success": False,
                 "error": (
                     "x402 signing key not configured. Set x402_request.private_key for "
-                    "x402_private_key mode or pass runtime_context.privy_wallet_id and set "
-                    "x402_request.privy_app_id and x402_request.privy_app_secret for x402_privy mode."
+                    "x402_private_key mode or pass runtime_context.privy_wallet_id for "
+                    "the hosted Privy wallet and set Privy app credentials in x402_request "
+                    "or ai config for x402_privy mode."
                 ),
             }
 

@@ -18,7 +18,7 @@ Stop wrestling with stateless LLMs that forget context after every turn.
 
 - **Persistent Memory**: Your agents remember user history, preferences, and past actions across sessions — powered by our hosted AGI service.
 - **Seamless x402 Payments**: Real Solana-based payments with private keys or Privy wallets. No more fake demo mode.
-- **Real Execution**: Bundled first-party tools for swaps, transfers, portfolio management, market research, and more. Agents don't just talk — they *act*.
+- **Real Execution**: Hosted chat and memory SKUs orchestrate the Solana toolchain server-side, while the public SDK stays thin and wallet-aware.
 - **Near AGI Performance**: Proven benchmark leadership with 0.935 mean human ratio on calibrated agentic tasks. Memory, planning, debugging, and tool use that actually works.
 
 Whether you're building trading copilots, DeFi automations, or intelligent wallets, Solana Agent lets you ship reliable agents **in minutes, not months**.
@@ -29,7 +29,7 @@ Whether you're building trading copilots, DeFi automations, or intelligent walle
 
 - It remembers what happened earlier instead of starting from zero every turn.
 - It can use real Solana payment and wallet flows, not just talk about them.
-- It ships with the Solana tool stack you actually need for swaps, transfers, market data, and automation.
+- It keeps the public SDK small: hosted chat/memory, wallet lifecycle, MCP, and raw x402 requests.
 - It defaults to the hosted service, so getting started is simple.
 - It is built for real agent workflows, not demo-only chat.
 
@@ -41,7 +41,7 @@ Generic LLM wrappers fail at real agent work. They forget context, hallucinate t
 
 - **Persistent Remote Memory** that maintains coherent context across days or weeks — critical for personalized agents and ongoing workflows.
 - **Native Solana Execution** with x402 payments using real wallets (private key or Privy). Agents can swap, transfer, lend, and interact with protocols without human-in-the-loop.
-- **Production-Grade Tool Suite** — 20+ first-party tools for Jupiter, Kamino, Birdeye, Rugcheck, Privy operations, technical analysis, and more. No separate SDKs required.
+- **Hosted Solana Orchestration** — the built-in Jupiter, Kamino, Birdeye, and other Solana workflows now live behind the hosted SKUs instead of shipping as public SDK tool modules.
 - **Proven Agent Intelligence** — Our hosted service delivers **near AGI performance** on the benchmarks that matter for agents: memory retention, multi-step planning, code repair, and commercial decision-making.
 - **Simple SDK** with powerful runtime context for conversation isolation, memory tiers, and wallet delegation.
 
@@ -83,7 +83,7 @@ Pay only for what you use. Two SKUs optimized for different workloads:
 | **solana-agent-chat** (`stateless`) | One-off queries, high-volume | $5 / 1M tokens | $30 / 1M tokens | None |
 
 - `memory_ttl_tier="work"` (default, 7 days) or `"project"` for longer context of 30 days.
-- x402 settlement in USDC/USDT on Solana — transparent, onchain, no surprise bills.
+- x402 settlement in USDC on Solana — transparent, onchain, no surprise bills.
 - Dynamic rate limits, service tiers, and admission controls protect both users and the upstream providers.
 
 **Pro tip:** Start with the `solana-agent-memory` SKU for most agent use cases. The persistent context delivers far higher ROI than the modest price difference. Use `service_tier: "priority"` when you need the fastest possible responses.
@@ -153,10 +153,10 @@ pip install solana-agent
 **Set your environment variables** (get your keys from your Solana wallet or Privy dashboard):
 
 ```bash
-export X402_PRIVATE_KEY="your_base58_private_key_here"
-# or for Privy:
-# export PRIVY_APP_ID=...
-# export PRIVY_APP_SECRET=...
+export PRIVY_APP_ID="your_privy_app_id"
+export PRIVY_APP_SECRET="your_privy_app_secret"
+# or for an operator-managed wallet:
+# export X402_PRIVATE_KEY="your_base58_private_key_here"
 ```
 
 Then run one of the Quick Start examples above.
@@ -191,12 +191,12 @@ Everything else — hosted endpoint, tool routing, memory sessions, budgeting, o
 | `auth_mode` | `"x402_private_key"` or `"x402_privy"` | Enables seamless onchain payments and wallet actions |
 | `model` | Omit (defaults to memory) or `"stateless"` | Controls persistent memory vs one-shot responses |
 | `base_url` | Omit it | Uses our production hosted service at `https://ai.solana-agent.com/v1` |
-| `x402_preferred_asset` | Optional default: `"USDC"` or `"USDT"` | Sets the default stablecoin for x402 settlement; override it per request in `runtime_context` when needed |
+| `x402_preferred_asset` | Optional default: `"USDC"` | Explicitly pins hosted settlement to USDC; most apps can leave it unset |
 | `memory_ttl_tier` (in runtime_context) | `"work"` or `"project"` | Balances retention vs cost for your use case |
 
 ## Quick Start: Ship Your First Agent in < 2 Minutes
 
-### Private Key x402 (Recommended for most developers)
+### Private Key x402
 
 ```python
 import os
@@ -206,7 +206,6 @@ config = {
     "ai": {
         "auth_mode": "x402_private_key",
         "private_key": os.environ["X402_PRIVATE_KEY"],  # Base58 Solana key
-        "x402_preferred_asset": "USDT",  # Optional: prefer USDT settlement
     },
     "agents": [{
         "name": "default_agent",
@@ -223,7 +222,6 @@ async for chunk in agent.process(
     prompt="Analyze my wallet for any unusual token activity and suggest 2 high-conviction trades.",
     runtime_context={
         "conversation_id": "session-trader42-2026",
-        "x402_preferred_asset": "USDT",  # Optional per-request override
     }
 ):
     print(chunk, end="")
@@ -231,7 +229,7 @@ async for chunk in agent.process(
 
 **This single agent can:** analyze wallets, surface market insights via Birdeye/Vybe, execute Jupiter swaps or Kamino positions, remember your risk preferences across sessions, and suggest actions proactively.
 
-### Privy Wallet x402 (For apps with embedded wallets)
+### Privy Wallet x402 (Recommended for embedded-wallet apps)
 
 ```python
 import os
@@ -242,7 +240,6 @@ config = {
         "auth_mode": "x402_privy",
         "privy_app_id": os.environ["PRIVY_APP_ID"],
         "privy_app_secret": os.environ["PRIVY_APP_SECRET"],
-        "x402_preferred_asset": "USDC",  # Optional: prefer USDC settlement
     },
     "agents": [{
         "name": "trading_agent",
@@ -257,7 +254,6 @@ runtime_context = {
     "privy_wallet_id": "user-wallet-from-privy",
     "conversation_id": "defi-session-xyz-2026",
     "memory_ttl_tier": "project",  # Longer retention for ongoing strategies
-    "x402_preferred_asset": "USDC",  # Optional per-request override
 }
 
 async for chunk in agent.process(
@@ -268,7 +264,21 @@ async for chunk in agent.process(
     print(chunk, end="")
 ```
 
-When the hosted service offers both stablecoins in the x402 challenge, `x402_preferred_asset` lets the client explicitly choose `USDC` or `USDT` instead of silently taking the first option. Set it in `runtime_context` for per-request control, or set it once in `config["ai"]` as a default.
+Hosted x402 settlement is USDC-only on Solana. Most apps can leave `x402_preferred_asset` unset; if you keep it for explicitness or backward compatibility, it must be `USDC`.
+
+If you want the hosted search add-on on a specific request, pass `search_enabled=True` directly to `process()`. The SDK forwards the flag automatically, and because search-enabled hosted requests are non-streaming in v1, the final answer is returned as a single text chunk.
+
+```python
+async for chunk in agent.process(
+    user_id="user_789",
+    message="Summarize the latest developments around Solana stablecoin flows.",
+    runtime_context={"conversation_id": "market-brief-2026-05-04"},
+    search_enabled=True,
+):
+    print(chunk, end="")
+```
+
+For the CLI, the same add-on is exposed as `solana-agent chat --search-enabled`.
 
 ## Master Your Agent's Memory
 
@@ -339,34 +349,40 @@ solana-agent account pricing --config config.json
 solana-agent account summary --config config.json --privy-wallet-id wallet-123
 ```
 
-## Complete Solana Agent Toolkit (No Extra Dependencies)
+Wallet lifecycle and self-custody export are also available directly from the SDK and CLI:
 
-One `pip install` gives you **everything** an onchain agent needs. The full Solana Agent Kit functionality is now built-in to `solana_agent.tools` — battle-tested, memory-aware, and x402-ready.
+```python
+wallet = await agent.create_wallet(user_id="did:privy:user123")
+address = await agent.get_wallet_address(user_id="did:privy:user123")
+private_key = await agent.export_wallet_private_key(wallet_id=wallet["wallet_id"])
+```
 
-**Key Categories:**
+```bash
+solana-agent wallet create --config config.json --user-id did:privy:user123
+solana-agent wallet address --config config.json --user-id did:privy:user123
+solana-agent wallet export --config config.json --wallet-id wallet-123
+```
 
-**💱 Trading & Execution**
-- Jupiter swaps, recurring orders, earn strategies, holdings analysis, shields
-- Kamino lending/positions, dFlow prediction markets, ultra-fast execution paths
-- Direct Solana transfers and advanced order types
+Hosted search can also be exercised from the CLI and smoke harness:
 
-**👛 Wallet & Identity (Privy Native)**
-- Full Privy integration for embedded wallets, user creation, Telegram flows
-- Secure signing, balance checks, portfolio management without exposing keys
+```bash
+solana-agent chat --config config.json --search-enabled
 
-**📊 Intelligence & Safety**
-- Real-time Birdeye & Vybe market data
-- Rugcheck security audits
-- Technical analysis, token math, internet research
-- Onchain risk assessment
+/home/bevan/solana-agent/.venv/bin/python scripts/openai_x402_smoke.py \
+    --scenario sdk-stateless \
+    --search-enabled
+```
 
-**🛠️ Agent Infrastructure**
-- MCP tool server support for extending with custom tools
-- Image generation
-- Inline custom tools per-agent
-- Full observability with Logfire
+## Public SDK Surface
 
-See the complete [BUNDLED_TOOL_REFERENCE.md](BUNDLED_TOOL_REFERENCE.md) for implementation details, parameters, and examples. These tools are first-class citizens — they integrate with the agent's memory and planning capabilities for truly autonomous behavior.
+The public package is intentionally small now:
+
+- Hosted `solana-agent-memory` and `solana-agent-chat` requests
+- Wallet create, address lookup, and Privy private-key export
+- `mcp` for external MCP servers
+- `x402_request` for direct paid HTTP access
+
+The built-in Solana workflows are hosted capabilities, not public SDK tool modules. That keeps the package boundary aligned with the product you can actually rely on.
 
 ## Local Development & Validation
 

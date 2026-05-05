@@ -43,6 +43,24 @@ class TestX402RequestTool:
         request_tool.clear_runtime_context()
         assert request_tool._get_runtime_privy_wallet_id() == ""
 
+    def test_can_resolve_hosted_wallet_id_from_runtime_payload(self):
+        tool = X402RequestTool()
+        tool.configure(
+            {
+                "tools": {
+                    "x402_request": {
+                        "auth_mode": "x402_privy",
+                        "privy_wallet_id": "configured-wallet",
+                        "allowed_hosts": ["api.example.com"],
+                    }
+                }
+            }
+        )
+
+        tool.set_runtime_context({"privy_wallet": {"id": "wallet-123"}})
+
+        assert tool._get_runtime_privy_wallet_id() == "wallet-123"
+
     @pytest.mark.asyncio
     async def test_requires_allowlist(self):
         tool = X402RequestTool()
@@ -144,6 +162,48 @@ class TestX402RequestTool:
         assert mock_request.await_args.kwargs["privy_wallet_id"] == "wallet-123"
         assert mock_request.await_args.kwargs["privy_app_id"] == "app-123"
         assert mock_request.await_args.kwargs["privy_app_secret"] == "secret-123"
+
+    @pytest.mark.asyncio
+    async def test_privy_mode_inherits_hosted_ai_credentials(self):
+        tool = X402RequestTool()
+        tool.configure(
+            {
+                "ai": {
+                    "auth_mode": "x402_privy",
+                    "privy_app_id": "app-123",
+                    "privy_app_secret": "secret-123",
+                    "x402_rpc_url": "https://rpc.example.com",
+                },
+                "tools": {
+                    "x402_request": {
+                        "allowed_hosts": ["api.example.com"],
+                    }
+                },
+            }
+        )
+        tool.set_runtime_context({"privy_wallet_id": "wallet-123"})
+
+        response = Response(
+            200,
+            json={"ok": True},
+            headers={"content-type": "application/json"},
+            request=Request("GET", "https://api.example.com/data"),
+        )
+
+        with patch(
+            "solana_agent.tools.x402_request.request_with_x402_privy",
+            AsyncMock(return_value=response),
+        ) as mock_request:
+            result = await tool.execute(
+                method="GET", url="https://api.example.com/data"
+            )
+
+        assert result["success"] is True
+        assert result["payment_mode"] == "x402_privy"
+        assert mock_request.await_args.kwargs["privy_wallet_id"] == "wallet-123"
+        assert mock_request.await_args.kwargs["privy_app_id"] == "app-123"
+        assert mock_request.await_args.kwargs["privy_app_secret"] == "secret-123"
+        assert mock_request.await_args.kwargs["rpc_url"] == "https://rpc.example.com"
 
     @pytest.mark.asyncio
     async def test_get_request_uses_x402_transport(self, request_tool):

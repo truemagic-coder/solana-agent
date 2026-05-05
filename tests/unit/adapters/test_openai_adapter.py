@@ -204,15 +204,47 @@ class TestOpenAIAdapter:
 
         result = await adapter.generate_text(
             "hello",
-            runtime_context={"x402_preferred_asset": "usdt"},
+            runtime_context={"x402_preferred_asset": "usdc"},
         )
 
         assert result is not None
         kwargs = mock_client.chat.completions.create.await_args.kwargs
-        assert kwargs["extra_body"]["x402_preferred_asset"] == "USDT"
+        assert kwargs["extra_body"]["x402_preferred_asset"] == "USDC"
 
-    def test_hosted_extensions_prefer_runtime_asset_over_config_default(self):
-        """Runtime preferred asset should override the configured default asset."""
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_completions_forward_search_enabled(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted calls should forward the search add-on flag in extra_body."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        result = await adapter.generate_text(
+            "hello",
+            runtime_context={"search_enabled": True},
+        )
+
+        assert result is not None
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["extra_body"]["search_enabled"] is True
+
+    def test_hosted_extensions_normalize_runtime_preferred_asset(self):
+        """Runtime preferred asset values should normalize to the USDC-only symbol."""
         adapter = OpenAIAdapter(
             api_key="x402",
             model="solana-agent-memory",
@@ -221,10 +253,10 @@ class TestOpenAIAdapter:
         )
 
         extensions = adapter._hosted_chat_completion_extensions(
-            {"x402_preferred_asset": "usdt"}
+            {"x402_preferred_asset": "usdc"}
         )
 
-        assert extensions == {"extra_body": {"x402_preferred_asset": "USDT"}}
+        assert extensions == {"extra_body": {"x402_preferred_asset": "USDC"}}
 
     def test_hosted_extensions_use_config_default_preferred_asset(self):
         """Hosted calls should use the configured default asset when runtime context omits it."""
@@ -249,7 +281,7 @@ class TestOpenAIAdapter:
 
         with pytest.raises(
             ValueError,
-            match="x402_preferred_asset must be one of: USDC, USDT",
+            match="x402_preferred_asset must be one of: USDC",
         ):
             adapter._hosted_chat_completion_extensions({"x402_preferred_asset": "bonk"})
 
@@ -298,6 +330,52 @@ class TestOpenAIAdapter:
         kwargs = mock_client.chat.completions.create.await_args.kwargs
         assert kwargs["extra_body"]["conversation_id"] == "conv-123"
         assert kwargs["extra_body"]["memory_ttl_tier"] == "project"
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_stream_search_enabled_uses_non_streaming_completion(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted search-enabled requests should downgrade to a single completion."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="search result", tool_calls=None
+                        ),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        events = [
+            event
+            async for event in adapter.chat_stream(
+                [{"role": "user", "content": "hello"}],
+                runtime_context={"search_enabled": True},
+            )
+        ]
+
+        assert events == [
+            {"type": "content", "delta": "search result"},
+            {"type": "message_end", "finish_reason": "stop"},
+        ]
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert "stream" not in kwargs
+        assert kwargs["extra_body"]["search_enabled"] is True
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
@@ -509,6 +587,123 @@ class TestOpenAIAdapter:
         assert kwargs["extra_headers"]["X-Wallet-Address"] == "wallet-123"
         assert kwargs["extra_headers"]["X-Account-Challenge-Id"] == "challenge-123"
         assert kwargs["extra_headers"]["X-Account-Signature"] == "signature-123"
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_completions_forward_user_and_privy_context(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted chat requests should serialize user and Privy metadata into the body."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        result = await adapter.generate_text(
+            "hello",
+            runtime_context={
+                "user_id": "sdk-user-123",
+                "privy_user_id": "did:privy:user123",
+                "privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+            },
+        )
+
+        assert result is not None
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["extra_body"]["user"] == "sdk-user-123"
+        assert kwargs["extra_body"]["privy_user_id"] == "did:privy:user123"
+        assert kwargs["extra_body"]["privy_wallet_id"] == "wallet-123"
+        assert kwargs["extra_body"]["privy_wallet_address"] == "WalletPubkey123"
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_create_wallet_posts_to_hosted_wallet_endpoint(
+        self,
+        mock_async_client,
+    ):
+        """Hosted wallet creation should call the explicit wallet endpoint."""
+        wallet_response = MagicMock()
+        wallet_response.raise_for_status = MagicMock()
+        wallet_response.json.return_value = {
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=wallet_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        result = await adapter.create_wallet(user_id="did:privy:user123")
+
+        assert result["wallet_id"] == "wallet-123"
+        mock_http_client.post.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/wallet",
+            json={
+                "user_id": "did:privy:user123",
+                "chain_type": "solana",
+            },
+        )
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_get_wallet_address_calls_hosted_wallet_endpoint(
+        self,
+        mock_async_client,
+    ):
+        """Hosted wallet address lookups should call the explicit address endpoint."""
+        wallet_response = MagicMock()
+        wallet_response.raise_for_status = MagicMock()
+        wallet_response.json.return_value = {
+            "user_id": "did:privy:user123",
+            "address": "WalletPubkey123",
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.get = AsyncMock(return_value=wallet_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        result = await adapter.get_wallet_address(user_id="did:privy:user123")
+
+        assert result["address"] == "WalletPubkey123"
+        mock_http_client.get.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/wallet/address",
+            params={"user_id": "did:privy:user123"},
+        )
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")

@@ -1,1 +1,1 @@
-"""Shared utility helpers for Solana Agent tools."""
+"""Shared x402 helpers for the public Solana Agent SDK."""

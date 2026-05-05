@@ -15,6 +15,10 @@ from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
 from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
+from solana_agent.tools.utils.x402 import (
+    export_privy_wallet_private_key,
+    resolve_x402_privy_config,
+)
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -41,23 +45,89 @@ class SolanaAgent(SolanaAgentInterface):
                     spec.loader.exec_module(config_module)
                     config = config_module.config
 
+        self.config = dict(config)
         self.query_service = SolanaAgentFactory.create_from_config(config)
 
-    def _get_account_reporting_method(self, method_name: str):
+    def _config_section(self, key: str) -> Dict[str, Any]:
+        section = self.config.get(key, {})
+        return section if isinstance(section, dict) else {}
+
+    def _provider_config(self) -> Dict[str, Any]:
+        ai_config = self._config_section("ai")
+        if ai_config:
+            return ai_config
+        return self._config_section("openai")
+
+    def _x402_request_uses_hosted_privy_wallet(self) -> bool:
+        tools_config = self._config_section("tools")
+        x402_config = tools_config.get("x402_request")
+        if not isinstance(x402_config, dict):
+            return False
+
+        configured_auth_mode = str(x402_config.get("auth_mode") or "").strip()
+        provider_auth_mode = str(self._provider_config().get("auth_mode") or "").strip()
+        return (configured_auth_mode or provider_auth_mode) == "x402_privy"
+
+    def _uses_hosted_privy_wallet_for_x402(self) -> bool:
+        provider_auth_mode = str(self._provider_config().get("auth_mode") or "").strip()
+        return (
+            provider_auth_mode == "x402_privy"
+            or self._x402_request_uses_hosted_privy_wallet()
+        )
+
+    def _get_provider_method(self, method_name: str, capability: str):
         agent_service = getattr(self.query_service, "agent_service", None)
         llm_provider = getattr(agent_service, "llm_provider", None)
         method = getattr(llm_provider, method_name, None)
         if method is None:
             raise NotImplementedError(
-                "Account reporting is not available for the configured provider"
+                f"{capability} is not available for the configured provider"
             )
         return method
+
+    def _merge_runtime_context(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        *,
+        user_id: Optional[str] = None,
+        search_enabled: Optional[bool] = None,
+    ) -> Optional[Dict[str, Any]]:
+        context = dict(runtime_context or {})
+        if user_id is not None:
+            context["user_id"] = user_id
+        if search_enabled is not None:
+            context["search_enabled"] = bool(search_enabled)
+        return context or None
+
+    async def _prepare_process_runtime_context(
+        self,
+        user_id: str,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        *,
+        search_enabled: Optional[bool] = None,
+    ) -> Optional[Dict[str, Any]]:
+        context = self._merge_runtime_context(
+            runtime_context,
+            user_id=user_id,
+            search_enabled=search_enabled,
+        )
+        if not self._uses_hosted_privy_wallet_for_x402():
+            return context
+
+        if context and str(context.get("privy_wallet_id") or "").strip():
+            return context
+
+        return await self.prepare_x402_runtime_context(
+            user_id=user_id,
+            runtime_context=context,
+        )
 
     async def process(
         self,
         user_id: str,
         message: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
+        search_enabled: Optional[bool] = None,
         prompt: Optional[str] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
@@ -89,6 +159,8 @@ class SolanaAgent(SolanaAgentInterface):
         Args:
             user_id: User ID
             message: Text message or audio bytes
+            runtime_context: Per-request hosted runtime metadata
+            search_enabled: Enable the hosted search add-on for this request
             prompt: Optional prompt for the agent
             output_format: Response format ("text" or "audio")
             capture_schema: Optional Pydantic schema for structured output
@@ -103,10 +175,16 @@ class SolanaAgent(SolanaAgentInterface):
         Returns:
             Async generator yielding response chunks (text strings or audio bytes)
         """
+        prepared_runtime_context = await self._prepare_process_runtime_context(
+            user_id,
+            runtime_context,
+            search_enabled=search_enabled,
+        )
+
         async for chunk in self.query_service.process(
             user_id=user_id,
             query=message,
-            runtime_context=runtime_context,
+            runtime_context=prepared_runtime_context,
             images=images,
             output_format=output_format,
             audio_voice=audio_voice,
@@ -170,12 +248,112 @@ class SolanaAgent(SolanaAgentInterface):
             )
         return success
 
+    async def create_wallet(
+        self,
+        user_id: str,
+        chain_type: Literal["solana", "ethereum"] = "solana",
+    ) -> Dict[str, Any]:
+        """Create or return the hosted Privy wallet for a user."""
+        method = self._get_provider_method("create_wallet", "Hosted wallet management")
+        return await method(user_id=user_id, chain_type=chain_type)
+
+    async def get_wallet_address(self, user_id: str) -> str:
+        """Return the hosted Privy wallet public address for a user."""
+        method = self._get_provider_method(
+            "get_wallet_address",
+            "Hosted wallet management",
+        )
+        payload = await method(user_id=user_id)
+        address = str(
+            payload.get("address") or payload.get("public_address") or ""
+        ).strip()
+        if not address:
+            raise ValueError("Hosted wallet response is missing an address")
+        return address
+
+    async def export_wallet_private_key(
+        self,
+        wallet_id: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Export a Privy wallet private key for self-custody flows."""
+        agent_service = getattr(self.query_service, "agent_service", None)
+        llm_provider = getattr(agent_service, "llm_provider", None)
+        context = dict(runtime_context or {})
+        if wallet_id is not None:
+            context["privy_wallet_id"] = wallet_id
+
+        effective_wallet_id = str(context.get("privy_wallet_id") or "").strip()
+        if not effective_wallet_id:
+            raise ValueError(
+                "wallet_id is required. Pass it explicitly or set runtime_context.privy_wallet_id."
+            )
+
+        privy_config = resolve_x402_privy_config(
+            auth_mode="x402_privy",
+            privy_wallet_id=effective_wallet_id,
+            privy_app_id=str(getattr(llm_provider, "privy_app_id", "") or "").strip()
+            or None,
+            privy_app_secret=str(
+                getattr(llm_provider, "privy_app_secret", "") or ""
+            ).strip()
+            or None,
+            privy_authorization_signature=str(
+                getattr(llm_provider, "privy_authorization_signature", "") or ""
+            ).strip()
+            or None,
+            privy_request_expiry=str(
+                getattr(llm_provider, "privy_request_expiry", "") or ""
+            ).strip()
+            or None,
+            privy_api_url=str(getattr(llm_provider, "privy_api_url", "") or "").strip()
+            or None,
+            rpc_url=str(getattr(llm_provider, "x402_rpc_url", "") or "").strip()
+            or None,
+        )
+        if privy_config is None:
+            raise NotImplementedError(
+                "Privy wallet export requires configured Privy app credentials on the provider"
+            )
+        return await export_privy_wallet_private_key(privy_config)
+
+    async def prepare_x402_runtime_context(
+        self,
+        user_id: str,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        chain_type: Literal["solana", "ethereum"] = "solana",
+    ) -> Dict[str, Any]:
+        """Return runtime context populated with the hosted Privy wallet."""
+        context = self._merge_runtime_context(runtime_context, user_id=user_id) or {}
+        if str(context.get("privy_wallet_id") or "").strip():
+            return context
+
+        wallet = await self.create_wallet(user_id=user_id, chain_type=chain_type)
+        wallet_id = str(wallet.get("wallet_id") or wallet.get("id") or "").strip()
+        if wallet_id:
+            context["privy_wallet_id"] = wallet_id
+
+        address = str(
+            wallet.get("address")
+            or wallet.get("wallet_address")
+            or wallet.get("public_key")
+            or ""
+        ).strip()
+        if address:
+            context["privy_wallet_address"] = address
+            context["privy_wallet_public_key"] = address
+
+        return context
+
     async def get_account_summary(
         self,
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get hosted billing and usage summary for the authenticated wallet account."""
-        method = self._get_account_reporting_method("get_account_summary")
+        method = self._get_provider_method(
+            "get_account_summary",
+            "Account reporting",
+        )
         return await method(runtime_context=runtime_context)
 
     async def get_usage_report(
@@ -187,7 +365,10 @@ class SolanaAgent(SolanaAgentInterface):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get hosted usage buckets for the authenticated wallet account."""
-        method = self._get_account_reporting_method("get_usage_report")
+        method = self._get_provider_method(
+            "get_usage_report",
+            "Account reporting",
+        )
         return await method(
             granularity,
             from_date=from_date,
@@ -202,7 +383,10 @@ class SolanaAgent(SolanaAgentInterface):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get hosted usage forecast for the authenticated wallet account."""
-        method = self._get_account_reporting_method("get_usage_forecast")
+        method = self._get_provider_method(
+            "get_usage_forecast",
+            "Account reporting",
+        )
         return await method(window_days=window_days, runtime_context=runtime_context)
 
     async def get_pricing_info(
@@ -210,5 +394,8 @@ class SolanaAgent(SolanaAgentInterface):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get hosted pricing information for the authenticated wallet account."""
-        method = self._get_account_reporting_method("get_pricing_info")
+        method = self._get_provider_method(
+            "get_pricing_info",
+            "Account reporting",
+        )
         return await method(runtime_context=runtime_context)

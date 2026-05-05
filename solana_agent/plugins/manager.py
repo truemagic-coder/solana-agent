@@ -25,6 +25,7 @@ class PluginManager(PluginManagerInterface):
 
     # Class variable to track loaded entry points
     _loaded_entry_points = set()
+    _supported_first_party_plugins = frozenset({"mcp", "x402_request"})
 
     def __init__(
         self,
@@ -35,6 +36,14 @@ class PluginManager(PluginManagerInterface):
         self.config = config or {}
         self.tool_registry = tool_registry or ToolRegistry()
         self._plugins = {}  # Changed to instance variable
+
+    @classmethod
+    def _is_supported_entry_point(cls, entry_point: Any) -> bool:
+        entry_point_name = str(getattr(entry_point, "name", "") or "").strip()
+        entry_point_value = str(getattr(entry_point, "value", "") or "").strip()
+        if not entry_point_value.startswith("solana_agent.tools."):
+            return True
+        return entry_point_name in cls._supported_first_party_plugins
 
     def register_plugin(self, plugin: Plugin) -> bool:
         """Register a plugin in the manager.
@@ -79,6 +88,12 @@ class PluginManager(PluginManagerInterface):
         for entry_point in importlib.metadata.entry_points(
             group="solana_agent.plugins"
         ):
+            if not self._is_supported_entry_point(entry_point):
+                logger.info(
+                    f"Skipping unsupported first-party plugin: {entry_point.name}"
+                )
+                continue
+
             # Skip if this entry point has already been loaded
             entry_point_id = f"{entry_point.name}:{entry_point.value}"
             if entry_point_id in PluginManager._loaded_entry_points:

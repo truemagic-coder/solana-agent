@@ -17,7 +17,9 @@ logging.basicConfig(level=logging.WARNING, format="%(levelname)s:%(name)s:%(mess
 
 app = typer.Typer()
 account_app = typer.Typer()
+wallet_app = typer.Typer()
 app.add_typer(account_app, name="account")
+app.add_typer(wallet_app, name="wallet")
 console = Console()
 
 
@@ -66,6 +68,7 @@ async def stream_agent_response(
     user_id: str,
     message: str,
     prompt: Optional[str] = None,
+    search_enabled: bool = False,
 ):
     """Helper function to stream and display agent response."""
     full_response = ""
@@ -78,6 +81,7 @@ async def stream_agent_response(
                 message=message,
                 output_format="text",
                 prompt=prompt,  # Pass prompt override if provided
+                search_enabled=search_enabled,
             ):
                 if first_chunk:
                     live.update("", refresh=True)  # Clear spinner
@@ -111,6 +115,13 @@ def chat(
     prompt: Annotated[  # Allow prompt override via option
         str, typer.Option(help="Optional system prompt override for the session.")
     ] = None,
+    search_enabled: Annotated[
+        bool,
+        typer.Option(
+            "--search-enabled",
+            help="Enable the hosted search add-on for each request in this chat session.",
+        ),
+    ] = False,
 ):
     """
     Start an interactive chat session with the Solana Agent.
@@ -136,7 +147,15 @@ def chat(
 
             # Run the async streaming function for the user's message
             # Pass the optional prompt override from the command line option
-            asyncio.run(stream_agent_response(agent, user_id, user_message, prompt))
+            asyncio.run(
+                stream_agent_response(
+                    agent,
+                    user_id,
+                    user_message,
+                    prompt,
+                    search_enabled=search_enabled,
+                )
+            )
 
         except KeyboardInterrupt:  # Allow Ctrl+C to exit gracefully
             console.print(
@@ -240,6 +259,52 @@ def account_pricing(
             runtime_context=_account_runtime_context(privy_wallet_id)
         )
     )
+
+
+@wallet_app.command("create")
+def wallet_create(
+    user_id: Annotated[
+        str, typer.Option(help="Existing application user identifier or Privy DID.")
+    ],
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    chain_type: Annotated[
+        str,
+        typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
+    ] = "solana",
+):
+    """Create or return the hosted wallet for a user."""
+    agent = _load_agent(config)
+    _run_account_call(agent.create_wallet(user_id=user_id, chain_type=chain_type))
+
+
+@wallet_app.command("address")
+def wallet_address(
+    user_id: Annotated[
+        str, typer.Option(help="Existing application user identifier or Privy DID.")
+    ],
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+):
+    """Print the hosted wallet address for a user."""
+    agent = _load_agent(config)
+    _run_account_call(agent.get_wallet_address(user_id=user_id))
+
+
+@wallet_app.command("export")
+def wallet_export(
+    wallet_id: Annotated[
+        str, typer.Option(help="Privy wallet ID to export for self-custody flows.")
+    ],
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+):
+    """Export the private key for a Privy wallet."""
+    agent = _load_agent(config)
+    _run_account_call(agent.export_wallet_private_key(wallet_id=wallet_id))
 
 
 if __name__ == "__main__":
