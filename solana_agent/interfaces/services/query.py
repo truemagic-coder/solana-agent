@@ -3,8 +3,6 @@ from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Type, Uni
 
 from pydantic import BaseModel
 
-from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
-
 
 class QueryService(ABC):
     """Interface for processing user queries."""
@@ -35,22 +33,9 @@ class QueryService(ABC):
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
         prompt: Optional[str] = None,
-        router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
         capture_schema: Optional[Dict[str, Any]] = None,
         capture_name: Optional[str] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process the user request and generate a response."""
-        pass
-
-    @abstractmethod
-    async def get_user_history(
-        self,
-        user_id: str,
-        page_num: int = 1,
-        page_size: int = 20,
-        sort_order: str = "desc",  # "asc" for oldest-first, "desc" for newest-first
-    ) -> Dict[str, Any]:
-        """Get paginated message history for a user."""
-        pass

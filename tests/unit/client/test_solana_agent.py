@@ -2,7 +2,7 @@
 Tests for the SolanaAgent client interface.
 
 This module provides comprehensive test coverage for the SolanaAgent client
-including initialization, message processing, history management, and tool registration.
+including initialization, message processing, and tool registration.
 """
 
 import pytest
@@ -36,8 +36,6 @@ def mock_query_service():
         yield "Test response"
 
     mock.process = MagicMock(side_effect=mock_process)
-    mock.delete_user_history = AsyncMock()
-    mock.get_user_history = AsyncMock(return_value={"messages": [], "total": 0})
 
     # Configure agent service
     mock.agent_service = MagicMock()
@@ -66,27 +64,6 @@ class TestSolanaAgent:
             ValueError, match="Either config or config_path must be provided"
         ):
             SolanaAgent()
-
-    @pytest.mark.asyncio
-    async def test_get_user_history(self, config_dict, mock_query_service):
-        """Test retrieving user message history."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory:
-            mock_factory.create_from_config.return_value = mock_query_service
-            agent = SolanaAgent(config=config_dict)
-
-            expected = {"messages": [], "total": 0}
-            mock_query_service.get_user_history.return_value = expected
-
-            result = await agent.get_user_history(
-                user_id="test_user", page_num=1, page_size=20, sort_order="desc"
-            )
-
-            assert result == expected
-            mock_query_service.get_user_history.assert_called_once_with(
-                "test_user", 1, 20, "desc"
-            )
 
     @pytest.mark.asyncio
     async def test_process_passes_runtime_context(
@@ -225,18 +202,6 @@ class TestSolanaAgent:
                 "hosted_privy_wallet_id": "wallet-123",
                 "user_id": "did:privy:user123",
             }
-
-    @pytest.mark.asyncio
-    async def test_delete_user_history(self, config_dict, mock_query_service):
-        """Test deleting user message history."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory:
-            mock_factory.create_from_config.return_value = mock_query_service
-            agent = SolanaAgent(config=config_dict)
-
-            await agent.delete_user_history("test_user")
-            mock_query_service.delete_user_history.assert_called_once_with("test_user")
 
     def test_register_tool_success(self, config_dict, mock_query_service):
         """Test successful tool registration."""

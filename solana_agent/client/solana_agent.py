@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from solana_agent.factories.agent_factory import SolanaAgentFactory
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
-from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 from solana_agent.tools.utils.x402 import (
     export_privy_wallet_private_key,
     resolve_x402_privy_config,
@@ -170,7 +169,6 @@ class SolanaAgent(SolanaAgentInterface):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
-        router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
@@ -188,7 +186,6 @@ class SolanaAgent(SolanaAgentInterface):
             audio_voice: Voice to use for audio output
             audio_output_format: Audio output format
             audio_input_format: Audio input format
-            router: Optional routing service for processing
             images: Optional list of image URLs (str) or image bytes.
             output_model: Optional Pydantic model for structured output
 
@@ -211,44 +208,11 @@ class SolanaAgent(SolanaAgentInterface):
             audio_output_format=audio_output_format,
             audio_input_format=audio_input_format,
             prompt=prompt,
-            router=router,
             output_model=output_model,
             capture_schema=capture_schema,
             capture_name=capture_name,
         ):
             yield chunk
-
-    async def delete_user_history(self, user_id: str) -> None:
-        """
-        Delete the conversation history for a user.
-
-        Args:
-            user_id: User ID
-        """
-        await self.query_service.delete_user_history(user_id)
-
-    async def get_user_history(
-        self,
-        user_id: str,
-        page_num: int = 1,
-        page_size: int = 20,
-        sort_order: str = "desc",  # "asc" for oldest-first, "desc" for newest-first
-    ) -> Dict[str, Any]:  # pragma: no cover
-        """
-        Get paginated message history for a user.
-
-        Args:
-            user_id: User ID
-            page_num: Page number (starting from 1)
-            page_size: Number of messages per page
-            sort_order: Sort order ("asc" or "desc")
-
-        Returns:
-            Dictionary with paginated results and metadata
-        """
-        return await self.query_service.get_user_history(
-            user_id, page_num, page_size, sort_order
-        )
 
     def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """

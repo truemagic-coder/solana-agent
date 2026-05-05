@@ -19,9 +19,6 @@ from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, BusinessMission
-from solana_agent.interfaces.guardrails.guardrails import (
-    OutputGuardrail,
-)
 
 logger = logging.getLogger(__name__)  # Add logger
 
@@ -35,7 +32,6 @@ class AgentService(AgentServiceInterface):
         business_mission: Optional[BusinessMission] = None,
         config: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
-        output_guardrails: List[OutputGuardrail] = None,
     ):
         """Initialize the agent service.
 
@@ -44,7 +40,6 @@ class AgentService(AgentServiceInterface):
             business_mission: Optional business mission and values
             config: Optional service configuration
             model: Model name for the LLM provider
-            output_guardrails: List of output guardrail instances
         """
         self.llm_provider = llm_provider
         self.business_mission = business_mission
@@ -53,7 +48,6 @@ class AgentService(AgentServiceInterface):
         self.tool_registry = ToolRegistry(config=self.config)
         self.agents: List[AIAgent] = []
         self.model = model
-        self.output_guardrails = output_guardrails or []
 
         self.plugin_manager = PluginManager(
             config=self.config,
@@ -249,7 +243,6 @@ class AgentService(AgentServiceInterface):
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-        memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
             "alloy",
@@ -296,8 +289,6 @@ class AgentService(AgentServiceInterface):
 
             # Compose the prompt for generate_text
             full_prompt = ""
-            if memory_context:
-                full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n Always use your tools to perform actions and don't rely on your memory!\n\n"
             if prompt:
                 full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
             full_prompt += user_content

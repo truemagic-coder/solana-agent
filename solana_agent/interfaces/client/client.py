@@ -2,12 +2,12 @@ from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel
+
 from solana_agent.interfaces.plugins.plugins import Tool
-from solana_agent.interfaces.services.routing import RoutingService as RoutingInterface
 
 
 class SolanaAgent(ABC):
-    """Interface for the Solana Agent client."""
+    """Interface for the public Solana Agent client."""
 
     @abstractmethod
     async def process(
@@ -38,33 +38,14 @@ class SolanaAgent(ABC):
         audio_input_format: Literal[
             "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
         ] = "mp4",
-        router: Optional[RoutingInterface] = None,
         images: Optional[List[Union[str, bytes]]] = None,
         output_model: Optional[Type[BaseModel]] = None,
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:
         """Process a user message and return the response stream."""
-        pass
-
-    @abstractmethod
-    async def delete_user_history(self, user_id: str) -> None:
-        """Delete the conversation history for a user."""
-        pass
-
-    @abstractmethod
-    async def get_user_history(
-        self,
-        user_id: str,
-        page_num: int = 1,
-        page_size: int = 20,
-        sort_order: str = "desc",
-    ) -> Dict[str, Any]:
-        """Get paginated message history for a user."""
-        pass
 
     @abstractmethod
     def register_tool(self, agent_name: str, tool: Tool) -> bool:
         """Register a tool with the agent system."""
-        pass
 
     @abstractmethod
     async def create_wallet(
@@ -73,12 +54,10 @@ class SolanaAgent(ABC):
         chain_type: Literal["solana", "ethereum"] = "solana",
     ) -> Dict[str, Any]:
         """Create or return the hosted Privy wallet for a user."""
-        pass
 
     @abstractmethod
     async def get_wallet_address(self, user_id: str) -> str:
         """Get the hosted Privy wallet public address for a user."""
-        pass
 
     @abstractmethod
     async def export_wallet_private_key(
@@ -87,7 +66,6 @@ class SolanaAgent(ABC):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Export a Privy wallet private key for self-custody flows."""
-        pass
 
     @abstractmethod
     async def prepare_x402_runtime_context(
@@ -97,7 +75,6 @@ class SolanaAgent(ABC):
         chain_type: Literal["solana", "ethereum"] = "solana",
     ) -> Dict[str, Any]:
         """Create or fetch the hosted Privy wallet and return x402 runtime context."""
-        pass
 
     @abstractmethod
     async def get_account_summary(
@@ -105,7 +82,6 @@ class SolanaAgent(ABC):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get billing and usage summary for the authenticated wallet account."""
-        pass
 
     @abstractmethod
     async def get_usage_report(
@@ -117,7 +93,6 @@ class SolanaAgent(ABC):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get time-series hosted usage buckets for the authenticated wallet account."""
-        pass
 
     @abstractmethod
     async def get_usage_forecast(
@@ -126,7 +101,6 @@ class SolanaAgent(ABC):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get hosted usage forecast for the authenticated wallet account."""
-        pass
 
     @abstractmethod
     async def get_pricing_info(
@@ -134,4 +108,3 @@ class SolanaAgent(ABC):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Get effective hosted pricing details for the authenticated wallet account."""
-        pass

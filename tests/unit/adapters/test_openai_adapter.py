@@ -712,6 +712,33 @@ class TestOpenAIAdapter:
         )
 
     @pytest.mark.asyncio
+    async def test_create_wallet_requires_user_id(self):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with pytest.raises(ValueError, match="user_id is required"):
+            await adapter.create_wallet(user_id="")
+
+    @pytest.mark.asyncio
+    async def test_create_wallet_rejects_invalid_chain_type(self):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with pytest.raises(
+            ValueError, match="chain_type must be one of: ethereum, solana"
+        ):
+            await adapter.create_wallet(
+                user_id="did:privy:user123",
+                chain_type="bitcoin",
+            )
+
+    @pytest.mark.asyncio
     @patch(
         "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
     )
@@ -747,6 +774,17 @@ class TestOpenAIAdapter:
             "https://ai.solana-agent.com/v1/account/wallet/address",
             params={"user_id": "did:privy:user123"},
         )
+
+    @pytest.mark.asyncio
+    async def test_get_wallet_address_requires_user_id(self):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with pytest.raises(ValueError, match="user_id is required"):
+            await adapter.get_wallet_address(user_id="")
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")

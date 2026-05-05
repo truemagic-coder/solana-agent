@@ -29,10 +29,18 @@ async def _fake_agent_process():
 
 
 class _FakeAgent:
-    async def process(self, user_id, message, runtime_context=None):
+    async def process(
+        self,
+        user_id,
+        message,
+        runtime_context=None,
+        search_enabled=False,
+        **_kwargs,
+    ):
         assert user_id == "user-123"
         assert message == "hello"
         assert runtime_context == {"conversation_id": "conv-123"}
+        assert search_enabled is False
         async for chunk in _fake_agent_process():
             yield chunk
 
