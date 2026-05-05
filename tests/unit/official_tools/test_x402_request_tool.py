@@ -287,6 +287,15 @@ class TestX402RequestPlugin:
         plugin = X402RequestPlugin()
         assert "x402" in plugin.description.lower()
 
+    def test_initialize_creates_tool_instance(self):
+        plugin = X402RequestPlugin()
+        registry = MagicMock()
+
+        plugin.initialize(registry)
+
+        assert plugin.tool_registry is registry
+        assert isinstance(plugin._tool, X402RequestTool)
+
     def test_get_plugin(self):
         plugin = get_plugin()
         assert isinstance(plugin, X402RequestPlugin)

@@ -109,9 +109,52 @@ class TestOpenAIAdapter:
 
         with pytest.raises(
             ValueError,
-            match="x402_privy requires runtime_context.privy_wallet_id for each request",
+            match="x402_privy requires a runtime wallet id",
         ):
             await adapter._get_client({})
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    @patch(
+        "solana_agent.adapters.openai_adapter.create_x402_httpx_client_for_auth",
+        new_callable=AsyncMock,
+    )
+    async def test_x402_privy_accepts_hosted_wallet_alias(
+        self,
+        mock_create_x402_httpx_client_for_auth,
+        mock_async_openai,
+    ):
+        """x402 Privy auth should accept the hosted wallet alias from runtime context."""
+        mock_http_client = MagicMock()
+        mock_create_x402_httpx_client_for_auth.return_value = mock_http_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="http://127.0.0.1:8000/v1",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
+        )
+
+        await adapter._get_client({"hosted_privy_wallet_id": "wallet-123"})
+
+        mock_create_x402_httpx_client_for_auth.assert_awaited_once_with(
+            auth_mode="x402_privy",
+            private_key=None,
+            privy_wallet_id="wallet-123",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
+            privy_authorization_signature=None,
+            privy_request_expiry=None,
+            privy_api_url=None,
+            rpc_url=None,
+        )
+        mock_async_openai.assert_called_once_with(
+            api_key="x402",
+            base_url="http://127.0.0.1:8000/v1",
+            http_client=mock_http_client,
+        )
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")

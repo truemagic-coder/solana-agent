@@ -58,6 +58,26 @@ class SolanaAgent(SolanaAgentInterface):
             return ai_config
         return self._config_section("openai")
 
+    @staticmethod
+    def _runtime_privy_wallet_id(
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        context = dict(runtime_context or {})
+        for context_key in ("privy_wallet_id", "hosted_privy_wallet_id"):
+            value = str(context.get(context_key) or "").strip()
+            if value:
+                return value
+
+        wallet_payload = context.get("privy_wallet")
+        if isinstance(wallet_payload, dict):
+            value = str(
+                wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
+            ).strip()
+            if value:
+                return value
+
+        return ""
+
     def _x402_request_uses_hosted_privy_wallet(self) -> bool:
         tools_config = self._config_section("tools")
         x402_config = tools_config.get("x402_request")
@@ -114,7 +134,7 @@ class SolanaAgent(SolanaAgentInterface):
         if not self._uses_hosted_privy_wallet_for_x402():
             return context
 
-        if context and str(context.get("privy_wallet_id") or "").strip():
+        if self._runtime_privy_wallet_id(context):
             return context
 
         return await self.prepare_x402_runtime_context(
@@ -283,10 +303,11 @@ class SolanaAgent(SolanaAgentInterface):
         if wallet_id is not None:
             context["privy_wallet_id"] = wallet_id
 
-        effective_wallet_id = str(context.get("privy_wallet_id") or "").strip()
+        effective_wallet_id = self._runtime_privy_wallet_id(context)
         if not effective_wallet_id:
             raise ValueError(
-                "wallet_id is required. Pass it explicitly or set runtime_context.privy_wallet_id."
+                "wallet_id is required. Pass it explicitly or set runtime_context.privy_wallet_id, "
+                "runtime_context.hosted_privy_wallet_id, or runtime_context.privy_wallet.id."
             )
 
         privy_config = resolve_x402_privy_config(
@@ -325,13 +346,17 @@ class SolanaAgent(SolanaAgentInterface):
     ) -> Dict[str, Any]:
         """Return runtime context populated with the hosted Privy wallet."""
         context = self._merge_runtime_context(runtime_context, user_id=user_id) or {}
-        if str(context.get("privy_wallet_id") or "").strip():
+        existing_wallet_id = self._runtime_privy_wallet_id(context)
+        if existing_wallet_id:
+            context.setdefault("privy_wallet_id", existing_wallet_id)
+            context.setdefault("hosted_privy_wallet_id", existing_wallet_id)
             return context
 
         wallet = await self.create_wallet(user_id=user_id, chain_type=chain_type)
         wallet_id = str(wallet.get("wallet_id") or wallet.get("id") or "").strip()
         if wallet_id:
             context["privy_wallet_id"] = wallet_id
+            context["hosted_privy_wallet_id"] = wallet_id
 
         address = str(
             wallet.get("address")

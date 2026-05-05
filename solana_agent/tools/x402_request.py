@@ -230,9 +230,10 @@ class X402RequestTool(AutoTool):
                 "success": False,
                 "error": (
                     "x402 signing key not configured. Set x402_request.private_key for "
-                    "x402_private_key mode or pass runtime_context.privy_wallet_id for "
-                    "the hosted Privy wallet and set Privy app credentials in x402_request "
-                    "or ai config for x402_privy mode."
+                    "x402_private_key mode or pass a hosted Privy wallet id via "
+                    "runtime_context.privy_wallet_id, runtime_context.hosted_privy_wallet_id, "
+                    "or runtime_context.privy_wallet.id and set Privy app credentials in "
+                    "x402_request or ai config for x402_privy mode."
                 ),
             }
 

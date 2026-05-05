@@ -251,10 +251,22 @@ class OpenAIAdapter(LLMProvider):
     def _resolve_runtime_privy_wallet_id(
         self, runtime_context: Optional[Dict[str, Any]] = None
     ) -> str:
-        wallet_id = str((runtime_context or {}).get("privy_wallet_id") or "").strip()
+        context = dict(runtime_context or {})
+        wallet_id = ""
+        for context_key in ("privy_wallet_id", "hosted_privy_wallet_id"):
+            wallet_id = str(context.get(context_key) or "").strip()
+            if wallet_id:
+                break
+        if not wallet_id:
+            wallet_payload = context.get("privy_wallet")
+            if isinstance(wallet_payload, dict):
+                wallet_id = str(
+                    wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
+                ).strip()
         if not wallet_id:
             raise ValueError(
-                "x402_privy requires runtime_context.privy_wallet_id for each request"
+                "x402_privy requires a runtime wallet id via runtime_context.privy_wallet_id, "
+                "runtime_context.hosted_privy_wallet_id, or runtime_context.privy_wallet.id"
             )
         return wallet_id
 
