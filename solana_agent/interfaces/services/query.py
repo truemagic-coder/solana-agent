@@ -10,7 +10,7 @@ class QueryService(ABC):
     @abstractmethod
     async def process(
         self,
-        user_id: str,
+        privy_user_id: str,
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         output_format: Literal["text", "audio"] = "text",

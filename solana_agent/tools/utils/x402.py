@@ -28,10 +28,10 @@ PRIVY_HPKE_CIPHER_SUITE = CipherSuite.new(
 
 
 @dataclass
-class X402PrivateKeyConfig:
-    """Configuration for Solana private-key x402 payments."""
+class X402SigningKeyConfig:
+    """Configuration for a resolved Solana signing key used for x402 payments."""
 
-    private_key: str
+    signing_key: str
     timeout: float = 30.0
     rpc_url: Optional[str] = None
 
@@ -48,18 +48,6 @@ class X402PrivyWalletExportConfig:
     api_url: str = PRIVY_API_URL
     timeout: float = 30.0
     rpc_url: Optional[str] = None
-
-
-def resolve_x402_private_key(
-    *,
-    auth_mode: str,
-    private_key: Optional[str] = None,
-) -> Optional[str]:
-    """Resolve the signing key for an x402 auth mode."""
-
-    if auth_mode == "x402_private_key":
-        return private_key or None
-    return None
 
 
 def resolve_x402_privy_config(
@@ -96,7 +84,6 @@ def resolve_x402_privy_config(
 def has_x402_auth_config(
     *,
     auth_mode: str,
-    private_key: Optional[str] = None,
     privy_wallet_id: Optional[str] = None,
     privy_app_id: Optional[str] = None,
     privy_app_secret: Optional[str] = None,
@@ -108,8 +95,6 @@ def has_x402_auth_config(
 ) -> bool:
     """Return whether the auth mode has enough config to resolve a signer."""
 
-    if auth_mode == "x402_private_key":
-        return bool(private_key)
     if auth_mode != "x402_privy":
         return False
     return bool(
@@ -203,7 +188,6 @@ async def export_privy_wallet_private_key(config: X402PrivyWalletExportConfig) -
 async def resolve_x402_signing_key(
     *,
     auth_mode: str,
-    private_key: Optional[str] = None,
     privy_wallet_id: Optional[str] = None,
     privy_app_id: Optional[str] = None,
     privy_app_secret: Optional[str] = None,
@@ -213,14 +197,10 @@ async def resolve_x402_signing_key(
     timeout: float = 30.0,
     rpc_url: Optional[str] = None,
 ) -> Optional[str]:
-    """Resolve an x402 signing key from direct config or Privy runtime export."""
+    """Resolve an x402 signing key from hosted Privy runtime export."""
 
-    resolved_private_key = resolve_x402_private_key(
-        auth_mode=auth_mode,
-        private_key=private_key,
-    )
-    if resolved_private_key:
-        return resolved_private_key
+    if auth_mode != "x402_privy":
+        return None
 
     privy_config = resolve_x402_privy_config(
         auth_mode=auth_mode,
@@ -242,7 +222,6 @@ async def resolve_x402_signing_key(
 async def create_x402_httpx_client_for_auth(
     *,
     auth_mode: str,
-    private_key: Optional[str] = None,
     privy_wallet_id: Optional[str] = None,
     privy_app_id: Optional[str] = None,
     privy_app_secret: Optional[str] = None,
@@ -252,11 +231,10 @@ async def create_x402_httpx_client_for_auth(
     timeout: float = 30.0,
     rpc_url: Optional[str] = None,
 ) -> x402HttpxClient:
-    """Create an x402 httpx client for either direct-key or Privy auth."""
+    """Create an x402 httpx client for the configured hosted auth flow."""
 
-    resolved_private_key = await resolve_x402_signing_key(
+    resolved_signing_key = await resolve_x402_signing_key(
         auth_mode=auth_mode,
-        private_key=private_key,
         privy_wallet_id=privy_wallet_id,
         privy_app_id=privy_app_id,
         privy_app_secret=privy_app_secret,
@@ -266,23 +244,23 @@ async def create_x402_httpx_client_for_auth(
         timeout=timeout,
         rpc_url=rpc_url,
     )
-    if not resolved_private_key:
+    if not resolved_signing_key:
         raise ValueError(f"{auth_mode} requires configured x402 signing credentials")
 
     return create_x402_httpx_client(
-        X402PrivateKeyConfig(
-            private_key=resolved_private_key,
+        X402SigningKeyConfig(
+            signing_key=resolved_signing_key,
             timeout=timeout,
             rpc_url=rpc_url,
         )
     )
 
 
-def create_x402_httpx_client(config: X402PrivateKeyConfig) -> x402HttpxClient:
+def create_x402_httpx_client(config: X402SigningKeyConfig) -> x402HttpxClient:
     """Create an async httpx client with automatic x402 payment handling."""
 
     client = x402Client()
-    signer = KeypairSigner.from_base58(config.private_key)
+    signer = KeypairSigner.from_base58(config.signing_key)
     register_exact_svm_client(client, signer=signer, rpc_url=config.rpc_url)
     return x402HttpxClient(client, timeout=config.timeout)
 
@@ -305,7 +283,7 @@ async def request_with_x402_privy(
 ) -> Any:
     """Make an x402 request using Privy-backed runtime wallet export."""
 
-    resolved_private_key = await resolve_x402_signing_key(
+    resolved_signing_key = await resolve_x402_signing_key(
         auth_mode="x402_privy",
         privy_wallet_id=privy_wallet_id,
         privy_app_id=privy_app_id,
@@ -316,16 +294,16 @@ async def request_with_x402_privy(
         timeout=timeout,
         rpc_url=rpc_url,
     )
-    if not resolved_private_key:
+    if not resolved_signing_key:
         raise ValueError(
             "Privy x402 requires runtime Privy wallet export config. "
             "Provide privy_wallet_id at runtime and set privy_app_id and privy_app_secret in config."
         )
 
-    return await request_with_x402_private_key(
+    return await request_with_x402_signing_key(
         method=method,
         url=url,
-        private_key=resolved_private_key,
+        signing_key=resolved_signing_key,
         headers=headers,
         params=params,
         json_data=json_data,
@@ -334,11 +312,11 @@ async def request_with_x402_privy(
     )
 
 
-async def request_with_x402_private_key(
+async def request_with_x402_signing_key(
     method: str,
     url: str,
     *,
-    private_key: str,
+    signing_key: str,
     headers: Optional[dict[str, str]] = None,
     params: Optional[dict[str, Any]] = None,
     json_data: Optional[dict[str, Any]] = None,
@@ -348,8 +326,8 @@ async def request_with_x402_private_key(
     """Make an HTTP request that automatically settles x402 payment challenges."""
 
     async with create_x402_httpx_client(
-        X402PrivateKeyConfig(
-            private_key=private_key,
+        X402SigningKeyConfig(
+            signing_key=signing_key,
             timeout=timeout,
             rpc_url=rpc_url,
         )

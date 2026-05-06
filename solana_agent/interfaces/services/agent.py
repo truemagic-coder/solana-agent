@@ -28,7 +28,7 @@ class AgentService(ABC):
     async def generate_response(
         self,
         agent_name: str,
-        user_id: str,
+        privy_user_id: str,
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,

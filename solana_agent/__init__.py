@@ -1,4 +1,4 @@
-"""Public Solana Agent SDK for hosted chat, wallets, MCP, and x402 execution."""
+"""Public Solana Agent SDK for hosted chat, wallets, and MCP."""
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.factories.agent_factory import SolanaAgentFactory

@@ -20,6 +20,11 @@ packages = [{ include = "solana_agent" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "smoke: fast smoke tests for API, runtime, SDK, and tool surfaces",
+    "integration: tests that cross process or external service boundaries",
+    "live: tests that require live external services, credentials, or funds",
+]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<4.0"
@@ -30,20 +35,12 @@ logfire = "^4.32.1"
 typer = "^0.25.0"
 rich = ">=13,<14.0"
 pillow = "^12.2.0"
-websockets = ">=13,<16"
 x402 = { version = "*", extras = ["httpx"] }
-python-dotenv = ">=1.0,<2.0"
 httpx = "^0.28.1"
 based58 = "^0.1.1"
 pyhpke = "^0.6.4"
-boto3 = "^1.42.92"
-botocore = "^1.42.92"
-cryptography = ">=44,<46"
 fastmcp = "^3.2.4"
-pandas-ta = "^0.4.71b0"
-privy-client = "^0.5.0"
-pynacl = "^1.6.2"
-solana = "^0.36.11"
+pymongo = "^4.17.0"
 solders = "^0.27.1"
 
 [tool.poetry.group.dev.dependencies]
@@ -52,6 +49,7 @@ pytest-cov = "^7.1.0"
 pytest-asyncio = "^1.3.0"
 pytest-mock = "^3.15.1"
 pytest-github-actions-annotate-failures = "^0.4.0"
+python-dotenv = ">=1.0,<2.0"
 sphinx = "^8.2.3"
 sphinx-rtd-theme = "^3.0.2"
 myst-parser = "^4.0.1"
@@ -64,7 +62,6 @@ solana-agent = "solana_agent.cli:app"
 
 [tool.poetry.plugins."solana_agent.plugins"]
 mcp = "solana_agent.tools.mcp:get_plugin"
-x402_request = "solana_agent.tools.x402_request:get_plugin"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -28,7 +28,7 @@ async def test_process_uses_single_registered_agent(mock_agent_service):
 
     chunks = []
     async for chunk in service.process(
-        user_id="user-123",
+        privy_user_id="did:privy:user123",
         query="hello",
         runtime_context={"conversation_id": "conv-123"},
         prompt="Be concise",
@@ -38,7 +38,7 @@ async def test_process_uses_single_registered_agent(mock_agent_service):
     assert chunks == ["hello"]
     assert mock_agent_service.generate_response.call_args.kwargs == {
         "agent_name": "assistant",
-        "user_id": "user-123",
+        "privy_user_id": "did:privy:user123",
         "query": "hello",
         "runtime_context": {"conversation_id": "conv-123"},
         "images": None,
@@ -55,7 +55,10 @@ async def test_process_transcribes_audio_before_generating(mock_agent_service):
     service = QueryService(agent_service=mock_agent_service)
 
     chunks = []
-    async for chunk in service.process(user_id="user-123", query=b"audio-bytes"):
+    async for chunk in service.process(
+        privy_user_id="did:privy:user123",
+        query=b"audio-bytes",
+    ):
         chunks.append(chunk)
 
     assert chunks == ["hello from audio"]
@@ -77,5 +80,8 @@ async def test_process_raises_for_empty_audio_transcription(mock_agent_service):
     service = QueryService(agent_service=mock_agent_service)
 
     with pytest.raises(ValueError, match="Audio transcription returned no text"):
-        async for _chunk in service.process(user_id="user-123", query=b"audio"):
+        async for _chunk in service.process(
+            privy_user_id="did:privy:user123",
+            query=b"audio",
+        ):
             pass

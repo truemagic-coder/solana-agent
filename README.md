@@ -8,16 +8,14 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/ci.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/ci.yml)
 [![Ruff Style](https://img.shields.io/badge/style-ruff-41B5BE)](https://github.com/astral-sh/ruff)
 
-Thin public SDK for the hosted Solana Agent platform.
+Thin public SDK for the hosted non-streaming Solana Agent platform.
 
 The public package is intentionally small:
 
 - One agent per client instance.
 - Hosted chat and hosted wallet flows.
 - Hosted account and pricing APIs.
-- MCP and raw `x402_request` plugin support.
-
-The public SDK does not ship local memory stores, local history APIs, guardrails, or multi-agent routing.
+- MCP plugin support for external tools.
 
 ## Python Support
 
@@ -36,136 +34,141 @@ pip install solana-agent
 
 ## Quick Start
 
-### x402 private key
+Use the Solana Agent CLI to get a new `privy_user_id` from the interactive menu:
 
-```python
-import os
-from solana_agent import SolanaAgent
-
-config = {
-    "ai": {
-        "auth_mode": "x402_private_key",
-        "private_key": os.environ["X402_PRIVATE_KEY"],
-    },
-    "agents": [
-        {
-            "name": "assistant",
-            "instructions": "You are a concise Solana operations assistant.",
-            "specialization": "general",
-            "tools": ["x402_request"],
-        }
-    ],
-}
-
-agent = SolanaAgent(config=config)
-
-async for chunk in agent.process(
-    user_id="user-123",
-    message="Summarize my account usage and suggest the next wallet action.",
-    runtime_context={"conversation_id": "acct-session-1"},
-):
-    print(chunk, end="")
+```bash
+solana-agent wallet menu
 ```
 
-### Privy wallet
-
 ```python
-import os
 from solana_agent import SolanaAgent
 
-config = {
-    "ai": {
-        "auth_mode": "x402_privy",
-        "privy_app_id": os.environ["PRIVY_APP_ID"],
-        "privy_app_secret": os.environ["PRIVY_APP_SECRET"],
-    },
-    "agents": [
-        {
-            "name": "assistant",
-            "instructions": "You help users operate safely with hosted Solana wallets.",
-            "specialization": "wallets",
-            "tools": ["x402_request"],
-        }
-    ],
-}
-
-agent = SolanaAgent(config=config)
-
-runtime_context = await agent.prepare_x402_runtime_context(
-    user_id="did:privy:user-123",
-    runtime_context={"conversation_id": "wallet-session-1"},
+agent = SolanaAgent(
+    instructions="You are a Solana trading bot.",
+    privy_user_id="my-privy-user-id",
 )
 
-async for chunk in agent.process(
-    user_id="did:privy:user-123",
-    message="Check my wallet status and explain the next step.",
-    runtime_context=runtime_context,
-):
-    print(chunk, end="")
+context = await agent.context(
+    conversation_id="my-conversation-id",
+    model="chat",
+)
+
+response = await agent.message(
+    message="What is the price of SOL?",
+    **context
+)
+
+print(response)
 ```
-
-## Public SDK Boundary
-
-Included:
-
-- Single-agent request processing.
-- Hosted Privy wallet creation and wallet address lookup.
-- Hosted account summary, usage report, usage forecast, and pricing helpers.
-- Plugin loading for `mcp` and `x402_request`.
-- Runtime context forwarding for hosted features such as `conversation_id`, `service_tier`, and wallet identifiers.
 
 ## Hosted Memory
 
-If you want memory, use the hosted platform memory model. The SDK itself does not persist anything locally.
-
-You can still select hosted memory explicitly through model and runtime context:
-
 ```python
-config = {
-    "ai": {
-        "auth_mode": "x402_private_key",
-        "private_key": os.environ["X402_PRIVATE_KEY"],
-        "model": "memory",
-    },
-    "agents": [
-        {
-            "name": "assistant",
-            "instructions": "You are a concise Solana assistant.",
-            "specialization": "general",
-        }
-    ],
-}
-
-runtime_context = {
-    "conversation_id": "portfolio-session-7",
-    "memory_ttl_tier": "project",
-}
+context = await agent.context(
+    conversation_id="my-conversation-id",
+    model="memory",
+    memory_ttl_tier="project",
+)
 ```
 
-That memory lives in the hosted service, not in the local SDK process.
+## Priority Service Tier
+
+```python
+context = await agent.context(
+    service_tier="priority",
+)
+```
+
+## MCP Tools
+
+Connect Streamable HTTP MCP servers by enabling the `mcp` tool and adding server config:
+
+```python
+import os
+from solana_agent import SolanaAgent
+
+agent = SolanaAgent(
+    config={
+        "ai": {
+            "instructions": "Use connected MCP tools when they help the user.",
+            "privy_user_id": os.environ["PRIVY_USER_ID"],
+            "tools": ["mcp"],
+        },
+        "tools": {
+            "mcp": {
+                "servers": [
+                    {
+                        "url": os.environ["MCP_SERVER_URL"],
+                        "headers": {
+                            "Authorization": f"Bearer {os.environ['MCP_SERVER_TOKEN']}",
+                        },
+                    }
+                ],
+                "llm_provider": "openai",
+                "api_key": os.environ["OPENAI_API_KEY"],
+                "llm_model": "gpt-4.1-mini",
+            }
+        },
+    }
+)
+
+context = await agent.context(
+    conversation_id="mcp-demo",
+    model="chat",
+)
+
+response = await agent.message(
+    "Use the connected MCP tools to summarize my latest CRM tasks.",
+    **context,
+)
+
+print(response)
+```
 
 ## Wallet and Billing Helpers
 
 ```python
-summary = await agent.get_account_summary(
-    runtime_context={"privy_wallet_id": "wallet-123"}
-)
+
+wallet_address = await agent.get_wallet_address()
+
+summary = await agent.get_account_summary()
 
 report = await agent.get_usage_report(
-    "month",
-    runtime_context={"privy_wallet_id": "wallet-123"},
+    "month"
 )
 
-pricing = await agent.get_pricing_info(
-    runtime_context={"privy_wallet_id": "wallet-123"},
+forecast = await agent.get_usage_forecast(
+    window_days=30,
 )
+
+pricing = await agent.get_pricing_info()
+
+tooling_totals = summary.get("tooling", {}).get("lifetime", {}).get("totals", {})
+tooling_projection = (
+    forecast.get("tooling", {})
+    .get("projected_month_end", {})
+    .get("totals", {})
+)
+
+print(tooling_totals)
+print(tooling_projection)
 ```
 
-## Development
+## Private Key Export
+
+Export the hosted wallet private key when you want self-custody:
 
 ```bash
-python -m pytest tests -q
-ruff check .
-ruff format --check .
-tokei solana_agent tests
+solana-agent wallet export --yes
 ```
+
+Pass `--wallet-id` to export an older rotated wallet from `old_wallets`.
+
+## Rotating Wallets
+
+If a wallet needs to be retired, rotate it from the interactive menu:
+
+```bash
+solana-agent wallet menu
+```
+

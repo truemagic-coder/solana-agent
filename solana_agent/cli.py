@@ -3,6 +3,7 @@ from typing import Optional
 import typer
 import asyncio
 import logging
+from pathlib import Path
 from typing_extensions import Annotated
 from rich.console import Console
 from rich.live import Live
@@ -43,11 +44,35 @@ def _load_agent(config: str) -> SolanaAgent:
 
 def _account_runtime_context(
     privy_wallet_id: Optional[str],
-) -> Optional[dict[str, str]]:
+) -> dict[str, str]:
     wallet_id = str(privy_wallet_id or "").strip()
     if not wallet_id:
-        return None
+        return {}
     return {"privy_wallet_id": wallet_id}
+
+
+def _load_agent_for_menu(config: str) -> SolanaAgent:
+    if config and Path(config).exists():
+        return _load_agent(config)
+    try:
+        return SolanaAgent()
+    except ValueError as e:
+        console.print(f"[bold red]Error loading hosted defaults:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
+def _configured_privy_user_id(agent: SolanaAgent) -> Optional[str]:
+    try:
+        return agent._configured_privy_user_id()
+    except Exception:
+        return None
+
+
+def _prompt_privy_user_id(agent: SolanaAgent) -> str:
+    configured_user_id = _configured_privy_user_id(agent)
+    if configured_user_id:
+        return Prompt.ask("Privy user ID", default=configured_user_id)
+    return Prompt.ask("Privy user ID")
 
 
 def _print_json_payload(payload: object) -> None:
@@ -65,7 +90,6 @@ def _run_account_call(coro: object) -> None:
 
 async def stream_agent_response(
     agent: SolanaAgent,
-    user_id: str,
     message: str,
     prompt: Optional[str] = None,
     search_enabled: bool = False,
@@ -77,7 +101,6 @@ async def stream_agent_response(
         try:
             first_chunk = True
             async for chunk in agent.process(
-                user_id=user_id,
                 message=message,
                 output_format="text",
                 prompt=prompt,  # Pass prompt override if provided
@@ -106,9 +129,6 @@ async def stream_agent_response(
 
 @app.command()
 def chat(
-    user_id: Annotated[
-        str, typer.Option(help="The user ID for the conversation.")
-    ] = "cli_user",
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
@@ -150,7 +170,6 @@ def chat(
             asyncio.run(
                 stream_agent_response(
                     agent,
-                    user_id,
                     user_message,
                     prompt,
                     search_enabled=search_enabled,
@@ -177,15 +196,13 @@ def account_summary(
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
     privy_wallet_id: Annotated[
-        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+        Optional[str], typer.Option(help="Runtime Privy wallet ID.")
     ] = None,
 ):
     """Print wallet account summary as JSON."""
     agent = _load_agent(config)
     _run_account_call(
-        agent.get_account_summary(
-            runtime_context=_account_runtime_context(privy_wallet_id)
-        )
+        agent.get_account_summary(**_account_runtime_context(privy_wallet_id))
     )
 
 
@@ -207,18 +224,19 @@ def account_usage(
         Optional[str], typer.Option(help="Optional usage grouping field.")
     ] = None,
     privy_wallet_id: Annotated[
-        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+        Optional[str], typer.Option(help="Runtime Privy wallet ID.")
     ] = None,
 ):
     """Print wallet usage buckets as JSON."""
     agent = _load_agent(config)
+    runtime_context = _account_runtime_context(privy_wallet_id)
     _run_account_call(
         agent.get_usage_report(
             granularity,
             from_date=from_date,
             to_date=to_date,
             group_by=group_by,
-            runtime_context=_account_runtime_context(privy_wallet_id),
+            **runtime_context,
         )
     )
 
@@ -230,15 +248,16 @@ def account_forecast(
     ] = "config.json",
     window_days: Annotated[int, typer.Option(help="Forecast window in days.")] = 30,
     privy_wallet_id: Annotated[
-        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+        Optional[str], typer.Option(help="Runtime Privy wallet ID.")
     ] = None,
 ):
     """Print wallet usage forecast as JSON."""
     agent = _load_agent(config)
+    runtime_context = _account_runtime_context(privy_wallet_id)
     _run_account_call(
         agent.get_usage_forecast(
             window_days=window_days,
-            runtime_context=_account_runtime_context(privy_wallet_id),
+            **runtime_context,
         )
     )
 
@@ -249,23 +268,19 @@ def account_pricing(
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
     privy_wallet_id: Annotated[
-        Optional[str], typer.Option(help="Runtime Privy wallet ID for x402_privy mode.")
+        Optional[str], typer.Option(help="Runtime Privy wallet ID.")
     ] = None,
 ):
     """Print effective wallet pricing as JSON."""
     agent = _load_agent(config)
     _run_account_call(
-        agent.get_pricing_info(
-            runtime_context=_account_runtime_context(privy_wallet_id)
-        )
+        agent.get_pricing_info(**_account_runtime_context(privy_wallet_id))
     )
 
 
 @wallet_app.command("create")
 def wallet_create(
-    user_id: Annotated[
-        str, typer.Option(help="Existing application user identifier or Privy DID.")
-    ],
+    privy_user_id: Annotated[str, typer.Option(help="Existing hosted Privy DID.")],
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
@@ -276,35 +291,182 @@ def wallet_create(
 ):
     """Create or return the hosted wallet for a user."""
     agent = _load_agent(config)
-    _run_account_call(agent.create_wallet(user_id=user_id, chain_type=chain_type))
+    _run_account_call(
+        agent.create_wallet(privy_user_id=privy_user_id, chain_type=chain_type)
+    )
 
 
-@wallet_app.command("address")
-def wallet_address(
-    user_id: Annotated[
-        str, typer.Option(help="Existing application user identifier or Privy DID.")
-    ],
+@wallet_app.command("user")
+def wallet_user(
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
 ):
-    """Print the hosted wallet address for a user."""
+    """Create a hosted Privy user."""
     agent = _load_agent(config)
-    _run_account_call(agent.get_wallet_address(user_id=user_id))
+    _run_account_call(agent.create_privy_user())
+
+
+@wallet_app.command("address")
+def wallet_address(
+    wallet_id: Annotated[
+        Optional[str], typer.Option(help="Existing hosted wallet id.")
+    ] = None,
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+):
+    """Print the hosted wallet address."""
+    agent = _load_agent(config)
+    _run_account_call(agent.get_wallet_address(wallet_id=wallet_id))
 
 
 @wallet_app.command("export")
 def wallet_export(
     wallet_id: Annotated[
-        str, typer.Option(help="Privy wallet ID to export for self-custody flows.")
-    ],
+        Optional[str], typer.Option(help="Optional hosted wallet id to export.")
+    ] = None,
+    privy_user_id: Annotated[
+        Optional[str], typer.Option(help="Existing hosted Privy DID.")
+    ] = None,
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
+    chain_type: Annotated[
+        str,
+        typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
+    ] = "solana",
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Confirm that the private key should be printed to this terminal.",
+        ),
+    ] = False,
 ):
-    """Export the private key for a Privy wallet."""
+    """Export the hosted wallet private key for self-custody."""
+    if not yes:
+        confirmation = Prompt.ask("Type EXPORT to reveal the private key", default="")
+        if confirmation.strip() != "EXPORT":
+            console.print("[yellow]Export cancelled.[/yellow]")
+            raise typer.Exit(code=1)
+
     agent = _load_agent(config)
-    _run_account_call(agent.export_wallet_private_key(wallet_id=wallet_id))
+    _run_account_call(
+        agent.export_wallet_private_key(
+            wallet_id=wallet_id,
+            privy_user_id=privy_user_id,
+            chain_type=chain_type,
+        )
+    )
+
+
+@wallet_app.command("rotate")
+def wallet_rotate(
+    privy_user_id: Annotated[
+        Optional[str], typer.Option(help="Existing hosted Privy DID.")
+    ] = None,
+    config: Annotated[
+        str, typer.Option(help="Path to the configuration JSON file.")
+    ] = "config.json",
+    chain_type: Annotated[
+        str,
+        typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
+    ] = "solana",
+):
+    """Rotate the hosted wallet for a Privy user."""
+    agent = _load_agent(config)
+    _run_account_call(
+        agent.rotate_wallet(privy_user_id=privy_user_id, chain_type=chain_type)
+    )
+
+
+@wallet_app.command("menu")
+def wallet_menu(
+    config: Annotated[
+        str,
+        typer.Option(
+            help="Optional configuration JSON file. Defaults are enough to create a Privy user."
+        ),
+    ] = "config.json",
+    chain_type: Annotated[
+        str,
+        typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
+    ] = "solana",
+):
+    """Open the hosted wallet onboarding menu."""
+    agent = _load_agent_for_menu(config)
+    while True:
+        console.print("\n[bold]Solana Agent Wallet Menu[/bold]")
+        console.print("1. Create Privy user")
+        console.print("2. Create or fetch wallet")
+        console.print("3. Show wallet address")
+        console.print("4. Rotate wallet")
+        console.print("5. Export private key")
+        console.print("q. Quit")
+        choice = Prompt.ask("Choose an action", default="1")
+        normalized_choice = choice.strip().lower()
+
+        if normalized_choice in {"q", "quit", "exit"}:
+            break
+        if normalized_choice == "1":
+            _run_account_call(agent.create_privy_user())
+            continue
+        if normalized_choice == "2":
+            privy_user_id = _prompt_privy_user_id(agent)
+            _run_account_call(
+                agent.create_wallet(
+                    privy_user_id=privy_user_id,
+                    chain_type=chain_type,
+                )
+            )
+            continue
+        if normalized_choice == "3":
+            configured_user_id = _configured_privy_user_id(agent)
+            if configured_user_id:
+                _run_account_call(agent.get_wallet_address())
+            else:
+                privy_user_id = _prompt_privy_user_id(agent)
+                _run_account_call(
+                    agent.create_wallet(
+                        privy_user_id=privy_user_id,
+                        chain_type=chain_type,
+                    )
+                )
+            continue
+        if normalized_choice == "4":
+            privy_user_id = _prompt_privy_user_id(agent)
+            _run_account_call(
+                agent.rotate_wallet(
+                    privy_user_id=privy_user_id,
+                    chain_type=chain_type,
+                )
+            )
+            continue
+        if normalized_choice == "5":
+            confirmation = Prompt.ask(
+                "Type EXPORT to reveal the private key",
+                default="",
+            )
+            if confirmation.strip() != "EXPORT":
+                console.print("[yellow]Export cancelled.[/yellow]")
+                continue
+            privy_user_id = _prompt_privy_user_id(agent)
+            wallet_id = Prompt.ask(
+                "Wallet ID",
+                default="",
+            ).strip()
+            _run_account_call(
+                agent.export_wallet_private_key(
+                    wallet_id=wallet_id or None,
+                    privy_user_id=privy_user_id,
+                    chain_type=chain_type,
+                )
+            )
+            continue
+
+        console.print("[yellow]Unknown menu option.[/yellow]")
 
 
 if __name__ == "__main__":

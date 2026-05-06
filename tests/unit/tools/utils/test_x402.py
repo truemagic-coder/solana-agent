@@ -5,15 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from solana_agent.tools.utils.x402 import (
-    X402PrivateKeyConfig,
+    X402SigningKeyConfig,
     X402PrivyWalletExportConfig,
     create_x402_httpx_client,
     create_x402_httpx_client_for_auth,
     export_privy_wallet_private_key,
     has_x402_auth_config,
-    request_with_x402_private_key,
+    request_with_x402_signing_key,
     request_with_x402_privy,
-    resolve_x402_private_key,
     resolve_x402_privy_config,
     resolve_x402_signing_key,
 )
@@ -40,34 +39,10 @@ def privy_export_config():
     )
 
 
-def test_resolve_x402_private_key_returns_only_private_key_mode():
-    assert (
-        resolve_x402_private_key(
-            auth_mode="x402_private_key",
-            private_key="direct-key",
-        )
-        == "direct-key"
-    )
-    assert (
-        resolve_x402_private_key(
-            auth_mode="x402_private_key",
-            private_key="",
-        )
-        is None
-    )
-    assert (
-        resolve_x402_private_key(
-            auth_mode="x402_privy",
-            private_key="direct-key",
-        )
-        is None
-    )
-
-
 def test_resolve_x402_privy_config_returns_none_for_non_privy_mode():
     assert (
         resolve_x402_privy_config(
-            auth_mode="x402_private_key",
+            auth_mode="api_key",
             privy_wallet_id="wallet-123",
             privy_app_id="app-123",
             privy_app_secret="secret-123",
@@ -257,13 +232,7 @@ async def test_export_privy_wallet_private_key_requires_encrypted_payload_fields
 
 @pytest.mark.asyncio
 async def test_resolve_x402_signing_key_returns_direct_private_key():
-    assert (
-        await resolve_x402_signing_key(
-            auth_mode="x402_private_key",
-            private_key="direct-key",
-        )
-        == "direct-key"
-    )
+    assert await resolve_x402_signing_key(auth_mode="api_key") is None
 
 
 @pytest.mark.asyncio
@@ -314,8 +283,8 @@ async def test_create_x402_httpx_client_for_auth_builds_client_from_resolved_key
 
     assert client == "client-object"
     config = mock_create_client.call_args.args[0]
-    assert config == X402PrivateKeyConfig(
-        private_key="resolved-key",
+    assert config == X402SigningKeyConfig(
+        signing_key="resolved-key",
         timeout=12.0,
         rpc_url="https://rpc.example.com",
     )
@@ -350,8 +319,8 @@ def test_create_x402_httpx_client_registers_signer():
         ) as mock_http_client,
     ):
         client = create_x402_httpx_client(
-            X402PrivateKeyConfig(
-                private_key="base58-key",
+            X402SigningKeyConfig(
+                signing_key="base58-key",
                 timeout=9.0,
                 rpc_url="https://rpc.example.com",
             )
@@ -389,7 +358,7 @@ async def test_request_with_x402_privy_delegates_to_private_key_request():
             AsyncMock(return_value="resolved-key"),
         ),
         patch(
-            "solana_agent.tools.utils.x402.request_with_x402_private_key",
+            "solana_agent.tools.utils.x402.request_with_x402_signing_key",
             AsyncMock(return_value=response),
         ) as mock_request,
     ):
@@ -410,7 +379,7 @@ async def test_request_with_x402_privy_delegates_to_private_key_request():
     mock_request.assert_awaited_once_with(
         method="post",
         url="https://api.example.com/data",
-        private_key="resolved-key",
+        signing_key="resolved-key",
         headers={"accept": "application/json"},
         params={"foo": "bar"},
         json_data={"hello": "world"},
@@ -420,7 +389,7 @@ async def test_request_with_x402_privy_delegates_to_private_key_request():
 
 
 @pytest.mark.asyncio
-async def test_request_with_x402_private_key_uses_configured_client():
+async def test_request_with_x402_signing_key_uses_configured_client():
     response = object()
     http_client = MagicMock()
     http_client.request = AsyncMock(return_value=response)
@@ -429,10 +398,10 @@ async def test_request_with_x402_private_key_uses_configured_client():
         "solana_agent.tools.utils.x402.create_x402_httpx_client",
         return_value=make_async_context_manager(http_client),
     ) as mock_create_client:
-        result = await request_with_x402_private_key(
+        result = await request_with_x402_signing_key(
             "post",
             "https://api.example.com/data",
-            private_key="base58-key",
+            signing_key="base58-key",
             headers={"accept": "application/json"},
             params={"foo": "bar"},
             json_data={"hello": "world"},
@@ -442,8 +411,8 @@ async def test_request_with_x402_private_key_uses_configured_client():
 
     assert result is response
     config = mock_create_client.call_args.args[0]
-    assert config == X402PrivateKeyConfig(
-        private_key="base58-key",
+    assert config == X402SigningKeyConfig(
+        signing_key="base58-key",
         timeout=6.0,
         rpc_url="https://rpc.example.com",
     )

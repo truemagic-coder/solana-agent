@@ -25,6 +25,15 @@ GUARDRAILS_CONFIG_ERROR = (
     "Run those policies in your hosted service instead."
 )
 MULTI_AGENT_CONFIG_ERROR = "The public SDK supports exactly one agent. Remove routing and extra agents from the config."
+LEGACY_AGENTS_CONFIG_ERROR = (
+    "The public SDK no longer supports config['agents'] or config['agent_tools']. "
+    "Move single-agent fields into config['ai'] instead."
+)
+UNSUPPORTED_PUBLIC_TOOL_ERROR = (
+    "x402_request is not supported in the public SDK. "
+    "Use MCP for external tools and hosted wallet APIs for Solana Agent flows."
+)
+UNSUPPORTED_PUBLIC_TOOL_NAMES = frozenset({"x402_request"})
 
 
 class SolanaAgentFactory:
@@ -65,39 +74,58 @@ class SolanaAgentFactory:
 
     @staticmethod
     def _single_agent_config(config: Dict[str, Any]) -> Dict[str, Any]:
-        agents = config.get("agents", [])
-        if agents is None:
-            agents = []
-        if not isinstance(agents, list):
-            raise ValueError("config['agents'] must be a list.")
-        if len(agents) > 1:
-            raise ValueError(MULTI_AGENT_CONFIG_ERROR)
+        if "agents" in config or "agent_tools" in config:
+            raise ValueError(LEGACY_AGENTS_CONFIG_ERROR)
 
-        if not agents:
-            return {
-                "name": "default",
-                "instructions": "You are a helpful Solana AI assistant for hosted wallet and x402 workflows.",
-                "specialization": "general",
-            }
-
-        agent_config = agents[0]
-        if not isinstance(agent_config, dict):
-            raise ValueError("Each agent config must be a mapping.")
-
+        agent_config = SolanaAgentFactory._provider_config(config)
         instructions = str(agent_config.get("instructions") or "").strip()
         if not instructions:
-            raise ValueError("The configured agent must include instructions.")
+            instructions = "You are a helpful Solana AI assistant for hosted wallet and MCP workflows."
 
         name = str(agent_config.get("name") or "default").strip() or "default"
         specialization = (
             str(agent_config.get("specialization") or "general").strip() or "general"
         )
 
-        normalized = dict(agent_config)
+        tools = agent_config.get("tools", [])
+        if tools is None:
+            tools = []
+        if not isinstance(tools, list):
+            raise ValueError("AI config in config['ai']['tools'] must be a list.")
+        normalized_tools = [
+            tool_name
+            for tool_name in (str(tool or "").strip() for tool in tools)
+            if tool_name
+        ]
+        SolanaAgentFactory._reject_unsupported_public_tools(config, normalized_tools)
+
+        normalized = {
+            "name": name,
+            "instructions": instructions,
+            "specialization": specialization,
+            "tools": normalized_tools,
+        }
+        for optional_key in ("capture_name", "capture_schema"):
+            if optional_key in agent_config:
+                normalized[optional_key] = agent_config[optional_key]
         normalized["name"] = name
         normalized["instructions"] = instructions
         normalized["specialization"] = specialization
         return normalized
+
+    @staticmethod
+    def _reject_unsupported_public_tools(
+        config: Dict[str, Any],
+        tool_names: list[str],
+    ) -> None:
+        configured_tools = set(tool_names)
+        tools_config = config.get("tools")
+        if isinstance(tools_config, dict):
+            configured_tools.update(
+                str(tool_name or "").strip() for tool_name in tools_config
+            )
+        if configured_tools & UNSUPPORTED_PUBLIC_TOOL_NAMES:
+            raise ValueError(UNSUPPORTED_PUBLIC_TOOL_ERROR)
 
     @staticmethod
     def _assign_agent_tools(
@@ -122,16 +150,8 @@ class SolanaAgentFactory:
         configured_agent_tools = config.get("agent_tools", {})
         if not configured_agent_tools:
             return
-        if not isinstance(configured_agent_tools, dict):
-            raise ValueError("config['agent_tools'] must be a mapping.")
-
-        unexpected_agents = [
-            configured_name
-            for configured_name in configured_agent_tools
-            if configured_name != agent_name
-        ]
-        if unexpected_agents:
-            raise ValueError(MULTI_AGENT_CONFIG_ERROR)
+        del agent_name
+        raise ValueError(LEGACY_AGENTS_CONFIG_ERROR)
 
     @staticmethod
     def create_from_config(config: Dict[str, Any]) -> QueryService:  # pragma: no cover
@@ -156,27 +176,15 @@ class SolanaAgentFactory:
         SolanaAgentFactory._validate_agent_tools_config(config, agent_config["name"])
 
         provider_config = SolanaAgentFactory._provider_config(config)
-        auth_mode = provider_config.get("auth_mode", "api_key")
-        if auth_mode not in {"api_key", "x402_private_key", "x402_privy"}:
+        auth_mode = str(provider_config.get("auth_mode") or "").strip()
+        if auth_mode:
             raise ValueError(
-                "Unsupported auth_mode. Supported values are: api_key, x402_private_key, x402_privy."
+                "Public SDK auth is managed by the hosted service. Remove auth_mode from config['ai']."
             )
+        auth_mode = "hosted_managed"
 
-        use_hosted_transport = auth_mode in {"x402_private_key", "x402_privy"}
-        llm_private_key = provider_config.get("private_key")
-        llm_privy_app_id = provider_config.get("privy_app_id") or provider_config.get(
-            "app_id"
-        )
-        llm_privy_app_secret = provider_config.get(
-            "privy_app_secret"
-        ) or provider_config.get("app_secret")
-        llm_privy_authorization_signature = provider_config.get(
-            "privy_authorization_signature"
-        )
-        llm_privy_request_expiry = provider_config.get("privy_request_expiry")
-        llm_privy_api_url = provider_config.get("privy_api_url")
-        llm_x402_rpc_url = provider_config.get("x402_rpc_url")
         llm_x402_preferred_asset = provider_config.get("x402_preferred_asset")
+        llm_privy_user_id = str(provider_config.get("privy_user_id") or "").strip()
 
         llm_api_key = provider_config.get("api_key")
         requested_model = str(provider_config.get("model") or "").strip() or None
@@ -193,30 +201,14 @@ class SolanaAgentFactory:
         llm_max_output_tokens = provider_config.get("max_output_tokens")
         llm_tokenizer_model = provider_config.get("tokenizer_model")
 
-        if use_hosted_transport:
-            if auth_mode == "x402_private_key":
-                if not llm_private_key:
-                    raise ValueError(
-                        "AI x402 signing key is required when auth_mode is x402_private_key."
-                    )
-            elif not (llm_privy_app_id and llm_privy_app_secret):
-                raise ValueError(
-                    "Privy app credentials are required when auth_mode is x402_privy. "
-                    "Set privy_app_id and privy_app_secret; pass privy_wallet_id at runtime."
-                )
-
-            llm_api_key = llm_api_key or "x402"
-            if requested_model in {None, "memory"}:
-                llm_model = DEFAULT_AGI_MEMORY_MODEL
-            elif requested_model == "stateless":
-                llm_model = stateless_model
-            else:
-                llm_model = requested_model
-            llm_base_url = llm_base_url or DEFAULT_AGI_BASE_URL
-        elif not llm_api_key:
-            raise ValueError(
-                "AI API key is required unless auth_mode is x402_private_key or x402_privy."
-            )
+        llm_api_key = llm_api_key or "x402"
+        if requested_model in {None, "memory"}:
+            llm_model = DEFAULT_AGI_MEMORY_MODEL
+        elif requested_model in {"chat", "stateless"}:
+            llm_model = stateless_model
+        else:
+            llm_model = requested_model
+        llm_base_url = llm_base_url or DEFAULT_AGI_BASE_URL
 
         llm_adapter_kwargs: Dict[str, Any] = {
             "api_key": llm_api_key,
@@ -232,25 +224,11 @@ class SolanaAgentFactory:
             llm_adapter_kwargs["max_output_tokens"] = llm_max_output_tokens
         if llm_tokenizer_model:
             llm_adapter_kwargs["tokenizer_model"] = llm_tokenizer_model
-        if use_hosted_transport:
-            llm_adapter_kwargs["auth_mode"] = auth_mode
-            llm_adapter_kwargs["private_key"] = llm_private_key
-            if llm_privy_app_id:
-                llm_adapter_kwargs["privy_app_id"] = llm_privy_app_id
-            if llm_privy_app_secret:
-                llm_adapter_kwargs["privy_app_secret"] = llm_privy_app_secret
-            if llm_privy_authorization_signature:
-                llm_adapter_kwargs["privy_authorization_signature"] = (
-                    llm_privy_authorization_signature
-                )
-            if llm_privy_request_expiry:
-                llm_adapter_kwargs["privy_request_expiry"] = llm_privy_request_expiry
-            if llm_privy_api_url:
-                llm_adapter_kwargs["privy_api_url"] = llm_privy_api_url
-            if llm_x402_rpc_url:
-                llm_adapter_kwargs["x402_rpc_url"] = llm_x402_rpc_url
-            if llm_x402_preferred_asset:
-                llm_adapter_kwargs["x402_preferred_asset"] = llm_x402_preferred_asset
+        llm_adapter_kwargs["auth_mode"] = auth_mode
+        if llm_x402_preferred_asset:
+            llm_adapter_kwargs["x402_preferred_asset"] = llm_x402_preferred_asset
+        if llm_privy_user_id:
+            llm_adapter_kwargs["privy_user_id"] = llm_privy_user_id
 
         logfire_config = config.get("logfire")
         if isinstance(logfire_config, dict):

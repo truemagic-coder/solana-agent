@@ -11,48 +11,6 @@ from solana_agent.adapters.openai_adapter import OpenAIAdapter
 
 
 class TestOpenAIAdapter:
-    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
-    def test_x402_private_key_uses_x402_http_client(
-        self,
-        mock_create_x402_httpx_client,
-        mock_async_openai,
-    ):
-        """x402 private-key auth should swap in the paid transport client."""
-        mock_http_client = MagicMock()
-        mock_create_x402_httpx_client.return_value = mock_http_client
-
-        OpenAIAdapter(
-            api_key="x402",
-            model="solana-agent-memory",
-            base_url="http://127.0.0.1:8000/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
-        )
-
-        mock_create_x402_httpx_client.assert_called_once()
-        x402_config = mock_create_x402_httpx_client.call_args.args[0]
-        assert x402_config.private_key == "test-private-key"
-        assert x402_config.rpc_url is None
-
-        mock_async_openai.assert_called_once_with(
-            api_key="x402",
-            base_url="http://127.0.0.1:8000/v1",
-            http_client=mock_http_client,
-        )
-
-    def test_x402_private_key_requires_signing_key(self):
-        """x402 private-key auth should reject missing signing keys."""
-        with pytest.raises(
-            ValueError,
-            match="x402_private_key requires a configured Solana signing key",
-        ):
-            OpenAIAdapter(
-                api_key="x402",
-                base_url="http://127.0.0.1:8000/v1",
-                auth_mode="x402_private_key",
-            )
-
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
     @patch(
@@ -81,7 +39,6 @@ class TestOpenAIAdapter:
 
         mock_create_x402_httpx_client_for_auth.assert_awaited_once_with(
             auth_mode="x402_privy",
-            private_key=None,
             privy_wallet_id="wallet-123",
             privy_app_id="app-123",
             privy_app_secret="secret-123",
@@ -141,7 +98,6 @@ class TestOpenAIAdapter:
 
         mock_create_x402_httpx_client_for_auth.assert_awaited_once_with(
             auth_mode="x402_privy",
-            private_key=None,
             privy_wallet_id="wallet-123",
             privy_app_id="app-123",
             privy_app_secret="secret-123",
@@ -422,7 +378,6 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
     @patch(
         "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
     )
@@ -434,7 +389,6 @@ class TestOpenAIAdapter:
         self,
         mock_resolve_x402_signing_key,
         mock_async_client,
-        mock_create_x402_httpx_client,
         mock_async_openai,
     ):
         """Account summary should fetch a wallet challenge and send signed auth headers."""
@@ -449,7 +403,10 @@ class TestOpenAIAdapter:
         }
         summary_response = MagicMock()
         summary_response.raise_for_status = MagicMock()
-        summary_response.json.return_value = {"spend": {"today": 1.23}}
+        summary_response.json.return_value = {
+            "spend": {"today": 1.23},
+            "tooling": {"lifetime": {"totals": {"requests": 5}}},
+        }
         challenge_response = MagicMock()
         challenge_response.raise_for_status = MagicMock()
         challenge_response.json.return_value = challenge
@@ -462,20 +419,37 @@ class TestOpenAIAdapter:
         )
         mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
         mock_resolve_x402_signing_key.return_value = private_key
-        mock_create_x402_httpx_client.return_value = MagicMock()
         mock_async_openai.return_value = MagicMock()
 
         adapter = OpenAIAdapter(
             api_key="x402",
             model="solana-agent-memory",
             base_url="https://ai.solana-agent.com/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
         )
 
-        result = await adapter.get_account_summary()
+        result = await adapter.get_account_summary(
+            runtime_context={"privy_wallet_id": "wallet-123"}
+        )
 
-        assert result == {"spend": {"today": 1.23}}
+        assert result == {
+            "spend": {"today": 1.23},
+            "tooling": {"lifetime": {"totals": {"requests": 5}}},
+        }
+        assert result["tooling"]["lifetime"]["totals"]["requests"] == 5
+        mock_resolve_x402_signing_key.assert_awaited_once_with(
+            auth_mode="x402_privy",
+            privy_wallet_id="wallet-123",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
+            privy_authorization_signature=None,
+            privy_request_expiry=None,
+            privy_api_url=None,
+            timeout=30.0,
+            rpc_url=None,
+        )
         mock_http_client.post.assert_awaited_once_with(
             "https://ai.solana-agent.com/v1/account/auth/challenge",
             json={"wallet": wallet},
@@ -492,6 +466,63 @@ class TestOpenAIAdapter:
             params=None,
         )
         summary_response.raise_for_status.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_get_account_summary_uses_hosted_identity_params(
+        self,
+        mock_async_client,
+    ):
+        """Hosted-managed account summary should use runtime identity params instead of local signing."""
+        summary_response = MagicMock()
+        summary_response.raise_for_status = MagicMock()
+        summary_response.json.return_value = {
+            "spend": {"today": 1.23},
+            "tooling": {"lifetime": {"totals": {"requests": 5}}},
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.get = AsyncMock(return_value=summary_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+            privy_user_id="did:privy:user123",
+        )
+
+        result = await adapter.get_account_summary()
+
+        assert result["tooling"]["lifetime"]["totals"]["requests"] == 5
+        mock_http_client.get.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/summary",
+            params={
+                "privy_user_id": "did:privy:user123",
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_account_summary_requires_identity_for_hosted_managed_auth(self):
+        """Hosted-managed account summary should require runtime identity."""
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Hosted account reporting requires config.ai.privy_user_id",
+        ):
+            await adapter.get_account_summary()
 
     @pytest.mark.asyncio
     @patch(
@@ -518,7 +549,20 @@ class TestOpenAIAdapter:
         }
         usage_response = MagicMock()
         usage_response.raise_for_status = MagicMock()
-        usage_response.json.return_value = {"buckets": []}
+        usage_response.json.return_value = {
+            "buckets": [
+                {
+                    "totals": {
+                        "tooling": {
+                            "totals": {
+                                "requests": 7,
+                                "signature_count": 2,
+                            }
+                        }
+                    }
+                }
+            ]
+        }
         challenge_response = MagicMock()
         challenge_response.raise_for_status = MagicMock()
         challenge_response.json.return_value = challenge
@@ -549,10 +593,23 @@ class TestOpenAIAdapter:
             runtime_context={"privy_wallet_id": "wallet-123"},
         )
 
-        assert result == {"buckets": []}
+        assert result == {
+            "buckets": [
+                {
+                    "totals": {
+                        "tooling": {
+                            "totals": {
+                                "requests": 7,
+                                "signature_count": 2,
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+        assert result["buckets"][0]["totals"]["tooling"]["totals"]["requests"] == 7
         mock_resolve_x402_signing_key.assert_awaited_once_with(
             auth_mode="x402_privy",
-            private_key=None,
             privy_wallet_id="wallet-123",
             privy_app_id="app-123",
             privy_app_secret="secret-123",
@@ -585,8 +642,60 @@ class TestOpenAIAdapter:
         usage_response.raise_for_status.assert_called_once_with()
 
     @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_get_usage_report_uses_hosted_identity_params(
+        self,
+        mock_async_client,
+    ):
+        """Hosted-managed usage reporting should send runtime identity in the request params."""
+        usage_response = MagicMock()
+        usage_response.raise_for_status = MagicMock()
+        usage_response.json.return_value = {
+            "buckets": [{"totals": {"tooling": {"totals": {"requests": 7}}}}]
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.get = AsyncMock(return_value=usage_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+            privy_user_id="did:privy:user123",
+        )
+
+        result = await adapter.get_usage_report(
+            "month",
+            from_date="2026-05-01",
+            to_date="2026-05-31",
+            group_by="conversation",
+        )
+
+        assert result["buckets"][0]["totals"]["tooling"]["totals"]["requests"] == 7
+        mock_http_client.get.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/usage",
+            params={
+                "granularity": "month",
+                "from": "2026-05-01",
+                "to": "2026-05-31",
+                "group_by": "conversation",
+                "privy_user_id": "did:privy:user123",
+            },
+        )
+
+    @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
+    @patch(
+        "solana_agent.adapters.openai_adapter.create_x402_httpx_client_for_auth",
+        new_callable=AsyncMock,
+    )
     @patch(
         "solana_agent.adapters.openai_adapter.OpenAIAdapter._build_account_auth_headers",
         new_callable=AsyncMock,
@@ -594,7 +703,7 @@ class TestOpenAIAdapter:
     async def test_hosted_chat_completions_forward_wallet_auth_headers(
         self,
         mock_build_account_auth_headers,
-        mock_create_x402_httpx_client,
+        mock_create_x402_httpx_client_for_auth,
         mock_async_openai,
     ):
         """Hosted chat requests should attach wallet-auth headers for account-aware quotes."""
@@ -605,7 +714,7 @@ class TestOpenAIAdapter:
             )
         )
         mock_async_openai.return_value = mock_client
-        mock_create_x402_httpx_client.return_value = MagicMock()
+        mock_create_x402_httpx_client_for_auth.return_value = MagicMock()
         mock_build_account_auth_headers.return_value = {
             "X-Wallet-Address": "wallet-123",
             "X-Account-Challenge-Id": "challenge-123",
@@ -616,13 +725,17 @@ class TestOpenAIAdapter:
             api_key="x402",
             model="solana-agent-memory",
             base_url="https://ai.solana-agent.com/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
             context_window_tokens=64,
             max_output_tokens=32,
         )
 
-        result = await adapter.generate_text("hello")
+        result = await adapter.generate_text(
+            "hello",
+            runtime_context={"privy_wallet_id": "wallet-123"},
+        )
 
         assert result is not None
         kwargs = mock_client.chat.completions.create.await_args.kwargs
@@ -633,11 +746,11 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    async def test_hosted_chat_completions_forward_user_and_privy_context(
+    async def test_hosted_chat_completions_forward_privy_context(
         self,
         mock_async_openai,
     ):
-        """Hosted chat requests should serialize user and Privy metadata into the body."""
+        """Hosted chat requests should serialize Privy metadata into the body."""
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(
             return_value=SimpleNamespace(
@@ -650,6 +763,7 @@ class TestOpenAIAdapter:
             api_key="test-api-key",
             model="solana-agent-chat",
             base_url="https://ai.solana-agent.com/v1",
+            privy_user_id="did:privy:user123",
             context_window_tokens=64,
             max_output_tokens=32,
         )
@@ -657,19 +771,84 @@ class TestOpenAIAdapter:
         result = await adapter.generate_text(
             "hello",
             runtime_context={
-                "user_id": "sdk-user-123",
-                "privy_user_id": "did:privy:user123",
                 "privy_wallet_id": "wallet-123",
                 "privy_wallet_address": "WalletPubkey123",
+                "service_tier": "priority",
             },
         )
 
         assert result is not None
         kwargs = mock_client.chat.completions.create.await_args.kwargs
-        assert kwargs["extra_body"]["user"] == "sdk-user-123"
         assert kwargs["extra_body"]["privy_user_id"] == "did:privy:user123"
         assert kwargs["extra_body"]["privy_wallet_id"] == "wallet-123"
         assert kwargs["extra_body"]["privy_wallet_address"] == "WalletPubkey123"
+        assert kwargs["extra_body"]["service_tier"] == "priority"
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_create_privy_user_posts_to_hosted_user_endpoint(
+        self,
+        mock_async_client,
+    ):
+        """Hosted user creation should call the explicit user endpoint."""
+        user_response = MagicMock()
+        user_response.raise_for_status = MagicMock()
+        user_response.json.return_value = {
+            "privy_user_id": "did:privy:user123",
+            "created": True,
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=user_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        result = await adapter.create_privy_user()
+
+        assert result["privy_user_id"] == "did:privy:user123"
+        mock_http_client.post.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/user",
+            json={},
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_privy_user_posts_empty_payload(self):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with patch(
+            "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+        ) as mock_async_client:
+            user_response = MagicMock()
+            user_response.raise_for_status = MagicMock()
+            user_response.json.return_value = {"privy_user_id": "did:privy:user123"}
+
+            mock_http_client = MagicMock()
+            mock_http_client.post = AsyncMock(return_value=user_response)
+            mock_async_client.return_value.__aenter__ = AsyncMock(
+                return_value=mock_http_client
+            )
+            mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await adapter.create_privy_user()
+
+        mock_http_client.post.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/user",
+            json={},
+        )
 
     @pytest.mark.asyncio
     @patch(
@@ -683,8 +862,10 @@ class TestOpenAIAdapter:
         wallet_response = MagicMock()
         wallet_response.raise_for_status = MagicMock()
         wallet_response.json.return_value = {
+            "privy_user_id": "did:privy:user123",
             "wallet_id": "wallet-123",
             "address": "WalletPubkey123",
+            "old_wallets": [],
         }
 
         mock_http_client = MagicMock()
@@ -700,27 +881,28 @@ class TestOpenAIAdapter:
             base_url="https://ai.solana-agent.com/v1",
         )
 
-        result = await adapter.create_wallet(user_id="did:privy:user123")
+        result = await adapter.create_wallet(privy_user_id="did:privy:user123")
 
         assert result["wallet_id"] == "wallet-123"
+        assert result["privy_user_id"] == "did:privy:user123"
         mock_http_client.post.assert_awaited_once_with(
             "https://ai.solana-agent.com/v1/account/wallet",
             json={
-                "user_id": "did:privy:user123",
+                "privy_user_id": "did:privy:user123",
                 "chain_type": "solana",
             },
         )
 
     @pytest.mark.asyncio
-    async def test_create_wallet_requires_user_id(self):
+    async def test_create_wallet_requires_privy_user_id(self):
         adapter = OpenAIAdapter(
             api_key="test-api-key",
             model="solana-agent-chat",
             base_url="https://ai.solana-agent.com/v1",
         )
 
-        with pytest.raises(ValueError, match="user_id is required"):
-            await adapter.create_wallet(user_id="")
+        with pytest.raises(ValueError, match="privy_user_id is required"):
+            await adapter.create_wallet(privy_user_id="")
 
     @pytest.mark.asyncio
     async def test_create_wallet_rejects_invalid_chain_type(self):
@@ -734,7 +916,135 @@ class TestOpenAIAdapter:
             ValueError, match="chain_type must be one of: ethereum, solana"
         ):
             await adapter.create_wallet(
-                user_id="did:privy:user123",
+                privy_user_id="did:privy:user123",
+                chain_type="bitcoin",
+            )
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_rotate_wallet_posts_to_hosted_rotate_endpoint(
+        self,
+        mock_async_client,
+    ):
+        wallet_response = MagicMock()
+        wallet_response.raise_for_status = MagicMock()
+        wallet_response.json.return_value = {
+            "privy_user_id": "did:privy:user123",
+            "wallet_id": "wallet-new",
+            "address": "WalletPubkeyNew",
+            "old_wallets": [{"wallet_id": "wallet-old", "address": "WalletOld"}],
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=wallet_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        result = await adapter.rotate_wallet(privy_user_id="did:privy:user123")
+
+        assert result["wallet_id"] == "wallet-new"
+        assert result["old_wallets"][0]["wallet_id"] == "wallet-old"
+        mock_http_client.post.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/wallet/rotate",
+            json={
+                "privy_user_id": "did:privy:user123",
+                "chain_type": "solana",
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_rotate_wallet_validates_privy_user_id_and_chain_type(self):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with pytest.raises(ValueError, match="privy_user_id is required"):
+            await adapter.rotate_wallet(privy_user_id="")
+
+        with pytest.raises(
+            ValueError, match="chain_type must be one of: ethereum, solana"
+        ):
+            await adapter.rotate_wallet(
+                privy_user_id="did:privy:user123",
+                chain_type="bitcoin",
+            )
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
+    )
+    async def test_export_wallet_private_key_posts_to_hosted_export_endpoint(
+        self,
+        mock_async_client,
+    ):
+        export_response = MagicMock()
+        export_response.raise_for_status = MagicMock()
+        export_response.json.return_value = {
+            "privy_user_id": "did:privy:user123",
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+            "private_key": "base58-private-key",
+        }
+
+        mock_http_client = MagicMock()
+        mock_http_client.post = AsyncMock(return_value=export_response)
+        mock_async_client.return_value.__aenter__ = AsyncMock(
+            return_value=mock_http_client
+        )
+        mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        result = await adapter.export_wallet_private_key(
+            privy_user_id="did:privy:user123",
+            wallet_id="wallet-123",
+        )
+
+        assert result["private_key"] == "base58-private-key"
+        mock_http_client.post.assert_awaited_once_with(
+            "https://ai.solana-agent.com/v1/account/wallet/export",
+            json={
+                "privy_user_id": "did:privy:user123",
+                "chain_type": "solana",
+                "confirm_export": True,
+                "wallet_id": "wallet-123",
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_export_wallet_private_key_validates_privy_user_id_and_chain_type(
+        self,
+    ):
+        adapter = OpenAIAdapter(
+            api_key="test-api-key",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+        )
+
+        with pytest.raises(ValueError, match="privy_user_id is required"):
+            await adapter.export_wallet_private_key(privy_user_id="")
+
+        with pytest.raises(
+            ValueError, match="chain_type must be one of: ethereum, solana"
+        ):
+            await adapter.export_wallet_private_key(
+                privy_user_id="did:privy:user123",
                 chain_type="bitcoin",
             )
 
@@ -750,7 +1060,7 @@ class TestOpenAIAdapter:
         wallet_response = MagicMock()
         wallet_response.raise_for_status = MagicMock()
         wallet_response.json.return_value = {
-            "user_id": "did:privy:user123",
+            "wallet_id": "wallet-123",
             "address": "WalletPubkey123",
         }
 
@@ -767,42 +1077,41 @@ class TestOpenAIAdapter:
             base_url="https://ai.solana-agent.com/v1",
         )
 
-        result = await adapter.get_wallet_address(user_id="did:privy:user123")
+        result = await adapter.get_wallet_address(wallet_id="wallet-123")
 
         assert result["address"] == "WalletPubkey123"
+        assert result["wallet_id"] == "wallet-123"
         mock_http_client.get.assert_awaited_once_with(
             "https://ai.solana-agent.com/v1/account/wallet/address",
-            params={"user_id": "did:privy:user123"},
+            params={"wallet_id": "wallet-123"},
         )
 
     @pytest.mark.asyncio
-    async def test_get_wallet_address_requires_user_id(self):
+    async def test_get_wallet_address_requires_wallet_id(self):
         adapter = OpenAIAdapter(
             api_key="test-api-key",
             model="solana-agent-chat",
             base_url="https://ai.solana-agent.com/v1",
         )
 
-        with pytest.raises(ValueError, match="user_id is required"):
-            await adapter.get_wallet_address(user_id="")
+        with pytest.raises(ValueError, match="wallet_id is required"):
+            await adapter.get_wallet_address(wallet_id="")
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
     async def test_get_usage_report_rejects_invalid_granularity(
         self,
-        mock_create_x402_httpx_client,
         mock_async_openai,
     ):
         """Usage reporting should validate granularity locally."""
-        mock_create_x402_httpx_client.return_value = MagicMock()
         mock_async_openai.return_value = MagicMock()
         adapter = OpenAIAdapter(
             api_key="x402",
             model="solana-agent-memory",
             base_url="https://ai.solana-agent.com/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
         )
 
         with pytest.raises(
@@ -812,7 +1121,6 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
     @patch(
         "solana_agent.adapters.openai_adapter.httpx.AsyncClient",
     )
@@ -824,7 +1132,6 @@ class TestOpenAIAdapter:
         self,
         mock_resolve_x402_signing_key,
         mock_async_client,
-        mock_create_x402_httpx_client,
         mock_async_openai,
     ):
         """Forecast requests should send the requested window length."""
@@ -839,7 +1146,13 @@ class TestOpenAIAdapter:
         }
         forecast_response = MagicMock()
         forecast_response.raise_for_status = MagicMock()
-        forecast_response.json.return_value = {"forecast": {"projected_spend": 7.5}}
+        forecast_response.json.return_value = {
+            "forecast": {"projected_spend": 7.5},
+            "tooling": {
+                "current_month": {"totals": {"requests_to_date": 2}},
+                "projected_month_end": {"totals": {"projected_requests": 4}},
+            },
+        }
         challenge_response = MagicMock()
         challenge_response.raise_for_status = MagicMock()
         challenge_response.json.return_value = challenge
@@ -852,20 +1165,44 @@ class TestOpenAIAdapter:
         )
         mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
         mock_resolve_x402_signing_key.return_value = private_key
-        mock_create_x402_httpx_client.return_value = MagicMock()
         mock_async_openai.return_value = MagicMock()
 
         adapter = OpenAIAdapter(
             api_key="x402",
             model="solana-agent-memory",
             base_url="https://ai.solana-agent.com/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
         )
 
-        result = await adapter.get_usage_forecast(window_days=45)
+        result = await adapter.get_usage_forecast(
+            window_days=45,
+            runtime_context={"privy_wallet_id": "wallet-123"},
+        )
 
-        assert result == {"forecast": {"projected_spend": 7.5}}
+        assert result == {
+            "forecast": {"projected_spend": 7.5},
+            "tooling": {
+                "current_month": {"totals": {"requests_to_date": 2}},
+                "projected_month_end": {"totals": {"projected_requests": 4}},
+            },
+        }
+        assert (
+            result["tooling"]["projected_month_end"]["totals"]["projected_requests"]
+            == 4
+        )
+        mock_resolve_x402_signing_key.assert_awaited_once_with(
+            auth_mode="x402_privy",
+            privy_wallet_id="wallet-123",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
+            privy_authorization_signature=None,
+            privy_request_expiry=None,
+            privy_api_url=None,
+            timeout=30.0,
+            rpc_url=None,
+        )
         mock_http_client.get.assert_awaited_once_with(
             "https://ai.solana-agent.com/v1/account/forecast",
             headers={
@@ -881,29 +1218,27 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    @patch("solana_agent.adapters.openai_adapter.create_x402_httpx_client")
     async def test_get_usage_forecast_rejects_non_positive_window_days(
         self,
-        mock_create_x402_httpx_client,
         mock_async_openai,
     ):
         """Forecast requests should validate window_days locally."""
-        mock_create_x402_httpx_client.return_value = MagicMock()
         mock_async_openai.return_value = MagicMock()
         adapter = OpenAIAdapter(
             api_key="x402",
             model="solana-agent-memory",
             base_url="https://ai.solana-agent.com/v1",
-            auth_mode="x402_private_key",
-            private_key="test-private-key",
+            auth_mode="x402_privy",
+            privy_app_id="app-123",
+            privy_app_secret="secret-123",
         )
 
         with pytest.raises(ValueError, match="window_days must be a positive integer"):
             await adapter.get_usage_forecast(0)
 
     @pytest.mark.asyncio
-    async def test_account_reporting_requires_x402_auth_mode(self):
-        """Account reporting should be unavailable for non-wallet auth modes."""
+    async def test_account_reporting_requires_supported_hosted_auth_mode(self):
+        """Account reporting should be unavailable for auth modes outside the hosted SDK paths."""
         adapter = OpenAIAdapter(
             api_key="test-api-key",
             model="solana-agent-memory",
@@ -912,7 +1247,7 @@ class TestOpenAIAdapter:
 
         with pytest.raises(
             NotImplementedError,
-            match="Account reporting requires x402_private_key or x402_privy auth",
+            match="Account reporting requires hosted_managed or x402_privy auth",
         ):
             await adapter.get_pricing_info()
 

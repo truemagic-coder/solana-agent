@@ -25,7 +25,7 @@ class PluginManager(PluginManagerInterface):
 
     # Class variable to track loaded entry points
     _loaded_entry_points = set()
-    _supported_first_party_plugins = frozenset({"mcp", "x402_request"})
+    _supported_first_party_plugins = frozenset({"mcp"})
 
     def __init__(
         self,

@@ -44,7 +44,7 @@ class QueryService(QueryServiceInterface):
 
     async def process(
         self,
-        user_id: str,
+        privy_user_id: str,
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         output_format: Literal["text", "audio"] = "text",
@@ -78,7 +78,7 @@ class QueryService(QueryServiceInterface):
         user_text = await self._normalize_query(query, audio_input_format)
         async for chunk in self.agent_service.generate_response(
             agent_name=self._default_agent_name(),
-            user_id=user_id,
+            privy_user_id=privy_user_id,
             query=user_text,
             runtime_context=runtime_context,
             images=images,

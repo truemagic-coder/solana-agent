@@ -54,6 +54,13 @@ class AgentService(AgentServiceInterface):
             tool_registry=self.tool_registry,
         )
 
+    def _runtime_model(
+        self, runtime_context: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        context = runtime_context or {}
+        runtime_model = str(context.get("model") or "").strip()
+        return runtime_model or self.model
+
     def register_ai_agent(
         self,
         name: str,
@@ -239,7 +246,7 @@ class AgentService(AgentServiceInterface):
     async def generate_response(
         self,
         agent_name: str,
-        user_id: str,
+        privy_user_id: str,
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,
@@ -265,6 +272,7 @@ class AgentService(AgentServiceInterface):
         """Generate a response using tool-calling with full streaming support."""
 
         try:
+            request_model = self._runtime_model(runtime_context)
             # Validate agent
             agent = next((a for a in self.agents if a.name == agent_name), None)
             if not agent:
@@ -292,7 +300,7 @@ class AgentService(AgentServiceInterface):
             if prompt:
                 full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
             full_prompt += user_content
-            full_prompt += f"USER IDENTIFIER: {user_id}"
+            full_prompt += f"PRIVY USER IDENTIFIER: {privy_user_id}"
 
             # Get OpenAI function schemas for this agent's tools
             tools = [
@@ -314,7 +322,7 @@ class AgentService(AgentServiceInterface):
                     prompt=full_prompt,
                     system_prompt=system_prompt,
                     model_class=output_model,
-                    model=self.model,
+                    model=request_model,
                     tools=tools if tools else None,
                     runtime_context=runtime_context,
                 )
@@ -356,7 +364,7 @@ class AgentService(AgentServiceInterface):
 
                 async for event in self.llm_provider.chat_stream(
                     messages=messages,
-                    model=self.model,
+                    model=request_model,
                     tools=tools if tools else None,
                     runtime_context=runtime_context,
                 ):

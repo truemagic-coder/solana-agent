@@ -9,7 +9,6 @@ TOOLS_DIR = REPO_ROOT / "solana_agent" / "tools"
 
 EXPECTED_PLUGIN_ENTRY_POINTS = {
     "mcp": "solana_agent.tools.mcp:get_plugin",
-    "x402_request": "solana_agent.tools.x402_request:get_plugin",
 }
 
 
