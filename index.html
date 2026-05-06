@@ -45,14 +45,6 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a></li>
 </ul>
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a></li>
-</ul>
 
         </div>
       </div>
@@ -92,12 +84,12 @@
 </div>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
-<p>Solana Agent runs on a local-first AGI x402 runtime contract.</p>
+<p>Solana Agent’s public SDK targets the hosted AGI runtime.</p>
 <p>Current public runtime expectations:</p>
 <ul class="simple">
 <li><p>the canonical AI config section is <code class="docutils literal notranslate"><span class="pre">ai</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">openai</span></code> remains supported as a compatibility alias</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_private_key&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_privy&quot;</span></code> are the funded AGI paths</p></li>
+<li><p>hosted wallet and Privy integration stay on the service side</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-memory</span></code> is the default model behavior</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-chat</span></code> is the explicit stateless override</p></li>
 <li><p>remote AGI memory is the only supported memory mode</p></li>
@@ -105,568 +97,167 @@
 <li><p>the official first-party tool surface ships in this package and registers through <code class="docutils literal notranslate"><span class="pre">solana_agent.plugins</span></code></p></li>
 </ul>
 </section>
-<section id="quick-start">
-<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<section id="development-setup">
+<h2>Development Setup<a class="headerlink" href="#development-setup" title="Link to this heading"></a></h2>
 <p>Install local development dependencies:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install
 cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 </pre></div>
 </div>
-<p>Set at least these values in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">X402_PRIVATE_KEY</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">SOLANA_RPC_URL</span></code> when your local x402 settlement flow needs an explicit RPC endpoint</p></li>
-</ul>
 </section>
-<section id="minimal-config">
-<h2>Minimal Config<a class="headerlink" href="#minimal-config" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;auth_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;x402_private_key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-base58-solana-private-key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;http://127.0.0.1:8000/v1&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;stateless_model&quot;</span><span class="p">:</span> <span class="s2">&quot;solana-agent-chat&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;default_agent&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a helpful Solana AI assistant.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;general&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<p>Create a hosted Privy user from the CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>solana-agent<span class="w"> </span>wallet<span class="w"> </span>menu
 </pre></div>
 </div>
+<p>Then pass that <code class="docutils literal notranslate"><span class="pre">privy_user_id</span></code> into the SDK:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span>
+   <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;You are a helpful Solana AI assistant.&quot;</span><span class="p">,</span>
+   <span class="n">privy_user_id</span><span class="o">=</span><span class="s2">&quot;did:privy:user123&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">context</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">context</span><span class="p">(</span>
+   <span class="n">conversation_id</span><span class="o">=</span><span class="s2">&quot;wallet-session-1&quot;</span><span class="p">,</span>
+   <span class="n">model</span><span class="o">=</span><span class="s2">&quot;chat&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">message</span><span class="p">(</span>
+   <span class="n">message</span><span class="o">=</span><span class="s2">&quot;Check my wallet activity.&quot;</span><span class="p">,</span>
+   <span class="o">**</span><span class="n">context</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">context()</span></code>, <code class="docutils literal notranslate"><span class="pre">message()</span></code>, <code class="docutils literal notranslate"><span class="pre">process()</span></code>, and <code class="docutils literal notranslate"><span class="pre">process_message()</span></code> already
+read request identity from <code class="docutils literal notranslate"><span class="pre">config.ai.privy_user_id</span></code> or the constructor
+<code class="docutils literal notranslate"><span class="pre">privy_user_id</span></code>. Do not pass <code class="docutils literal notranslate"><span class="pre">privy_user_id</span></code> again, and do not nest request
+metadata under a <code class="docutils literal notranslate"><span class="pre">runtime_context</span></code> keyword.</p>
 </section>
 <section id="model-selection">
 <h2>Model Selection<a class="headerlink" href="#model-selection" title="Link to this heading"></a></h2>
-<p>In AGI x402 mode:</p>
+<p>In hosted AGI mode:</p>
 <ul class="simple">
 <li><p>omit <code class="docutils literal notranslate"><span class="pre">model</span></code> or set it to <code class="docutils literal notranslate"><span class="pre">&quot;memory&quot;</span></code> to use <code class="docutils literal notranslate"><span class="pre">solana-agent-memory</span></code></p></li>
+<li><p>set <code class="docutils literal notranslate"><span class="pre">model</span></code> to <code class="docutils literal notranslate"><span class="pre">&quot;chat&quot;</span></code> to use <code class="docutils literal notranslate"><span class="pre">solana-agent-chat</span></code></p></li>
 <li><p>set <code class="docutils literal notranslate"><span class="pre">model</span></code> to <code class="docutils literal notranslate"><span class="pre">&quot;stateless&quot;</span></code> to resolve through <code class="docutils literal notranslate"><span class="pre">stateless_model</span></code></p></li>
 <li><p>set <code class="docutils literal notranslate"><span class="pre">model</span></code> directly to <code class="docutils literal notranslate"><span class="pre">&quot;solana-agent-chat&quot;</span></code> for the explicit stateless SKU</p></li>
 </ul>
 </section>
-<section id="privy-payer-example">
-<h2>Privy Payer Example<a class="headerlink" href="#privy-payer-example" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;auth_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;x402_privy&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;privy_app_id&quot;</span><span class="p">:</span> <span class="s2">&quot;your-privy-app-id&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;privy_app_secret&quot;</span><span class="p">:</span> <span class="s2">&quot;your-privy-app-secret&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;http://127.0.0.1:8000/v1&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;stateless_model&quot;</span><span class="p">:</span> <span class="s2">&quot;solana-agent-chat&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;default_agent&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a helpful Solana AI assistant.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;general&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-
-<span class="n">runtime_context</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;privy_wallet_id&quot;</span><span class="p">:</span> <span class="s2">&quot;wallet-id-from-privy&quot;</span><span class="p">}</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span>
-   <span class="s2">&quot;user123&quot;</span><span class="p">,</span>
-   <span class="s2">&quot;Check my wallet activity.&quot;</span><span class="p">,</span>
-   <span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">,</span>
-<span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="bundled-tool-surface">
-<h2>Bundled Tool Surface<a class="headerlink" href="#bundled-tool-surface" title="Link to this heading"></a></h2>
-<p>The official first-party tools are bundled directly in <code class="docutils literal notranslate"><span class="pre">solana_agent.tools</span></code>. Do not install Solana Agent Kit as a separate runtime dependency for v34.</p>
-<p>The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.</p>
-</section>
-<section id="local-smoke-validation">
-<h2>Local Smoke Validation<a class="headerlink" href="#local-smoke-validation" title="Link to this heading"></a></h2>
-<p>Run the fast local success bundle:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>x402-smoke
-</pre></div>
-</div>
-<p>Run the full local matrix:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>x402-smoke<span class="w"> </span><span class="nv">SCENARIO</span><span class="o">=</span>all
-</pre></div>
-</div>
-<p>Run one targeted scenario directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/openai_x402_smoke.py<span class="w"> </span>--scenario<span class="w"> </span>memory-stream
-</pre></div>
-</div>
-<p>The smoke harness covers:</p>
+<section id="public-sdk-surface">
+<h2>Public SDK Surface<a class="headerlink" href="#public-sdk-surface" title="Link to this heading"></a></h2>
+<p>The public SDK surface is intentionally narrow. Use the hosted chat and memory SKUs for built-in Solana workflows.</p>
+<p>The supported public modules are:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">health</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">stateless</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">memory</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">memory-stream</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">duplicate</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">stream</span></code></p></li>
-<li><p>public error scenarios</p></li>
-<li><p>internal fault-injection scenarios when the local AGI service enables them</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp</span></code> for external MCP servers</p></li>
+<li><p>hosted Privy user and wallet lifecycle methods exposed on <code class="docutils literal notranslate"><span class="pre">SolanaAgent</span></code></p></li>
 </ul>
-<p>After local validation is green, point <code class="docutils literal notranslate"><span class="pre">base_url</span></code> at <code class="docutils literal notranslate"><span class="pre">https://ai.solana-agent.com/v1</span></code> and rerun the same scenarios before production use.</p>
+<p>The public SDK does not support <code class="docutils literal notranslate"><span class="pre">x402_request</span></code> as a client-side tool.</p>
+</section>
+<section id="mcp-tools">
+<h2>MCP Tools<a class="headerlink" href="#mcp-tools" title="Link to this heading"></a></h2>
+<p>Connect Streamable HTTP MCP servers by enabling the <code class="docutils literal notranslate"><span class="pre">mcp</span></code> tool and adding
+server config:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
+
+<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span>
+   <span class="n">config</span><span class="o">=</span><span class="p">{</span>
+      <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
+         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;Use connected MCP tools when they help the user.&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;privy_user_id&quot;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PRIVY_USER_ID&quot;</span><span class="p">],</span>
+         <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;mcp&quot;</span><span class="p">],</span>
+      <span class="p">},</span>
+      <span class="s2">&quot;tools&quot;</span><span class="p">:</span> <span class="p">{</span>
+         <span class="s2">&quot;mcp&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;servers&quot;</span><span class="p">:</span> <span class="p">[</span>
+               <span class="p">{</span>
+                  <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;MCP_SERVER_URL&quot;</span><span class="p">],</span>
+                  <span class="s2">&quot;headers&quot;</span><span class="p">:</span> <span class="p">{</span>
+                     <span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;MCP_SERVER_TOKEN&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                  <span class="p">},</span>
+               <span class="p">}</span>
+            <span class="p">],</span>
+            <span class="s2">&quot;llm_provider&quot;</span><span class="p">:</span> <span class="s2">&quot;openai&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OPENAI_API_KEY&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;llm_model&quot;</span><span class="p">:</span> <span class="s2">&quot;gpt-4.1-mini&quot;</span><span class="p">,</span>
+         <span class="p">}</span>
+      <span class="p">},</span>
+   <span class="p">}</span>
+<span class="p">)</span>
+
+<span class="n">context</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">context</span><span class="p">(</span>
+   <span class="n">conversation_id</span><span class="o">=</span><span class="s2">&quot;mcp-demo&quot;</span><span class="p">,</span>
+   <span class="n">model</span><span class="o">=</span><span class="s2">&quot;chat&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">message</span><span class="p">(</span>
+   <span class="s2">&quot;Use the connected MCP tools to summarize my latest CRM tasks.&quot;</span><span class="p">,</span>
+   <span class="o">**</span><span class="n">context</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="wallet-and-billing-helpers">
+<h2>Wallet And Billing Helpers<a class="headerlink" href="#wallet-and-billing-helpers" title="Link to this heading"></a></h2>
+<p>Set <code class="docutils literal notranslate"><span class="pre">config.ai.privy_user_id</span></code> before calling account helpers. The hosted
+service manages a single active wallet for that user, with previous rotated
+wallets returned as <code class="docutils literal notranslate"><span class="pre">old_wallets</span></code>.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">privy_user</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">create_privy_user</span><span class="p">()</span>
+
+<span class="n">wallet_address</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">get_wallet_address</span><span class="p">()</span>
+
+<span class="n">private_key</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">export_wallet_private_key</span><span class="p">()</span>
+
+<span class="n">rotated_wallet</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">rotate_wallet</span><span class="p">(</span>
+   <span class="n">privy_user_id</span><span class="o">=</span><span class="n">privy_user</span><span class="p">[</span><span class="s2">&quot;privy_user_id&quot;</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="n">summary</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">get_account_summary</span><span class="p">()</span>
+<span class="n">report</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">get_usage_report</span><span class="p">(</span><span class="s2">&quot;month&quot;</span><span class="p">)</span>
+<span class="n">forecast</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">get_usage_forecast</span><span class="p">()</span>
+<span class="n">pricing</span> <span class="o">=</span> <span class="k">await</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">get_pricing_info</span><span class="p">()</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">privy_user</span><span class="p">[</span><span class="s2">&quot;privy_user_id&quot;</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">wallet_address</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">private_key</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">summary</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">forecast</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">pricing</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">solana-agent</span> <span class="pre">wallet</span> <span class="pre">export</span> <span class="pre">--yes</span></code> to export from the CLI. Pass
+<code class="docutils literal notranslate"><span class="pre">--wallet-id</span></code> when exporting an older rotated wallet from <code class="docutils literal notranslate"><span class="pre">old_wallets</span></code>.</p>
+<p>The hosted account service passes <code class="docutils literal notranslate"><span class="pre">tooling</span></code> and <code class="docutils literal notranslate"><span class="pre">protocols</span></code> sections through
+on summary, usage, and forecast responses. Gasless metrics are reported in
+lamports as <code class="docutils literal notranslate"><span class="pre">gasless_savings_lamports</span></code> for users and
+<code class="docutils literal notranslate"><span class="pre">gasless_fee_payer_cost_lamports</span></code> for the hosted fee payer.</p>
 </section>
 <section id="migration-notes">
 <h2>Migration Notes<a class="headerlink" href="#migration-notes" title="Link to this heading"></a></h2>
 <p>When moving from the v33 contract to the v34 runtime path:</p>
 <ul class="simple">
 <li><p>replace direct provider sections such as <code class="docutils literal notranslate"><span class="pre">groq</span></code>, <code class="docutils literal notranslate"><span class="pre">cerebras</span></code>, and <code class="docutils literal notranslate"><span class="pre">grok</span></code> with a single <code class="docutils literal notranslate"><span class="pre">ai</span></code> transport section</p></li>
-<li><p>replace upstream model-provider API keys with x402 payer configuration</p></li>
+<li><p>move single-agent instructions and model selection into the <code class="docutils literal notranslate"><span class="pre">ai</span></code> section</p></li>
 <li><p>replace local-memory assumptions with the AGI remote-memory default</p></li>
 <li><p>use <code class="docutils literal notranslate"><span class="pre">model:</span> <span class="pre">&quot;stateless&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">model:</span> <span class="pre">&quot;solana-agent-chat&quot;</span></code> when you need the stateless SKU</p></li>
-<li><p>use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime</p></li>
+<li><p>use hosted Solana workflows or external MCP servers instead of expecting bundled public tool modules in this package</p></li>
 <li><p>treat conversation history and memory as remote-only runtime behavior</p></li>
 </ul>
-<p>The broader migration plan is tracked in <code class="docutils literal notranslate"><span class="pre">V34_AGI_X402_CHECKLIST.md</span></code>.</p>
 </section>
 <section id="development">
 <h2>Development<a class="headerlink" href="#development" title="Link to this heading"></a></h2>
 <p>Useful local commands:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/unit<span class="w"> </span>-q<span class="w"> </span>-W<span class="w"> </span>error
-poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/openai_x402_smoke.py<span class="w"> </span>--scenario<span class="w"> </span>all
 make<span class="w"> </span>livehtml
 </pre></div>
 </div>
-</section>
-</section>
-<section id="id1">
-<h1>Solana Agent Documentation<a class="headerlink" href="#id1" title="Link to this heading"></a></h1>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/index.html#module-solana_agent.client.solana_agent">Solana Agent</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/index.html#module-solana_agent.plugins.manager">Tools</a></li>
-</ul>
-</li>
-</ul>
-</div>
-<section id="id2">
-<h2>Overview<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
-<p>Solana Agent runs on a local-first AGI x402 runtime contract.</p>
-<p>Current public runtime expectations:</p>
-<ul class="simple">
-<li><p>the canonical AI config section is <code class="docutils literal notranslate"><span class="pre">ai</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">openai</span></code> remains supported as a compatibility alias</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_private_key&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_privy&quot;</span></code> are the funded AGI paths</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-memory</span></code> is the default model behavior</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-chat</span></code> is the explicit stateless override</p></li>
-<li><p>remote AGI memory is the only supported memory mode</p></li>
-<li><p>local Mongo and Zep are not part of the runtime path</p></li>
-<li><p>the official first-party tool surface ships in this package and registers through <code class="docutils literal notranslate"><span class="pre">solana_agent.plugins</span></code></p></li>
-</ul>
-</section>
-<section id="id3">
-<h2>Quick Start<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
-<p>Install local development dependencies:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install
-cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-</pre></div>
-</div>
-<p>Set at least these values in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">X402_PRIVATE_KEY</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">SOLANA_RPC_URL</span></code> when your local x402 settlement flow needs an explicit RPC endpoint</p></li>
-</ul>
-</section>
-<section id="id4">
-<h2>Minimal Config<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;auth_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;x402_private_key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;private_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-base58-solana-private-key&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;http://127.0.0.1:8000/v1&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;stateless_model&quot;</span><span class="p">:</span> <span class="s2">&quot;solana-agent-chat&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;default_agent&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a helpful Solana AI assistant.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;general&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="id5">
-<h2>Model Selection<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
-<p>In AGI x402 mode:</p>
-<ul class="simple">
-<li><p>omit <code class="docutils literal notranslate"><span class="pre">model</span></code> or set it to <code class="docutils literal notranslate"><span class="pre">&quot;memory&quot;</span></code> to use <code class="docutils literal notranslate"><span class="pre">solana-agent-memory</span></code></p></li>
-<li><p>set <code class="docutils literal notranslate"><span class="pre">model</span></code> to <code class="docutils literal notranslate"><span class="pre">&quot;stateless&quot;</span></code> to resolve through <code class="docutils literal notranslate"><span class="pre">stateless_model</span></code></p></li>
-<li><p>set <code class="docutils literal notranslate"><span class="pre">model</span></code> directly to <code class="docutils literal notranslate"><span class="pre">&quot;solana-agent-chat&quot;</span></code> for the explicit stateless SKU</p></li>
-</ul>
-</section>
-<section id="id6">
-<h2>Privy Payer Example<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;auth_mode&quot;</span><span class="p">:</span> <span class="s2">&quot;x402_privy&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;privy_app_id&quot;</span><span class="p">:</span> <span class="s2">&quot;your-privy-app-id&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;privy_app_secret&quot;</span><span class="p">:</span> <span class="s2">&quot;your-privy-app-secret&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;base_url&quot;</span><span class="p">:</span> <span class="s2">&quot;http://127.0.0.1:8000/v1&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;model&quot;</span><span class="p">:</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-      <span class="s2">&quot;stateless_model&quot;</span><span class="p">:</span> <span class="s2">&quot;solana-agent-chat&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;default_agent&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are a helpful Solana AI assistant.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;general&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-
-<span class="n">runtime_context</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;privy_wallet_id&quot;</span><span class="p">:</span> <span class="s2">&quot;wallet-id-from-privy&quot;</span><span class="p">}</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span>
-   <span class="s2">&quot;user123&quot;</span><span class="p">,</span>
-   <span class="s2">&quot;Check my wallet activity.&quot;</span><span class="p">,</span>
-   <span class="n">runtime_context</span><span class="o">=</span><span class="n">runtime_context</span><span class="p">,</span>
-<span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="id7">
-<h2>Bundled Tool Surface<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
-<p>The official first-party tools are bundled directly in <code class="docutils literal notranslate"><span class="pre">solana_agent.tools</span></code>. Do not install Solana Agent Kit as a separate runtime dependency for v34.</p>
-<p>The bundled surface includes Birdeye, Jupiter, Kamino, MCP, Privy account and transaction tools, Solana transfer and swap flows, Rugcheck, Search, Technical Analysis, Token Math, Vybe, Image Generation, and x402 request helpers.</p>
-</section>
-<section id="id8">
-<h2>Local Smoke Validation<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
-<p>Run the fast local success bundle:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>x402-smoke
-</pre></div>
-</div>
-<p>Run the full local matrix:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>x402-smoke<span class="w"> </span><span class="nv">SCENARIO</span><span class="o">=</span>all
-</pre></div>
-</div>
-<p>Run one targeted scenario directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/openai_x402_smoke.py<span class="w"> </span>--scenario<span class="w"> </span>memory-stream
-</pre></div>
-</div>
-<p>The smoke harness covers:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">health</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">stateless</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">memory</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">memory-stream</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">duplicate</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">stream</span></code></p></li>
-<li><p>public error scenarios</p></li>
-<li><p>internal fault-injection scenarios when the local AGI service enables them</p></li>
-</ul>
-<p>After local validation is green, point <code class="docutils literal notranslate"><span class="pre">base_url</span></code> at <code class="docutils literal notranslate"><span class="pre">https://ai.solana-agent.com/v1</span></code> and rerun the same scenarios before production use.</p>
-</section>
-<section id="id9">
-<h2>Migration Notes<a class="headerlink" href="#id9" title="Link to this heading"></a></h2>
-<p>When moving from the v33 contract to the v34 runtime path:</p>
-<ul class="simple">
-<li><p>replace direct provider sections such as <code class="docutils literal notranslate"><span class="pre">groq</span></code>, <code class="docutils literal notranslate"><span class="pre">cerebras</span></code>, and <code class="docutils literal notranslate"><span class="pre">grok</span></code> with a single <code class="docutils literal notranslate"><span class="pre">ai</span></code> transport section</p></li>
-<li><p>replace upstream model-provider API keys with x402 payer configuration</p></li>
-<li><p>replace local-memory assumptions with the AGI remote-memory default</p></li>
-<li><p>use <code class="docutils literal notranslate"><span class="pre">model:</span> <span class="pre">&quot;stateless&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">model:</span> <span class="pre">&quot;solana-agent-chat&quot;</span></code> when you need the stateless SKU</p></li>
-<li><p>use the bundled first-party tools in this package rather than installing a separate Solana Agent Kit runtime</p></li>
-<li><p>treat conversation history and memory as remote-only runtime behavior</p></li>
-</ul>
-<p>The broader migration plan is tracked in <code class="docutils literal notranslate"><span class="pre">V34_AGI_X402_CHECKLIST.md</span></code>.</p>
-</section>
-<section id="id10">
-<h2>Development<a class="headerlink" href="#id10" title="Link to this heading"></a></h2>
-<p>Useful local commands:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/unit<span class="w"> </span>-q<span class="w"> </span>-W<span class="w"> </span>error
-poetry<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/openai_x402_smoke.py<span class="w"> </span>--scenario<span class="w"> </span>all
-make<span class="w"> </span>livehtml
-</pre></div>
-</div>
-<div class="toctree-wrapper compound">
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/index.html#module-solana_agent.client.solana_agent">Solana Agent</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/index.html#module-solana_agent.plugins.manager">Tools</a></li>
-</ul>
-</li>
-</ul>
-</div>
-</section>
-<section id="id11">
-<h2>Overview<a class="headerlink" href="#id11" title="Link to this heading"></a></h2>
-<p>Solana Agent runs on a local-first AGI x402 runtime contract.</p>
-<p>Current public runtime expectations:</p>
-<ul class="simple">
-<li><p>the canonical AI config section is <code class="docutils literal notranslate"><span class="pre">ai</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">openai</span></code> remains supported as a compatibility alias</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_private_key&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">auth_mode:</span> <span class="pre">&quot;x402_privy&quot;</span></code> are the funded AGI paths</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-memory</span></code> is the default model behavior</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">solana-agent-chat</span></code> is the explicit stateless override</p></li>
-<li><p>remote AGI memory is the only supported memory mode</p></li>
-<li><p>local Mongo and Zep are not part of the runtime path</p></li>
-<li><p>the official first-party tool surface ships in this package and registers through <code class="docutils literal notranslate"><span class="pre">solana_agent.plugins</span></code></p></li>
-</ul>
-</section>
-<section id="id12">
-<h2>Quick Start<a class="headerlink" href="#id12" title="Link to this heading"></a></h2>
-<p>Install local development dependencies:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>poetry<span class="w"> </span>install
-cp<span class="w"> </span>.env.example<span class="w"> </span>.env
-</pre></div>
-</div>
-<p>Set at least these values in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">X402_PRIVATE_KEY</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">SOLANA_RPC_URL</span></code> when your local x402 settlement flow needs an explicit RPC endpoint</p></li>
-</ul>
-</section>
-<section id="id13">
-<h2>Minimal Config<a class="headerlink" href="#id13" title="Link to this heading"></a></h2>
-<blockquote>
-<div><blockquote>
-<div><blockquote>
-<div><blockquote>
-<div><p># Example using the built-in PII guardrail for output (with defaults)
-{</p>
-<blockquote>
-<div><p>“class”: “solana_agent.guardrails.pii.PII”
-# No config needed to use defaults</p>
-</div></blockquote>
-<p>}</p>
-</div></blockquote>
-<p>]</p>
-</div></blockquote>
-<p>},</p>
-</div></blockquote>
-<p>}</p>
-</div></blockquote>
-<section id="example-custom-guardrails-optional">
-<h3>Example Custom Guardrails - Optional<a class="headerlink" href="#example-custom-guardrails-optional" title="Link to this heading"></a></h3>
-<p>Guardrails don’t apply to structured outputs.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">InputGuardrail</span><span class="p">,</span> <span class="n">OutputGuardrail</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">MyInputGuardrail</span><span class="p">(</span><span class="n">InputGuardrail</span><span class="p">):</span>
-   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-      <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-      <span class="bp">self</span><span class="o">.</span><span class="n">setting1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;setting1&quot;</span><span class="p">,</span> <span class="s2">&quot;default_value&quot;</span><span class="p">)</span>
-      <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MyInputGuardrail initialized with setting1: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">setting1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-      <span class="c1"># Example: Convert input to lowercase</span>
-      <span class="n">processed_text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
-      <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input Guardrail processed: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">processed_text</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-      <span class="k">return</span> <span class="n">processed_text</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">MyOutputGuardrail</span><span class="p">(</span><span class="n">OutputGuardrail</span><span class="p">):</span>
-   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-      <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-      <span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;filter_level&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">)</span>
-      <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;MyOutputGuardrail initialized with filter_level: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-      <span class="c1"># Example: Basic profanity filtering (replace with a real library)</span>
-      <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter_level</span> <span class="o">==</span> <span class="s2">&quot;high&quot;</span> <span class="ow">and</span> <span class="s2">&quot;badword&quot;</span> <span class="ow">in</span> <span class="n">text</span><span class="p">:</span>
-            <span class="n">processed_text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;badword&quot;</span><span class="p">,</span> <span class="s2">&quot;*******&quot;</span><span class="p">)</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output Guardrail filtered content.&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">processed_text</span>
-      <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Output Guardrail passed text through.&quot;</span><span class="p">)</span>
-      <span class="k">return</span> <span class="n">text</span>
-</pre></div>
-</div>
-</section>
-<section id="tools">
-<h3>Tools<a class="headerlink" href="#tools" title="Link to this heading"></a></h3>
-</section>
-<section id="solana-agent-kit">
-<h3>Solana Agent Kit<a class="headerlink" href="#solana-agent-kit" title="Link to this heading"></a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>sakit
-</pre></div>
-</div>
-</section>
-<section id="inline-tool-example">
-<h3>Inline Tool Example<a class="headerlink" href="#inline-tool-example" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span><span class="p">,</span> <span class="n">Tool</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">TestTool</span><span class="p">(</span><span class="n">Tool</span><span class="p">):</span>
-   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-      <span class="c1"># your tool initialization - delete the following pass</span>
-      <span class="k">pass</span>
-
-   <span class="nd">@property</span>
-   <span class="k">def</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-      <span class="k">return</span> <span class="s2">&quot;test_function&quot;</span>
-
-   <span class="nd">@property</span>
-   <span class="k">def</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-      <span class="k">return</span> <span class="s2">&quot;Test function for Solana Agent&quot;</span>
-
-   <span class="k">def</span><span class="w"> </span><span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">      </span><span class="sd">&quot;&quot;&quot;Configure with all possible API key locations.&quot;&quot;&quot;</span>
-      <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-
-      <span class="c1"># read your config values - delete the following pass</span>
-      <span class="k">pass</span>
-
-   <span class="k">def</span><span class="w"> </span><span class="nf">get_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-      <span class="c1"># this is an example schema</span>
-      <span class="k">return</span> <span class="p">{</span>
-         <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
-            <span class="s2">&quot;query&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Search query text&quot;</span><span class="p">},</span>
-            <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span> <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;User ID for the search session&quot;</span><span class="p">}</span>
-         <span class="p">},</span>
-         <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;query&quot;</span><span class="p">,</span> <span class="s2">&quot;user_id&quot;</span><span class="p">],</span>
-         <span class="s2">&quot;additionalProperties&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-      <span class="p">}</span>
-
-   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-      <span class="k">try</span><span class="p">:</span>
-         <span class="c1"># your tool logic</span>
-         <span class="n">result</span> <span class="o">=</span> <span class="s2">&quot;Your tool results&quot;</span>
-
-         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;success&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">,</span>
-         <span class="p">}</span>
-      <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-         <span class="k">return</span> <span class="p">{</span>
-            <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Error: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-         <span class="p">}</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
-      <span class="p">},</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-
-<span class="n">test_tool</span> <span class="o">=</span> <span class="n">TestTool</span><span class="p">()</span>
-
-<span class="n">solana_agent</span><span class="o">.</span><span class="n">register_tool</span><span class="p">(</span><span class="n">test_tool</span><span class="p">)</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="advanced-configuration">
-<h3>Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Link to this heading"></a></h3>
-</section>
-<section id="prompt-injection-at-runtime-example">
-<h3>Prompt Injection at Runtime Example<a class="headerlink" href="#prompt-injection-at-runtime-example" title="Link to this heading"></a></h3>
-<p>Useful for adding additional context to agent responses.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
-      <span class="p">},</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">,</span> <span class="s2">&quot;Always end your sentences with eh?&quot;</span><span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="custom-routing-example">
-<h3>Custom Routing Example<a class="headerlink" href="#custom-routing-example" title="Link to this heading"></a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.services.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">RoutingService</span> <span class="k">as</span> <span class="n">RoutingServiceInterface</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-   <span class="s2">&quot;ai&quot;</span><span class="p">:</span> <span class="p">{</span>
-      <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;your-openai-api-key&quot;</span><span class="p">,</span>
-   <span class="p">},</span>
-   <span class="s2">&quot;agents&quot;</span><span class="p">:</span> <span class="p">[</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;research_specialist&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You are an expert researcher who synthesizes complex information clearly.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Research and knowledge synthesis&quot;</span><span class="p">,</span>
-      <span class="p">},</span>
-      <span class="p">{</span>
-         <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;customer_support&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;instructions&quot;</span><span class="p">:</span> <span class="s2">&quot;You provide friendly, helpful customer support responses.&quot;</span><span class="p">,</span>
-         <span class="s2">&quot;specialization&quot;</span><span class="p">:</span> <span class="s2">&quot;Customer inquiries&quot;</span><span class="p">,</span>
-      <span class="p">}</span>
-   <span class="p">],</span>
-<span class="p">}</span>
-
-<span class="k">class</span><span class="w"> </span><span class="nc">Router</span><span class="p">(</span><span class="n">RoutingServiceInterface</span><span class="p">)</span>
-   <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-      <span class="c1"># your router initialization - delete the following pass</span>
-      <span class="k">pass</span>
-
-   <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">route_query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-      <span class="c1"># a simple example to route always to customer_support agent</span>
-      <span class="k">return</span> <span class="s2">&quot;customer_support&quot;</span>
-
-<span class="n">router</span> <span class="o">=</span> <span class="n">Router</span><span class="p">()</span>
-
-<span class="n">solana_agent</span> <span class="o">=</span> <span class="n">SolanaAgent</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
-
-<span class="k">async</span> <span class="k">for</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">solana_agent</span><span class="o">.</span><span class="n">process</span><span class="p">(</span><span class="s2">&quot;user123&quot;</span><span class="p">,</span> <span class="s2">&quot;What are the latest AI developments?&quot;</span><span class="p">,</span> <span class="n">router</span><span class="o">=</span><span class="n">router</span><span class="p">):</span>
-   <span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="api-reference">
-<h2>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading"></a></h2>
-<p>Check out the <a class="reference internal" href="api/index.html"><span class="doc">API Reference</span></a> for detailed documentation of all modules and classes.</p>
 </section>
 </section>
 

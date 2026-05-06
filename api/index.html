@@ -47,171 +47,16 @@
 <li class="toctree-l2"><a class="reference internal" href="#module-solana_agent.client.solana_agent">Solana Agent</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent"><code class="docutils literal notranslate"><span class="pre">SolanaAgent</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.process"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.process()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.delete_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.delete_user_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_user_history()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.process_message"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.process_message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.message"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.context"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.context()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_account_summary"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_account_summary()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_report"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_report()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_forecast()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_pricing_info"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_pricing_info()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#module-solana_agent.plugins.manager">Tools</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager"><code class="docutils literal notranslate"><span class="pre">PluginManager</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.register_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.register_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.load_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.load_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.get_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.get_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.list_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.list_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.execute_tool"><code class="docutils literal notranslate"><span class="pre">PluginManager.execute_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.configure"><code class="docutils literal notranslate"><span class="pre">PluginManager.configure()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry"><code class="docutils literal notranslate"><span class="pre">ToolRegistry</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.register_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.get_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.assign_tool_to_agent"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.assign_tool_to_agent()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.get_agent_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_agent_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.list_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.list_all_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.configure_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.configure_all_tools()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool"><code class="docutils literal notranslate"><span class="pre">AutoTool</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.name"><code class="docutils literal notranslate"><span class="pre">AutoTool.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.description"><code class="docutils literal notranslate"><span class="pre">AutoTool.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.configure"><code class="docutils literal notranslate"><span class="pre">AutoTool.configure()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.get_schema"><code class="docutils literal notranslate"><span class="pre">AutoTool.get_schema()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.execute"><code class="docutils literal notranslate"><span class="pre">AutoTool.execute()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool"><code class="docutils literal notranslate"><span class="pre">Tool</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.name"><code class="docutils literal notranslate"><span class="pre">Tool.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.description"><code class="docutils literal notranslate"><span class="pre">Tool.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.configure"><code class="docutils literal notranslate"><span class="pre">Tool.configure()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.get_schema"><code class="docutils literal notranslate"><span class="pre">Tool.get_schema()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.execute"><code class="docutils literal notranslate"><span class="pre">Tool.execute()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry"><code class="docutils literal notranslate"><span class="pre">ToolRegistry</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.register_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.get_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.assign_tool_to_agent"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.assign_tool_to_agent()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.get_agent_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_agent_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.list_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.list_all_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.configure_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.configure_all_tools()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin"><code class="docutils literal notranslate"><span class="pre">Plugin</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.name"><code class="docutils literal notranslate"><span class="pre">Plugin.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.description"><code class="docutils literal notranslate"><span class="pre">Plugin.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.initialize"><code class="docutils literal notranslate"><span class="pre">Plugin.initialize()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager"><code class="docutils literal notranslate"><span class="pre">PluginManager</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.register_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.register_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.load_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.load_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.get_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.get_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.list_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.list_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.execute_tool"><code class="docutils literal notranslate"><span class="pre">PluginManager.execute_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.configure"><code class="docutils literal notranslate"><span class="pre">PluginManager.configure()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#module-solana_agent.client.solana_agent">Solana Agent</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent"><code class="docutils literal notranslate"><span class="pre">SolanaAgent</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.process"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.process()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.delete_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.delete_user_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_user_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_account_summary"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_account_summary()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_report"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_report()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_forecast()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_pricing_info"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_pricing_info()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="#module-solana_agent.plugins.manager">Tools</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager"><code class="docutils literal notranslate"><span class="pre">PluginManager</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.register_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.register_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.load_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.load_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.get_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.get_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.list_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.list_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.execute_tool"><code class="docutils literal notranslate"><span class="pre">PluginManager.execute_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.manager.PluginManager.configure"><code class="docutils literal notranslate"><span class="pre">PluginManager.configure()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry"><code class="docutils literal notranslate"><span class="pre">ToolRegistry</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.register_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.get_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.assign_tool_to_agent"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.assign_tool_to_agent()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.get_agent_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_agent_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.list_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.list_all_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.registry.ToolRegistry.configure_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.configure_all_tools()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool"><code class="docutils literal notranslate"><span class="pre">AutoTool</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.name"><code class="docutils literal notranslate"><span class="pre">AutoTool.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.description"><code class="docutils literal notranslate"><span class="pre">AutoTool.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.configure"><code class="docutils literal notranslate"><span class="pre">AutoTool.configure()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.get_schema"><code class="docutils literal notranslate"><span class="pre">AutoTool.get_schema()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.plugins.tools.auto_tool.AutoTool.execute"><code class="docutils literal notranslate"><span class="pre">AutoTool.execute()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool"><code class="docutils literal notranslate"><span class="pre">Tool</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.name"><code class="docutils literal notranslate"><span class="pre">Tool.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.description"><code class="docutils literal notranslate"><span class="pre">Tool.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.configure"><code class="docutils literal notranslate"><span class="pre">Tool.configure()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.get_schema"><code class="docutils literal notranslate"><span class="pre">Tool.get_schema()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Tool.execute"><code class="docutils literal notranslate"><span class="pre">Tool.execute()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry"><code class="docutils literal notranslate"><span class="pre">ToolRegistry</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.register_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.register_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.get_tool"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.assign_tool_to_agent"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.assign_tool_to_agent()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.get_agent_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.get_agent_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.list_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.list_all_tools()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.ToolRegistry.configure_all_tools"><code class="docutils literal notranslate"><span class="pre">ToolRegistry.configure_all_tools()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin"><code class="docutils literal notranslate"><span class="pre">Plugin</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.name"><code class="docutils literal notranslate"><span class="pre">Plugin.name</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.description"><code class="docutils literal notranslate"><span class="pre">Plugin.description</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.Plugin.initialize"><code class="docutils literal notranslate"><span class="pre">Plugin.initialize()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager"><code class="docutils literal notranslate"><span class="pre">PluginManager</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.register_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.register_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.load_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.load_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.get_plugin"><code class="docutils literal notranslate"><span class="pre">PluginManager.get_plugin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.list_plugins"><code class="docutils literal notranslate"><span class="pre">PluginManager.list_plugins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.execute_tool"><code class="docutils literal notranslate"><span class="pre">PluginManager.execute_tool()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.interfaces.plugins.plugins.PluginManager.configure"><code class="docutils literal notranslate"><span class="pre">PluginManager.configure()</span></code></a></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#module-solana_agent.client.solana_agent">Solana Agent</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent"><code class="docutils literal notranslate"><span class="pre">SolanaAgent</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.process"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.process()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.delete_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.delete_user_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_user_history"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_user_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.register_tool"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.register_tool()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.create_privy_user"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.create_privy_user()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.create_wallet"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.create_wallet()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.rotate_wallet"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.rotate_wallet()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.export_wallet_private_key"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.export_wallet_private_key()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_wallet_address"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_wallet_address()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.prepare_x402_runtime_context"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.prepare_x402_runtime_context()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_account_summary"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_account_summary()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_report"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_report()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast"><code class="docutils literal notranslate"><span class="pre">SolanaAgent.get_usage_forecast()</span></code></a></li>
@@ -318,26 +163,40 @@
 the agent system without dealing with internal implementation details.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">solana_agent.client.solana_agent.</span></span><span class="sig-name descname"><span class="pre">SolanaAgent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">solana_agent.client.solana_agent.</span></span><span class="sig-name descname"><span class="pre">SolanaAgent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">instructions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">privy_user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">specialization</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stateless_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">api_key</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tools</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x402_preferred_asset</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_output_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context_window_tokens</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tokenizer_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">SolanaAgent</span></code></p>
 <p>Simplified client interface for interacting with the agent system.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>config_path</strong> (<em>str</em>)</p></li>
-<li><p><strong>config</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>)</p></li>
+<li><p><strong>config_path</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>config</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>instructions</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>privy_user_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>name</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>specialization</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>model</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>stateless_model</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>base_url</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>api_key</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tools</strong> (<em>List</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>x402_preferred_asset</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>max_output_tokens</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>context_window_tokens</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tokenizer_model</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.process">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">runtime_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_schema</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_voice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nova'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'aac'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_input_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mp4'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">router</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">images</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.process" title="Link to this definition"></a></dt>
-<dd><p>Process a user message (text or audio) and optional images, returning the response stream.</p>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_schema</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_voice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nova'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'aac'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_input_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mp4'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">images</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.process" title="Link to this definition"></a></dt>
+<dd><p>Process a user message (text or audio) and optional images, yielding low-level chunks.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>user_id</strong> (<em>str</em>) – User ID</p></li>
 <li><p><strong>message</strong> (<em>str</em><em> | </em><em>bytes</em>) – Text message or audio bytes</p></li>
+<li><p><strong>**runtime_context</strong> (<em>Any</em>) – Per-request hosted runtime metadata</p></li>
+<li><p><strong>search_enabled</strong> (<em>bool</em><em> | </em><em>None</em>) – Enable the hosted search add-on for this request</p></li>
 <li><p><strong>prompt</strong> (<em>str</em><em> | </em><em>None</em>) – Optional prompt for the agent</p></li>
 <li><p><strong>output_format</strong> (<em>Literal</em><em>[</em><em>'text'</em><em>, </em><em>'audio'</em><em>]</em>) – Response format (“text” or “audio”)</p></li>
 <li><p><strong>capture_schema</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>) – Optional Pydantic schema for structured output</p></li>
@@ -345,14 +204,14 @@ the agent system without dealing with internal implementation details.</p>
 <li><p><strong>audio_voice</strong> (<em>Literal</em><em>[</em><em>'alloy'</em><em>, </em><em>'ash'</em><em>, </em><em>'ballad'</em><em>, </em><em>'coral'</em><em>, </em><em>'echo'</em><em>, </em><em>'fable'</em><em>, </em><em>'onyx'</em><em>, </em><em>'nova'</em><em>, </em><em>'sage'</em><em>, </em><em>'shimmer'</em><em>]</em>) – Voice to use for audio output</p></li>
 <li><p><strong>audio_output_format</strong> (<em>Literal</em><em>[</em><em>'mp3'</em><em>, </em><em>'opus'</em><em>, </em><em>'aac'</em><em>, </em><em>'flac'</em><em>, </em><em>'wav'</em><em>, </em><em>'pcm'</em><em>]</em>) – Audio output format</p></li>
 <li><p><strong>audio_input_format</strong> (<em>Literal</em><em>[</em><em>'flac'</em><em>, </em><em>'mp3'</em><em>, </em><em>'mp4'</em><em>, </em><em>'mpeg'</em><em>, </em><em>'mpga'</em><em>, </em><em>'m4a'</em><em>, </em><em>'ogg'</em><em>, </em><em>'wav'</em><em>, </em><em>'webm'</em><em>]</em>) – Audio input format</p></li>
-<li><p><strong>router</strong> (<em>RoutingService</em><em> | </em><em>None</em>) – Optional routing service for processing</p></li>
 <li><p><strong>images</strong> (<em>List</em><em>[</em><em>str</em><em> | </em><em>bytes</em><em>] </em><em>| </em><em>None</em>) – Optional list of image URLs (str) or image bytes.</p></li>
 <li><p><strong>output_model</strong> (<em>Type</em><em>[</em><em>BaseModel</em><em>] </em><em>| </em><em>None</em>) – Optional Pydantic model for structured output</p></li>
-<li><p><strong>runtime_context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Async generator yielding response chunks (text strings or audio bytes)</p>
+<dd class="field-even"><p>Async generator yielding response chunks. Hosted chat completions are
+executed as non-streaming requests; use process_message to collect
+the final response automatically.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p><em>AsyncGenerator</em>[str | bytes | <em>BaseModel</em>, None]</p>
@@ -361,37 +220,79 @@ the agent system without dealing with internal implementation details.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.delete_user_history">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">delete_user_history</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.delete_user_history"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.delete_user_history" title="Link to this definition"></a></dt>
-<dd><p>Delete the conversation history for a user.</p>
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.process_message">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">process_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_schema</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_voice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nova'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'aac'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_input_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mp4'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">images</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.process_message"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.process_message" title="Link to this definition"></a></dt>
+<dd><p>Process one request and collect the final response payload.</p>
+<p>This is the default hosted-SDK entrypoint because the hosted platform
+delivers chat completions as non-streaming JSON responses.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>user_id</strong> (<em>str</em>) – User ID</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<em>str</em><em> | </em><em>bytes</em>)</p></li>
+<li><p><strong>search_enabled</strong> (<em>bool</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>prompt</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>capture_schema</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>capture_name</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>output_format</strong> (<em>Literal</em><em>[</em><em>'text'</em><em>, </em><em>'audio'</em><em>]</em>)</p></li>
+<li><p><strong>audio_voice</strong> (<em>Literal</em><em>[</em><em>'alloy'</em><em>, </em><em>'ash'</em><em>, </em><em>'ballad'</em><em>, </em><em>'coral'</em><em>, </em><em>'echo'</em><em>, </em><em>'fable'</em><em>, </em><em>'onyx'</em><em>, </em><em>'nova'</em><em>, </em><em>'sage'</em><em>, </em><em>'shimmer'</em><em>]</em>)</p></li>
+<li><p><strong>audio_output_format</strong> (<em>Literal</em><em>[</em><em>'mp3'</em><em>, </em><em>'opus'</em><em>, </em><em>'aac'</em><em>, </em><em>'flac'</em><em>, </em><em>'wav'</em><em>, </em><em>'pcm'</em><em>]</em>)</p></li>
+<li><p><strong>audio_input_format</strong> (<em>Literal</em><em>[</em><em>'flac'</em><em>, </em><em>'mp3'</em><em>, </em><em>'mp4'</em><em>, </em><em>'mpeg'</em><em>, </em><em>'mpga'</em><em>, </em><em>'m4a'</em><em>, </em><em>'ogg'</em><em>, </em><em>'wav'</em><em>, </em><em>'webm'</em><em>]</em>)</p></li>
+<li><p><strong>images</strong> (<em>List</em><em>[</em><em>str</em><em> | </em><em>bytes</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>output_model</strong> (<em>Type</em><em>[</em><em>BaseModel</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
+</ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>None</p>
+<dd class="field-even"><p>str | bytes | <em>BaseModel</em> | None</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_user_history">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_user_history</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">page_num</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">page_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sort_order</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'desc'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_user_history"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_user_history" title="Link to this definition"></a></dt>
-<dd><p>Get paginated message history for a user.</p>
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.message">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_schema</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">capture_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_voice</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'nova'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_output_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'aac'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">audio_input_format</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mp4'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">images</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.message"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.message" title="Link to this definition"></a></dt>
+<dd><p>Process one request using the README-friendly method name.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>user_id</strong> (<em>str</em>) – User ID</p></li>
-<li><p><strong>page_num</strong> (<em>int</em>) – Page number (starting from 1)</p></li>
-<li><p><strong>page_size</strong> (<em>int</em>) – Number of messages per page</p></li>
-<li><p><strong>sort_order</strong> (<em>str</em>) – Sort order (“asc” or “desc”)</p></li>
+<li><p><strong>message</strong> (<em>str</em><em> | </em><em>bytes</em>)</p></li>
+<li><p><strong>search_enabled</strong> (<em>bool</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>prompt</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>capture_schema</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>capture_name</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>output_format</strong> (<em>Literal</em><em>[</em><em>'text'</em><em>, </em><em>'audio'</em><em>]</em>)</p></li>
+<li><p><strong>audio_voice</strong> (<em>Literal</em><em>[</em><em>'alloy'</em><em>, </em><em>'ash'</em><em>, </em><em>'ballad'</em><em>, </em><em>'coral'</em><em>, </em><em>'echo'</em><em>, </em><em>'fable'</em><em>, </em><em>'onyx'</em><em>, </em><em>'nova'</em><em>, </em><em>'sage'</em><em>, </em><em>'shimmer'</em><em>]</em>)</p></li>
+<li><p><strong>audio_output_format</strong> (<em>Literal</em><em>[</em><em>'mp3'</em><em>, </em><em>'opus'</em><em>, </em><em>'aac'</em><em>, </em><em>'flac'</em><em>, </em><em>'wav'</em><em>, </em><em>'pcm'</em><em>]</em>)</p></li>
+<li><p><strong>audio_input_format</strong> (<em>Literal</em><em>[</em><em>'flac'</em><em>, </em><em>'mp3'</em><em>, </em><em>'mp4'</em><em>, </em><em>'mpeg'</em><em>, </em><em>'mpga'</em><em>, </em><em>'m4a'</em><em>, </em><em>'ogg'</em><em>, </em><em>'wav'</em><em>, </em><em>'webm'</em><em>]</em>)</p></li>
+<li><p><strong>images</strong> (<em>List</em><em>[</em><em>str</em><em> | </em><em>bytes</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>output_model</strong> (<em>Type</em><em>[</em><em>BaseModel</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Dictionary with paginated results and metadata</p>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str | bytes | <em>BaseModel</em> | None</p>
 </dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.context">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">conversation_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_ttl_tier</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service_tier</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_enabled</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chain_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'solana'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.context"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.context" title="Link to this definition"></a></dt>
+<dd><p>Build flat hosted runtime context for a message call.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>conversation_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>model</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>memory_ttl_tier</strong> (<em>Literal</em><em>[</em><em>'work'</em><em>, </em><em>'project'</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>service_tier</strong> (<em>Literal</em><em>[</em><em>'standard'</em><em>, </em><em>'priority'</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>search_enabled</strong> (<em>bool</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>chain_type</strong> (<em>Literal</em><em>[</em><em>'solana'</em><em>, </em><em>'ethereum'</em><em>]</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -417,12 +318,108 @@ the agent system without dealing with internal implementation details.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.create_privy_user">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">create_privy_user</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.create_privy_user"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.create_privy_user" title="Link to this definition"></a></dt>
+<dd><p>Create a hosted Privy user and return its DID.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.create_wallet">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">create_wallet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privy_user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chain_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'solana'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.create_wallet"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.create_wallet" title="Link to this definition"></a></dt>
+<dd><p>Create or return the active Privy-backed wallet for a user.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>privy_user_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>chain_type</strong> (<em>Literal</em><em>[</em><em>'solana'</em><em>, </em><em>'ethereum'</em><em>]</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.rotate_wallet">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">rotate_wallet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">privy_user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chain_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'solana'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.rotate_wallet"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.rotate_wallet" title="Link to this definition"></a></dt>
+<dd><p>Rotate the active Privy-backed wallet for a user.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>privy_user_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>chain_type</strong> (<em>Literal</em><em>[</em><em>'solana'</em><em>, </em><em>'ethereum'</em><em>]</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.export_wallet_private_key">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">export_wallet_private_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wallet_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">privy_user_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chain_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'solana'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.export_wallet_private_key"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.export_wallet_private_key" title="Link to this definition"></a></dt>
+<dd><p>Export the hosted wallet private key for self-custody.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>wallet_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>privy_user_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>chain_type</strong> (<em>Literal</em><em>[</em><em>'solana'</em><em>, </em><em>'ethereum'</em><em>]</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_wallet_address">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_wallet_address</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wallet_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_wallet_address"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_wallet_address" title="Link to this definition"></a></dt>
+<dd><p>Return the hosted wallet public address.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">wallet_id</span></code> is omitted, the active wallet for <code class="docutils literal notranslate"><span class="pre">config.ai.privy_user_id</span></code>
+is created or fetched first.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>wallet_id</strong> (<em>str</em><em> | </em><em>None</em>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.prepare_x402_runtime_context">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">prepare_x402_runtime_context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">chain_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'solana'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.prepare_x402_runtime_context"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.prepare_x402_runtime_context" title="Link to this definition"></a></dt>
+<dd><p>Return runtime context populated with the Privy-backed wallet.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>chain_type</strong> (<em>Literal</em><em>[</em><em>'solana'</em><em>, </em><em>'ethereum'</em><em>]</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_account_summary">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_account_summary</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">runtime_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_account_summary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_account_summary" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_account_summary</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_account_summary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_account_summary" title="Link to this definition"></a></dt>
 <dd><p>Get hosted billing and usage summary for the authenticated wallet account.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>runtime_context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p>
+<dd class="field-odd"><p><strong>runtime_context</strong> (<em>Any</em>)</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
@@ -432,7 +429,7 @@ the agent system without dealing with internal implementation details.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_usage_report">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_usage_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">granularity</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">from_date</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_date</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">group_by</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">runtime_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_usage_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_report" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_usage_report</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">granularity</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">from_date</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_date</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">group_by</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_usage_report"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_report" title="Link to this definition"></a></dt>
 <dd><p>Get hosted usage buckets for the authenticated wallet account.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -441,7 +438,7 @@ the agent system without dealing with internal implementation details.</p>
 <li><p><strong>from_date</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 <li><p><strong>to_date</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 <li><p><strong>group_by</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
-<li><p><strong>runtime_context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -452,13 +449,13 @@ the agent system without dealing with internal implementation details.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_usage_forecast</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">window_days</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">runtime_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_usage_forecast"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_usage_forecast</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">window_days</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_usage_forecast"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_usage_forecast" title="Link to this definition"></a></dt>
 <dd><p>Get hosted usage forecast for the authenticated wallet account.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>window_days</strong> (<em>int</em>)</p></li>
-<li><p><strong>runtime_context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>runtime_context</strong> (<em>Any</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -469,11 +466,11 @@ the agent system without dealing with internal implementation details.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="solana_agent.client.solana_agent.SolanaAgent.get_pricing_info">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_pricing_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">runtime_context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_pricing_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_pricing_info" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_pricing_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">runtime_context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/solana_agent/client/solana_agent.html#SolanaAgent.get_pricing_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#solana_agent.client.solana_agent.SolanaAgent.get_pricing_info" title="Link to this definition"></a></dt>
 <dd><p>Get hosted pricing information for the authenticated wallet account.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>runtime_context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p>
+<dd class="field-odd"><p><strong>runtime_context</strong> (<em>Any</em>)</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
