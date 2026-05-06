@@ -63,6 +63,21 @@ def _read_state_payload() -> dict[str, Any]:
     return payload
 
 
+def _profile_from_payload(
+    payload: dict[str, Any],
+    *,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, dict):
+        return {}
+
+    profile = profiles.get(_profile_key(base_url))
+    if not isinstance(profile, dict):
+        return {}
+    return profile
+
+
 def _write_state_payload(payload: dict[str, Any]) -> None:
     state_file = local_state_file_path()
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -87,32 +102,20 @@ def _write_state_payload(payload: dict[str, Any]) -> None:
             temp_path.unlink(missing_ok=True)
 
 
-def load_saved_privy_user_id(*, base_url: str | None = None) -> str | None:
-    profiles = _read_state_payload().get("profiles")
-    if not isinstance(profiles, dict):
-        return None
-
-    profile = profiles.get(_profile_key(base_url))
-    if not isinstance(profile, dict):
-        return None
-
-    privy_user_id = str(profile.get("privy_user_id") or "").strip()
-    return privy_user_id or None
-
-
-def save_privy_user_id(privy_user_id: str, *, base_url: str | None = None) -> None:
-    normalized_privy_user_id = str(privy_user_id or "").strip()
-    if not normalized_privy_user_id:
-        raise ValueError("privy_user_id must not be empty")
-
+def _save_profile_updates(*, base_url: str | None = None, **updates: str) -> None:
     payload = _read_state_payload()
     profiles = payload.get("profiles")
     if not isinstance(profiles, dict):
         profiles = {}
 
     normalized_base_url = _normalized_base_url(base_url)
-    profile = dict(profiles.get(_profile_key(base_url)) or {})
-    profile["privy_user_id"] = normalized_privy_user_id
+    profile = dict(_profile_from_payload(payload, base_url=base_url))
+    for key, value in updates.items():
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            continue
+        profile[key] = normalized_value
+
     profile["updated_at"] = (
         datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     )
@@ -125,3 +128,37 @@ def save_privy_user_id(privy_user_id: str, *, base_url: str | None = None) -> No
     payload["version"] = STATE_VERSION
     payload["profiles"] = profiles
     _write_state_payload(payload)
+
+
+def load_saved_privy_user_id(*, base_url: str | None = None) -> str | None:
+    profile = _profile_from_payload(_read_state_payload(), base_url=base_url)
+    privy_user_id = str(profile.get("privy_user_id") or "").strip()
+    return privy_user_id or None
+
+
+def load_saved_wallet_id(*, base_url: str | None = None) -> str | None:
+    profile = _profile_from_payload(_read_state_payload(), base_url=base_url)
+    wallet_id = str(profile.get("wallet_id") or "").strip()
+    return wallet_id or None
+
+
+def save_privy_user_id(privy_user_id: str, *, base_url: str | None = None) -> None:
+    normalized_privy_user_id = str(privy_user_id or "").strip()
+    if not normalized_privy_user_id:
+        raise ValueError("privy_user_id must not be empty")
+
+    _save_profile_updates(
+        base_url=base_url,
+        privy_user_id=normalized_privy_user_id,
+    )
+
+
+def save_wallet_id(wallet_id: str, *, base_url: str | None = None) -> None:
+    normalized_wallet_id = str(wallet_id or "").strip()
+    if not normalized_wallet_id:
+        raise ValueError("wallet_id must not be empty")
+
+    _save_profile_updates(
+        base_url=base_url,
+        wallet_id=normalized_wallet_id,
+    )

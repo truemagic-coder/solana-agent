@@ -17,7 +17,12 @@ from solana_agent.factories.agent_factory import DEFAULT_AGI_MEMORY_MODEL
 from solana_agent.factories.agent_factory import DEFAULT_AGI_STATELESS_MODEL
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
-from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
+from solana_agent.local_state import (
+    load_saved_privy_user_id,
+    load_saved_wallet_id,
+    save_privy_user_id,
+    save_wallet_id,
+)
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -171,6 +176,31 @@ class SolanaAgent(SolanaAgentInterface):
         )
         if saved_privy_user_id:
             self._set_configured_privy_user_id(saved_privy_user_id)
+
+    def _saved_wallet_id(self) -> str | None:
+        saved_wallet_id = load_saved_wallet_id(base_url=self._configured_base_url())
+        return str(saved_wallet_id or "").strip() or None
+
+    def _remember_wallet_id(self, payload: Any) -> str | None:
+        normalized_wallet_id = ""
+        if isinstance(payload, dict):
+            normalized_wallet_id = str(
+                payload.get("wallet_id") or payload.get("id") or ""
+            ).strip()
+        else:
+            normalized_wallet_id = str(payload or "").strip()
+
+        if not normalized_wallet_id:
+            return None
+
+        try:
+            save_wallet_id(
+                normalized_wallet_id,
+                base_url=self._configured_base_url(),
+            )
+        except OSError:
+            return normalized_wallet_id
+        return normalized_wallet_id
 
     @staticmethod
     def _runtime_privy_wallet_id(
@@ -549,7 +579,12 @@ class SolanaAgent(SolanaAgentInterface):
         resolved_privy_user_id = str(privy_user_id or "").strip()
         if not resolved_privy_user_id:
             resolved_privy_user_id = self._configured_privy_user_id()
-        return await method(privy_user_id=resolved_privy_user_id, chain_type=chain_type)
+        payload = await method(
+            privy_user_id=resolved_privy_user_id,
+            chain_type=chain_type,
+        )
+        self._remember_wallet_id(payload)
+        return payload
 
     async def rotate_wallet(
         self,
@@ -561,7 +596,12 @@ class SolanaAgent(SolanaAgentInterface):
         resolved_privy_user_id = str(privy_user_id or "").strip()
         if not resolved_privy_user_id:
             resolved_privy_user_id = self._configured_privy_user_id()
-        return await method(privy_user_id=resolved_privy_user_id, chain_type=chain_type)
+        payload = await method(
+            privy_user_id=resolved_privy_user_id,
+            chain_type=chain_type,
+        )
+        self._remember_wallet_id(payload)
+        return payload
 
     async def export_wallet_private_key(
         self,
@@ -577,10 +617,16 @@ class SolanaAgent(SolanaAgentInterface):
         resolved_privy_user_id = str(privy_user_id or "").strip()
         if not resolved_privy_user_id:
             resolved_privy_user_id = self._configured_privy_user_id()
+        resolved_wallet_id = str(wallet_id or "").strip()
+        if not resolved_wallet_id:
+            resolved_wallet_id = self._saved_wallet_id() or ""
         payload = await method(
             privy_user_id=resolved_privy_user_id,
-            wallet_id=wallet_id,
+            wallet_id=resolved_wallet_id or None,
             chain_type=chain_type,
+        )
+        self._remember_wallet_id(
+            payload if isinstance(payload, dict) else resolved_wallet_id
         )
         private_key = str(payload.get("private_key") or "").strip()
         if not private_key:
@@ -614,6 +660,9 @@ class SolanaAgent(SolanaAgentInterface):
             "Hosted wallet management",
         )
         payload = await method(wallet_id=normalized_wallet_id)
+        self._remember_wallet_id(
+            payload if isinstance(payload, dict) else normalized_wallet_id
+        )
         address = str(
             payload.get("address") or payload.get("public_address") or ""
         ).strip()

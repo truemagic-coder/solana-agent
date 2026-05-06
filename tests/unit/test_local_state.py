@@ -25,9 +25,24 @@ def test_load_saved_privy_user_id_returns_none_when_profiles_not_mapping(monkeyp
     assert local_state.load_saved_privy_user_id() is None
 
 
+def test_load_saved_wallet_id_returns_none_when_profiles_not_mapping(monkeypatch):
+    monkeypatch.setattr(
+        local_state,
+        "_read_state_payload",
+        lambda: {"version": local_state.STATE_VERSION, "profiles": []},
+    )
+
+    assert local_state.load_saved_wallet_id() is None
+
+
 def test_save_privy_user_id_requires_non_empty_value() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         local_state.save_privy_user_id(" ")
+
+
+def test_save_wallet_id_requires_non_empty_value() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        local_state.save_wallet_id(" ")
 
 
 def test_save_privy_user_id_initializes_profiles_and_normalizes_base_url(monkeypatch):
@@ -52,4 +67,33 @@ def test_save_privy_user_id_initializes_profiles_and_normalizes_base_url(monkeyp
     profile = captured["profiles"]["https://ai.solana-agent.com/v1"]
     assert profile["privy_user_id"] == "did:privy:test-user"
     assert profile["base_url"] == "https://ai.solana-agent.com/v1"
+    assert "updated_at" in profile
+
+
+def test_save_wallet_id_updates_existing_profile(monkeypatch):
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        local_state,
+        "_read_state_payload",
+        lambda: {
+            "version": local_state.STATE_VERSION,
+            "profiles": {
+                "default": {
+                    "privy_user_id": "did:privy:test-user",
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        local_state,
+        "_write_state_payload",
+        lambda payload: captured.update(payload),
+    )
+
+    local_state.save_wallet_id(" wallet-123 ")
+
+    profile = captured["profiles"]["default"]
+    assert profile["privy_user_id"] == "did:privy:test-user"
+    assert profile["wallet_id"] == "wallet-123"
     assert "updated_at" in profile

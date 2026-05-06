@@ -179,11 +179,13 @@ def test_wallet_address_command_allows_configured_wallet(mock_solana_agent):
 
 @patch("solana_agent.cli.Path.exists", return_value=False)
 @patch("solana_agent.cli.load_saved_privy_user_id")
+@patch("solana_agent.cli.load_saved_wallet_id")
 @patch("solana_agent.cli.save_privy_user_id")
 @patch("solana_agent.cli.SolanaAgent")
 def test_wallet_menu_can_create_privy_user(
     mock_solana_agent,
     mock_save_privy_user_id,
+    mock_load_saved_wallet_id,
     mock_load_saved_privy_user_id,
     mock_exists,
 ):
@@ -204,6 +206,7 @@ def test_wallet_menu_can_create_privy_user(
     )
     mock_agent._configured_base_url.return_value = None
     mock_agent._configured_privy_user_id.side_effect = ValueError("missing")
+    mock_load_saved_wallet_id.return_value = None
     mock_save_privy_user_id.side_effect = _save_privy_user_id
     mock_load_saved_privy_user_id.side_effect = _load_privy_user_id
     mock_agent.create_wallet = AsyncMock(
@@ -482,3 +485,33 @@ def test_wallet_export_command_requires_confirmation(mock_solana_agent):
     assert result.exit_code == 1
     mock_agent.export_wallet_private_key.assert_not_awaited()
     assert "Export cancelled" in result.stdout
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.load_saved_wallet_id", return_value="wallet-saved")
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_menu_export_defaults_to_saved_wallet_id(
+    mock_solana_agent,
+    mock_load_saved_wallet_id,
+    mock_exists,
+):
+    del mock_exists
+    mock_agent = MagicMock()
+    mock_agent._configured_privy_user_id.return_value = "did:privy:user123"
+    mock_agent._configured_base_url.return_value = None
+    mock_agent.export_wallet_private_key = AsyncMock(return_value="base58-private-key")
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        ["wallet", "menu"],
+        input="5\nEXPORT\n\n\nq\n",
+    )
+
+    assert result.exit_code == 0
+    mock_load_saved_wallet_id.assert_called()
+    mock_agent.export_wallet_private_key.assert_awaited_once_with(
+        wallet_id="wallet-saved",
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )

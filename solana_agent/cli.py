@@ -14,7 +14,11 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from solana_agent.client.solana_agent import SolanaAgent
-from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
+from solana_agent.local_state import (
+    load_saved_privy_user_id,
+    load_saved_wallet_id,
+    save_privy_user_id,
+)
 from solana_agent.smoke import (
     build_public_sdk_smoke_preview,
     run_public_sdk_smoke,
@@ -140,6 +144,15 @@ def _prompt_privy_user_id(agent: SolanaAgent) -> str:
 
     _remember_privy_user_id(agent, privy_user_id)
     return str(privy_user_id or "").strip()
+
+
+def _saved_wallet_id(agent: SolanaAgent) -> Optional[str]:
+    try:
+        wallet_id = load_saved_wallet_id(base_url=_agent_base_url(agent))
+    except Exception:
+        return None
+    normalized_wallet_id = str(wallet_id or "").strip()
+    return normalized_wallet_id or None
 
 
 def _print_json_payload(payload: object) -> None:
@@ -771,7 +784,7 @@ def wallet_menu(
 ):
     """Open the hosted wallet onboarding menu."""
     agent = _load_agent_for_menu(config)
-    session_wallet_id: str | None = None
+    session_wallet_id: str | None = _saved_wallet_id(agent)
     while True:
         console.print("\n[bold]Solana Agent Wallet Menu[/bold]")
         console.print("1. Create Privy user")
@@ -837,7 +850,7 @@ def wallet_menu(
             privy_user_id = _prompt_privy_user_id(agent)
             wallet_id = Prompt.ask(
                 "Wallet ID",
-                default=session_wallet_id or "",
+                default=session_wallet_id or _saved_wallet_id(agent) or "",
             ).strip()
             _run_account_call(
                 agent.export_wallet_private_key(

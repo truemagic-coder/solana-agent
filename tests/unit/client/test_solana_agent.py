@@ -11,7 +11,12 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.interfaces.plugins.plugins import Tool
-from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
+from solana_agent.local_state import (
+    load_saved_privy_user_id,
+    load_saved_wallet_id,
+    save_privy_user_id,
+    save_wallet_id,
+)
 
 
 @pytest.fixture
@@ -549,6 +554,7 @@ class TestSolanaAgent:
             result = await agent.create_wallet("did:privy:user123")
 
             assert result == expected
+            assert load_saved_wallet_id() == "wallet-123"
             mock_query_service.agent_service.llm_provider.create_wallet.assert_awaited_once_with(
                 privy_user_id="did:privy:user123",
                 chain_type="solana",
@@ -577,6 +583,7 @@ class TestSolanaAgent:
             result = await agent.create_wallet()
 
             assert result == expected
+            assert load_saved_wallet_id() == "wallet-123"
             mock_query_service.agent_service.llm_provider.create_wallet.assert_awaited_once_with(
                 privy_user_id="did:privy:test-user",
                 chain_type="solana",
@@ -656,6 +663,7 @@ class TestSolanaAgent:
             result = await agent.rotate_wallet("did:privy:user123")
 
             assert result == expected
+            assert load_saved_wallet_id() == "wallet-new"
             mock_query_service.agent_service.llm_provider.rotate_wallet.assert_awaited_once_with(
                 privy_user_id="did:privy:user123",
                 chain_type="solana",
@@ -685,8 +693,38 @@ class TestSolanaAgent:
             result = await agent.rotate_wallet()
 
             assert result == expected
+            assert load_saved_wallet_id() == "wallet-new"
             mock_query_service.agent_service.llm_provider.rotate_wallet.assert_awaited_once_with(
                 privy_user_id="did:privy:test-user",
+                chain_type="solana",
+            )
+
+    @pytest.mark.asyncio
+    async def test_export_wallet_private_key_uses_saved_wallet_id_when_available(
+        self, config_dict, mock_query_service
+    ):
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            save_wallet_id("wallet-saved")
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.export_wallet_private_key = (
+                AsyncMock(
+                    return_value={
+                        "wallet_id": "wallet-saved",
+                        "private_key": "base58-private-key",
+                    }
+                )
+            )
+
+            result = await agent.export_wallet_private_key()
+
+            assert result == "base58-private-key"
+            mock_query_service.agent_service.llm_provider.export_wallet_private_key.assert_awaited_once_with(
+                privy_user_id="did:privy:test-user",
+                wallet_id="wallet-saved",
                 chain_type="solana",
             )
 
