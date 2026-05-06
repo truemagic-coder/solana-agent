@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
 
 
 @pytest.fixture
@@ -68,6 +69,19 @@ class TestSolanaAgent:
 
         mock_factory.create_from_config.assert_called_once_with({"ai": {}})
         assert agent.query_service == mock_query_service
+
+    @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
+    def test_init_uses_saved_privy_user_id(self, mock_factory, mock_query_service):
+        """The public SDK should load the last saved Privy DID from local state."""
+        save_privy_user_id("did:privy:saved-user")
+        mock_factory.create_from_config.return_value = mock_query_service
+
+        agent = SolanaAgent()
+
+        mock_factory.create_from_config.assert_called_once_with(
+            {"ai": {"privy_user_id": "did:privy:saved-user"}}
+        )
+        assert agent.config["ai"]["privy_user_id"] == "did:privy:saved-user"
 
     @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
     def test_init_with_public_kwargs_builds_ai_config(
@@ -266,6 +280,28 @@ class TestSolanaAgent:
                 "privy_wallet_address": "WalletPubkey123",
                 "privy_wallet_public_key": "WalletPubkey123",
             }
+
+    @pytest.mark.asyncio
+    async def test_context_includes_search_enabled(
+        self, config_dict, mock_query_service
+    ):
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock(
+                return_value={
+                    "privy_user_id": "did:privy:test-user",
+                    "wallet_id": "wallet-123",
+                    "address": "WalletPubkey123",
+                }
+            )
+
+            result = await agent.context(search_enabled=True)
+
+            assert result["search_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_context_rejects_invalid_service_tier(
@@ -566,7 +602,36 @@ class TestSolanaAgent:
             result = await agent.create_privy_user()
 
             assert result == expected
+            assert agent.config["ai"]["privy_user_id"] == "did:privy:user123"
+            assert (
+                mock_query_service.agent_service.llm_provider.privy_user_id
+                == "did:privy:user123"
+            )
+            assert load_saved_privy_user_id() == "did:privy:user123"
             mock_query_service.agent_service.llm_provider.create_privy_user.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_create_privy_user_raises_when_local_save_fails(
+        self, config_dict, mock_query_service
+    ):
+        with (
+            patch(
+                "solana_agent.client.solana_agent.SolanaAgentFactory"
+            ) as mock_factory,
+            patch(
+                "solana_agent.client.solana_agent.save_privy_user_id",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.create_privy_user = AsyncMock(
+                return_value={"privy_user_id": "did:privy:user123", "created": True}
+            )
+
+            with pytest.raises(RuntimeError, match="could not be saved locally"):
+                await agent.create_privy_user()
 
     @pytest.mark.asyncio
     async def test_rotate_wallet(self, config_dict, mock_query_service):

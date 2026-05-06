@@ -194,6 +194,179 @@ def test_wallet_menu_can_create_privy_user(mock_solana_agent, mock_exists):
     assert '"privy_user_id": "did:privy:user123"' in result.stdout
 
 
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_menu_shows_wallet_address_for_prompted_user(
+    mock_solana_agent,
+    mock_exists,
+):
+    del mock_exists
+    mock_agent = MagicMock()
+    mock_agent._configured_privy_user_id.return_value = None
+    mock_agent.create_wallet = AsyncMock(
+        return_value={
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+        }
+    )
+    mock_agent.get_wallet_address = AsyncMock(return_value="WalletPubkey123")
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        ["wallet", "menu"],
+        input="3\ndid:privy:user123\nq\n",
+    )
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with()
+    mock_agent.create_wallet.assert_awaited_once_with(
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )
+    mock_agent.get_wallet_address.assert_not_awaited()
+    assert '"WalletPubkey123"' in result.stdout
+    assert '"wallet_id": "wallet-123"' not in result.stdout
+
+
+def test_wallet_smoke_command_requires_dev():
+    result = runner.invoke(app, ["wallet", "smoke"])
+
+    assert result.exit_code == 1
+    assert "--dev" in result.stdout
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.run_public_sdk_smoke")
+@patch("solana_agent.cli.build_public_sdk_smoke_preview")
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_smoke_command_runs_preview_and_live_smoke(
+    mock_solana_agent,
+    mock_build_preview,
+    mock_run_smoke,
+    mock_exists,
+):
+    del mock_exists
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    mock_build_preview.return_value = {
+        "ok": True,
+        "preview_only": True,
+        "estimate": {"suggested_wallet_funding_usdc": "1.00"},
+        "steps": [],
+    }
+    mock_run_smoke.return_value = {
+        "ok": True,
+        "preview_only": False,
+        "wallet": {
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+        },
+        "coverage": {
+            "includes_search": True,
+            "includes_rotate": False,
+            "includes_export": False,
+        },
+        "estimate": {"suggested_wallet_funding_usdc": "1.00"},
+        "steps": [{"name": "chat_message", "status": "passed"}],
+    }
+
+    result = runner.invoke(app, ["wallet", "smoke", "--dev", "--yes"])
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with()
+    mock_build_preview.assert_awaited_once_with(
+        mock_agent,
+        chain_type="solana",
+        forecast_window_days=30,
+        include_search=True,
+        include_rotate=False,
+        include_export=False,
+    )
+    mock_run_smoke.assert_awaited_once_with(
+        mock_agent,
+        chain_type="solana",
+        forecast_window_days=30,
+        include_search=True,
+        include_rotate=False,
+        include_export=False,
+        preview=mock_build_preview.return_value,
+    )
+    assert "Smoke Result" in result.stdout
+    assert "Suggested Funding (USDC)" in result.stdout
+    assert "chat_message" in result.stdout
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.build_public_sdk_smoke_preview")
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_smoke_command_supports_json_output(
+    mock_solana_agent,
+    mock_build_preview,
+    mock_exists,
+):
+    del mock_exists
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    mock_build_preview.return_value = {
+        "ok": True,
+        "preview_only": True,
+        "estimate": {"suggested_wallet_funding_usdc": "1.00"},
+        "steps": [],
+    }
+
+    result = runner.invoke(
+        app,
+        ["wallet", "smoke", "--dev", "--estimate-only", "--json"],
+    )
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with()
+    mock_build_preview.assert_awaited_once_with(
+        mock_agent,
+        chain_type="solana",
+        forecast_window_days=30,
+        include_search=True,
+        include_rotate=False,
+        include_export=False,
+    )
+    assert '"preview_only": true' in result.stdout
+    assert "Smoke Preview" not in result.stdout
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.wallet_smoke")
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_menu_dev_can_run_smoke(
+    mock_solana_agent,
+    mock_wallet_smoke,
+    mock_exists,
+):
+    del mock_exists
+    mock_solana_agent.return_value = MagicMock()
+
+    result = runner.invoke(
+        app,
+        ["wallet", "menu", "--dev"],
+        input="6\nn\nn\nn\nq\n",
+    )
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with()
+    mock_wallet_smoke.assert_called_once_with(
+        config="config.json",
+        chain_type="solana",
+        forecast_window_days=30,
+        include_search=False,
+        include_rotate=False,
+        include_export=False,
+        estimate_only=False,
+        json_output=False,
+        yes=False,
+        dev=True,
+    )
+
+
 @patch("solana_agent.cli.SolanaAgent")
 def test_wallet_export_command_calls_client(mock_solana_agent):
     mock_agent = MagicMock()

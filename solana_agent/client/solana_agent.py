@@ -17,6 +17,7 @@ from solana_agent.factories.agent_factory import DEFAULT_AGI_MEMORY_MODEL
 from solana_agent.factories.agent_factory import DEFAULT_AGI_STATELESS_MODEL
 from solana_agent.interfaces.client.client import SolanaAgent as SolanaAgentInterface
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -76,6 +77,7 @@ class SolanaAgent(SolanaAgentInterface):
             context_window_tokens=context_window_tokens,
             tokenizer_model=tokenizer_model,
         )
+        self._apply_saved_privy_user_id()
         self.query_service = SolanaAgentFactory.create_from_config(self.config)
 
     @staticmethod
@@ -125,6 +127,50 @@ class SolanaAgent(SolanaAgentInterface):
         if ai_config:
             return ai_config
         return self._config_section("openai")
+
+    def _configured_base_url(self) -> str | None:
+        base_url = str(self._provider_config().get("base_url") or "").strip()
+        return base_url or None
+
+    def _privy_user_id_target_section(self) -> Dict[str, Any]:
+        ai_config = self.config.get("ai")
+        if isinstance(ai_config, dict) and ai_config:
+            return ai_config
+
+        legacy_provider_config = self.config.get("openai")
+        if isinstance(legacy_provider_config, dict) and legacy_provider_config:
+            return legacy_provider_config
+
+        if not isinstance(ai_config, dict):
+            ai_config = {}
+            self.config["ai"] = ai_config
+        return ai_config
+
+    def _set_configured_privy_user_id(self, privy_user_id: str) -> None:
+        normalized_privy_user_id = str(privy_user_id or "").strip()
+        if not normalized_privy_user_id:
+            return
+
+        self._privy_user_id_target_section()["privy_user_id"] = normalized_privy_user_id
+
+        query_service = getattr(self, "query_service", None)
+        agent_service = getattr(query_service, "agent_service", None)
+        llm_provider = getattr(agent_service, "llm_provider", None)
+        if llm_provider is not None:
+            setattr(llm_provider, "privy_user_id", normalized_privy_user_id)
+
+    def _apply_saved_privy_user_id(self) -> None:
+        try:
+            self._configured_privy_user_id()
+            return
+        except ValueError:
+            pass
+
+        saved_privy_user_id = load_saved_privy_user_id(
+            base_url=self._configured_base_url()
+        )
+        if saved_privy_user_id:
+            self._set_configured_privy_user_id(saved_privy_user_id)
 
     @staticmethod
     def _runtime_privy_wallet_id(
@@ -475,7 +521,23 @@ class SolanaAgent(SolanaAgentInterface):
             "create_privy_user",
             "Hosted wallet management",
         )
-        return await method()
+        payload = await method()
+        privy_user_id = str(
+            payload.get("privy_user_id") or payload.get("id") or ""
+        ).strip()
+        if privy_user_id:
+            self._set_configured_privy_user_id(privy_user_id)
+            try:
+                save_privy_user_id(
+                    privy_user_id,
+                    base_url=self._configured_base_url(),
+                )
+            except OSError as exc:
+                raise RuntimeError(
+                    "Hosted Privy user was created but could not be saved locally. "
+                    f"Copy this DID now: {privy_user_id}. {exc}"
+                ) from exc
+        return payload
 
     async def create_wallet(
         self,
