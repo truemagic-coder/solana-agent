@@ -42,16 +42,6 @@ uvx solana-agent wallet menu
 
 The generated `privy_user_id` is saved automatically in the user-local Solana Agent app data directory on Windows, macOS, and Linux. Passing `privy_user_id=` or `config.ai.privy_user_id` still overrides the saved value.
 
-For a live hosted smoke run from the CLI, use the dev-gated wallet smoke command or the dev-only wallet menu item:
-
-```bash
-uvx solana-agent wallet smoke --dev
-uvx solana-agent wallet menu --dev
-```
-
-The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
-Add `--json` to `wallet smoke` when you want machine-readable output instead of tables.
-
 ```python
 from solana_agent import SolanaAgent
 
@@ -183,4 +173,15 @@ If a wallet needs to be retired, rotate it from the interactive menu:
 ```bash
 uxv solana-agent wallet menu
 ```
+
+## Smoke Testing
+For a live hosted smoke run from the CLI, use the dev-gated wallet smoke command or the dev-only wallet menu item:
+
+```bash
+uvx solana-agent wallet smoke --dev
+uvx solana-agent wallet menu --dev
+```
+
+The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
+Add `--json` to `wallet smoke` when you want machine-readable output instead of tables.
 
