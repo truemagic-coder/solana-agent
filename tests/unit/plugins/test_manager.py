@@ -131,6 +131,24 @@ class TestPluginManager:
         assert loaded == []
         assert len(manager._plugins) == 0
 
+    @patch("importlib.metadata.entry_points")
+    def test_load_plugins_skips_unsupported_first_party_plugin(
+        self,
+        mock_entry_points,
+    ):
+        """Built-in public plugins outside the supported SDK surface should be skipped."""
+        mock_entry_point = MagicMock()
+        mock_entry_point.name = "dflow_prediction"
+        mock_entry_point.value = "solana_agent.tools.dflow_prediction:get_plugin"
+
+        mock_entry_points.return_value = [mock_entry_point]
+
+        manager = PluginManager()
+        loaded = manager.load_plugins()
+
+        assert loaded == []
+        mock_entry_point.load.assert_not_called()
+
     def test_get_plugin_existing(self, mock_plugin):
         """Test retrieving an existing plugin."""
         manager = PluginManager()

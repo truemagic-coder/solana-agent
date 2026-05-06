@@ -19,9 +19,6 @@ from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.plugins.registry import ToolRegistry
 from solana_agent.domains.agent import AIAgent, BusinessMission
-from solana_agent.interfaces.guardrails.guardrails import (
-    OutputGuardrail,
-)
 
 logger = logging.getLogger(__name__)  # Add logger
 
@@ -35,7 +32,6 @@ class AgentService(AgentServiceInterface):
         business_mission: Optional[BusinessMission] = None,
         config: Optional[Dict[str, Any]] = None,
         model: Optional[str] = None,
-        output_guardrails: List[OutputGuardrail] = None,
     ):
         """Initialize the agent service.
 
@@ -44,7 +40,6 @@ class AgentService(AgentServiceInterface):
             business_mission: Optional business mission and values
             config: Optional service configuration
             model: Model name for the LLM provider
-            output_guardrails: List of output guardrail instances
         """
         self.llm_provider = llm_provider
         self.business_mission = business_mission
@@ -53,12 +48,18 @@ class AgentService(AgentServiceInterface):
         self.tool_registry = ToolRegistry(config=self.config)
         self.agents: List[AIAgent] = []
         self.model = model
-        self.output_guardrails = output_guardrails or []
 
         self.plugin_manager = PluginManager(
             config=self.config,
             tool_registry=self.tool_registry,
         )
+
+    def _runtime_model(
+        self, runtime_context: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        context = runtime_context or {}
+        runtime_model = str(context.get("model") or "").strip()
+        return runtime_model or self.model
 
     def register_ai_agent(
         self,
@@ -188,7 +189,11 @@ class AgentService(AgentServiceInterface):
         return self.tool_registry.get_agent_tools(agent_name)
 
     async def execute_tool(
-        self, agent_name: str, tool_name: str, parameters: Dict[str, Any]
+        self,
+        agent_name: str,
+        tool_name: str,
+        parameters: Dict[str, Any],
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a tool on behalf of an agent."""
 
@@ -213,7 +218,12 @@ class AgentService(AgentServiceInterface):
                 "message": f"Agent '{agent_name}' doesn't have access to tool '{tool_name}'",
             }
 
+        set_runtime_context = getattr(tool, "set_runtime_context", None)
+        clear_runtime_context = getattr(tool, "clear_runtime_context", None)
+
         try:
+            if callable(set_runtime_context):
+                set_runtime_context(runtime_context)
             logger.info(
                 f"Executing tool '{tool_name}' for agent '{agent_name}' with params: {parameters}"
             )
@@ -229,15 +239,17 @@ class AgentService(AgentServiceInterface):
                 f"Error executing tool '{tool_name}': {e}\n{traceback.format_exc()}"
             )
             return {"status": "error", "message": f"Error executing tool: {str(e)}"}
+        finally:
+            if callable(clear_runtime_context):
+                clear_runtime_context()
 
     async def generate_response(
         self,
         agent_name: str,
-        user_id: str,
+        privy_user_id: str,
         query: Union[str, bytes],
         runtime_context: Optional[Dict[str, Any]] = None,
         images: Optional[List[Union[str, bytes]]] = None,
-        memory_context: str = "",
         output_format: Literal["text", "audio"] = "text",
         audio_voice: Literal[
             "alloy",
@@ -260,6 +272,7 @@ class AgentService(AgentServiceInterface):
         """Generate a response using tool-calling with full streaming support."""
 
         try:
+            request_model = self._runtime_model(runtime_context)
             # Validate agent
             agent = next((a for a in self.agents if a.name == agent_name), None)
             if not agent:
@@ -284,12 +297,10 @@ class AgentService(AgentServiceInterface):
 
             # Compose the prompt for generate_text
             full_prompt = ""
-            if memory_context:
-                full_prompt += f"CONVERSATION HISTORY:\n{memory_context}\n\n Always use your tools to perform actions and don't rely on your memory!\n\n"
             if prompt:
                 full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
             full_prompt += user_content
-            full_prompt += f"USER IDENTIFIER: {user_id}"
+            full_prompt += f"PRIVY USER IDENTIFIER: {privy_user_id}"
 
             # Get OpenAI function schemas for this agent's tools
             tools = [
@@ -311,7 +322,7 @@ class AgentService(AgentServiceInterface):
                     prompt=full_prompt,
                     system_prompt=system_prompt,
                     model_class=output_model,
-                    model=self.model,
+                    model=request_model,
                     tools=tools if tools else None,
                     runtime_context=runtime_context,
                 )
@@ -353,7 +364,7 @@ class AgentService(AgentServiceInterface):
 
                 async for event in self.llm_provider.chat_stream(
                     messages=messages,
-                    model=self.model,
+                    model=request_model,
                     tools=tools if tools else None,
                     runtime_context=runtime_context,
                 ):
@@ -429,7 +440,10 @@ class AgentService(AgentServiceInterface):
                             f"Streaming: executing tool '{func_name}' with args: {args}"
                         )
                         tool_result = await self.execute_tool(
-                            agent_name, func_name, args
+                            agent_name,
+                            func_name,
+                            args,
+                            runtime_context=runtime_context,
                         )
                         messages.append(
                             {

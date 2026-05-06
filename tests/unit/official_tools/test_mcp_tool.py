@@ -581,7 +581,25 @@ class TestMCPPlugin:
 
     def test_get_plugin_returns_dummy_without_fastmcp(self):
         """Should return dummy plugin when fastmcp is not available."""
-        # Test the disabled state
-        with patch.dict("sys.modules", {"fastmcp": None}):
-            # This tests the fallback behavior
-            pass  # The actual import test would need module reload
+        with patch.dict(
+            sys.modules,
+            {
+                "fastmcp": None,
+                "fastmcp.client": None,
+                "fastmcp.client.transports": None,
+            },
+        ):
+            import solana_agent.tools.mcp as mcp_module
+
+            mcp_module = importlib.reload(mcp_module)
+            plugin = mcp_module.get_plugin()
+
+        assert plugin.name == "mcp (disabled)"
+        assert plugin.get_tools() == []
+
+    def test_get_plugin_returns_mcp_plugin_when_fastmcp_is_available(self):
+        module = load_mcp_module()
+
+        plugin = module.get_plugin()
+
+        assert isinstance(plugin, module.MCPPlugin)

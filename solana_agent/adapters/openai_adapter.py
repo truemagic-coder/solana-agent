@@ -34,10 +34,7 @@ import tiktoken
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.tools.utils.x402 import (
-    X402PrivateKeyConfig,
     create_x402_httpx_client_for_auth,
-    create_x402_httpx_client,
-    resolve_x402_private_key,
     resolve_x402_signing_key,
 )
 
@@ -69,7 +66,7 @@ GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
 TOKENS_PER_MESSAGE = 4
 TOKENS_PER_NAME = 1
 TOKENS_PER_REPLY_PRIMER = 2
-SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC", "USDT"})
+SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC"})
 SUPPORTED_USAGE_GRANULARITIES = frozenset({"day", "month", "year"})
 ACCOUNT_AUTH_TIMEOUT_SECONDS = 30.0
 
@@ -142,6 +139,7 @@ class OpenAIAdapter(LLMProvider):
         reasoning_effort: Optional[Literal["low", "medium", "high"]] = None,
         auth_mode: str = "api_key",
         private_key: Optional[str] = None,
+        privy_user_id: Optional[str] = None,
         privy_app_id: Optional[str] = None,
         privy_app_secret: Optional[str] = None,
         privy_authorization_signature: Optional[str] = None,
@@ -158,6 +156,7 @@ class OpenAIAdapter(LLMProvider):
         self.reasoning_effort = reasoning_effort
         self.auth_mode = auth_mode
         self.private_key = private_key
+        self.privy_user_id = str(privy_user_id or "").strip()
         self.privy_app_id = privy_app_id
         self.privy_app_secret = privy_app_secret
         self.privy_authorization_signature = privy_authorization_signature
@@ -226,35 +225,27 @@ class OpenAIAdapter(LLMProvider):
         if base_url:
             client_kwargs["base_url"] = base_url
 
-        if self.auth_mode == "x402_private_key":
-            resolved_private_key = resolve_x402_private_key(
-                auth_mode=self.auth_mode,
-                private_key=self.private_key,
-            )
-            if not resolved_private_key:
-                raise ValueError(
-                    "x402_private_key requires a configured Solana signing key"
-                )
-            if not base_url:
-                raise ValueError("x402_private_key requires a configured base_url")
-
-            client_kwargs["api_key"] = api_key or "x402"
-            client_kwargs["http_client"] = create_x402_httpx_client(
-                X402PrivateKeyConfig(
-                    private_key=resolved_private_key,
-                    rpc_url=self.x402_rpc_url,
-                )
-            )
-
         return AsyncOpenAI(**client_kwargs)
 
     def _resolve_runtime_privy_wallet_id(
         self, runtime_context: Optional[Dict[str, Any]] = None
     ) -> str:
-        wallet_id = str((runtime_context or {}).get("privy_wallet_id") or "").strip()
+        context = dict(runtime_context or {})
+        wallet_id = ""
+        for context_key in ("privy_wallet_id", "hosted_privy_wallet_id"):
+            wallet_id = str(context.get(context_key) or "").strip()
+            if wallet_id:
+                break
+        if not wallet_id:
+            wallet_payload = context.get("privy_wallet")
+            if isinstance(wallet_payload, dict):
+                wallet_id = str(
+                    wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
+                ).strip()
         if not wallet_id:
             raise ValueError(
-                "x402_privy requires runtime_context.privy_wallet_id for each request"
+                "x402_privy requires a runtime wallet id via runtime_context.privy_wallet_id, "
+                "runtime_context.hosted_privy_wallet_id, or runtime_context.privy_wallet.id"
             )
         return wallet_id
 
@@ -311,7 +302,6 @@ class OpenAIAdapter(LLMProvider):
 
         http_client = await create_x402_httpx_client_for_auth(
             auth_mode=self.auth_mode,
-            private_key=self.private_key,
             privy_wallet_id=self._resolve_runtime_privy_wallet_id(runtime_context),
             privy_app_id=self.privy_app_id,
             privy_app_secret=self.privy_app_secret,
@@ -406,18 +396,28 @@ class OpenAIAdapter(LLMProvider):
         return self.x402_preferred_asset
 
     def _require_account_reporting_auth(self) -> None:
-        if self.auth_mode not in {"x402_private_key", "x402_privy"}:
+        if self.auth_mode not in {"x402_privy", "hosted_managed"}:
             raise NotImplementedError(
-                "Account reporting requires x402_private_key or x402_privy auth"
+                "Account reporting requires hosted_managed or x402_privy auth"
             )
         if not self.base_url:
             raise ValueError("Account reporting requires a configured base_url")
+
+    def _require_hosted_base_url(self, capability: str) -> None:
+        if not self.base_url:
+            raise ValueError(f"{capability} requires a configured base_url")
 
     def _account_endpoint_url(self, endpoint: str) -> str:
         self._require_account_reporting_auth()
         normalized_base_url = str(self.base_url or "").rstrip("/")
         normalized_endpoint = str(endpoint or "").strip().lstrip("/")
         return f"{normalized_base_url}/account/{normalized_endpoint}"
+
+    def _hosted_endpoint_url(self, endpoint: str, *, capability: str) -> str:
+        self._require_hosted_base_url(capability)
+        normalized_base_url = str(self.base_url or "").rstrip("/")
+        normalized_endpoint = str(endpoint or "").strip().lstrip("/")
+        return f"{normalized_base_url}/{normalized_endpoint}"
 
     async def _resolve_account_auth_keypair(
         self,
@@ -430,7 +430,6 @@ class OpenAIAdapter(LLMProvider):
 
         resolved_private_key = await resolve_x402_signing_key(
             auth_mode=self.auth_mode,
-            private_key=self.private_key,
             privy_wallet_id=privy_wallet_id,
             privy_app_id=self.privy_app_id,
             privy_app_secret=self.privy_app_secret,
@@ -491,6 +490,28 @@ class OpenAIAdapter(LLMProvider):
             "X-Account-Signature": signature,
         }
 
+    def _managed_account_identity_params(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        context = dict(runtime_context or {})
+        params: Dict[str, Any] = {}
+        if "privy_user_id" in context:
+            raise ValueError(
+                "privy_user_id belongs in config.ai.privy_user_id, not runtime_context"
+            )
+
+        privy_user_id = str(self.privy_user_id or "").strip()
+        if privy_user_id:
+            params["privy_user_id"] = privy_user_id
+
+        if params:
+            return params
+
+        raise ValueError(
+            "Hosted account reporting requires config.ai.privy_user_id or runtime_context with privy_user_id."
+        )
+
     async def _hosted_chat_completion_request_options(
         self,
         runtime_context: Optional[Dict[str, Any]] = None,
@@ -499,7 +520,7 @@ class OpenAIAdapter(LLMProvider):
         headers = dict(
             self._chat_completion_request_options().get("extra_headers") or {}
         )
-        if self.auth_mode in {"x402_private_key", "x402_privy"} and self.base_url:
+        if self.auth_mode == "x402_privy" and self.base_url:
             headers.update(await self._build_account_auth_headers(runtime_context))
         if headers:
             options["extra_headers"] = headers
@@ -513,36 +534,152 @@ class OpenAIAdapter(LLMProvider):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         url = self._account_endpoint_url(endpoint)
-        headers = await self._build_account_auth_headers(runtime_context)
+        request_params = dict(params or {})
+        headers: Optional[Dict[str, str]] = None
+        if self.auth_mode == "x402_privy":
+            headers = await self._build_account_auth_headers(runtime_context)
+        else:
+            request_params.update(
+                self._managed_account_identity_params(runtime_context)
+            )
         async with httpx.AsyncClient(timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS) as client:
-            response = await client.get(url, headers=headers, params=params)
+            if headers is None:
+                response = await client.get(url, params=request_params or None)
+            else:
+                response = await client.get(
+                    url,
+                    headers=headers,
+                    params=request_params or None,
+                )
             response.raise_for_status()
             return response.json()
+
+    async def _request_hosted_json(
+        self,
+        endpoint: str,
+        *,
+        method: str = "get",
+        params: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        capability: str,
+    ) -> Dict[str, Any]:
+        url = self._hosted_endpoint_url(endpoint, capability=capability)
+        async with httpx.AsyncClient(timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS) as client:
+            if method == "get":
+                response = await client.get(url, params=params)
+            elif method == "post":
+                response = await client.post(url, json=json_body)
+            else:  # pragma: no cover
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            response.raise_for_status()
+            return response.json()
+
+    def _hosted_search_enabled(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        if not self.text_model.startswith("solana-agent-"):
+            return False
+
+        value = (runtime_context or {}).get("search_enabled")
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off", ""}:
+                return False
+        return bool(value)
+
+    def _chat_completion_response_events(self, response: Any) -> list[Dict[str, Any]]:
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            return [{"type": "message_end", "finish_reason": "stop"}]
+
+        choice = choices[0]
+        message = getattr(choice, "message", None)
+        content = getattr(message, "content", None)
+        events: list[Dict[str, Any]] = []
+
+        if isinstance(content, str) and content:
+            events.append({"type": "content", "delta": content})
+
+        tool_calls = getattr(message, "tool_calls", None) or []
+        for index, tool_call in enumerate(tool_calls):
+            function = getattr(tool_call, "function", None)
+            events.append(
+                {
+                    "type": "tool_call_delta",
+                    "id": getattr(tool_call, "id", None),
+                    "index": index,
+                    "name": getattr(function, "name", None) if function else None,
+                    "arguments_delta": getattr(function, "arguments", "")
+                    if function
+                    else "",
+                }
+            )
+
+        events.append(
+            {
+                "type": "message_end",
+                "finish_reason": getattr(choice, "finish_reason", None) or "stop",
+            }
+        )
+        return events
 
     def _hosted_chat_completion_extensions(
         self,
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        if not self.text_model.startswith("solana-agent-") and self.auth_mode not in {
-            "x402_private_key",
-            "x402_privy",
-        }:
+        if (
+            not self.text_model.startswith("solana-agent-")
+            and self.auth_mode != "x402_privy"
+        ):
             return {}
 
         context = dict(runtime_context or {})
         extensions: Dict[str, Any] = {}
+        if "privy_user_id" in context:
+            raise ValueError(
+                "privy_user_id belongs in config.ai.privy_user_id, not runtime_context"
+            )
 
         conversation_id = str(context.get("conversation_id") or "").strip()
         if conversation_id:
             extensions["conversation_id"] = conversation_id
 
+        for key in (
+            "privy_wallet_id",
+            "privy_wallet_public_key",
+            "privy_wallet_address",
+        ):
+            value = str(context.get(key) or "").strip()
+            if value:
+                extensions[key] = value
+
+        configured_privy_user_id = str(self.privy_user_id or "").strip()
+        if configured_privy_user_id:
+            extensions["privy_user_id"] = configured_privy_user_id
+
         memory_ttl_tier = str(context.get("memory_ttl_tier") or "").strip()
         if memory_ttl_tier:
             extensions["memory_ttl_tier"] = memory_ttl_tier
 
+        service_tier = str(context.get("service_tier") or "").strip().lower()
+        if service_tier:
+            if service_tier not in {"standard", "priority"}:
+                raise ValueError("service_tier must be one of: standard, priority")
+            extensions["service_tier"] = service_tier
+
         preferred_asset = self._resolve_x402_preferred_asset(context)
         if preferred_asset:
             extensions["x402_preferred_asset"] = preferred_asset
+
+        if self._hosted_search_enabled(context):
+            extensions["search_enabled"] = True
 
         if not extensions:
             return {}
@@ -557,6 +694,109 @@ class OpenAIAdapter(LLMProvider):
         return await self._request_account_json(
             "summary",
             runtime_context=runtime_context,
+        )
+
+    async def create_privy_user(self) -> Dict[str, Any]:
+        """Create a hosted Privy user and return its DID."""
+        return await self._request_hosted_json(
+            "account/user",
+            method="post",
+            json_body={},
+            capability="Hosted wallet management",
+        )
+
+    async def create_wallet(
+        self,
+        *,
+        privy_user_id: str,
+        chain_type: str = "solana",
+    ) -> Dict[str, Any]:
+        """Create or return the hosted Privy wallet for a user."""
+        normalized_privy_user_id = str(privy_user_id or "").strip()
+        if not normalized_privy_user_id:
+            raise ValueError("privy_user_id is required")
+
+        normalized_chain_type = str(chain_type or "solana").strip().lower() or "solana"
+        if normalized_chain_type not in {"ethereum", "solana"}:
+            raise ValueError("chain_type must be one of: ethereum, solana")
+
+        return await self._request_hosted_json(
+            "account/wallet",
+            method="post",
+            json_body={
+                "privy_user_id": normalized_privy_user_id,
+                "chain_type": normalized_chain_type,
+            },
+            capability="Hosted wallet management",
+        )
+
+    async def rotate_wallet(
+        self,
+        *,
+        privy_user_id: str,
+        chain_type: str = "solana",
+    ) -> Dict[str, Any]:
+        """Rotate the hosted Privy wallet for a user."""
+        normalized_privy_user_id = str(privy_user_id or "").strip()
+        if not normalized_privy_user_id:
+            raise ValueError("privy_user_id is required")
+
+        normalized_chain_type = str(chain_type or "solana").strip().lower() or "solana"
+        if normalized_chain_type not in {"ethereum", "solana"}:
+            raise ValueError("chain_type must be one of: ethereum, solana")
+
+        return await self._request_hosted_json(
+            "account/wallet/rotate",
+            method="post",
+            json_body={
+                "privy_user_id": normalized_privy_user_id,
+                "chain_type": normalized_chain_type,
+            },
+            capability="Hosted wallet management",
+        )
+
+    async def export_wallet_private_key(
+        self,
+        *,
+        privy_user_id: str,
+        wallet_id: Optional[str] = None,
+        chain_type: str = "solana",
+    ) -> Dict[str, Any]:
+        """Export a hosted Privy wallet private key for self-custody."""
+        normalized_privy_user_id = str(privy_user_id or "").strip()
+        if not normalized_privy_user_id:
+            raise ValueError("privy_user_id is required")
+
+        normalized_chain_type = str(chain_type or "solana").strip().lower() or "solana"
+        if normalized_chain_type not in {"ethereum", "solana"}:
+            raise ValueError("chain_type must be one of: ethereum, solana")
+
+        json_body: Dict[str, Any] = {
+            "privy_user_id": normalized_privy_user_id,
+            "chain_type": normalized_chain_type,
+            "confirm_export": True,
+        }
+        normalized_wallet_id = str(wallet_id or "").strip()
+        if normalized_wallet_id:
+            json_body["wallet_id"] = normalized_wallet_id
+
+        return await self._request_hosted_json(
+            "account/wallet/export",
+            method="post",
+            json_body=json_body,
+            capability="Hosted wallet management",
+        )
+
+    async def get_wallet_address(self, *, wallet_id: str) -> Dict[str, Any]:
+        """Return the hosted Privy wallet address payload for a wallet id."""
+        normalized_wallet_id = str(wallet_id or "").strip()
+        if not normalized_wallet_id:
+            raise ValueError("wallet_id is required")
+
+        return await self._request_hosted_json(
+            "account/wallet/address",
+            params={"wallet_id": normalized_wallet_id},
+            capability="Hosted wallet management",
         )
 
     async def get_usage_report(
@@ -1038,6 +1278,26 @@ class OpenAIAdapter(LLMProvider):
         try:
             client = await self._get_client(runtime_context)
             self._instrument_client(client)
+
+            if self._hosted_search_enabled(runtime_context):
+                cc_params: Dict[str, Any] = {
+                    "model": model or self.text_model,
+                    "messages": messages,
+                    "max_tokens": self._resolve_chat_completion_max_tokens(
+                        messages,
+                        model or self.text_model,
+                    ),
+                    **await self._hosted_chat_completion_request_options(
+                        runtime_context
+                    ),
+                }
+                if tools:
+                    cc_params["tools"] = tools
+
+                response = await client.chat.completions.create(**cc_params)
+                for event in self._chat_completion_response_events(response):
+                    yield event
+                return
 
             if self._supports_responses_api():
                 # Responses API path (OpenAI, Groq)

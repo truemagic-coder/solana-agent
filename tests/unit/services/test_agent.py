@@ -209,15 +209,60 @@ class TestAgentService:
         """Test successful tool execution."""
         mock_tool = AsyncMock()
         mock_tool.execute.return_value = {"status": "success", "result": "done"}
+        mock_tool.set_runtime_context = MagicMock()
+        mock_tool.clear_runtime_context = MagicMock()
         mock_tool_registry.get_tool.return_value = mock_tool
         mock_tool_registry.get_agent_tools.return_value = [{"name": "test_tool"}]
 
         service = AgentService(llm_provider=mock_llm_provider)
         service.tool_registry = mock_tool_registry
 
-        result = await service.execute_tool("agent", "test_tool", {"param": "value"})
+        result = await service.execute_tool(
+            "agent",
+            "test_tool",
+            {"param": "value"},
+            runtime_context={"privy_wallet_id": "wallet-123"},
+        )
         assert result["status"] == "success"
         assert result["result"] == "done"
+        mock_tool.set_runtime_context.assert_called_once_with(
+            {"privy_wallet_id": "wallet-123"}
+        )
+        mock_tool.clear_runtime_context.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_response_uses_runtime_model(self, mock_llm_provider):
+        """Runtime context can override the configured provider model."""
+
+        async def mock_chat_stream(*args, **kwargs):
+            del args, kwargs
+            yield {"type": "content", "delta": "ok"}
+            yield {"type": "message_end", "finish_reason": "stop"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(
+            llm_provider=mock_llm_provider,
+            model="solana-agent-memory",
+        )
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+
+        chunks = []
+        async for chunk in service.generate_response(
+            agent_name="test_agent",
+            privy_user_id="did:privy:user123",
+            query="hello",
+            runtime_context={"model": "solana-agent-chat"},
+        ):
+            chunks.append(chunk)
+
+        assert chunks == ["ok"]
+        assert mock_llm_provider.chat_stream.call_args.kwargs["model"] == (
+            "solana-agent-chat"
+        )
 
     @pytest.mark.asyncio
     async def test_execute_tool_execution_error(
@@ -227,6 +272,8 @@ class TestAgentService:
         # Create mock tool that raises an exception
         mock_tool = AsyncMock()
         mock_tool.execute.side_effect = Exception("Tool execution failed")
+        mock_tool.set_runtime_context = MagicMock()
+        mock_tool.clear_runtime_context = MagicMock()
 
         # Configure tool registry to return the mock tool
         mock_tool_registry.get_tool.return_value = mock_tool
@@ -247,6 +294,7 @@ class TestAgentService:
 
         # Verify mock interactions
         mock_tool.execute.assert_called_once_with(param="value")
+        mock_tool.clear_runtime_context.assert_called_once()
         mock_tool_registry.get_tool.assert_called_once_with("failing_tool")
         mock_tool_registry.get_agent_tools.assert_called_once_with("test_agent")
 
