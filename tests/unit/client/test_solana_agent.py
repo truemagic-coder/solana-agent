@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch, AsyncMock
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.interfaces.plugins.plugins import Tool
+from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
 
 
 @pytest.fixture
@@ -68,6 +69,21 @@ class TestSolanaAgent:
 
         mock_factory.create_from_config.assert_called_once_with({"ai": {}})
         assert agent.query_service == mock_query_service
+
+    @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
+    def test_init_uses_saved_privy_user_id(
+        self, mock_factory, mock_query_service
+    ):
+        """The public SDK should load the last saved Privy DID from local state."""
+        save_privy_user_id("did:privy:saved-user")
+        mock_factory.create_from_config.return_value = mock_query_service
+
+        agent = SolanaAgent()
+
+        mock_factory.create_from_config.assert_called_once_with(
+            {"ai": {"privy_user_id": "did:privy:saved-user"}}
+        )
+        assert agent.config["ai"]["privy_user_id"] == "did:privy:saved-user"
 
     @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
     def test_init_with_public_kwargs_builds_ai_config(
@@ -566,6 +582,12 @@ class TestSolanaAgent:
             result = await agent.create_privy_user()
 
             assert result == expected
+            assert agent.config["ai"]["privy_user_id"] == "did:privy:user123"
+            assert (
+                mock_query_service.agent_service.llm_provider.privy_user_id
+                == "did:privy:user123"
+            )
+            assert load_saved_privy_user_id() == "did:privy:user123"
             mock_query_service.agent_service.llm_provider.create_privy_user.assert_awaited_once_with()
 
     @pytest.mark.asyncio

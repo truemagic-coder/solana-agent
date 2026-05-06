@@ -5,12 +5,18 @@ import asyncio
 import logging
 from pathlib import Path
 from typing_extensions import Annotated
+from rich import box
 from rich.console import Console
 from rich.live import Live
 from rich.spinner import Spinner
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
 from solana_agent.client.solana_agent import SolanaAgent
+from solana_agent.smoke import (
+    build_public_sdk_smoke_preview,
+    run_public_sdk_smoke,
+)
 
 # --- Basic Logging Configuration ---
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s:%(name)s:%(message)s")
@@ -79,6 +85,173 @@ def _print_json_payload(payload: object) -> None:
     console.print(json.dumps(payload, indent=2, sort_keys=True))
 
 
+def _bool_label(value: object) -> str:
+    return "yes" if bool(value) else "no"
+
+
+def _smoke_step_detail(step: dict[str, object]) -> str:
+    if "response_excerpt" in step:
+        return str(step.get("response_excerpt") or "")
+    if step.get("name") == "resolve_privy_user":
+        created = "created" if step.get("created") else "existing"
+        return f"{step.get('privy_user_id') or ''} ({created})".strip()
+    if "wallet_id" in step and "address" in step:
+        return (
+            f"{step.get('wallet_id') or ''} {step.get('address') or ''}"
+        ).strip()
+    if "address" in step:
+        return str(step.get("address") or "")
+    if "projected_month_end_spend_usd" in step:
+        return (
+            f"month-end spend ${step.get('projected_month_end_spend_usd') or '0'}"
+        )
+    if "month_spend_usd" in step:
+        return f"month spend ${step.get('month_spend_usd') or '0'}"
+    if "bucket_count" in step:
+        return f"{step.get('bucket_count') or 0} buckets"
+    if "private_key_redacted" in step:
+        return f"redacted ({step.get('private_key_length') or 0} chars)"
+    return ""
+
+
+def _print_smoke_report(payload: dict[str, object]) -> None:
+    preview_only = bool(payload.get("preview_only"))
+    estimate = payload.get("estimate")
+    wallet = payload.get("wallet")
+    coverage = payload.get("coverage")
+
+    summary_table = Table(
+        title="Smoke Preview" if preview_only else "Smoke Result",
+        box=box.ASCII,
+        show_header=True,
+        header_style="bold",
+    )
+    summary_table.add_column("Field")
+    summary_table.add_column("Value")
+    summary_table.add_row("Status", "passed" if payload.get("ok") else "failed")
+    summary_table.add_row(
+        "Mode",
+        "preview only" if preview_only else "live run",
+    )
+    summary_table.add_row(
+        "Privy User",
+        str(payload.get("privy_user_id") or ""),
+    )
+    if isinstance(wallet, dict):
+        summary_table.add_row(
+            "Wallet ID",
+            str(wallet.get("wallet_id") or ""),
+        )
+        summary_table.add_row(
+            "Wallet Address",
+            str(wallet.get("address") or ""),
+        )
+    if isinstance(coverage, dict):
+        summary_table.add_row(
+            "Search Check",
+            _bool_label(coverage.get("includes_search")),
+        )
+        summary_table.add_row(
+            "Rotate Check",
+            _bool_label(coverage.get("includes_rotate")),
+        )
+        summary_table.add_row(
+            "Export Check",
+            _bool_label(coverage.get("includes_export")),
+        )
+    if isinstance(estimate, dict):
+        summary_table.add_row(
+            "Spend Ceiling (USD)",
+            str(estimate.get("estimated_smoke_spend_ceiling_usd") or "0"),
+        )
+        summary_table.add_row(
+            "Suggested Funding (USDC)",
+            str(estimate.get("suggested_wallet_funding_usdc") or "0"),
+        )
+    console.print(summary_table)
+
+    if isinstance(estimate, dict):
+        components = estimate.get("components")
+        if isinstance(components, dict):
+            estimate_table = Table(
+                title="Funding Estimate",
+                box=box.ASCII,
+                show_header=True,
+                header_style="bold",
+            )
+            estimate_table.add_column("Component")
+            estimate_table.add_column("Value")
+            for key, label in (
+                ("standard_chat_request_usd", "Standard Chat"),
+                ("search_chat_request_usd", "Search Chat"),
+                ("search_surcharge_usd", "Search Surcharge"),
+                ("search_provider_cost_ceiling_usd", "Search Provider Ceiling"),
+                ("funding_buffer_usdc", "Funding Buffer"),
+            ):
+                estimate_table.add_row(label, str(components.get(key) or "0"))
+            console.print(estimate_table)
+
+    steps = payload.get("steps")
+    if isinstance(steps, list) and steps:
+        steps_table = Table(
+            title="Smoke Steps",
+            box=box.ASCII,
+            show_header=True,
+            header_style="bold",
+        )
+        steps_table.add_column("Step")
+        steps_table.add_column("Status")
+        steps_table.add_column("Detail")
+        for raw_step in steps:
+            if not isinstance(raw_step, dict):
+                continue
+            steps_table.add_row(
+                str(raw_step.get("name") or ""),
+                str(raw_step.get("status") or ""),
+                _smoke_step_detail(raw_step),
+            )
+        console.print(steps_table)
+
+
+def _print_smoke_output(payload: dict[str, object], *, json_output: bool) -> None:
+    if json_output:
+        _print_json_payload(payload)
+        return
+    _print_smoke_report(payload)
+
+
+def _wallet_address_from_payload(payload: object) -> str:
+    if isinstance(payload, str):
+        address = payload.strip()
+    elif isinstance(payload, dict):
+        address = str(
+            payload.get("address")
+            or payload.get("public_address")
+            or payload.get("wallet_address")
+            or payload.get("public_key")
+            or ""
+        ).strip()
+    else:
+        address = ""
+
+    if not address:
+        raise ValueError("wallet lookup did not return an address")
+    return address
+
+
+async def _wallet_address_for_user(
+    agent: SolanaAgent,
+    *,
+    privy_user_id: str,
+    chain_type: str,
+) -> str:
+    payload = await agent.create_wallet(
+        privy_user_id=privy_user_id,
+        chain_type=chain_type,
+    )
+    return _wallet_address_from_payload(payload)
+
+
 def _run_account_call(coro: object) -> None:
     try:
         payload = asyncio.run(coro)
@@ -86,6 +259,15 @@ def _run_account_call(coro: object) -> None:
         console.print(f"[bold red]Account command failed:[/bold red] {e}")
         raise typer.Exit(code=1)
     _print_json_payload(payload)
+
+
+def _require_dev_mode(dev: bool) -> None:
+    if dev:
+        return
+    console.print(
+        "[bold yellow]Live smoke tests are dev-only.[/bold yellow] Re-run with [bold]--dev[/bold]."
+    )
+    raise typer.Exit(code=1)
 
 
 async def stream_agent_response(
@@ -382,6 +564,111 @@ def wallet_rotate(
     )
 
 
+@wallet_app.command("smoke")
+def wallet_smoke(
+    config: Annotated[
+        str,
+        typer.Option(
+            help="Optional configuration JSON file. Defaults are enough to run against the hosted service."
+        ),
+    ] = "config.json",
+    chain_type: Annotated[
+        str,
+        typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
+    ] = "solana",
+    forecast_window_days: Annotated[
+        int,
+        typer.Option(help="Forecast window in days for the funding estimate."),
+    ] = 30,
+    include_search: Annotated[
+        bool,
+        typer.Option(
+            "--include-search/--skip-search",
+            help="Include a search-enabled hosted chat request in the smoke run.",
+        ),
+    ] = True,
+    include_rotate: Annotated[
+        bool,
+        typer.Option(
+            "--include-rotate/--skip-rotate",
+            help="Include destructive wallet rotation validation.",
+        ),
+    ] = False,
+    include_export: Annotated[
+        bool,
+        typer.Option(
+            "--include-export/--skip-export",
+            help="Include private-key export validation without printing the key.",
+        ),
+    ] = False,
+    estimate_only: Annotated[
+        bool,
+        typer.Option(
+            "--estimate-only",
+            help="Only build the preview and funding estimate without executing chat/rotate/export checks.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Print machine-readable JSON instead of the default smoke tables.",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip the preview confirmation prompt and run the live smoke test immediately.",
+        ),
+    ] = False,
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            help="Required for live smoke testing commands.",
+        ),
+    ] = False,
+):
+    """Run a live hosted SDK smoke test with a funding estimate."""
+    _require_dev_mode(dev)
+    agent = _load_agent_for_menu(config)
+    preview = asyncio.run(
+        build_public_sdk_smoke_preview(
+            agent,
+            chain_type=chain_type,
+            forecast_window_days=forecast_window_days,
+            include_search=include_search,
+            include_rotate=include_rotate,
+            include_export=include_export,
+        )
+    )
+
+    if estimate_only:
+        _print_smoke_output(preview, json_output=json_output)
+        return
+
+    if not yes:
+        _print_smoke_output(preview, json_output=json_output)
+        if not Confirm.ask("Proceed with live smoke test", default=False):
+            console.print("[yellow]Smoke test cancelled after preview.[/yellow]")
+            raise typer.Exit(code=1)
+
+    result = asyncio.run(
+        run_public_sdk_smoke(
+            agent,
+            chain_type=chain_type,
+            forecast_window_days=forecast_window_days,
+            include_search=include_search,
+            include_rotate=include_rotate,
+            include_export=include_export,
+            preview=preview,
+        )
+    )
+    _print_smoke_output(result, json_output=json_output)
+
+
 @wallet_app.command("menu")
 def wallet_menu(
     config: Annotated[
@@ -394,6 +681,13 @@ def wallet_menu(
         str,
         typer.Option(help="Wallet chain type. Public SDK defaults to solana."),
     ] = "solana",
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            help="Show development-only menu items, including live smoke tests.",
+        ),
+    ] = False,
 ):
     """Open the hosted wallet onboarding menu."""
     agent = _load_agent_for_menu(config)
@@ -404,6 +698,8 @@ def wallet_menu(
         console.print("3. Show wallet address")
         console.print("4. Rotate wallet")
         console.print("5. Export private key")
+        if dev:
+            console.print("6. Run smoke test (dev)")
         console.print("q. Quit")
         choice = Prompt.ask("Choose an action", default="1")
         normalized_choice = choice.strip().lower()
@@ -429,7 +725,8 @@ def wallet_menu(
             else:
                 privy_user_id = _prompt_privy_user_id(agent)
                 _run_account_call(
-                    agent.create_wallet(
+                    _wallet_address_for_user(
+                        agent,
                         privy_user_id=privy_user_id,
                         chain_type=chain_type,
                     )
@@ -463,6 +760,32 @@ def wallet_menu(
                     privy_user_id=privy_user_id,
                     chain_type=chain_type,
                 )
+            )
+            continue
+        if normalized_choice == "6" and dev:
+            include_search = Confirm.ask(
+                "Include a search-enabled chat check",
+                default=True,
+            )
+            include_rotate = Confirm.ask(
+                "Include wallet rotation validation",
+                default=False,
+            )
+            include_export = Confirm.ask(
+                "Include private-key export validation without printing the key",
+                default=False,
+            )
+            wallet_smoke(
+                config=config,
+                chain_type=chain_type,
+                forecast_window_days=30,
+                include_search=include_search,
+                include_rotate=include_rotate,
+                include_export=include_export,
+                estimate_only=False,
+                json_output=False,
+                yes=False,
+                dev=True,
             )
             continue
 

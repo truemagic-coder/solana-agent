@@ -37,8 +37,20 @@ pip install solana-agent
 Use the Solana Agent CLI to get a new `privy_user_id` from the interactive menu:
 
 ```bash
-solana-agent wallet menu
+uvx solana-agent wallet menu
 ```
+
+The generated `privy_user_id` is saved automatically in the user-local Solana Agent app data directory on Windows, macOS, and Linux. Passing `privy_user_id=` or `config.ai.privy_user_id` still overrides the saved value.
+
+For a live hosted smoke run from the CLI, use the dev-gated wallet smoke command or the dev-only wallet menu item:
+
+```bash
+uvx solana-agent wallet smoke --dev
+uvx solana-agent wallet menu --dev
+```
+
+The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
+Add `--json` to `wallet smoke` when you want machine-readable output instead of tables.
 
 ```python
 from solana_agent import SolanaAgent
@@ -159,7 +171,7 @@ print(tooling_projection)
 Export the hosted wallet private key when you want self-custody:
 
 ```bash
-solana-agent wallet export --yes
+uvx solana-agent wallet export --yes
 ```
 
 Pass `--wallet-id` to export an older rotated wallet from `old_wallets`.
@@ -169,6 +181,6 @@ Pass `--wallet-id` to export an older rotated wallet from `old_wallets`.
 If a wallet needs to be retired, rotate it from the interactive menu:
 
 ```bash
-solana-agent wallet menu
+uxv solana-agent wallet menu
 ```
 
