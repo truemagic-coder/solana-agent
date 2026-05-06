@@ -413,7 +413,9 @@ async def run_public_sdk_smoke(
         rotated_wallet_id = _wallet_id_from_payload(rotated_wallet)
         rotated_wallet_address = _wallet_address_from_payload(rotated_wallet)
         if not rotated_wallet_id or not rotated_wallet_address:
-            raise ValueError("Wallet rotation smoke check returned an incomplete wallet")
+            raise ValueError(
+                "Wallet rotation smoke check returned an incomplete wallet"
+            )
         wallet_id = rotated_wallet_id
         wallet_address = rotated_wallet_address
         steps.append(

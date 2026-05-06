@@ -96,15 +96,11 @@ def _smoke_step_detail(step: dict[str, object]) -> str:
         created = "created" if step.get("created") else "existing"
         return f"{step.get('privy_user_id') or ''} ({created})".strip()
     if "wallet_id" in step and "address" in step:
-        return (
-            f"{step.get('wallet_id') or ''} {step.get('address') or ''}"
-        ).strip()
+        return (f"{step.get('wallet_id') or ''} {step.get('address') or ''}").strip()
     if "address" in step:
         return str(step.get("address") or "")
     if "projected_month_end_spend_usd" in step:
-        return (
-            f"month-end spend ${step.get('projected_month_end_spend_usd') or '0'}"
-        )
+        return f"month-end spend ${step.get('projected_month_end_spend_usd') or '0'}"
     if "month_spend_usd" in step:
         return f"month spend ${step.get('month_spend_usd') or '0'}"
     if "bucket_count" in step:

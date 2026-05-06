@@ -151,9 +151,7 @@ class SolanaAgent(SolanaAgentInterface):
         if not normalized_privy_user_id:
             return
 
-        self._privy_user_id_target_section()["privy_user_id"] = (
-            normalized_privy_user_id
-        )
+        self._privy_user_id_target_section()["privy_user_id"] = normalized_privy_user_id
 
         query_service = getattr(self, "query_service", None)
         agent_service = getattr(query_service, "agent_service", None)
