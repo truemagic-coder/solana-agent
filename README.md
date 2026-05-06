@@ -8,7 +8,7 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/ci.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/ci.yml)
 [![Ruff Style](https://img.shields.io/badge/style-ruff-41B5BE)](https://github.com/astral-sh/ruff)
 
-Thin public SDK for the hosted non-streaming Solana Agent platform.
+Thin public SDK for the hosted [Solana Agent](https://solana-agent.com) platform.
 
 The public package is intentionally small:
 
