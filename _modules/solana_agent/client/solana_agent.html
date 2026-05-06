@@ -88,7 +88,12 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.factories.agent_factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">DEFAULT_AGI_STATELESS_MODEL</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.client.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">SolanaAgent</span> <span class="k">as</span> <span class="n">SolanaAgentInterface</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.interfaces.plugins.plugins</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.local_state</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_saved_privy_user_id</span><span class="p">,</span> <span class="n">save_privy_user_id</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">solana_agent.local_state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">load_saved_privy_user_id</span><span class="p">,</span>
+    <span class="n">load_saved_wallet_id</span><span class="p">,</span>
+    <span class="n">save_privy_user_id</span><span class="p">,</span>
+    <span class="n">save_wallet_id</span><span class="p">,</span>
+<span class="p">)</span>
 
 
 <div class="viewcode-block" id="SolanaAgent">
@@ -244,6 +249,31 @@
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">saved_privy_user_id</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_set_configured_privy_user_id</span><span class="p">(</span><span class="n">saved_privy_user_id</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_saved_wallet_id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">saved_wallet_id</span> <span class="o">=</span> <span class="n">load_saved_wallet_id</span><span class="p">(</span><span class="n">base_url</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_configured_base_url</span><span class="p">())</span>
+        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">saved_wallet_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_remember_wallet_id</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">normalized_wallet_id</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">normalized_wallet_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span>
+                <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wallet_id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">normalized_wallet_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">payload</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">normalized_wallet_id</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">save_wallet_id</span><span class="p">(</span>
+                <span class="n">normalized_wallet_id</span><span class="p">,</span>
+                <span class="n">base_url</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_configured_base_url</span><span class="p">(),</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">normalized_wallet_id</span>
+        <span class="k">return</span> <span class="n">normalized_wallet_id</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_runtime_privy_wallet_id</span><span class="p">(</span>
@@ -642,7 +672,12 @@
         <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">privy_user_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">resolved_privy_user_id</span><span class="p">:</span>
             <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_configured_privy_user_id</span><span class="p">()</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span> <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">)</span></div>
+        <span class="n">payload</span> <span class="o">=</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span>
+            <span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span>
+            <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">payload</span></div>
 
 
 <div class="viewcode-block" id="SolanaAgent.rotate_wallet">
@@ -657,7 +692,12 @@
         <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">privy_user_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">resolved_privy_user_id</span><span class="p">:</span>
             <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_configured_privy_user_id</span><span class="p">()</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span> <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">)</span></div>
+        <span class="n">payload</span> <span class="o">=</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span>
+            <span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span>
+            <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">payload</span></div>
 
 
 <div class="viewcode-block" id="SolanaAgent.export_wallet_private_key">
@@ -676,10 +716,16 @@
         <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">privy_user_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">resolved_privy_user_id</span><span class="p">:</span>
             <span class="n">resolved_privy_user_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_configured_privy_user_id</span><span class="p">()</span>
+        <span class="n">resolved_wallet_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">wallet_id</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">resolved_wallet_id</span><span class="p">:</span>
+            <span class="n">resolved_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_saved_wallet_id</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span>
             <span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span>
-            <span class="n">wallet_id</span><span class="o">=</span><span class="n">wallet_id</span><span class="p">,</span>
+            <span class="n">wallet_id</span><span class="o">=</span><span class="n">resolved_wallet_id</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
+            <span class="n">payload</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="n">resolved_wallet_id</span>
         <span class="p">)</span>
         <span class="n">private_key</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;private_key&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">private_key</span><span class="p">:</span>
@@ -716,6 +762,9 @@
             <span class="s2">&quot;Hosted wallet management&quot;</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">wallet_id</span><span class="o">=</span><span class="n">normalized_wallet_id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
+            <span class="n">payload</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="n">normalized_wallet_id</span>
+        <span class="p">)</span>
         <span class="n">address</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span>
             <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;public_address&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
         <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
