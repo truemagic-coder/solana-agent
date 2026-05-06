@@ -1,3 +1,4 @@
+import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
@@ -177,20 +178,55 @@ def test_wallet_address_command_allows_configured_wallet(mock_solana_agent):
 
 
 @patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.load_saved_privy_user_id")
+@patch("solana_agent.cli.save_privy_user_id")
 @patch("solana_agent.cli.SolanaAgent")
-def test_wallet_menu_can_create_privy_user(mock_solana_agent, mock_exists):
+def test_wallet_menu_can_create_privy_user(
+    mock_solana_agent,
+    mock_save_privy_user_id,
+    mock_load_saved_privy_user_id,
+    mock_exists,
+):
     del mock_exists
+    saved_state = {"privy_user_id": None}
+
+    def _save_privy_user_id(privy_user_id, base_url=None):
+        del base_url
+        saved_state["privy_user_id"] = privy_user_id
+
+    def _load_privy_user_id(base_url=None):
+        del base_url
+        return saved_state["privy_user_id"]
+
     mock_agent = MagicMock()
     mock_agent.create_privy_user = AsyncMock(
         return_value={"privy_user_id": "did:privy:user123", "created": True}
     )
+    mock_agent._configured_base_url.return_value = None
+    mock_agent._configured_privy_user_id.side_effect = ValueError("missing")
+    mock_save_privy_user_id.side_effect = _save_privy_user_id
+    mock_load_saved_privy_user_id.side_effect = _load_privy_user_id
+    mock_agent.create_wallet = AsyncMock(
+        return_value={
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+        }
+    )
     mock_solana_agent.return_value = mock_agent
 
-    result = runner.invoke(app, ["wallet", "menu"], input="1\nq\n")
+    result = runner.invoke(app, ["wallet", "menu"], input="1\n2\n\nq\n")
 
     assert result.exit_code == 0
     mock_solana_agent.assert_called_once_with()
     mock_agent.create_privy_user.assert_awaited_once_with()
+    mock_agent.create_wallet.assert_awaited_once_with(
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )
+    mock_save_privy_user_id.assert_any_call(
+        "did:privy:user123",
+        base_url=None,
+    )
     assert '"privy_user_id": "did:privy:user123"' in result.stdout
 
 
@@ -395,6 +431,44 @@ def test_wallet_export_command_calls_client(mock_solana_agent):
         chain_type="solana",
     )
     assert '"base58-private-key"' in result.stdout
+
+
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_export_command_surfaces_http_error_detail(mock_solana_agent):
+    mock_agent = MagicMock()
+    request = httpx.Request(
+        "POST",
+        "https://ai.solana-agent.com/v1/account/wallet/export",
+    )
+    response = httpx.Response(
+        502,
+        request=request,
+        text='{"error":{"message":"Privy wallet export failed: upstream 403"}}',
+    )
+    mock_agent.export_wallet_private_key = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "bad gateway",
+            request=request,
+            response=response,
+        )
+    )
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(
+        app,
+        [
+            "wallet",
+            "export",
+            "--privy-user-id",
+            "did:privy:user123",
+            "--wallet-id",
+            "wallet-123",
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Privy wallet export failed" in result.stdout
 
 
 @patch("solana_agent.cli.SolanaAgent")

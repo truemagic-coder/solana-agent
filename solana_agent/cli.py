@@ -4,6 +4,7 @@ import typer
 import asyncio
 import logging
 from pathlib import Path
+import httpx
 from typing_extensions import Annotated
 from rich import box
 from rich.console import Console
@@ -13,6 +14,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from solana_agent.client.solana_agent import SolanaAgent
+from solana_agent.local_state import load_saved_privy_user_id, save_privy_user_id
 from solana_agent.smoke import (
     build_public_sdk_smoke_preview,
     run_public_sdk_smoke,
@@ -67,18 +69,77 @@ def _load_agent_for_menu(config: str) -> SolanaAgent:
         raise typer.Exit(code=1)
 
 
-def _configured_privy_user_id(agent: SolanaAgent) -> Optional[str]:
+def _agent_base_url(agent: SolanaAgent) -> Optional[str]:
+    resolver = getattr(agent, "_configured_base_url", None)
+    if not callable(resolver):
+        return None
     try:
-        return agent._configured_privy_user_id()
+        value = str(resolver() or "").strip()
     except Exception:
         return None
+    return value or None
+
+
+def _apply_privy_user_id_to_agent(
+    agent: SolanaAgent,
+    privy_user_id: Optional[str],
+) -> Optional[str]:
+    normalized_privy_user_id = str(privy_user_id or "").strip()
+    if not normalized_privy_user_id:
+        return None
+
+    setter = getattr(agent, "_set_configured_privy_user_id", None)
+    if callable(setter):
+        try:
+            setter(normalized_privy_user_id)
+        except Exception:
+            pass
+    return normalized_privy_user_id
+
+
+def _remember_privy_user_id(agent: SolanaAgent, privy_user_id: Optional[str]) -> None:
+    normalized_privy_user_id = _apply_privy_user_id_to_agent(agent, privy_user_id)
+    if not normalized_privy_user_id:
+        return
+
+    try:
+        save_privy_user_id(
+            normalized_privy_user_id,
+            base_url=_agent_base_url(agent),
+        )
+    except OSError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] could not save privy_user_id locally: {exc}"
+        )
+
+
+def _configured_privy_user_id(agent: SolanaAgent) -> Optional[str]:
+    try:
+        configured_privy_user_id = str(agent._configured_privy_user_id() or "").strip()
+    except Exception:
+        configured_privy_user_id = ""
+
+    if configured_privy_user_id:
+        return configured_privy_user_id
+
+    try:
+        saved_privy_user_id = load_saved_privy_user_id(base_url=_agent_base_url(agent))
+    except Exception:
+        return None
+    if saved_privy_user_id:
+        _apply_privy_user_id_to_agent(agent, saved_privy_user_id)
+    return saved_privy_user_id or None
 
 
 def _prompt_privy_user_id(agent: SolanaAgent) -> str:
     configured_user_id = _configured_privy_user_id(agent)
     if configured_user_id:
-        return Prompt.ask("Privy user ID", default=configured_user_id)
-    return Prompt.ask("Privy user ID")
+        privy_user_id = Prompt.ask("Privy user ID", default=configured_user_id)
+    else:
+        privy_user_id = Prompt.ask("Privy user ID")
+
+    _remember_privy_user_id(agent, privy_user_id)
+    return str(privy_user_id or "").strip()
 
 
 def _print_json_payload(payload: object) -> None:
@@ -216,6 +277,12 @@ def _print_smoke_output(payload: dict[str, object], *, json_output: bool) -> Non
     _print_smoke_report(payload)
 
 
+def _wallet_id_from_payload(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("wallet_id") or payload.get("id") or "").strip()
+
+
 def _wallet_address_from_payload(payload: object) -> str:
     if isinstance(payload, str):
         address = payload.strip()
@@ -248,13 +315,25 @@ async def _wallet_address_for_user(
     return _wallet_address_from_payload(payload)
 
 
-def _run_account_call(coro: object) -> None:
+def _run_account_call(coro: object) -> object:
     try:
         payload = asyncio.run(coro)
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        response = getattr(e, "response", None)
+        if response is not None:
+            try:
+                detail = str(response.text or "").strip()
+            except Exception:
+                detail = ""
+        message = detail or str(e)
+        console.print(f"[bold red]Account command failed:[/bold red] {message}")
+        raise typer.Exit(code=1)
     except Exception as e:
         console.print(f"[bold red]Account command failed:[/bold red] {e}")
         raise typer.Exit(code=1)
     _print_json_payload(payload)
+    return payload
 
 
 def _require_dev_mode(dev: bool) -> None:
@@ -469,6 +548,7 @@ def wallet_create(
 ):
     """Create or return the hosted wallet for a user."""
     agent = _load_agent(config)
+    _remember_privy_user_id(agent, privy_user_id)
     _run_account_call(
         agent.create_wallet(privy_user_id=privy_user_id, chain_type=chain_type)
     )
@@ -482,7 +562,9 @@ def wallet_user(
 ):
     """Create a hosted Privy user."""
     agent = _load_agent(config)
-    _run_account_call(agent.create_privy_user())
+    payload = _run_account_call(agent.create_privy_user())
+    if isinstance(payload, dict):
+        _remember_privy_user_id(agent, payload.get("privy_user_id"))
 
 
 @wallet_app.command("address")
@@ -531,6 +613,7 @@ def wallet_export(
             raise typer.Exit(code=1)
 
     agent = _load_agent(config)
+    _remember_privy_user_id(agent, privy_user_id)
     _run_account_call(
         agent.export_wallet_private_key(
             wallet_id=wallet_id,
@@ -555,6 +638,7 @@ def wallet_rotate(
 ):
     """Rotate the hosted wallet for a Privy user."""
     agent = _load_agent(config)
+    _remember_privy_user_id(agent, privy_user_id)
     _run_account_call(
         agent.rotate_wallet(privy_user_id=privy_user_id, chain_type=chain_type)
     )
@@ -687,6 +771,7 @@ def wallet_menu(
 ):
     """Open the hosted wallet onboarding menu."""
     agent = _load_agent_for_menu(config)
+    session_wallet_id: str | None = None
     while True:
         console.print("\n[bold]Solana Agent Wallet Menu[/bold]")
         console.print("1. Create Privy user")
@@ -703,16 +788,19 @@ def wallet_menu(
         if normalized_choice in {"q", "quit", "exit"}:
             break
         if normalized_choice == "1":
-            _run_account_call(agent.create_privy_user())
+            payload = _run_account_call(agent.create_privy_user())
+            if isinstance(payload, dict):
+                _remember_privy_user_id(agent, payload.get("privy_user_id"))
             continue
         if normalized_choice == "2":
             privy_user_id = _prompt_privy_user_id(agent)
-            _run_account_call(
+            payload = _run_account_call(
                 agent.create_wallet(
                     privy_user_id=privy_user_id,
                     chain_type=chain_type,
                 )
             )
+            session_wallet_id = _wallet_id_from_payload(payload) or session_wallet_id
             continue
         if normalized_choice == "3":
             configured_user_id = _configured_privy_user_id(agent)
@@ -730,12 +818,13 @@ def wallet_menu(
             continue
         if normalized_choice == "4":
             privy_user_id = _prompt_privy_user_id(agent)
-            _run_account_call(
+            payload = _run_account_call(
                 agent.rotate_wallet(
                     privy_user_id=privy_user_id,
                     chain_type=chain_type,
                 )
             )
+            session_wallet_id = _wallet_id_from_payload(payload) or session_wallet_id
             continue
         if normalized_choice == "5":
             confirmation = Prompt.ask(
@@ -748,7 +837,7 @@ def wallet_menu(
             privy_user_id = _prompt_privy_user_id(agent)
             wallet_id = Prompt.ask(
                 "Wallet ID",
-                default="",
+                default=session_wallet_id or "",
             ).strip()
             _run_account_call(
                 agent.export_wallet_private_key(
