@@ -7,11 +7,13 @@ from pathlib import Path
 import httpx
 from typing_extensions import Annotated
 from rich import box
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
+from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
+from rich.text import Text
 
 from solana_agent.client.solana_agent import SolanaAgent
 from solana_agent.local_state import (
@@ -35,6 +37,10 @@ wallet_app = typer.Typer()
 app.add_typer(account_app, name="account")
 app.add_typer(wallet_app, name="wallet")
 console = Console()
+
+DEFAULT_HOSTED_CHAT_INSTRUCTIONS = (
+    "You are a helpful Solana AI assistant for hosted wallet and MCP workflows."
+)
 
 
 def _load_agent(config: str) -> SolanaAgent:
@@ -71,6 +77,43 @@ def _load_agent_for_menu(config: str) -> SolanaAgent:
         return SolanaAgent()
     except ValueError as e:
         console.print(f"[bold red]Error loading hosted defaults:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
+def _prompt_chat_instructions(instructions: Optional[str]) -> str:
+    normalized_instructions = str(instructions or "").strip()
+    if normalized_instructions:
+        return normalized_instructions
+
+    return str(
+        typer.prompt(
+            "Agent instructions",
+            default=DEFAULT_HOSTED_CHAT_INSTRUCTIONS,
+        )
+        or DEFAULT_HOSTED_CHAT_INSTRUCTIONS
+    ).strip()
+
+
+def _load_chat_agent(config: str, instructions: Optional[str]) -> SolanaAgent:
+    if config and Path(config).exists():
+        return _load_agent(config)
+
+    normalized_config = str(config or "").strip()
+    if normalized_config:
+        console.print(
+            f"[yellow]Warning:[/yellow] Configuration file not found at '{normalized_config}'. "
+            "Starting hosted chat with interactive instructions instead."
+        )
+
+    try:
+        return SolanaAgent(instructions=_prompt_chat_instructions(instructions))
+    except ValueError as e:
+        console.print(f"[bold red]Error loading hosted defaults:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(
+            f"[bold red]An unexpected error occurred during initialization:[/bold red] {e}"
+        )
         raise typer.Exit(code=1)
 
 
@@ -506,6 +549,13 @@ async def stream_agent_response(
 ):
     """Helper function to stream and display agent response."""
     full_response = ""
+
+    def _agent_response_renderable(response: str) -> Group:
+        return Group(
+            Text("Agent:", style="bright_blue"),
+            Markdown(response),
+        )
+
     with Live(console=console, refresh_per_second=10, transient=True) as live:
         live.update(Spinner("dots", "Thinking..."))
         try:
@@ -513,14 +563,14 @@ async def stream_agent_response(
             async for chunk in agent.process(
                 message=message,
                 output_format="text",
-                prompt=prompt,  # Pass prompt override if provided
+                prompt=prompt,
                 search_enabled=search_enabled,
             ):
                 if first_chunk:
                     live.update("", refresh=True)  # Clear spinner
                     first_chunk = False
                 full_response += chunk
-                live.update(full_response)
+                live.update(_agent_response_renderable(full_response))
 
             if first_chunk:  # No response received
                 live.update("[yellow]Agent did not produce a response.[/yellow]")
@@ -534,7 +584,59 @@ async def stream_agent_response(
 
     # Print the final complete response cleanly after Live context exits
     if full_response:
-        console.print(f"[bright_blue]Agent:[/bright_blue] {full_response}")
+        console.print(_agent_response_renderable(full_response))
+
+
+async def _chat_session(
+    agent: SolanaAgent,
+    *,
+    prompt: Optional[str] = None,
+    search_enabled: bool = False,
+) -> None:
+    while True:
+        try:
+            user_message = Prompt.ask("[bold green]You[/bold green]")
+
+            if user_message.lower() in ["exit", "quit"]:
+                console.print("[yellow]Exiting chat session.[/yellow]")
+                break
+
+            if not user_message.strip():
+                continue
+
+            await stream_agent_response(
+                agent,
+                user_message,
+                prompt,
+                search_enabled=search_enabled,
+            )
+
+        except KeyboardInterrupt:
+            console.print(
+                "\n[yellow]Exiting chat session (KeyboardInterrupt).[/yellow]"
+            )
+            break
+        except Exception as loop_error:
+            console.print(
+                f"[bold red]An error occurred in the chat loop:[/bold red] {loop_error}"
+            )
+
+
+def _resolve_chat_search_enabled(
+    *,
+    config_exists: bool,
+    search_enabled: Optional[bool],
+) -> bool:
+    if search_enabled is not None:
+        return bool(search_enabled)
+    if config_exists:
+        return False
+    return bool(
+        Confirm.ask(
+            "Enable hosted search add-on for live web and X results?",
+            default=False,
+        )
+    )
 
 
 @app.command()
@@ -542,62 +644,58 @@ def chat(
     config: Annotated[
         str, typer.Option(help="Path to the configuration JSON file.")
     ] = "config.json",
+    instructions: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Agent instructions to use when no config file is available."
+        ),
+    ] = None,
     prompt: Annotated[  # Allow prompt override via option
         str, typer.Option(help="Optional system prompt override for the session.")
     ] = None,
     search_enabled: Annotated[
-        bool,
+        Optional[bool],
         typer.Option(
-            "--search-enabled",
-            help="Enable the hosted search add-on for each request in this chat session.",
+            "--search-enabled/--no-search-enabled",
+            help=(
+                "Enable the hosted search add-on for each request in this chat "
+                "session. When omitted in hosted no-config chat, the CLI asks once "
+                "at startup."
+            ),
         ),
-    ] = False,
+    ] = None,
 ):
     """
     Start an interactive chat session with the Solana Agent.
     Type 'exit' or 'quit' to end the session.
     """
-    with console.status("[bold green]Initializing agent...", spinner="dots"):
-        agent = _load_agent(config)
+    config_exists = Path(config).exists()
+    needs_interactive_instructions = (
+        not config_exists and not str(instructions or "").strip()
+    )
+
+    resolved_instructions = instructions
+    if needs_interactive_instructions:
+        resolved_instructions = _prompt_chat_instructions(instructions)
+    resolved_search_enabled = _resolve_chat_search_enabled(
+        config_exists=config_exists,
+        search_enabled=search_enabled,
+    )
+
+    if needs_interactive_instructions:
+        agent = _load_chat_agent(config, resolved_instructions)
+    else:
+        with console.status("[bold green]Initializing agent...", spinner="dots"):
+            agent = _load_chat_agent(config, resolved_instructions)
     console.print("[green]Agent initialized. Start chatting![/green]")
     console.print("[dim]Type 'exit' or 'quit' to end.[/dim]")
-
-    # --- Main Interaction Loop ---
-    while True:
-        try:
-            # Use Rich's Prompt for better input handling
-            user_message = Prompt.ask("[bold green]You[/bold green]")
-
-            if user_message.lower() in ["exit", "quit"]:
-                console.print("[yellow]Exiting chat session.[/yellow]")
-                break
-
-            if not user_message.strip():  # Handle empty input
-                continue
-
-            # Run the async streaming function for the user's message
-            # Pass the optional prompt override from the command line option
-            asyncio.run(
-                stream_agent_response(
-                    agent,
-                    user_message,
-                    prompt,
-                    search_enabled=search_enabled,
-                )
-            )
-
-        except KeyboardInterrupt:  # Allow Ctrl+C to exit gracefully
-            console.print(
-                "\n[yellow]Exiting chat session (KeyboardInterrupt).[/yellow]"
-            )
-            break
-        except Exception as loop_error:
-            # Catch errors during the input/processing loop without crashing
-            console.print(
-                f"[bold red]An error occurred in the chat loop:[/bold red] {loop_error}"
-            )
-            # Optionally add a small delay or specific error handling here
-            # Consider if you want to break the loop on certain errors
+    asyncio.run(
+        _chat_session(
+            agent,
+            prompt=prompt,
+            search_enabled=resolved_search_enabled,
+        )
+    )
 
 
 @account_app.command("summary")

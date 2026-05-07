@@ -63,6 +63,16 @@ response = await agent.message(
 print(response)
 ```
 
+## Hosted Search
+
+For live web and X results in hosted chat, enable the hosted search add-on:
+
+```bash
+uvx solana-agent chat --search-enabled
+```
+
+When you start hosted chat without a local `config.json`, the CLI now asks once at startup whether to enable hosted search for that session.
+
 ## Hosted Memory
 
 ```python

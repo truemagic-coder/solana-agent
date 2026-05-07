@@ -1,14 +1,202 @@
 import httpx
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import typer
+from rich.console import Group
+from rich.markdown import Markdown
 from typer.testing import CliRunner
 
-from solana_agent.cli import _resolve_wallet_smoke_options, app
+from solana_agent.cli import _resolve_wallet_smoke_options, app, stream_agent_response
 
 
 runner = CliRunner()
+
+
+class _FakeLive:
+    def __init__(self, *args, **kwargs):
+        del args
+        del kwargs
+        self.updates = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        del exc_type
+        del exc
+        del tb
+        return False
+
+    def update(self, renderable, refresh=False):
+        del refresh
+        self.updates.append(renderable)
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask", return_value=False)
+@patch("solana_agent.cli.Prompt.ask", side_effect=["quit"])
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_falls_back_to_hosted_defaults_when_config_missing(
+    mock_solana_agent,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_exists
+    del mock_confirm_ask
+    del mock_prompt_ask
+    del mock_typer_prompt
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+
+    result = runner.invoke(app, ["chat", "--config", "config.json"])
+
+    assert result.exit_code == 0
+    mock_solana_agent.assert_called_once_with(instructions="You are concise.")
+    assert "Configuration file not found" in result.stdout
+    assert "Agent initialized. Start chatting!" in result.stdout
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask", return_value=False)
+@patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_runs_single_async_session_for_multiple_turns(
+    mock_solana_agent,
+    mock_stream_agent_response,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_prompt_ask
+    del mock_exists
+    del mock_confirm_ask
+    del mock_typer_prompt
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    original_asyncio_run = asyncio.run
+
+    with patch(
+        "solana_agent.cli.asyncio.run",
+        side_effect=original_asyncio_run,
+    ) as mock_asyncio_run:
+        result = runner.invoke(app, ["chat", "--config", "config.json"])
+
+    assert result.exit_code == 0
+    assert mock_asyncio_run.call_count == 1
+    mock_stream_agent_response.assert_awaited_once_with(
+        mock_agent,
+        "hello",
+        None,
+        search_enabled=False,
+    )
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask", return_value=True)
+@patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_prompts_for_hosted_search_when_config_missing(
+    mock_solana_agent,
+    mock_stream_agent_response,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_prompt_ask
+    del mock_exists
+    del mock_typer_prompt
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    original_asyncio_run = asyncio.run
+
+    with patch(
+        "solana_agent.cli.asyncio.run",
+        side_effect=original_asyncio_run,
+    ):
+        result = runner.invoke(app, ["chat", "--config", "config.json"])
+
+    assert result.exit_code == 0
+    mock_confirm_ask.assert_called_once()
+    mock_stream_agent_response.assert_awaited_once_with(
+        mock_agent,
+        "hello",
+        None,
+        search_enabled=True,
+    )
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask")
+@patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_honors_explicit_search_flag_without_prompt(
+    mock_solana_agent,
+    mock_stream_agent_response,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_prompt_ask
+    del mock_exists
+    del mock_typer_prompt
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    original_asyncio_run = asyncio.run
+
+    with patch(
+        "solana_agent.cli.asyncio.run",
+        side_effect=original_asyncio_run,
+    ):
+        result = runner.invoke(
+            app,
+            ["chat", "--config", "config.json", "--search-enabled"],
+        )
+
+    assert result.exit_code == 0
+    mock_confirm_ask.assert_not_called()
+    mock_stream_agent_response.assert_awaited_once_with(
+        mock_agent,
+        "hello",
+        None,
+        search_enabled=True,
+    )
+
+
+@pytest.mark.asyncio
+@patch("solana_agent.cli.Live", _FakeLive)
+@patch("solana_agent.cli.console.print")
+async def test_stream_agent_response_renders_markdown(mock_console_print):
+    async def _chunks():
+        yield "## Latest News\n\n"
+        yield "- item one\n- item two"
+
+    mock_agent = MagicMock()
+    mock_agent.process.return_value = _chunks()
+
+    await stream_agent_response(
+        mock_agent,
+        "What is the latest news?",
+        search_enabled=True,
+    )
+
+    renderable = mock_console_print.call_args.args[0]
+
+    assert isinstance(renderable, Group)
+    assert any(isinstance(item, Markdown) for item in renderable.renderables)
 
 
 @patch("solana_agent.cli.SolanaAgent")

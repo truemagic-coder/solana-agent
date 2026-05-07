@@ -6,6 +6,7 @@ These adapters implement the LLMProvider interface for different LLM services.
 
 import asyncio
 import base64
+import inspect
 import io
 import json
 import logging
@@ -27,7 +28,7 @@ from typing import (
 import httpx
 from PIL import Image
 import logfire
-from openai import AsyncOpenAI, OpenAIError
+from openai import APIConnectionError, AsyncOpenAI, OpenAIError
 from pydantic import BaseModel
 from solders.keypair import Keypair
 import tiktoken
@@ -179,8 +180,13 @@ class OpenAIAdapter(LLMProvider):
         self._is_openai_endpoint = base_url is None or "api.openai.com" in base_url
         self._client_lock = asyncio.Lock()
         self._privy_clients: Dict[str, AsyncOpenAI] = {}
+        self._hosted_managed_clients: Dict[str, AsyncOpenAI] = {}
+        self._client_loop: asyncio.AbstractEventLoop | None = None
         self.client: Optional[AsyncOpenAI] = None
-        if self.auth_mode != "x402_privy":
+        if self.auth_mode != "x402_privy" and (
+            self.auth_mode != "hosted_managed"
+            or self._uses_hosted_managed_local_x402_settlement(base_url)
+        ):
             self.client = self._create_client(api_key=api_key, base_url=base_url)
 
         self.logfire = False
@@ -255,21 +261,40 @@ class OpenAIAdapter(LLMProvider):
             and not self._is_openai_endpoint
         )
 
-    def _resolve_runtime_privy_wallet_id(
+    def _runtime_privy_wallet_id(
         self, runtime_context: Optional[Dict[str, Any]] = None
     ) -> str:
         context = dict(runtime_context or {})
-        wallet_id = ""
         for context_key in ("privy_wallet_id", "hosted_privy_wallet_id"):
             wallet_id = str(context.get(context_key) or "").strip()
             if wallet_id:
-                break
-        if not wallet_id:
-            wallet_payload = context.get("privy_wallet")
-            if isinstance(wallet_payload, dict):
-                wallet_id = str(
-                    wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
-                ).strip()
+                return wallet_id
+        wallet_payload = context.get("privy_wallet")
+        if isinstance(wallet_payload, dict):
+            return str(
+                wallet_payload.get("wallet_id") or wallet_payload.get("id") or ""
+            ).strip()
+        return ""
+
+    def _uses_hosted_managed_wallet_x402_settlement(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        base_url: Optional[str] = None,
+    ) -> bool:
+        resolved_base_url = base_url if base_url is not None else self.base_url
+        return bool(
+            self.auth_mode == "hosted_managed"
+            and not str(self.private_key or "").strip()
+            and resolved_base_url
+            and not self._is_openai_endpoint
+            and self._runtime_privy_wallet_id(runtime_context)
+            and str(self.privy_user_id or "").strip()
+        )
+
+    def _resolve_runtime_privy_wallet_id(
+        self, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        wallet_id = self._runtime_privy_wallet_id(runtime_context)
         if not wallet_id:
             raise ValueError(
                 "x402_privy requires a runtime wallet id via runtime_context.privy_wallet_id, "
@@ -277,12 +302,133 @@ class OpenAIAdapter(LLMProvider):
             )
         return wallet_id
 
+    @staticmethod
+    def _current_running_loop() -> asyncio.AbstractEventLoop | None:
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+    async def _close_cached_client(self, client: Optional[AsyncOpenAI]) -> None:
+        if client is None:
+            return
+
+        close_method = getattr(client, "close", None)
+        if callable(close_method):
+            try:
+                result = close_method()
+                if inspect.isawaitable(result):
+                    await result
+                return
+            except Exception:
+                logger.debug(
+                    "Failed to close cached OpenAI client cleanly.", exc_info=True
+                )
+                return
+
+        http_client = getattr(client, "_client", None)
+        aclose_method = getattr(http_client, "aclose", None)
+        if callable(aclose_method):
+            try:
+                await aclose_method()
+            except Exception:
+                logger.debug(
+                    "Failed to close cached underlying http client.", exc_info=True
+                )
+
+    async def _resolve_hosted_managed_signing_key(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        *,
+        prefer_runtime_wallet: bool = False,
+    ) -> str:
+        wallet_id = self._runtime_privy_wallet_id(runtime_context)
+        if prefer_runtime_wallet and wallet_id:
+            privy_user_id = str(self.privy_user_id or "").strip()
+            if not privy_user_id:
+                raise ValueError(
+                    "hosted_managed x402 settlement requires config.ai.privy_user_id"
+                )
+
+            exported = await self.export_wallet_private_key(
+                privy_user_id=privy_user_id,
+                wallet_id=wallet_id,
+            )
+            resolved_private_key = str(exported.get("private_key") or "").strip()
+            if not resolved_private_key:
+                raise ValueError(
+                    "Hosted wallet export response is missing a private_key"
+                )
+            return resolved_private_key
+
+        configured_private_key = str(self.private_key or "").strip()
+        if configured_private_key:
+            return configured_private_key
+
+        privy_user_id = str(self.privy_user_id or "").strip()
+        if not privy_user_id:
+            raise ValueError(
+                "hosted_managed x402 settlement requires config.ai.privy_user_id"
+            )
+
+        if not wallet_id:
+            raise ValueError(
+                "hosted_managed x402 settlement requires runtime_context.privy_wallet_id or hosted_privy_wallet_id"
+            )
+
+        exported = await self.export_wallet_private_key(
+            privy_user_id=privy_user_id,
+            wallet_id=wallet_id,
+        )
+        resolved_private_key = str(exported.get("private_key") or "").strip()
+        if not resolved_private_key:
+            raise ValueError("Hosted wallet export response is missing a private_key")
+        return resolved_private_key
+
     async def _get_client(
         self, runtime_context: Optional[Dict[str, Any]] = None
     ) -> AsyncOpenAI:
         """Return the configured client, creating Privy-backed clients lazily."""
 
-        if self.auth_mode != "x402_privy" and self.client is not None:
+        current_loop = self._current_running_loop()
+
+        if self._uses_hosted_managed_wallet_x402_settlement(
+            runtime_context,
+            self.base_url,
+        ):
+            wallet_id = self._runtime_privy_wallet_id(runtime_context)
+            cached_client = self._hosted_managed_clients.get(wallet_id)
+            if cached_client is not None:
+                return cached_client
+
+        if (
+            self.auth_mode != "x402_privy"
+            and not self._uses_hosted_managed_wallet_x402_settlement(
+                runtime_context,
+                self.base_url,
+            )
+        ):
+            if self.client is not None:
+                if self._client_loop is None:
+                    self._client_loop = current_loop
+                    return self.client
+                if current_loop is self._client_loop:
+                    return self.client
+
+                stale_client = self.client
+                self.client = self._create_client(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                )
+                self._client_loop = current_loop
+                await self._close_cached_client(stale_client)
+                return self.client
+
+            self.client = self._create_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+            )
+            self._client_loop = current_loop
             return self.client
 
         if self.auth_mode == "x402_privy":
@@ -292,6 +438,21 @@ class OpenAIAdapter(LLMProvider):
                 return cached_client
 
         async with self._client_lock:
+            if self._uses_hosted_managed_wallet_x402_settlement(
+                runtime_context,
+                self.base_url,
+            ):
+                wallet_id = self._runtime_privy_wallet_id(runtime_context)
+                cached_client = self._hosted_managed_clients.get(wallet_id)
+                if cached_client is not None:
+                    return cached_client
+                client = await self._create_async_client(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    runtime_context=runtime_context,
+                )
+                self._hosted_managed_clients[wallet_id] = client
+                return client
             if self.auth_mode != "x402_privy" and self.client is not None:
                 return self.client
             if self.auth_mode == "x402_privy":
@@ -322,6 +483,30 @@ class OpenAIAdapter(LLMProvider):
     ) -> AsyncOpenAI:
         """Create an OpenAI-compatible client for async-only auth flows."""
 
+        if self._uses_hosted_managed_wallet_x402_settlement(
+            runtime_context,
+            base_url,
+        ):
+            if not base_url:
+                raise ValueError(f"{self.auth_mode} requires a configured base_url")
+
+            signing_key = await self._resolve_hosted_managed_signing_key(
+                runtime_context
+            )
+            http_client = create_hosted_managed_x402_httpx_client(
+                X402SigningKeyConfig(
+                    signing_key=signing_key,
+                    timeout=DEFAULT_HOSTED_MANAGED_X402_TIMEOUT_SECONDS,
+                    rpc_url=self.x402_rpc_url,
+                )
+            )
+            return AsyncOpenAI(
+                api_key=api_key or "x402",
+                base_url=base_url,
+                max_retries=0,
+                http_client=http_client,
+            )
+
         if self.auth_mode != "x402_privy":
             return self._create_client(api_key=api_key, base_url=base_url)
 
@@ -343,6 +528,72 @@ class OpenAIAdapter(LLMProvider):
             base_url=base_url,
             http_client=http_client,
         )
+
+    async def _refresh_cached_client(
+        self,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> AsyncOpenAI:
+        if self._uses_hosted_managed_wallet_x402_settlement(
+            runtime_context,
+            self.base_url,
+        ):
+            wallet_id = self._runtime_privy_wallet_id(runtime_context)
+            stale_client = self._hosted_managed_clients.pop(wallet_id, None)
+            await self._close_cached_client(stale_client)
+            client = await self._create_async_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                runtime_context=runtime_context,
+            )
+            self._hosted_managed_clients[wallet_id] = client
+            return client
+
+        if self.auth_mode == "x402_privy":
+            wallet_id = self._resolve_runtime_privy_wallet_id(runtime_context)
+            stale_client = self._privy_clients.pop(wallet_id, None)
+            await self._close_cached_client(stale_client)
+            client = await self._create_async_client(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                runtime_context=runtime_context,
+            )
+            self._privy_clients[wallet_id] = client
+            return client
+
+        stale_client = self.client
+        self.client = self._create_client(
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
+        self._client_loop = self._current_running_loop()
+        await self._close_cached_client(stale_client)
+        return self.client
+
+    async def _chat_completions_create(
+        self,
+        *,
+        runtime_context: Optional[Dict[str, Any]] = None,
+        **cc_params: Any,
+    ) -> Any:
+        last_error: APIConnectionError | None = None
+        for attempt in range(2):
+            client = await self._get_client(runtime_context)
+            self._instrument_client(client)
+            try:
+                return await client.chat.completions.create(**cc_params)
+            except APIConnectionError as exc:
+                last_error = exc
+                if attempt == 0:
+                    logger.warning(
+                        "Retrying chat completions request after connection error with a fresh client."
+                    )
+                    await self._refresh_cached_client(runtime_context)
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("chat completions retry exhausted without an error")
 
     def _resolve_tokenizer_model(self, model: Optional[str] = None) -> str:
         candidate = str(
@@ -455,21 +706,24 @@ class OpenAIAdapter(LLMProvider):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Keypair:
         self._require_account_reporting_auth()
-        privy_wallet_id = None
-        if self.auth_mode == "x402_privy":
+        if self.auth_mode == "hosted_managed":
+            resolved_private_key = await self._resolve_hosted_managed_signing_key(
+                runtime_context,
+                prefer_runtime_wallet=True,
+            )
+        else:
             privy_wallet_id = self._resolve_runtime_privy_wallet_id(runtime_context)
-
-        resolved_private_key = await resolve_x402_signing_key(
-            auth_mode=self.auth_mode,
-            privy_wallet_id=privy_wallet_id,
-            privy_app_id=self.privy_app_id,
-            privy_app_secret=self.privy_app_secret,
-            privy_authorization_signature=self.privy_authorization_signature,
-            privy_request_expiry=self.privy_request_expiry,
-            privy_api_url=self.privy_api_url,
-            timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS,
-            rpc_url=self.x402_rpc_url,
-        )
+            resolved_private_key = await resolve_x402_signing_key(
+                auth_mode=self.auth_mode,
+                privy_wallet_id=privy_wallet_id,
+                privy_app_id=self.privy_app_id,
+                privy_app_secret=self.privy_app_secret,
+                privy_authorization_signature=self.privy_authorization_signature,
+                privy_request_expiry=self.privy_request_expiry,
+                privy_api_url=self.privy_api_url,
+                timeout=ACCOUNT_AUTH_TIMEOUT_SECONDS,
+                rpc_url=self.x402_rpc_url,
+            )
         if not resolved_private_key:
             raise ValueError(
                 f"{self.auth_mode} requires configured x402 signing credentials"
@@ -551,7 +805,7 @@ class OpenAIAdapter(LLMProvider):
         headers = dict(
             self._chat_completion_request_options().get("extra_headers") or {}
         )
-        if self.auth_mode == "x402_privy" and self.base_url:
+        if self.auth_mode in {"x402_privy", "hosted_managed"} and self.base_url:
             headers.update(await self._build_account_auth_headers(runtime_context))
         if headers:
             options["extra_headers"] = headers
@@ -966,9 +1220,10 @@ class OpenAIAdapter(LLMProvider):
             Audio bytes as they become available
         """
         try:
+            client = await self._get_client()
             if self.logfire:  # Instrument only if logfire is enabled
-                logfire.instrument_openai(self.client)
-            async with self.client.audio.speech.with_streaming_response.create(
+                logfire.instrument_openai(client)
+            async with client.audio.speech.with_streaming_response.create(
                 model=self.tts_model,
                 voice=voice,
                 input=text,
@@ -1000,9 +1255,10 @@ class OpenAIAdapter(LLMProvider):
             Transcript text chunks as they become available
         """
         try:
+            client = await self._get_client()
             if self.logfire:  # Instrument only if logfire is enabled
-                logfire.instrument_openai(self.client)
-            async with self.client.audio.transcriptions.with_streaming_response.create(
+                logfire.instrument_openai(client)
+            async with client.audio.transcriptions.with_streaming_response.create(
                 model=self.transcription_model,
                 file=(f"file.{input_format}", audio_bytes),
                 response_format="text",
@@ -1025,11 +1281,10 @@ class OpenAIAdapter(LLMProvider):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Any:  # pragma: no cover
         """Generate text using Responses API or Chat Completions API."""
-        client = await self._get_client(runtime_context)
-        self._instrument_client(client)
-
         try:
             if self._supports_responses_api():
+                client = await self._get_client(runtime_context)
+                self._instrument_client(client)
                 request_params: Dict[str, Any] = {
                     "model": model or self.text_model,
                     "input": prompt,
@@ -1080,7 +1335,10 @@ class OpenAIAdapter(LLMProvider):
             if tools:
                 cc_params["tools"] = tools
 
-            response = await client.chat.completions.create(**cc_params)
+            response = await self._chat_completions_create(
+                runtime_context=runtime_context,
+                **cc_params,
+            )
             return response
         except OpenAIError as e:
             logger.error(f"OpenAI API error during text generation: {e}")
@@ -1137,9 +1395,6 @@ class OpenAIAdapter(LLMProvider):
         runtime_context: Optional[Dict[str, Any]] = None,
     ) -> str:  # pragma: no cover
         """Generate text from OpenAI models using text and image inputs."""
-        client = await self._get_client(runtime_context)
-        self._instrument_client(client)
-
         if not self._supports_responses_api():
             logger.warning(
                 "Vision requests require the Responses API. "
@@ -1152,7 +1407,8 @@ class OpenAIAdapter(LLMProvider):
                         {"role": "system", "content": system_prompt}
                     )
                 fallback_messages.append({"role": "user", "content": prompt})
-                completion = await client.chat.completions.create(
+                completion = await self._chat_completions_create(
+                    runtime_context=runtime_context,
                     model=self.text_model,
                     messages=fallback_messages,
                     max_tokens=self._resolve_chat_completion_max_tokens(
@@ -1178,6 +1434,9 @@ class OpenAIAdapter(LLMProvider):
                 system_prompt,
                 runtime_context=runtime_context,
             )
+
+        client = await self._get_client(runtime_context)
+        self._instrument_client(client)
 
         target_model = self.vision_model
         if "gpt-4.1" not in target_model:  # Basic check for vision model
@@ -1339,9 +1598,6 @@ class OpenAIAdapter(LLMProvider):
     ) -> AsyncGenerator[Dict[str, Any], None]:  # pragma: no cover
         """Stream responses with optional tool calls."""
         try:
-            client = await self._get_client(runtime_context)
-            self._instrument_client(client)
-
             if self._hosted_chat_completions_require_non_streaming(model):
                 cc_params: Dict[str, Any] = {
                     "model": model or self.text_model,
@@ -1358,10 +1614,16 @@ class OpenAIAdapter(LLMProvider):
                 if tools:
                     cc_params["tools"] = tools
 
-                response = await client.chat.completions.create(**cc_params)
+                response = await self._chat_completions_create(
+                    runtime_context=runtime_context,
+                    **cc_params,
+                )
                 for event in self._chat_completion_response_events(response):
                     yield event
                 return
+
+            client = await self._get_client(runtime_context)
+            self._instrument_client(client)
 
             if self._supports_responses_api():
                 # Responses API path (OpenAI, Groq)
@@ -1486,7 +1748,10 @@ class OpenAIAdapter(LLMProvider):
                 if tools:
                     cc_params["tools"] = tools
 
-                stream = await client.chat.completions.create(**cc_params)
+                stream = await self._chat_completions_create(
+                    runtime_context=runtime_context,
+                    **cc_params,
+                )
                 async for event in stream:
                     try:
                         if not getattr(event, "choices", None):
@@ -1585,7 +1850,8 @@ You must respond with valid JSON that matches this schema:
 Respond with ONLY the JSON object.
 """
 
-                completion = await client.chat.completions.create(
+                completion = await self._chat_completions_create(
+                    runtime_context=runtime_context,
                     model=current_parse_model,
                     messages=[
                         {"role": "system", "content": fallback_system_prompt},
