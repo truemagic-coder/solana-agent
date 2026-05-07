@@ -1,9 +1,11 @@
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
-from solana_agent.cli import app
+from solana_agent.cli import _resolve_wallet_smoke_options, app
 
 
 runner = CliRunner()
@@ -475,8 +477,25 @@ def test_wallet_smoke_command_rejects_transfer_without_recipient():
         ["wallet", "smoke", "--dev", "--include-transfer", "--estimate-only"],
     )
 
-    assert result.exit_code != 0
-    assert "--transfer-recipient" in result.output
+    assert result.exit_code == 2
+    assert "Usage:" in result.output
+
+
+def test_resolve_wallet_smoke_options_requires_transfer_recipient():
+    with pytest.raises(typer.BadParameter, match="--transfer-recipient"):
+        _resolve_wallet_smoke_options(
+            big=False,
+            include_search=True,
+            include_rotate=False,
+            include_export=False,
+            include_priority=False,
+            include_jupiter=False,
+            include_kamino=False,
+            include_birdeye=False,
+            include_transfer=True,
+            transfer_recipient=None,
+            transfer_amount_usdc=None,
+        )
 
 
 @patch("solana_agent.cli.Path.exists", return_value=False)
