@@ -629,8 +629,8 @@ async def test_hosted_managed_transport_handles_non_json_402_without_rotating_id
     )
     stub_transport = StubTransport([challenge_response, success_response])
     payment_helper = MagicMock()
-    payment_helper.get_payment_required_response.side_effect = (
-        lambda get_header, body: payment_required
+    payment_helper.get_payment_required_response.side_effect = lambda get_header, body: (
+        payment_required
         if get_header("X-PAYMENT-RESPONSE") == "challenge" and body is None
         else None
     )
