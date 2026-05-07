@@ -45,6 +45,21 @@ def mock_query_service():
     # Configure agent service
     mock.agent_service = MagicMock()
     mock.agent_service.llm_provider = AsyncMock()
+    mock.agent_service.llm_provider.create_wallet = AsyncMock(
+        return_value={
+            "privy_user_id": "did:privy:test-user",
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+            "old_wallets": [],
+        }
+    )
+    mock.agent_service.llm_provider.get_wallet_address = AsyncMock(
+        return_value={
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+            "public_address": "WalletPubkey123",
+        }
+    )
     mock.agent_service.tool_registry = MagicMock()
     mock.agent_service.get_all_ai_agents = MagicMock(return_value=["test_agent"])
     mock.agent_service.assign_tool_for_agent = MagicMock()
@@ -87,6 +102,25 @@ class TestSolanaAgent:
             {"ai": {"privy_user_id": "did:privy:saved-user"}}
         )
         assert agent.config["ai"]["privy_user_id"] == "did:privy:saved-user"
+
+    @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
+    def test_init_uses_shell_privy_user_id_before_saved_state(
+        self,
+        mock_factory,
+        mock_query_service,
+        monkeypatch,
+    ):
+        """The public SDK should hydrate the hosted DID from shell env before local state."""
+        monkeypatch.setenv("PRIVY_USER_ID", "did:privy:shell-user")
+        save_privy_user_id("did:privy:saved-user")
+        mock_factory.create_from_config.return_value = mock_query_service
+
+        agent = SolanaAgent()
+
+        mock_factory.create_from_config.assert_called_once_with(
+            {"ai": {"privy_user_id": "did:privy:shell-user"}}
+        )
+        assert agent.config["ai"]["privy_user_id"] == "did:privy:shell-user"
 
     @patch("solana_agent.client.solana_agent.SolanaAgentFactory")
     def test_init_with_public_kwargs_builds_ai_config(
@@ -197,6 +231,9 @@ class TestSolanaAgent:
             assert chunks == ["Test response"]
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
                 "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     @pytest.mark.asyncio
@@ -226,6 +263,10 @@ class TestSolanaAgent:
             assert result == "Test response"
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
                 "conversation_id": "conv-123",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     @pytest.mark.asyncio
@@ -247,6 +288,10 @@ class TestSolanaAgent:
             assert result == "Test response"
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
                 "conversation_id": "conv-123",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     @pytest.mark.asyncio
@@ -401,7 +446,7 @@ class TestSolanaAgent:
     async def test_process_merges_search_enabled_into_runtime_context(
         self, config_dict, mock_query_service
     ):
-        """Process should expose hosted search without forcing callers into runtime_context."""
+        """Process should expose hosted search and auto-populate hosted wallet context."""
         with patch(
             "solana_agent.client.solana_agent.SolanaAgentFactory"
         ) as mock_factory:
@@ -420,13 +465,17 @@ class TestSolanaAgent:
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
                 "conversation_id": "conv-123",
                 "search_enabled": True,
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     @pytest.mark.asyncio
-    async def test_process_does_not_prepare_wallet_context_for_mcp_tools(
+    async def test_process_prepares_wallet_context_for_mcp_tools(
         self, mock_query_service
     ):
-        """MCP is a local plugin and should not trigger hidden wallet setup."""
+        """Hosted MCP sessions should still resolve wallet context for hosted billing."""
         config = {
             "ai": {
                 "instructions": "Use MCP tools when useful.",
@@ -440,7 +489,14 @@ class TestSolanaAgent:
             mock_factory.create_from_config.return_value = mock_query_service
             agent = SolanaAgent(config=config)
 
-            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock()
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock(
+                return_value={
+                    "privy_user_id": "did:privy:user123",
+                    "wallet_id": "wallet-123",
+                    "address": "WalletPubkey123",
+                    "old_wallets": [],
+                }
+            )
 
             chunks = []
             async for chunk in agent.process(
@@ -450,9 +506,16 @@ class TestSolanaAgent:
                 chunks.append(chunk)
 
             assert chunks == ["Test response"]
-            mock_query_service.agent_service.llm_provider.create_wallet.assert_not_awaited()
+            mock_query_service.agent_service.llm_provider.create_wallet.assert_awaited_once_with(
+                privy_user_id="did:privy:user123",
+                chain_type="solana",
+            )
             assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
                 "conversation_id": "conv-123",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
 
     def test_register_tool_success(self, config_dict, mock_query_service):
@@ -946,6 +1009,15 @@ class TestSolanaAgent:
             agent = SolanaAgent(config=config_dict)
 
             mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock()
+            mock_query_service.agent_service.llm_provider.get_wallet_address = (
+                AsyncMock(
+                    return_value={
+                        "wallet_id": "wallet-123",
+                        "address": "WalletPubkey123",
+                        "public_address": "WalletPubkey123",
+                    }
+                )
+            )
 
             result = await agent.prepare_x402_runtime_context(
                 conversation_id="conv-123",
@@ -956,8 +1028,13 @@ class TestSolanaAgent:
                 "conversation_id": "conv-123",
                 "hosted_privy_wallet_id": "wallet-123",
                 "privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
             }
             mock_query_service.agent_service.llm_provider.create_wallet.assert_not_awaited()
+            mock_query_service.agent_service.llm_provider.get_wallet_address.assert_awaited_once_with(
+                wallet_id="wallet-123"
+            )
 
     @pytest.mark.asyncio
     async def test_get_usage_report(self, config_dict, mock_query_service):

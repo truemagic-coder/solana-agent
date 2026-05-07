@@ -7,6 +7,7 @@ the agent system without dealing with internal implementation details.
 
 import json
 import importlib.util
+import os
 from copy import deepcopy
 from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
 
@@ -164,12 +165,29 @@ class SolanaAgent(SolanaAgentInterface):
         if llm_provider is not None:
             setattr(llm_provider, "privy_user_id", normalized_privy_user_id)
 
+    @staticmethod
+    def _shell_privy_user_id() -> str | None:
+        for env_var in (
+            "SOLANA_AGENT_PRIVY_USER_ID",
+            "PRIVY_USER_ID",
+            "privy_user_id",
+        ):
+            privy_user_id = str(os.getenv(env_var) or "").strip()
+            if privy_user_id:
+                return privy_user_id
+        return None
+
     def _apply_saved_privy_user_id(self) -> None:
         try:
             self._configured_privy_user_id()
             return
         except ValueError:
             pass
+
+        shell_privy_user_id = self._shell_privy_user_id()
+        if shell_privy_user_id:
+            self._set_configured_privy_user_id(shell_privy_user_id)
+            return
 
         saved_privy_user_id = load_saved_privy_user_id(
             base_url=self._configured_base_url()
@@ -294,9 +312,12 @@ class SolanaAgent(SolanaAgentInterface):
         *,
         search_enabled: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
-        return self._merge_runtime_context(
+        merged_runtime_context = self._merge_runtime_context(
             runtime_context,
             search_enabled=search_enabled,
+        )
+        return await self.prepare_x402_runtime_context(
+            **(merged_runtime_context or {}),
         )
 
     async def process(
@@ -683,6 +704,20 @@ class SolanaAgent(SolanaAgentInterface):
         if existing_wallet_id:
             context.setdefault("privy_wallet_id", existing_wallet_id)
             context.setdefault("hosted_privy_wallet_id", existing_wallet_id)
+            existing_wallet_address = str(
+                context.get("privy_wallet_address")
+                or context.get("privy_wallet_public_key")
+                or ""
+            ).strip()
+            if not existing_wallet_address:
+                existing_wallet_address = await self.get_wallet_address(
+                    existing_wallet_id
+                )
+                context.setdefault("privy_wallet_address", existing_wallet_address)
+                context.setdefault(
+                    "privy_wallet_public_key",
+                    existing_wallet_address,
+                )
             return context
 
         wallet = await self.create_wallet(
