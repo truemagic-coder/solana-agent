@@ -11,6 +11,65 @@ from solana_agent.adapters.openai_adapter import OpenAIAdapter
 
 
 class TestOpenAIAdapter:
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    @patch(
+        "solana_agent.adapters.openai_adapter.create_hosted_managed_x402_httpx_client"
+    )
+    def test_hosted_managed_uses_local_x402_signer_when_configured(
+        self,
+        mock_create_hosted_managed_x402_httpx_client,
+        mock_async_openai,
+    ):
+        """Hosted-managed auth should auto-enable x402 settlement from a local signer."""
+        mock_http_client = MagicMock()
+        mock_create_hosted_managed_x402_httpx_client.return_value = mock_http_client
+
+        OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+            private_key="base58-private-key",
+            x402_rpc_url="https://rpc.example",
+        )
+
+        config = mock_create_hosted_managed_x402_httpx_client.call_args.args[0]
+        assert config.signing_key == "base58-private-key"
+        assert config.rpc_url == "https://rpc.example"
+        assert config.timeout == 180.0
+        mock_async_openai.assert_called_once_with(
+            api_key="x402",
+            base_url="https://ai.solana-agent.com/v1",
+            max_retries=0,
+            http_client=mock_http_client,
+        )
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    @patch(
+        "solana_agent.adapters.openai_adapter.create_hosted_managed_x402_httpx_client"
+    )
+    async def test_hosted_managed_local_x402_settlement_keeps_idempotency_header(
+        self,
+        mock_create_hosted_managed_x402_httpx_client,
+        mock_async_openai,
+    ):
+        """Local x402 settlement should still send the required idempotency header."""
+        mock_create_hosted_managed_x402_httpx_client.return_value = MagicMock()
+        mock_async_openai.return_value = MagicMock()
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+            private_key="base58-private-key",
+        )
+
+        options = await adapter._hosted_chat_completion_request_options()
+
+        assert options["extra_headers"]["Idempotency-Key"]
+
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
     @patch(
@@ -320,6 +379,9 @@ class TestOpenAIAdapter:
                 runtime_context={
                     "conversation_id": "conv-123",
                     "memory_ttl_tier": "project",
+                    "max_tool_iterations": 7,
+                    "request_timeout_seconds": 33,
+                    "_raise_stream_errors": True,
                 },
             )
         ]
@@ -332,6 +394,9 @@ class TestOpenAIAdapter:
         assert "stream" not in kwargs
         assert kwargs["extra_body"]["conversation_id"] == "conv-123"
         assert kwargs["extra_body"]["memory_ttl_tier"] == "project"
+        assert kwargs["extra_body"]["max_tool_iterations"] == 7
+        assert kwargs["extra_body"]["request_timeout_seconds"] == 33.0
+        assert kwargs["extra_body"]["raise_stream_errors"] is True
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
@@ -378,6 +443,47 @@ class TestOpenAIAdapter:
         kwargs = mock_client.chat.completions.create.await_args.kwargs
         assert "stream" not in kwargs
         assert kwargs["extra_body"]["search_enabled"] is True
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_chat_stream_search_enabled_clamps_max_tokens(
+        self,
+        mock_async_openai,
+    ):
+        """Hosted search requests should respect the server-side output ceiling."""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="search result", tool_calls=None
+                        ),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        )
+        mock_async_openai.return_value = mock_client
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=16384,
+            max_output_tokens=4096,
+        )
+
+        _ = [
+            event
+            async for event in adapter.chat_stream(
+                [{"role": "user", "content": "hello"}],
+                runtime_context={"search_enabled": True},
+            )
+        ]
+
+        kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert kwargs["max_tokens"] == 4000
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")

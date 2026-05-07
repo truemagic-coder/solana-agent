@@ -324,9 +324,14 @@ def test_wallet_smoke_command_runs_preview_and_live_smoke(
         include_rotate=False,
         include_export=False,
         include_priority=False,
+        include_memory=False,
         include_jupiter=False,
-        include_kamino=False,
         include_birdeye=False,
+        include_swap=False,
+        include_trigger=False,
+        include_earn=False,
+        include_technical_analysis=False,
+        include_token_math=False,
         include_transfer=False,
         transfer_recipient=None,
         transfer_amount_usdc=None,
@@ -339,9 +344,14 @@ def test_wallet_smoke_command_runs_preview_and_live_smoke(
         include_rotate=False,
         include_export=False,
         include_priority=False,
+        include_memory=False,
         include_jupiter=False,
-        include_kamino=False,
         include_birdeye=False,
+        include_swap=False,
+        include_trigger=False,
+        include_earn=False,
+        include_technical_analysis=False,
+        include_token_math=False,
         include_transfer=False,
         transfer_recipient=None,
         transfer_amount_usdc=None,
@@ -384,9 +394,14 @@ def test_wallet_smoke_command_supports_json_output(
         include_rotate=False,
         include_export=False,
         include_priority=False,
+        include_memory=False,
         include_jupiter=False,
-        include_kamino=False,
         include_birdeye=False,
+        include_swap=False,
+        include_trigger=False,
+        include_earn=False,
+        include_technical_analysis=False,
+        include_token_math=False,
         include_transfer=False,
         transfer_recipient=None,
         transfer_amount_usdc=None,
@@ -446,9 +461,14 @@ def test_wallet_smoke_command_supports_big_profile_and_transfer(
         include_rotate=False,
         include_export=False,
         include_priority=True,
+        include_memory=True,
         include_jupiter=True,
-        include_kamino=True,
         include_birdeye=True,
+        include_swap=True,
+        include_trigger=True,
+        include_earn=True,
+        include_technical_analysis=True,
+        include_token_math=True,
         include_transfer=True,
         transfer_recipient="RecipientPubkey123",
         transfer_amount_usdc="0.25",
@@ -461,14 +481,47 @@ def test_wallet_smoke_command_supports_big_profile_and_transfer(
         include_rotate=False,
         include_export=False,
         include_priority=True,
+        include_memory=True,
         include_jupiter=True,
-        include_kamino=True,
         include_birdeye=True,
+        include_swap=True,
+        include_trigger=True,
+        include_earn=True,
+        include_technical_analysis=True,
+        include_token_math=True,
         include_transfer=True,
         transfer_recipient="RecipientPubkey123",
         transfer_amount_usdc="0.25",
         preview=mock_build_preview.return_value,
     )
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.run_public_sdk_smoke")
+@patch("solana_agent.cli.build_public_sdk_smoke_preview")
+@patch("solana_agent.cli.SolanaAgent")
+def test_wallet_smoke_command_reports_runtime_failure(
+    mock_solana_agent,
+    mock_build_preview,
+    mock_run_smoke,
+    mock_exists,
+):
+    del mock_exists
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    mock_build_preview.return_value = {
+        "ok": True,
+        "preview_only": True,
+        "estimate": {"suggested_wallet_funding_usdc": "1.00"},
+        "steps": [],
+    }
+    mock_run_smoke.side_effect = ValueError("hosted payment error 402")
+
+    result = runner.invoke(app, ["wallet", "smoke", "--dev", "--yes"])
+
+    assert result.exit_code == 1
+    assert "Smoke test failed:" in result.stdout
+    assert "hosted payment error 402" in result.stdout
 
 
 def test_wallet_smoke_command_rejects_transfer_without_recipient():
@@ -489,9 +542,14 @@ def test_resolve_wallet_smoke_options_requires_transfer_recipient():
             include_rotate=False,
             include_export=False,
             include_priority=False,
+            include_memory=False,
             include_jupiter=False,
-            include_kamino=False,
             include_birdeye=False,
+            include_swap=False,
+            include_trigger=False,
+            include_earn=False,
+            include_technical_analysis=False,
+            include_token_math=False,
             include_transfer=True,
             transfer_recipient=None,
             transfer_amount_usdc=None,
@@ -512,7 +570,7 @@ def test_wallet_menu_dev_can_run_smoke(
     result = runner.invoke(
         app,
         ["wallet", "menu", "--dev"],
-        input="6\nn\nn\nn\nn\nn\nn\nn\nn\nn\nq\n",
+        input="6\nn\nn\nn\nn\nn\nn\nn\nn\nn\nn\nn\nn\nn\nn\nq\n",
     )
 
     assert result.exit_code == 0
@@ -523,9 +581,14 @@ def test_wallet_menu_dev_can_run_smoke(
         forecast_window_days=30,
         include_search=False,
         include_priority=False,
+        include_memory=False,
         include_jupiter=False,
-        include_kamino=False,
         include_birdeye=False,
+        include_swap=False,
+        include_trigger=False,
+        include_earn=False,
+        include_technical_analysis=False,
+        include_token_math=False,
         include_rotate=False,
         include_export=False,
         include_transfer=False,

@@ -183,7 +183,18 @@ uvx solana-agent wallet menu --dev
 ```
 
 The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
-Use `--big` to add the expanded protocol profile: priority-tier chat plus Jupiter, Kamino, and Birdeye read checks.
+Use `--include-memory` to add hosted memory recall checks for both the 7-day work tier and the 30-day project tier.
+Use `--include-priority` to add priority validation for chat and any enabled memory checks.
+Use `--big` to add the full expanded profile: memory 7-day and 30-day checks, priority chat and memory, Jupiter and Birdeye read checks, along with token math, technical analysis, swap, trigger, and earn checks.
 Use `--include-transfer --transfer-recipient <wallet> [--transfer-amount-usdc 0.10]` when you want the smoke run to execute a live USDC transfer.
 Add `--json` to `wallet smoke` when you want machine-readable output instead of tables.
+
+For source-checkout debugging against a local hosted API, run one permanent step at a time with `scripts/smoke_step_runner.py`:
+
+```bash
+SOLANA_AGENT_SMOKE_PRIVY_USER_ID=did:privy:your-funded-user \
+python scripts/smoke_step_runner.py trigger_limit_order --mode full-response
+```
+
+The runner loads `../solana-agent-agi/.env` by default, targets `http://127.0.0.1:8000/v1`, and prints JSON including the wallet id, wallet address, step name, and response.
 

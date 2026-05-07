@@ -34,6 +34,8 @@ import tiktoken
 
 from solana_agent.interfaces.providers.llm import LLMProvider
 from solana_agent.tools.utils.x402 import (
+    X402SigningKeyConfig,
+    create_hosted_managed_x402_httpx_client,
     create_x402_httpx_client_for_auth,
     resolve_x402_signing_key,
 )
@@ -61,6 +63,8 @@ GPT41_NANO_MULTIPLIER = 2.46
 DEFAULT_TOKENIZER_MODEL = "gpt-oss-120b"
 DEFAULT_CONTEXT_WINDOW_TOKENS = 131000
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
+DEFAULT_HOSTED_SEARCH_MAX_OUTPUT_TOKENS = 4000
+DEFAULT_HOSTED_MANAGED_X402_TIMEOUT_SECONDS = 180.0
 DEFAULT_FALLBACK_ENCODING = "o200k_base"
 GPT_OSS_FALLBACK_ENCODING = "o200k_harmony"
 TOKENS_PER_MESSAGE = 4
@@ -225,7 +229,31 @@ class OpenAIAdapter(LLMProvider):
         if base_url:
             client_kwargs["base_url"] = base_url
 
+        if self._uses_hosted_managed_local_x402_settlement(base_url):
+            client_kwargs["api_key"] = api_key or "x402"
+            client_kwargs["max_retries"] = 0
+            client_kwargs["http_client"] = create_hosted_managed_x402_httpx_client(
+                X402SigningKeyConfig(
+                    signing_key=str(self.private_key or "").strip(),
+                    timeout=DEFAULT_HOSTED_MANAGED_X402_TIMEOUT_SECONDS,
+                    rpc_url=self.x402_rpc_url,
+                )
+            )
+            return AsyncOpenAI(**client_kwargs)
+
         return AsyncOpenAI(**client_kwargs)
+
+    def _uses_hosted_managed_local_x402_settlement(
+        self,
+        base_url: Optional[str] = None,
+    ) -> bool:
+        resolved_base_url = base_url if base_url is not None else self.base_url
+        return bool(
+            self.auth_mode == "hosted_managed"
+            and str(self.private_key or "").strip()
+            and resolved_base_url
+            and not self._is_openai_endpoint
+        )
 
     def _resolve_runtime_privy_wallet_id(
         self, runtime_context: Optional[Dict[str, Any]] = None
@@ -352,6 +380,7 @@ class OpenAIAdapter(LLMProvider):
         self,
         messages: List[Dict[str, Any]],
         model: Optional[str] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> int:
         prompt_tokens = self._estimate_chat_completion_input_tokens(messages, model)
         remaining_tokens = self.context_window_tokens - prompt_tokens
@@ -368,6 +397,8 @@ class OpenAIAdapter(LLMProvider):
                 max_tokens,
                 model or self.text_model,
             )
+        if self.base_url and self._hosted_search_enabled(runtime_context):
+            max_tokens = min(max_tokens, DEFAULT_HOSTED_SEARCH_MAX_OUTPUT_TOKENS)
         return max_tokens
 
     def _chat_completion_request_options(self) -> Dict[str, Any]:
@@ -693,6 +724,23 @@ class OpenAIAdapter(LLMProvider):
 
         if self._hosted_search_enabled(context):
             extensions["search_enabled"] = True
+
+        max_tool_iterations = context.get("max_tool_iterations")
+        if max_tool_iterations is not None:
+            try:
+                extensions["max_tool_iterations"] = int(max_tool_iterations)
+            except (TypeError, ValueError):
+                pass
+
+        request_timeout_seconds = context.get("request_timeout_seconds")
+        if request_timeout_seconds is not None:
+            try:
+                extensions["request_timeout_seconds"] = float(request_timeout_seconds)
+            except (TypeError, ValueError):
+                pass
+
+        if bool(context.get("_raise_stream_errors")):
+            extensions["raise_stream_errors"] = True
 
         if not extensions:
             return {}
@@ -1025,6 +1073,7 @@ class OpenAIAdapter(LLMProvider):
                 "max_tokens": self._resolve_chat_completion_max_tokens(
                     messages,
                     model or self.text_model,
+                    runtime_context,
                 ),
                 **await self._hosted_chat_completion_request_options(runtime_context),
             }
@@ -1109,6 +1158,7 @@ class OpenAIAdapter(LLMProvider):
                     max_tokens=self._resolve_chat_completion_max_tokens(
                         fallback_messages,
                         self.text_model,
+                        runtime_context,
                     ),
                     **await self._hosted_chat_completion_request_options(
                         runtime_context
@@ -1299,6 +1349,7 @@ class OpenAIAdapter(LLMProvider):
                     "max_tokens": self._resolve_chat_completion_max_tokens(
                         messages,
                         model or self.text_model,
+                        runtime_context,
                     ),
                     **await self._hosted_chat_completion_request_options(
                         runtime_context
@@ -1426,6 +1477,7 @@ class OpenAIAdapter(LLMProvider):
                     "max_tokens": self._resolve_chat_completion_max_tokens(
                         messages,
                         model or self.text_model,
+                        runtime_context,
                     ),
                     **await self._hosted_chat_completion_request_options(
                         runtime_context
@@ -1546,6 +1598,7 @@ Respond with ONLY the JSON object.
                             {"role": "user", "content": prompt},
                         ],
                         current_parse_model,
+                        runtime_context,
                     ),
                     **await self._hosted_chat_completion_request_options(
                         runtime_context

@@ -22,6 +22,8 @@ from solana_agent.domains.agent import AIAgent, BusinessMission
 
 logger = logging.getLogger(__name__)  # Add logger
 
+DEFAULT_MAX_TOOL_ITERATIONS = 12
+
 
 class AgentService(AgentServiceInterface):
     """Service for managing agents and generating responses."""
@@ -60,6 +62,18 @@ class AgentService(AgentServiceInterface):
         context = runtime_context or {}
         runtime_model = str(context.get("model") or "").strip()
         return runtime_model or self.model
+
+    def _max_tool_iterations(
+        self, runtime_context: Optional[Dict[str, Any]] = None
+    ) -> int:
+        raw_value = (runtime_context or {}).get("max_tool_iterations")
+        if raw_value is None:
+            raw_value = self.config.get("max_tool_iterations")
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = DEFAULT_MAX_TOOL_ITERATIONS
+        return max(1, min(value, 50))
 
     def register_ai_agent(
         self,
@@ -271,6 +285,8 @@ class AgentService(AgentServiceInterface):
     ) -> AsyncGenerator[Union[str, bytes, BaseModel], None]:  # pragma: no cover
         """Generate a response using tool-calling with full streaming support."""
 
+        raise_stream_errors = bool((runtime_context or {}).get("_raise_stream_errors"))
+
         try:
             request_model = self._runtime_model(runtime_context)
             # Validate agent
@@ -356,6 +372,8 @@ class AgentService(AgentServiceInterface):
             messages.append({"role": "user", "content": full_prompt})
 
             accumulated_text = ""
+            tool_iterations = 0
+            max_tool_iterations = self._max_tool_iterations(runtime_context)
 
             # Loop to handle tool calls in streaming mode
             while True:
@@ -374,6 +392,13 @@ class AgentService(AgentServiceInterface):
                         accumulated_text += delta
                         if output_format == "text":
                             yield delta
+                    elif etype == "error":
+                        raise RuntimeError(
+                            str(
+                                event.get("error")
+                                or "Provider stream returned an error"
+                            )
+                        )
                     elif etype == "tool_call_delta":
                         tc_id = event.get("id")
                         index_raw = event.get("index")
@@ -396,6 +421,12 @@ class AgentService(AgentServiceInterface):
 
                 # If tool calls were requested, execute them and continue the loop
                 if tool_calls:
+                    tool_iterations += 1
+                    if tool_iterations > max_tool_iterations:
+                        raise RuntimeError(
+                            f"Exceeded maximum tool iterations ({max_tool_iterations}) before returning a final response."
+                        )
+
                     assistant_tool_calls: List[Dict[str, Any]] = []
                     call_id_map: Dict[int, str] = {}
                     for idx, tc in tool_calls.items():
@@ -473,6 +504,9 @@ class AgentService(AgentServiceInterface):
                 break
         except Exception as e:
             import traceback
+
+            if raise_stream_errors:
+                raise
 
             error_msg = (
                 "I apologize, but I encountered an error processing your request."

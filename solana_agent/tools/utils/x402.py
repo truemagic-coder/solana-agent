@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -12,7 +14,9 @@ import based58
 import httpx
 from pyhpke import AEADId, CipherSuite, KDFId, KEMId
 from x402 import x402Client
+from x402.extensions.payment_identifier import append_payment_identifier_to_extensions
 from x402.http.clients import x402HttpxClient
+from x402.http.x402_http_client import x402HTTPClient
 from x402.mechanisms.svm import KeypairSigner
 from x402.mechanisms.svm.exact.register import register_exact_svm_client
 
@@ -48,6 +52,104 @@ class X402PrivyWalletExportConfig:
     api_url: str = PRIVY_API_URL
     timeout: float = 30.0
     rpc_url: Optional[str] = None
+
+
+class HostedManagedX402AsyncTransport(httpx.AsyncBaseTransport):
+    """Retry x402 challenges with a fresh idempotency key for hosted chat flows."""
+
+    RETRY_KEY = "_x402_is_retry"
+
+    def __init__(
+        self,
+        client: x402Client,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._http_client = x402HTTPClient(client)
+        self._client = client
+        self._transport = transport or httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        response = await self._transport.handle_async_request(request)
+        if response.status_code != 402:
+            return response
+        if request.extensions.get(self.RETRY_KEY):
+            return response
+
+        await response.aread()
+
+        def get_header(name: str) -> str | None:
+            return response.headers.get(name)
+
+        body = None
+        try:
+            body = response.json()
+        except json.JSONDecodeError:
+            body = None
+
+        payment_required = self._http_client.get_payment_required_response(
+            get_header,
+            body,
+        )
+        payment_payload = await self._client.create_payment_payload(payment_required)
+        payment_headers = self._http_client.encode_payment_signature_header(
+            payment_payload
+        )
+
+        retry_headers = dict(request.headers)
+        retry_headers.update(payment_headers)
+        retry_headers["Access-Control-Expose-Headers"] = (
+            "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE"
+        )
+        saw_idempotency_key = False
+        for header_name in list(retry_headers):
+            if header_name.lower() == "idempotency-key":
+                saw_idempotency_key = True
+                del retry_headers[header_name]
+        if saw_idempotency_key:
+            retry_headers["Idempotency-Key"] = uuid.uuid4().hex
+
+        retry_extensions = dict(request.extensions)
+        retry_extensions[self.RETRY_KEY] = True
+
+        retry_request = httpx.Request(
+            method=request.method,
+            url=request.url,
+            headers=retry_headers,
+            content=request.content,
+            extensions=retry_extensions,
+        )
+        return await self._transport.handle_async_request(retry_request)
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
+class HostedManagedX402HttpxClient(httpx.AsyncClient):
+    """Async httpx client that rotates idempotency keys on x402 retries."""
+
+    def __init__(
+        self,
+        x402_client: x402Client,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            transport=HostedManagedX402AsyncTransport(x402_client),
+            **kwargs,
+        )
+
+
+def _configure_x402_client(client: x402Client) -> x402Client:
+    def _append_payment_identifier(payment_context: Any) -> None:
+        payment_payload = getattr(payment_context, "payment_payload", None)
+        if isinstance(payment_payload, dict):
+            extensions = payment_payload.get("extensions")
+        else:
+            extensions = getattr(payment_payload, "extensions", None)
+        if isinstance(extensions, dict):
+            append_payment_identifier_to_extensions(extensions)
+
+    client.on_after_payment_creation(_append_payment_identifier)
+    return client
 
 
 def resolve_x402_privy_config(
@@ -259,10 +361,21 @@ async def create_x402_httpx_client_for_auth(
 def create_x402_httpx_client(config: X402SigningKeyConfig) -> x402HttpxClient:
     """Create an async httpx client with automatic x402 payment handling."""
 
-    client = x402Client()
+    client = _configure_x402_client(x402Client())
     signer = KeypairSigner.from_base58(config.signing_key)
     register_exact_svm_client(client, signer=signer, rpc_url=config.rpc_url)
     return x402HttpxClient(client, timeout=config.timeout)
+
+
+def create_hosted_managed_x402_httpx_client(
+    config: X402SigningKeyConfig,
+) -> httpx.AsyncClient:
+    """Create an x402 client that refreshes idempotency keys on paid retries."""
+
+    client = _configure_x402_client(x402Client())
+    signer = KeypairSigner.from_base58(config.signing_key)
+    register_exact_svm_client(client, signer=signer, rpc_url=config.rpc_url)
+    return HostedManagedX402HttpxClient(client, timeout=config.timeout)
 
 
 async def request_with_x402_privy(
