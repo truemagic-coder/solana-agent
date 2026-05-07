@@ -12,15 +12,26 @@ from solana_agent.factories.agent_factory import DEFAULT_AGI_STATELESS_MODEL
 
 
 SMOKE_MESSAGE = "Reply with exactly SDK_SMOKE_OK"
+PRIORITY_SMOKE_MESSAGE = "Reply with exactly SDK_SMOKE_PRIORITY_OK"
 SEARCH_SMOKE_MESSAGE = (
     "Search if needed, then reply with the current year followed by SDK_SMOKE_SEARCH_OK"
 )
+JUPITER_SMOKE_SENTINEL = "SDK_SMOKE_JUPITER_OK"
+KAMINO_SMOKE_SENTINEL = "SDK_SMOKE_KAMINO_OK"
+BIRDEYE_SMOKE_SENTINEL = "SDK_SMOKE_BIRDEYE_OK"
+TRANSFER_SMOKE_SENTINEL = "SDK_SMOKE_TRANSFER_OK"
 DEFAULT_TOKENIZER_MODEL = "gpt-oss-120b"
 SMOKE_OUTPUT_TOKEN_BUDGET = 48
 SEARCH_OUTPUT_TOKEN_BUDGET = 96
+TOOL_OUTPUT_TOKEN_BUDGET = 128
 MINIMUM_SUGGESTED_FUNDING_USDC = Decimal("1.00")
 DEFAULT_SMOKE_FUNDING_BUFFER_USDC = Decimal("0.50")
 DESTRUCTIVE_STEP_BUFFER_USDC = Decimal("0.25")
+READ_ONLY_TOOL_BUFFER_USDC = Decimal("0.25")
+DEFAULT_TRANSFER_AMOUNT_USDC = Decimal("0.10")
+SOLANA_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
+DEFAULT_JUPITER_QUOTE_AMOUNT = 1_000_000
 
 
 def _money_string(value: Decimal) -> str:
@@ -33,6 +44,13 @@ def _decimal_value(raw_value: Any) -> Decimal:
         return Decimal(str(raw_value or "0"))
     except (InvalidOperation, ValueError):
         return Decimal("0")
+
+
+def _positive_decimal_value(raw_value: Any, *, field_name: str) -> Decimal:
+    normalized = _decimal_value(raw_value)
+    if normalized <= Decimal("0"):
+        raise ValueError(f"{field_name} must be greater than 0")
+    return normalized
 
 
 def _path(payload: Mapping[str, Any], *keys: str) -> Any:
@@ -79,6 +97,77 @@ def _estimate_model_request_cost_usd(
     )
 
 
+def _jupiter_smoke_message() -> str:
+    return (
+        "Use the privy_swap_quote tool to preview a Jupiter swap from USDC to wrapped SOL. "
+        f"Set input_mint to {SOLANA_USDC_MINT}, output_mint to {WRAPPED_SOL_MINT}, "
+        f"and amount to {DEFAULT_JUPITER_QUOTE_AMOUNT}. Do not execute a swap. "
+        f"After the preview succeeds, reply with {JUPITER_SMOKE_SENTINEL} and the quoted out_amount."
+    )
+
+
+def _kamino_smoke_message() -> str:
+    return (
+        "Use the privy_kamino tool with action list_vaults to verify Kamino read access. "
+        "Set kvault, market, reserve, amount, user_pubkey, path, params_json, body_json, "
+        "referrer, and referral_code to empty strings. "
+        f"After the tool succeeds, reply with {KAMINO_SMOKE_SENTINEL} and the number of vaults returned."
+    )
+
+
+def _birdeye_smoke_message() -> str:
+    return (
+        "Use the birdeye tool to fetch the current Solana USDC price. "
+        f"Set action to price and address to {SOLANA_USDC_MINT}. Use empty strings or 0 for the other fields. "
+        f"After the tool succeeds, reply with {BIRDEYE_SMOKE_SENTINEL} and the observed price."
+    )
+
+
+def _transfer_smoke_message(*, recipient: str, amount_usdc: Decimal) -> str:
+    return (
+        "Use the privy_transfer tool to send a live USDC transfer from the current Privy wallet. "
+        f"Transfer {_money_string(amount_usdc)} USDC using mint {SOLANA_USDC_MINT} to {recipient}. "
+        "Set memo to 'sdk smoke transfer'. "
+        f"After the transfer succeeds, reply with {TRANSFER_SMOKE_SENTINEL} and the transaction signature."
+    )
+
+
+def _resolve_transfer_plan(
+    *,
+    include_transfer: bool,
+    transfer_recipient: str | None,
+    transfer_amount_usdc: Decimal | str | None,
+) -> tuple[str, Decimal | None]:
+    recipient = str(transfer_recipient or "").strip()
+    if not include_transfer:
+        return recipient, None
+    if not recipient:
+        raise ValueError(
+            "transfer_recipient is required when include_transfer is enabled"
+        )
+    raw_amount = (
+        transfer_amount_usdc
+        if transfer_amount_usdc not in (None, "")
+        else DEFAULT_TRANSFER_AMOUNT_USDC
+    )
+    return recipient, _positive_decimal_value(
+        raw_amount,
+        field_name="transfer_amount_usdc",
+    )
+
+
+def _transfer_payload(
+    *, recipient: str, amount_usdc: Decimal | None
+) -> dict[str, Any] | None:
+    if not recipient or amount_usdc is None:
+        return None
+    return {
+        "recipient": recipient,
+        "amount_usdc": _money_string(amount_usdc),
+        "mint": SOLANA_USDC_MINT,
+    }
+
+
 def build_public_sdk_smoke_estimate(
     pricing_payload: Mapping[str, Any],
     forecast_payload: Mapping[str, Any] | None,
@@ -86,15 +175,37 @@ def build_public_sdk_smoke_estimate(
     include_search: bool,
     include_rotate: bool,
     include_export: bool,
+    include_priority: bool = False,
+    include_jupiter: bool = False,
+    include_kamino: bool = False,
+    include_birdeye: bool = False,
+    include_transfer: bool = False,
+    transfer_amount_usdc: Decimal | str | None = None,
 ) -> dict[str, Any]:
+    _, normalized_transfer_amount = _resolve_transfer_plan(
+        include_transfer=include_transfer,
+        transfer_recipient="sdk-smoke-estimate",
+        transfer_amount_usdc=transfer_amount_usdc,
+    )
     base_chat_cost = _estimate_model_request_cost_usd(
         pricing_payload,
         prompt_text=SMOKE_MESSAGE,
         expected_output_tokens=SMOKE_OUTPUT_TOKEN_BUDGET,
     )
+    priority_chat_cost = Decimal("0")
     search_chat_cost = Decimal("0")
+    tooling_chat_cost = Decimal("0")
+    transfer_chat_cost = Decimal("0")
     search_surcharge = Decimal("0")
     search_provider_cost_ceiling = Decimal("0")
+    tooling_buffer = Decimal("0")
+
+    if include_priority:
+        priority_chat_cost = _estimate_model_request_cost_usd(
+            pricing_payload,
+            prompt_text=PRIORITY_SMOKE_MESSAGE,
+            expected_output_tokens=SMOKE_OUTPUT_TOKEN_BUDGET,
+        )
 
     search_add_on = _path(pricing_payload, "search_add_on")
     if include_search and isinstance(search_add_on, Mapping):
@@ -110,21 +221,55 @@ def build_public_sdk_smoke_estimate(
             search_add_on.get("search_max_provider_cost_usd")
         )
 
+    tool_prompts: list[str] = []
+    if include_jupiter:
+        tool_prompts.append(_jupiter_smoke_message())
+    if include_kamino:
+        tool_prompts.append(_kamino_smoke_message())
+    if include_birdeye:
+        tool_prompts.append(_birdeye_smoke_message())
+
+    for prompt_text in tool_prompts:
+        tooling_chat_cost += _estimate_model_request_cost_usd(
+            pricing_payload,
+            prompt_text=prompt_text,
+            expected_output_tokens=TOOL_OUTPUT_TOKEN_BUDGET,
+        )
+        tooling_buffer += READ_ONLY_TOOL_BUFFER_USDC
+
+    if include_transfer and normalized_transfer_amount is not None:
+        transfer_chat_cost = _estimate_model_request_cost_usd(
+            pricing_payload,
+            prompt_text=_transfer_smoke_message(
+                recipient="sdk-smoke-transfer-recipient",
+                amount_usdc=normalized_transfer_amount,
+            ),
+            expected_output_tokens=TOOL_OUTPUT_TOKEN_BUDGET,
+        )
+
     estimated_smoke_spend_ceiling = (
         base_chat_cost
+        + priority_chat_cost
         + search_chat_cost
+        + tooling_chat_cost
+        + transfer_chat_cost
         + search_surcharge
         + search_provider_cost_ceiling
     )
     funding_buffer = DEFAULT_SMOKE_FUNDING_BUFFER_USDC
+    funding_buffer += tooling_buffer
     if include_rotate:
         funding_buffer += DESTRUCTIVE_STEP_BUFFER_USDC
     if include_export:
         funding_buffer += DESTRUCTIVE_STEP_BUFFER_USDC
+    if include_transfer:
+        funding_buffer += DESTRUCTIVE_STEP_BUFFER_USDC
+
+    live_transfer_amount = normalized_transfer_amount or Decimal("0")
 
     suggested_wallet_funding = max(
         MINIMUM_SUGGESTED_FUNDING_USDC,
-        estimated_smoke_spend_ceiling + funding_buffer,
+        estimated_smoke_spend_ceiling + funding_buffer + live_transfer_amount,
     )
 
     forecast_projection = None
@@ -142,9 +287,21 @@ def build_public_sdk_smoke_estimate(
         "If search is enabled, estimate includes the fixed search surcharge and the configured provider cost ceiling.",
         "Wallet create/fetch, address lookup, summary, usage, forecast, and pricing endpoints are treated as unpriced control-plane checks.",
     ]
+    if include_priority:
+        assumptions.append(
+            "Priority-tier validation is estimated using the base hosted model rates because the pricing surface does not expose a separate tier surcharge."
+        )
+    if tool_prompts:
+        assumptions.append(
+            "Read-only Jupiter, Kamino, and Birdeye checks are budgeted as extra hosted turns plus a safety buffer because external provider and x402 fees are not exposed by the pricing endpoint."
+        )
     if include_rotate or include_export:
         assumptions.append(
             "Rotate and export are included as live checks, but the hosted pricing surface does not expose a direct per-call fee for them, so the recommendation adds only a safety buffer."
+        )
+    if include_transfer:
+        assumptions.append(
+            "Optional USDC transfer adds the requested transfer amount to suggested funding plus a safety buffer for live execution overhead."
         )
 
     return {
@@ -154,12 +311,17 @@ def build_public_sdk_smoke_estimate(
         "suggested_wallet_funding_usdc": _money_string(suggested_wallet_funding),
         "components": {
             "standard_chat_request_usd": _money_string(base_chat_cost),
+            "priority_chat_request_usd": _money_string(priority_chat_cost),
             "search_chat_request_usd": _money_string(search_chat_cost),
+            "tooling_chat_requests_usd": _money_string(tooling_chat_cost),
+            "transfer_chat_request_usd": _money_string(transfer_chat_cost),
             "search_surcharge_usd": _money_string(search_surcharge),
             "search_provider_cost_ceiling_usd": _money_string(
                 search_provider_cost_ceiling
             ),
+            "protocol_tooling_buffer_usdc": _money_string(tooling_buffer),
             "funding_buffer_usdc": _money_string(funding_buffer),
+            "transfer_amount_usdc": _money_string(live_transfer_amount),
         },
         "account_forecast_context": {
             "current_month_spend_usd": current_month_spend,
@@ -169,8 +331,13 @@ def build_public_sdk_smoke_estimate(
             "includes_search": include_search,
             "includes_rotate": include_rotate,
             "includes_export": include_export,
+            "includes_priority": include_priority,
+            "includes_jupiter_quote": include_jupiter,
+            "includes_kamino_read": include_kamino,
+            "includes_birdeye_read": include_birdeye,
+            "includes_transfer": include_transfer,
             "excludes": [
-                "Protocol tool execution is not part of the built-in smoke run because tool choice is model-driven and may trigger live market or on-chain actions.",
+                "Live Jupiter swap execution, Kamino write actions, and other destructive protocol actions remain outside the built-in smoke run.",
             ],
         },
         "assumptions": assumptions,
@@ -198,6 +365,43 @@ def _wallet_address_from_payload(payload: Mapping[str, Any]) -> str:
     ).strip()
 
 
+async def _run_message_smoke_step(
+    agent: Any,
+    *,
+    step_name: str,
+    prompt_text: str,
+    expected_sentinel: str,
+    error_message: str,
+    conversation_prefix: str,
+    chain_type: str,
+    service_tier: str = "standard",
+    search_enabled: bool = False,
+    step_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    context = await agent.context(
+        conversation_id=f"{conversation_prefix}-{uuid4().hex[:12]}",
+        model="chat",
+        memory_ttl_tier="work",
+        service_tier=service_tier,
+        search_enabled=search_enabled,
+        chain_type=chain_type,
+    )
+    response = await agent.message(prompt_text, **context)
+    if expected_sentinel not in str(response or ""):
+        raise ValueError(error_message)
+
+    step = {
+        "name": step_name,
+        "status": "passed",
+        "service_tier": service_tier,
+        "search_enabled": search_enabled,
+        "response_excerpt": _excerpt(response),
+    }
+    if isinstance(step_payload, Mapping):
+        step.update(step_payload)
+    return step
+
+
 async def build_public_sdk_smoke_preview(
     agent: Any,
     *,
@@ -206,8 +410,20 @@ async def build_public_sdk_smoke_preview(
     include_search: bool = True,
     include_rotate: bool = False,
     include_export: bool = False,
+    include_priority: bool = False,
+    include_jupiter: bool = False,
+    include_kamino: bool = False,
+    include_birdeye: bool = False,
+    include_transfer: bool = False,
+    transfer_recipient: str | None = None,
+    transfer_amount_usdc: Decimal | str | None = None,
 ) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
+    resolved_transfer_recipient, resolved_transfer_amount = _resolve_transfer_plan(
+        include_transfer=include_transfer,
+        transfer_recipient=transfer_recipient,
+        transfer_amount_usdc=transfer_amount_usdc,
+    )
 
     try:
         privy_user_id = agent._configured_privy_user_id()
@@ -314,6 +530,21 @@ async def build_public_sdk_smoke_preview(
         }
     )
 
+    estimate = build_public_sdk_smoke_estimate(
+        pricing,
+        forecast,
+        include_search=include_search,
+        include_rotate=include_rotate,
+        include_export=include_export,
+        include_priority=include_priority,
+        include_jupiter=include_jupiter,
+        include_kamino=include_kamino,
+        include_birdeye=include_birdeye,
+        include_transfer=include_transfer,
+        transfer_amount_usdc=resolved_transfer_amount,
+    )
+    coverage = dict(estimate.get("coverage") or {})
+
     return {
         "ok": True,
         "preview_only": True,
@@ -323,13 +554,12 @@ async def build_public_sdk_smoke_preview(
             "address": resolved_wallet_address,
             "chain_type": chain_type,
         },
-        "estimate": build_public_sdk_smoke_estimate(
-            pricing,
-            forecast,
-            include_search=include_search,
-            include_rotate=include_rotate,
-            include_export=include_export,
+        "coverage": coverage,
+        "transfer": _transfer_payload(
+            recipient=resolved_transfer_recipient,
+            amount_usdc=resolved_transfer_amount,
         ),
+        "estimate": estimate,
         "steps": steps,
         "account": {
             "summary": summary,
@@ -348,8 +578,20 @@ async def run_public_sdk_smoke(
     include_search: bool = True,
     include_rotate: bool = False,
     include_export: bool = False,
+    include_priority: bool = False,
+    include_jupiter: bool = False,
+    include_kamino: bool = False,
+    include_birdeye: bool = False,
+    include_transfer: bool = False,
+    transfer_recipient: str | None = None,
+    transfer_amount_usdc: Decimal | str | None = None,
     preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    resolved_transfer_recipient, resolved_transfer_amount = _resolve_transfer_plan(
+        include_transfer=include_transfer,
+        transfer_recipient=transfer_recipient,
+        transfer_amount_usdc=transfer_amount_usdc,
+    )
     smoke_preview = preview or await build_public_sdk_smoke_preview(
         agent,
         chain_type=chain_type,
@@ -357,52 +599,134 @@ async def run_public_sdk_smoke(
         include_search=include_search,
         include_rotate=include_rotate,
         include_export=include_export,
+        include_priority=include_priority,
+        include_jupiter=include_jupiter,
+        include_kamino=include_kamino,
+        include_birdeye=include_birdeye,
+        include_transfer=include_transfer,
+        transfer_recipient=resolved_transfer_recipient,
+        transfer_amount_usdc=resolved_transfer_amount,
     )
     steps = list(smoke_preview.get("steps") or [])
     privy_user_id = str(smoke_preview.get("privy_user_id") or "").strip()
     wallet_payload = dict(smoke_preview.get("wallet") or {})
     wallet_id = str(wallet_payload.get("wallet_id") or "").strip()
     wallet_address = str(wallet_payload.get("address") or "").strip()
-
-    context = await agent.context(
-        conversation_id=f"sdk-smoke-{uuid4().hex[:12]}",
-        model="chat",
-        memory_ttl_tier="work",
-        service_tier="standard",
-        search_enabled=False,
-        chain_type=chain_type,
+    transfer_payload = _transfer_payload(
+        recipient=resolved_transfer_recipient,
+        amount_usdc=resolved_transfer_amount,
     )
-    message_response = await agent.message(SMOKE_MESSAGE, **context)
-    if "SDK_SMOKE_OK" not in str(message_response or ""):
-        raise ValueError("Smoke chat response did not include SDK_SMOKE_OK")
+
     steps.append(
-        {
-            "name": "chat_message",
-            "status": "passed",
-            "response_excerpt": _excerpt(message_response),
-        }
-    )
-
-    if include_search:
-        search_context = await agent.context(
-            conversation_id=f"sdk-smoke-search-{uuid4().hex[:12]}",
-            model="chat",
-            memory_ttl_tier="work",
-            service_tier="standard",
-            search_enabled=True,
+        await _run_message_smoke_step(
+            agent,
+            step_name="chat_message",
+            prompt_text=SMOKE_MESSAGE,
+            expected_sentinel="SDK_SMOKE_OK",
+            error_message="Smoke chat response did not include SDK_SMOKE_OK",
+            conversation_prefix="sdk-smoke",
             chain_type=chain_type,
         )
-        search_response = await agent.message(SEARCH_SMOKE_MESSAGE, **search_context)
-        if "SDK_SMOKE_SEARCH_OK" not in str(search_response or ""):
-            raise ValueError(
-                "Smoke search-enabled response did not include SDK_SMOKE_SEARCH_OK"
-            )
+    )
+
+    if include_priority:
         steps.append(
-            {
-                "name": "chat_message_search_enabled",
-                "status": "passed",
-                "response_excerpt": _excerpt(search_response),
-            }
+            await _run_message_smoke_step(
+                agent,
+                step_name="chat_message_priority_tier",
+                prompt_text=PRIORITY_SMOKE_MESSAGE,
+                expected_sentinel="SDK_SMOKE_PRIORITY_OK",
+                error_message=(
+                    "Priority-tier smoke response did not include SDK_SMOKE_PRIORITY_OK"
+                ),
+                conversation_prefix="sdk-smoke-priority",
+                chain_type=chain_type,
+                service_tier="priority",
+            )
+        )
+
+    if include_search:
+        steps.append(
+            await _run_message_smoke_step(
+                agent,
+                step_name="chat_message_search_enabled",
+                prompt_text=SEARCH_SMOKE_MESSAGE,
+                expected_sentinel="SDK_SMOKE_SEARCH_OK",
+                error_message=(
+                    "Smoke search-enabled response did not include SDK_SMOKE_SEARCH_OK"
+                ),
+                conversation_prefix="sdk-smoke-search",
+                chain_type=chain_type,
+                search_enabled=True,
+            )
+        )
+
+    if include_jupiter:
+        steps.append(
+            await _run_message_smoke_step(
+                agent,
+                step_name="jupiter_swap_quote",
+                prompt_text=_jupiter_smoke_message(),
+                expected_sentinel=JUPITER_SMOKE_SENTINEL,
+                error_message=(
+                    f"Jupiter smoke response did not include {JUPITER_SMOKE_SENTINEL}"
+                ),
+                conversation_prefix="sdk-smoke-jupiter",
+                chain_type=chain_type,
+            )
+        )
+
+    if include_kamino:
+        steps.append(
+            await _run_message_smoke_step(
+                agent,
+                step_name="kamino_read",
+                prompt_text=_kamino_smoke_message(),
+                expected_sentinel=KAMINO_SMOKE_SENTINEL,
+                error_message=(
+                    f"Kamino smoke response did not include {KAMINO_SMOKE_SENTINEL}"
+                ),
+                conversation_prefix="sdk-smoke-kamino",
+                chain_type=chain_type,
+            )
+        )
+
+    if include_birdeye:
+        steps.append(
+            await _run_message_smoke_step(
+                agent,
+                step_name="birdeye_read",
+                prompt_text=_birdeye_smoke_message(),
+                expected_sentinel=BIRDEYE_SMOKE_SENTINEL,
+                error_message=(
+                    f"Birdeye smoke response did not include {BIRDEYE_SMOKE_SENTINEL}"
+                ),
+                conversation_prefix="sdk-smoke-birdeye",
+                chain_type=chain_type,
+            )
+        )
+
+    if include_transfer and resolved_transfer_amount is not None:
+        steps.append(
+            await _run_message_smoke_step(
+                agent,
+                step_name="transfer_usdc",
+                prompt_text=_transfer_smoke_message(
+                    recipient=resolved_transfer_recipient,
+                    amount_usdc=resolved_transfer_amount,
+                ),
+                expected_sentinel=TRANSFER_SMOKE_SENTINEL,
+                error_message=(
+                    f"Transfer smoke response did not include {TRANSFER_SMOKE_SENTINEL}"
+                ),
+                conversation_prefix="sdk-smoke-transfer",
+                chain_type=chain_type,
+                step_payload={
+                    "recipient": resolved_transfer_recipient,
+                    "amount_usdc": _money_string(resolved_transfer_amount),
+                    "mint": SOLANA_USDC_MINT,
+                },
+            )
         )
 
     if include_rotate:
@@ -455,11 +779,17 @@ async def run_public_sdk_smoke(
             "address": wallet_address,
             "chain_type": chain_type,
         },
+        "transfer": transfer_payload,
         "estimate": smoke_preview.get("estimate") or {},
         "coverage": {
             "includes_search": include_search,
             "includes_rotate": include_rotate,
             "includes_export": include_export,
+            "includes_priority": include_priority,
+            "includes_jupiter_quote": include_jupiter,
+            "includes_kamino_read": include_kamino,
+            "includes_birdeye_read": include_birdeye,
+            "includes_transfer": include_transfer,
         },
         "steps": steps,
     }

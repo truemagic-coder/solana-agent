@@ -594,6 +594,19 @@ class OpenAIAdapter(LLMProvider):
                 return False
         return bool(value)
 
+    def _hosted_chat_completions_require_non_streaming(
+        self,
+        model: Optional[str] = None,
+    ) -> bool:
+        if not self.base_url:
+            return False
+
+        requested_model = str(model or self.text_model or "").strip().lower()
+        if requested_model.startswith("solana-agent-"):
+            return True
+
+        return self.auth_mode == "x402_privy"
+
     def _chat_completion_response_events(self, response: Any) -> list[Dict[str, Any]]:
         choices = getattr(response, "choices", None) or []
         if not choices:
@@ -1279,7 +1292,7 @@ class OpenAIAdapter(LLMProvider):
             client = await self._get_client(runtime_context)
             self._instrument_client(client)
 
-            if self._hosted_search_enabled(runtime_context):
+            if self._hosted_chat_completions_require_non_streaming(model):
                 cc_params: Dict[str, Any] = {
                     "model": model or self.text_model,
                     "messages": messages,

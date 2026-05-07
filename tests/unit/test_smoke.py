@@ -55,6 +55,11 @@ def _smoke_preview_payload() -> dict[str, object]:
             "address": "WalletPubkey123",
             "chain_type": "solana",
         },
+        "coverage": {
+            "includes_search": True,
+            "includes_rotate": False,
+            "includes_export": False,
+        },
         "estimate": {"suggested_wallet_funding_usdc": "1.00"},
         "steps": [],
     }
@@ -111,6 +116,36 @@ def test_build_public_sdk_smoke_estimate_adds_rotate_buffer() -> None:
     assert estimate["account_forecast_context"]["current_month_spend_usd"] is None
 
 
+def test_build_public_sdk_smoke_estimate_includes_big_smoke_components() -> None:
+    estimate = build_public_sdk_smoke_estimate(
+        {
+            "base_rates": {
+                "solana-agent-chat": {
+                    "input_per_million": "5000",
+                    "output_per_million": "15000",
+                }
+            }
+        },
+        None,
+        include_search=False,
+        include_rotate=False,
+        include_export=False,
+        include_priority=True,
+        include_jupiter=True,
+        include_kamino=True,
+        include_birdeye=True,
+        include_transfer=True,
+        transfer_amount_usdc="0.10",
+    )
+
+    assert estimate["components"]["priority_chat_request_usd"] != "0.00"
+    assert estimate["components"]["tooling_chat_requests_usd"] != "0.00"
+    assert estimate["components"]["protocol_tooling_buffer_usdc"] == "0.75"
+    assert estimate["components"]["transfer_amount_usdc"] == "0.10"
+    assert estimate["coverage"]["includes_priority"] is True
+    assert estimate["coverage"]["includes_transfer"] is True
+
+
 @pytest.mark.asyncio
 async def test_build_public_sdk_smoke_preview_creates_user_when_missing() -> None:
     agent = MagicMock()
@@ -155,6 +190,7 @@ async def test_build_public_sdk_smoke_preview_creates_user_when_missing() -> Non
 
     assert preview["privy_user_id"] == "did:privy:new-user"
     assert preview["wallet"]["wallet_id"] == "wallet-123"
+    assert preview["coverage"]["includes_export"] is True
     assert preview["estimate"]["coverage"]["includes_export"] is True
     assert [step["name"] for step in preview["steps"]] == [
         "resolve_privy_user",
@@ -207,6 +243,14 @@ async def test_build_public_sdk_smoke_preview_requires_wallet_address() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_public_sdk_smoke_preview_requires_transfer_recipient() -> None:
+    agent = _preview_agent()
+
+    with pytest.raises(ValueError, match="transfer_recipient"):
+        await build_public_sdk_smoke_preview(agent, include_transfer=True)
+
+
+@pytest.mark.asyncio
 async def test_run_public_sdk_smoke_executes_chat_search_rotate_and_export() -> None:
     agent = MagicMock()
     agent.context = AsyncMock(
@@ -255,6 +299,90 @@ async def test_run_public_sdk_smoke_executes_chat_search_rotate_and_export() -> 
         "export_wallet_private_key",
     ]
     assert result["steps"][-1]["private_key_redacted"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_public_sdk_smoke_executes_priority_tooling_and_transfer() -> None:
+    agent = MagicMock()
+    agent.context = AsyncMock(
+        side_effect=[
+            {"conversation_id": "conv-1"},
+            {"conversation_id": "conv-2", "service_tier": "priority"},
+            {"conversation_id": "conv-3", "search_enabled": True},
+            {"conversation_id": "conv-4"},
+            {"conversation_id": "conv-5"},
+            {"conversation_id": "conv-6"},
+            {"conversation_id": "conv-7"},
+        ]
+    )
+    agent.message = AsyncMock(
+        side_effect=[
+            "SDK_SMOKE_OK",
+            "SDK_SMOKE_PRIORITY_OK",
+            "2026 SDK_SMOKE_SEARCH_OK",
+            "SDK_SMOKE_JUPITER_OK out_amount=123",
+            "SDK_SMOKE_KAMINO_OK vaults=5",
+            "SDK_SMOKE_BIRDEYE_OK price=1.00",
+            "SDK_SMOKE_TRANSFER_OK sig=abc123",
+        ]
+    )
+
+    result = await run_public_sdk_smoke(
+        agent,
+        include_search=True,
+        include_priority=True,
+        include_jupiter=True,
+        include_kamino=True,
+        include_birdeye=True,
+        include_transfer=True,
+        transfer_recipient="RecipientPubkey123",
+        transfer_amount_usdc="0.10",
+        preview={
+            "privy_user_id": "did:privy:user123",
+            "wallet": {
+                "wallet_id": "wallet-123",
+                "address": "WalletPubkey123",
+                "chain_type": "solana",
+            },
+            "estimate": {"suggested_wallet_funding_usdc": "1.00"},
+            "steps": [{"name": "account_pricing", "status": "passed"}],
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["coverage"]["includes_priority"] is True
+    assert result["coverage"]["includes_jupiter_quote"] is True
+    assert result["coverage"]["includes_kamino_read"] is True
+    assert result["coverage"]["includes_birdeye_read"] is True
+    assert result["coverage"]["includes_transfer"] is True
+    assert result["transfer"] == {
+        "recipient": "RecipientPubkey123",
+        "amount_usdc": "0.10",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    }
+    assert [step["name"] for step in result["steps"]][-7:] == [
+        "chat_message",
+        "chat_message_priority_tier",
+        "chat_message_search_enabled",
+        "jupiter_swap_quote",
+        "kamino_read",
+        "birdeye_read",
+        "transfer_usdc",
+    ]
+    assert agent.context.await_args_list[1].kwargs["service_tier"] == "priority"
+
+
+@pytest.mark.asyncio
+async def test_run_public_sdk_smoke_requires_transfer_recipient() -> None:
+    agent = MagicMock()
+
+    with pytest.raises(ValueError, match="transfer_recipient"):
+        await run_public_sdk_smoke(
+            agent,
+            include_search=False,
+            include_transfer=True,
+            preview=_smoke_preview_payload(),
+        )
 
 
 @pytest.mark.asyncio

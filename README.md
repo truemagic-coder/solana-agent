@@ -183,5 +183,7 @@ uvx solana-agent wallet menu --dev
 ```
 
 The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
+Use `--big` to add the expanded protocol profile: priority-tier chat plus Jupiter, Kamino, and Birdeye read checks.
+Use `--include-transfer --transfer-recipient <wallet> [--transfer-amount-usdc 0.10]` when you want the smoke run to execute a live USDC transfer.
 Add `--json` to `wallet smoke` when you want machine-readable output instead of tables.
 

@@ -286,24 +286,23 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
-    async def test_hosted_chat_completion_stream_forwards_memory_extensions(
+    async def test_hosted_chat_completion_forwards_memory_extensions_without_streaming(
         self,
         mock_async_openai,
     ):
-        """Hosted streaming calls should send memory extensions in extra_body."""
+        """Hosted chat completions should send memory extensions without stream=True."""
 
-        async def mock_stream():
-            yield SimpleNamespace(
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
                 choices=[
                     SimpleNamespace(
-                        delta=SimpleNamespace(content="ok", tool_calls=None),
+                        message=SimpleNamespace(content="ok", tool_calls=None),
                         finish_reason="stop",
                     )
                 ]
             )
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+        )
         mock_async_openai.return_value = mock_client
 
         adapter = OpenAIAdapter(
@@ -325,8 +324,12 @@ class TestOpenAIAdapter:
             )
         ]
 
-        assert responses[-1]["type"] == "message_end"
+        assert responses == [
+            {"type": "content", "delta": "ok"},
+            {"type": "message_end", "finish_reason": "stop"},
+        ]
         kwargs = mock_client.chat.completions.create.await_args.kwargs
+        assert "stream" not in kwargs
         assert kwargs["extra_body"]["conversation_id"] == "conv-123"
         assert kwargs["extra_body"]["memory_ttl_tier"] == "project"
 

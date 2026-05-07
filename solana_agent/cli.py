@@ -20,6 +20,7 @@ from solana_agent.local_state import (
     save_privy_user_id,
 )
 from solana_agent.smoke import (
+    DEFAULT_TRANSFER_AMOUNT_USDC,
     build_public_sdk_smoke_preview,
     run_public_sdk_smoke,
 )
@@ -164,6 +165,10 @@ def _bool_label(value: object) -> str:
 
 
 def _smoke_step_detail(step: dict[str, object]) -> str:
+    if step.get("name") == "transfer_usdc":
+        amount = str(step.get("amount_usdc") or "").strip()
+        recipient = str(step.get("recipient") or "").strip()
+        return f"{amount} USDC -> {recipient}".strip()
     if "response_excerpt" in step:
         return str(step.get("response_excerpt") or "")
     if step.get("name") == "resolve_privy_user":
@@ -189,6 +194,7 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
     estimate = payload.get("estimate")
     wallet = payload.get("wallet")
     coverage = payload.get("coverage")
+    transfer = payload.get("transfer")
 
     summary_table = Table(
         title="Smoke Preview" if preview_only else "Smoke Result",
@@ -216,6 +222,15 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
             "Wallet Address",
             str(wallet.get("address") or ""),
         )
+    if isinstance(transfer, dict):
+        summary_table.add_row(
+            "Transfer Recipient",
+            str(transfer.get("recipient") or ""),
+        )
+        summary_table.add_row(
+            "Transfer Amount (USDC)",
+            str(transfer.get("amount_usdc") or "0"),
+        )
     if isinstance(coverage, dict):
         summary_table.add_row(
             "Search Check",
@@ -228,6 +243,26 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
         summary_table.add_row(
             "Export Check",
             _bool_label(coverage.get("includes_export")),
+        )
+        summary_table.add_row(
+            "Priority Check",
+            _bool_label(coverage.get("includes_priority")),
+        )
+        summary_table.add_row(
+            "Jupiter Quote",
+            _bool_label(coverage.get("includes_jupiter_quote")),
+        )
+        summary_table.add_row(
+            "Kamino Read",
+            _bool_label(coverage.get("includes_kamino_read")),
+        )
+        summary_table.add_row(
+            "Birdeye Read",
+            _bool_label(coverage.get("includes_birdeye_read")),
+        )
+        summary_table.add_row(
+            "USDC Transfer",
+            _bool_label(coverage.get("includes_transfer")),
         )
     if isinstance(estimate, dict):
         summary_table.add_row(
@@ -253,10 +288,15 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
             estimate_table.add_column("Value")
             for key, label in (
                 ("standard_chat_request_usd", "Standard Chat"),
+                ("priority_chat_request_usd", "Priority Chat"),
                 ("search_chat_request_usd", "Search Chat"),
+                ("tooling_chat_requests_usd", "Tooling Chat"),
+                ("transfer_chat_request_usd", "Transfer Chat"),
                 ("search_surcharge_usd", "Search Surcharge"),
                 ("search_provider_cost_ceiling_usd", "Search Provider Ceiling"),
+                ("protocol_tooling_buffer_usdc", "Protocol Tooling Buffer"),
                 ("funding_buffer_usdc", "Funding Buffer"),
+                ("transfer_amount_usdc", "Transfer Amount"),
             ):
                 estimate_table.add_row(label, str(components.get(key) or "0"))
             console.print(estimate_table)
@@ -281,6 +321,50 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
                 _smoke_step_detail(raw_step),
             )
         console.print(steps_table)
+
+
+def _resolve_wallet_smoke_options(
+    *,
+    big: bool,
+    include_search: bool,
+    include_rotate: bool,
+    include_export: bool,
+    include_priority: bool,
+    include_jupiter: bool,
+    include_kamino: bool,
+    include_birdeye: bool,
+    include_transfer: bool,
+    transfer_recipient: Optional[str],
+    transfer_amount_usdc: Optional[str],
+) -> dict[str, object]:
+    resolved_big = bool(big)
+    resolved_include_priority = bool(include_priority or resolved_big)
+    resolved_include_jupiter = bool(include_jupiter or resolved_big)
+    resolved_include_kamino = bool(include_kamino or resolved_big)
+    resolved_include_birdeye = bool(include_birdeye or resolved_big)
+    resolved_transfer_recipient = str(transfer_recipient or "").strip() or None
+    resolved_transfer_amount = str(transfer_amount_usdc or "").strip() or None
+
+    if include_transfer and not resolved_transfer_recipient:
+        raise typer.BadParameter(
+            "--transfer-recipient is required when --include-transfer is enabled"
+        )
+
+    if include_transfer and not resolved_transfer_amount:
+        resolved_transfer_amount = str(DEFAULT_TRANSFER_AMOUNT_USDC)
+
+    return {
+        "include_search": include_search,
+        "include_rotate": include_rotate,
+        "include_export": include_export,
+        "include_priority": resolved_include_priority,
+        "include_jupiter": resolved_include_jupiter,
+        "include_kamino": resolved_include_kamino,
+        "include_birdeye": resolved_include_birdeye,
+        "include_transfer": include_transfer,
+        "transfer_recipient": resolved_transfer_recipient,
+        "transfer_amount_usdc": resolved_transfer_amount,
+    }
 
 
 def _print_smoke_output(payload: dict[str, object], *, json_output: bool) -> None:
@@ -694,6 +778,60 @@ def wallet_smoke(
             help="Include private-key export validation without printing the key.",
         ),
     ] = False,
+    include_priority: Annotated[
+        bool,
+        typer.Option(
+            "--include-priority/--skip-priority",
+            help="Include a hosted priority-tier chat validation step.",
+        ),
+    ] = False,
+    include_jupiter: Annotated[
+        bool,
+        typer.Option(
+            "--include-jupiter/--skip-jupiter",
+            help="Include a read-only Jupiter swap quote check.",
+        ),
+    ] = False,
+    include_kamino: Annotated[
+        bool,
+        typer.Option(
+            "--include-kamino/--skip-kamino",
+            help="Include a read-only Kamino check.",
+        ),
+    ] = False,
+    include_birdeye: Annotated[
+        bool,
+        typer.Option(
+            "--include-birdeye/--skip-birdeye",
+            help="Include a read-only Birdeye market-data check.",
+        ),
+    ] = False,
+    include_transfer: Annotated[
+        bool,
+        typer.Option(
+            "--include-transfer/--skip-transfer",
+            help="Include a live USDC transfer check.",
+        ),
+    ] = False,
+    transfer_recipient: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Recipient wallet address for the live USDC transfer check.",
+        ),
+    ] = None,
+    transfer_amount_usdc: Annotated[
+        Optional[str],
+        typer.Option(
+            help="USDC amount for the live transfer check. Defaults to 0.10 when transfer is enabled.",
+        ),
+    ] = None,
+    big: Annotated[
+        bool,
+        typer.Option(
+            "--big",
+            help="Enable the expanded smoke profile: priority tier plus Jupiter, Kamino, and Birdeye checks.",
+        ),
+    ] = False,
     estimate_only: Annotated[
         bool,
         typer.Option(
@@ -727,14 +865,25 @@ def wallet_smoke(
     """Run a live hosted SDK smoke test with a funding estimate."""
     _require_dev_mode(dev)
     agent = _load_agent_for_menu(config)
+    smoke_options = _resolve_wallet_smoke_options(
+        big=big,
+        include_search=include_search,
+        include_rotate=include_rotate,
+        include_export=include_export,
+        include_priority=include_priority,
+        include_jupiter=include_jupiter,
+        include_kamino=include_kamino,
+        include_birdeye=include_birdeye,
+        include_transfer=include_transfer,
+        transfer_recipient=transfer_recipient,
+        transfer_amount_usdc=transfer_amount_usdc,
+    )
     preview = asyncio.run(
         build_public_sdk_smoke_preview(
             agent,
             chain_type=chain_type,
             forecast_window_days=forecast_window_days,
-            include_search=include_search,
-            include_rotate=include_rotate,
-            include_export=include_export,
+            **smoke_options,
         )
     )
 
@@ -753,9 +902,7 @@ def wallet_smoke(
             agent,
             chain_type=chain_type,
             forecast_window_days=forecast_window_days,
-            include_search=include_search,
-            include_rotate=include_rotate,
-            include_export=include_export,
+            **smoke_options,
             preview=preview,
         )
     )
@@ -865,6 +1012,32 @@ def wallet_menu(
                 "Include a search-enabled chat check",
                 default=True,
             )
+            include_big = Confirm.ask(
+                "Include the expanded protocol smoke profile (priority + Jupiter + Kamino + Birdeye)",
+                default=False,
+            )
+            if include_big:
+                include_priority = False
+                include_jupiter = False
+                include_kamino = False
+                include_birdeye = False
+            else:
+                include_priority = Confirm.ask(
+                    "Include a priority-tier chat check",
+                    default=False,
+                )
+                include_jupiter = Confirm.ask(
+                    "Include a Jupiter quote check",
+                    default=False,
+                )
+                include_kamino = Confirm.ask(
+                    "Include a Kamino read check",
+                    default=False,
+                )
+                include_birdeye = Confirm.ask(
+                    "Include a Birdeye market-data check",
+                    default=False,
+                )
             include_rotate = Confirm.ask(
                 "Include wallet rotation validation",
                 default=False,
@@ -873,13 +1046,33 @@ def wallet_menu(
                 "Include private-key export validation without printing the key",
                 default=False,
             )
+            include_transfer = Confirm.ask(
+                "Include a live USDC transfer check",
+                default=False,
+            )
+            transfer_recipient = None
+            transfer_amount_usdc = None
+            if include_transfer:
+                transfer_recipient = Prompt.ask("Transfer recipient wallet address")
+                transfer_amount_usdc = Prompt.ask(
+                    "Transfer amount in USDC",
+                    default=str(DEFAULT_TRANSFER_AMOUNT_USDC),
+                )
             wallet_smoke(
                 config=config,
                 chain_type=chain_type,
                 forecast_window_days=30,
                 include_search=include_search,
+                include_priority=include_priority,
+                include_jupiter=include_jupiter,
+                include_kamino=include_kamino,
+                include_birdeye=include_birdeye,
                 include_rotate=include_rotate,
                 include_export=include_export,
+                include_transfer=include_transfer,
+                transfer_recipient=transfer_recipient,
+                transfer_amount_usdc=transfer_amount_usdc,
+                big=include_big,
                 estimate_only=False,
                 json_output=False,
                 yes=False,
