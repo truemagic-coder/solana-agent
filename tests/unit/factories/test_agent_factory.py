@@ -1,4 +1,5 @@
 import re
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -77,7 +78,19 @@ def test_create_from_config_builds_single_agent_runtime(
     mock_plugin_manager.load_plugins.return_value = ["mcp"]
     mock_plugin_manager_class.return_value = mock_plugin_manager
 
-    service = SolanaAgentFactory.create_from_config(hosted_config)
+    with patch.dict(
+        os.environ,
+        {
+            "SOLANA_AGENT_DOTENV_PATH": "",
+            "OPENAI_API_DOTENV_PATH": "",
+            "SOLANA_PRIVATE_KEY": "",
+            "HELIUS_RPC_URL": "",
+            "SOLANA_RPC_URL": "",
+            "OPENAI_API_SOLANA_RPC_URL": "",
+        },
+        clear=False,
+    ):
+        service = SolanaAgentFactory.create_from_config(hosted_config)
 
     assert isinstance(service, QueryService)
     assert set(service.agent_service.get_all_ai_agents()) == {"assistant"}
@@ -126,6 +139,101 @@ def test_create_from_config_resolves_chat_model_alias(
     SolanaAgentFactory.create_from_config(config)
 
     assert mock_adapter_class.call_args.kwargs["model"] == DEFAULT_AGI_STATELESS_MODEL
+
+
+@patch("solana_agent.factories.agent_factory.PluginManager")
+@patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+def test_create_from_config_uses_env_backed_x402_signer_for_hosted_runtime(
+    mock_adapter_class,
+    mock_plugin_manager_class,
+    hosted_config,
+):
+    mock_adapter_class.return_value = MagicMock()
+    mock_plugin_manager_class.return_value = MagicMock(load_plugins=MagicMock())
+
+    with patch.dict(
+        os.environ,
+        {
+            "SOLANA_PRIVATE_KEY": "base58-private-key",
+            "HELIUS_RPC_URL": "",
+            "SOLANA_RPC_URL": "https://rpc.example",
+            "OPENAI_API_SOLANA_RPC_URL": "",
+        },
+        clear=False,
+    ):
+        SolanaAgentFactory.create_from_config(hosted_config)
+
+    assert mock_adapter_class.call_args.kwargs["private_key"] == "base58-private-key"
+    assert mock_adapter_class.call_args.kwargs["x402_rpc_url"] == "https://rpc.example"
+
+
+@patch("solana_agent.factories.agent_factory.PluginManager")
+@patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+def test_create_from_config_loads_opt_in_dotenv_for_hosted_runtime(
+    mock_adapter_class,
+    mock_plugin_manager_class,
+    hosted_config,
+):
+    mock_adapter_class.return_value = MagicMock()
+    mock_plugin_manager_class.return_value = MagicMock(load_plugins=MagicMock())
+
+    def _fake_load_dotenv(*, dotenv_path, override):
+        assert dotenv_path == "/tmp/hosted.env"
+        assert override is False
+        os.environ["SOLANA_PRIVATE_KEY"] = "dotenv-private-key"
+        os.environ["SOLANA_RPC_URL"] = "https://dotenv-rpc.example"
+
+    with patch.dict(
+        os.environ,
+        {
+            "OPENAI_API_DOTENV_PATH": "/tmp/hosted.env",
+            "SOLANA_PRIVATE_KEY": "",
+            "HELIUS_RPC_URL": "",
+            "SOLANA_RPC_URL": "",
+            "OPENAI_API_SOLANA_RPC_URL": "",
+        },
+        clear=False,
+    ):
+        with patch(
+            "solana_agent.factories.agent_factory.load_dotenv",
+            side_effect=_fake_load_dotenv,
+        ) as mock_load_dotenv:
+            SolanaAgentFactory.create_from_config(hosted_config)
+
+    mock_load_dotenv.assert_called_once_with(
+        dotenv_path="/tmp/hosted.env", override=False
+    )
+    assert mock_adapter_class.call_args.kwargs["private_key"] == "dotenv-private-key"
+    assert (
+        mock_adapter_class.call_args.kwargs["x402_rpc_url"]
+        == "https://dotenv-rpc.example"
+    )
+
+
+@patch("solana_agent.factories.agent_factory.PluginManager")
+@patch("solana_agent.factories.agent_factory.OpenAIAdapter")
+def test_create_from_config_prefers_helius_rpc_url_for_hosted_runtime(
+    mock_adapter_class,
+    mock_plugin_manager_class,
+    hosted_config,
+):
+    mock_adapter_class.return_value = MagicMock()
+    mock_plugin_manager_class.return_value = MagicMock(load_plugins=MagicMock())
+
+    with patch.dict(
+        os.environ,
+        {
+            "SOLANA_PRIVATE_KEY": "base58-private-key",
+            "HELIUS_RPC_URL": "https://mainnet.helius-rpc.example",
+            "SOLANA_RPC_URL": "https://beta.helius-rpc.example",
+        },
+        clear=False,
+    ):
+        SolanaAgentFactory.create_from_config(hosted_config)
+
+    assert mock_adapter_class.call_args.kwargs["x402_rpc_url"] == (
+        "https://mainnet.helius-rpc.example"
+    )
 
 
 def test_create_from_config_rejects_agent_tools_for_unknown_agent(hosted_config):

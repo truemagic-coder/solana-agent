@@ -245,20 +245,52 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
             _bool_label(coverage.get("includes_export")),
         )
         summary_table.add_row(
-            "Priority Check",
-            _bool_label(coverage.get("includes_priority")),
+            "Priority Chat",
+            _bool_label(coverage.get("includes_priority_chat")),
+        )
+        summary_table.add_row(
+            "Memory Work (7d)",
+            _bool_label(coverage.get("includes_memory_work")),
+        )
+        summary_table.add_row(
+            "Memory Project (30d)",
+            _bool_label(coverage.get("includes_memory_project")),
+        )
+        summary_table.add_row(
+            "Priority Memory Work (7d)",
+            _bool_label(coverage.get("includes_priority_memory_work")),
+        )
+        summary_table.add_row(
+            "Priority Memory Project (30d)",
+            _bool_label(coverage.get("includes_priority_memory_project")),
         )
         summary_table.add_row(
             "Jupiter Quote",
             _bool_label(coverage.get("includes_jupiter_quote")),
         )
         summary_table.add_row(
-            "Kamino Read",
-            _bool_label(coverage.get("includes_kamino_read")),
-        )
-        summary_table.add_row(
             "Birdeye Read",
             _bool_label(coverage.get("includes_birdeye_read")),
+        )
+        summary_table.add_row(
+            "Token Math",
+            _bool_label(coverage.get("includes_token_math")),
+        )
+        summary_table.add_row(
+            "Technical Analysis",
+            _bool_label(coverage.get("includes_technical_analysis")),
+        )
+        summary_table.add_row(
+            "Swap",
+            _bool_label(coverage.get("includes_swap")),
+        )
+        summary_table.add_row(
+            "Trigger",
+            _bool_label(coverage.get("includes_trigger")),
+        )
+        summary_table.add_row(
+            "Earn",
+            _bool_label(coverage.get("includes_earn")),
         )
         summary_table.add_row(
             "USDC Transfer",
@@ -288,7 +320,14 @@ def _print_smoke_report(payload: dict[str, object]) -> None:
             estimate_table.add_column("Value")
             for key, label in (
                 ("standard_chat_request_usd", "Standard Chat"),
+                ("memory_work_request_usd", "Memory Work (7d)"),
+                ("memory_project_request_usd", "Memory Project (30d)"),
                 ("priority_chat_request_usd", "Priority Chat"),
+                ("priority_memory_work_request_usd", "Priority Memory Work (7d)"),
+                (
+                    "priority_memory_project_request_usd",
+                    "Priority Memory Project (30d)",
+                ),
                 ("search_chat_request_usd", "Search Chat"),
                 ("tooling_chat_requests_usd", "Tooling Chat"),
                 ("transfer_chat_request_usd", "Transfer Chat"),
@@ -330,18 +369,30 @@ def _resolve_wallet_smoke_options(
     include_rotate: bool,
     include_export: bool,
     include_priority: bool,
+    include_memory: bool,
     include_jupiter: bool,
-    include_kamino: bool,
     include_birdeye: bool,
+    include_swap: bool,
+    include_trigger: bool,
+    include_earn: bool,
+    include_technical_analysis: bool,
+    include_token_math: bool,
     include_transfer: bool,
     transfer_recipient: Optional[str],
     transfer_amount_usdc: Optional[str],
 ) -> dict[str, object]:
     resolved_big = bool(big)
     resolved_include_priority = bool(include_priority or resolved_big)
+    resolved_include_memory = bool(include_memory or resolved_big)
     resolved_include_jupiter = bool(include_jupiter or resolved_big)
-    resolved_include_kamino = bool(include_kamino or resolved_big)
     resolved_include_birdeye = bool(include_birdeye or resolved_big)
+    resolved_include_swap = bool(include_swap or resolved_big)
+    resolved_include_trigger = bool(include_trigger or resolved_big)
+    resolved_include_earn = bool(include_earn or resolved_big)
+    resolved_include_technical_analysis = bool(
+        include_technical_analysis or resolved_big
+    )
+    resolved_include_token_math = bool(include_token_math or resolved_big)
     resolved_transfer_recipient = str(transfer_recipient or "").strip() or None
     resolved_transfer_amount = str(transfer_amount_usdc or "").strip() or None
 
@@ -358,9 +409,14 @@ def _resolve_wallet_smoke_options(
         "include_rotate": include_rotate,
         "include_export": include_export,
         "include_priority": resolved_include_priority,
+        "include_memory": resolved_include_memory,
         "include_jupiter": resolved_include_jupiter,
-        "include_kamino": resolved_include_kamino,
         "include_birdeye": resolved_include_birdeye,
+        "include_swap": resolved_include_swap,
+        "include_trigger": resolved_include_trigger,
+        "include_earn": resolved_include_earn,
+        "include_technical_analysis": resolved_include_technical_analysis,
+        "include_token_math": resolved_include_token_math,
         "include_transfer": include_transfer,
         "transfer_recipient": resolved_transfer_recipient,
         "transfer_amount_usdc": resolved_transfer_amount,
@@ -782,7 +838,14 @@ def wallet_smoke(
         bool,
         typer.Option(
             "--include-priority/--skip-priority",
-            help="Include a hosted priority-tier chat validation step.",
+            help="Include hosted priority-tier validation. When memory checks are enabled, this also runs priority memory coverage.",
+        ),
+    ] = False,
+    include_memory: Annotated[
+        bool,
+        typer.Option(
+            "--include-memory/--skip-memory",
+            help="Include hosted memory recall checks for both the 7-day work tier and the 30-day project tier.",
         ),
     ] = False,
     include_jupiter: Annotated[
@@ -792,18 +855,46 @@ def wallet_smoke(
             help="Include a read-only Jupiter swap quote check.",
         ),
     ] = False,
-    include_kamino: Annotated[
-        bool,
-        typer.Option(
-            "--include-kamino/--skip-kamino",
-            help="Include a read-only Kamino check.",
-        ),
-    ] = False,
     include_birdeye: Annotated[
         bool,
         typer.Option(
             "--include-birdeye/--skip-birdeye",
             help="Include a read-only Birdeye market-data check.",
+        ),
+    ] = False,
+    include_swap: Annotated[
+        bool,
+        typer.Option(
+            "--include-swap/--skip-swap",
+            help="Include a tiny live privy_swap execution check.",
+        ),
+    ] = False,
+    include_trigger: Annotated[
+        bool,
+        typer.Option(
+            "--include-trigger/--skip-trigger",
+            help="Include a create-plus-cancel Jupiter Trigger check.",
+        ),
+    ] = False,
+    include_earn: Annotated[
+        bool,
+        typer.Option(
+            "--include-earn/--skip-earn",
+            help="Include a reversible Jupiter Earn deposit-plus-withdraw check.",
+        ),
+    ] = False,
+    include_technical_analysis: Annotated[
+        bool,
+        typer.Option(
+            "--include-technical-analysis/--skip-technical-analysis",
+            help="Include a technical_analysis check.",
+        ),
+    ] = False,
+    include_token_math: Annotated[
+        bool,
+        typer.Option(
+            "--include-token-math/--skip-token-math",
+            help="Include a deterministic token_math round-trip check.",
         ),
     ] = False,
     include_transfer: Annotated[
@@ -829,7 +920,7 @@ def wallet_smoke(
         bool,
         typer.Option(
             "--big",
-            help="Enable the expanded smoke profile: priority tier plus Jupiter, Kamino, and Birdeye checks.",
+            help="Enable the full expanded smoke profile: memory (7d and 30d), priority chat and memory, Jupiter, Birdeye, token math, technical analysis, swap, trigger, and earn.",
         ),
     ] = False,
     estimate_only: Annotated[
@@ -871,42 +962,53 @@ def wallet_smoke(
         include_rotate=include_rotate,
         include_export=include_export,
         include_priority=include_priority,
+        include_memory=include_memory,
         include_jupiter=include_jupiter,
-        include_kamino=include_kamino,
         include_birdeye=include_birdeye,
+        include_swap=include_swap,
+        include_trigger=include_trigger,
+        include_earn=include_earn,
+        include_technical_analysis=include_technical_analysis,
+        include_token_math=include_token_math,
         include_transfer=include_transfer,
         transfer_recipient=transfer_recipient,
         transfer_amount_usdc=transfer_amount_usdc,
     )
-    preview = asyncio.run(
-        build_public_sdk_smoke_preview(
-            agent,
-            chain_type=chain_type,
-            forecast_window_days=forecast_window_days,
-            **smoke_options,
+    try:
+        preview = asyncio.run(
+            build_public_sdk_smoke_preview(
+                agent,
+                chain_type=chain_type,
+                forecast_window_days=forecast_window_days,
+                **smoke_options,
+            )
         )
-    )
 
-    if estimate_only:
-        _print_smoke_output(preview, json_output=json_output)
-        return
+        if estimate_only:
+            _print_smoke_output(preview, json_output=json_output)
+            return
 
-    if not yes:
-        _print_smoke_output(preview, json_output=json_output)
-        if not Confirm.ask("Proceed with live smoke test", default=False):
-            console.print("[yellow]Smoke test cancelled after preview.[/yellow]")
-            raise typer.Exit(code=1)
+        if not yes:
+            _print_smoke_output(preview, json_output=json_output)
+            if not Confirm.ask("Proceed with live smoke test", default=False):
+                console.print("[yellow]Smoke test cancelled after preview.[/yellow]")
+                raise typer.Exit(code=1)
 
-    result = asyncio.run(
-        run_public_sdk_smoke(
-            agent,
-            chain_type=chain_type,
-            forecast_window_days=forecast_window_days,
-            **smoke_options,
-            preview=preview,
+        result = asyncio.run(
+            run_public_sdk_smoke(
+                agent,
+                chain_type=chain_type,
+                forecast_window_days=forecast_window_days,
+                **smoke_options,
+                preview=preview,
+            )
         )
-    )
-    _print_smoke_output(result, json_output=json_output)
+        _print_smoke_output(result, json_output=json_output)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]Smoke test failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
 
 
 @wallet_app.command("menu")
@@ -1013,29 +1115,54 @@ def wallet_menu(
                 default=True,
             )
             include_big = Confirm.ask(
-                "Include the expanded protocol smoke profile (priority + Jupiter + Kamino + Birdeye)",
+                "Include the full expanded smoke profile (memory 7d/30d + priority chat/memory + Jupiter + Birdeye + token math + technical analysis + swap + trigger + earn)",
                 default=False,
             )
             if include_big:
                 include_priority = False
+                include_memory = False
                 include_jupiter = False
-                include_kamino = False
                 include_birdeye = False
+                include_swap = False
+                include_trigger = False
+                include_earn = False
+                include_technical_analysis = False
+                include_token_math = False
             else:
                 include_priority = Confirm.ask(
-                    "Include a priority-tier chat check",
+                    "Include priority-tier validation for chat and any enabled memory checks",
+                    default=False,
+                )
+                include_memory = Confirm.ask(
+                    "Include hosted memory recall checks for both 7-day and 30-day tiers",
                     default=False,
                 )
                 include_jupiter = Confirm.ask(
                     "Include a Jupiter quote check",
                     default=False,
                 )
-                include_kamino = Confirm.ask(
-                    "Include a Kamino read check",
-                    default=False,
-                )
                 include_birdeye = Confirm.ask(
                     "Include a Birdeye market-data check",
+                    default=False,
+                )
+                include_token_math = Confirm.ask(
+                    "Include a token-math check",
+                    default=False,
+                )
+                include_technical_analysis = Confirm.ask(
+                    "Include a technical-analysis check",
+                    default=False,
+                )
+                include_swap = Confirm.ask(
+                    "Include a tiny live swap check",
+                    default=False,
+                )
+                include_trigger = Confirm.ask(
+                    "Include a create-plus-cancel trigger check",
+                    default=False,
+                )
+                include_earn = Confirm.ask(
+                    "Include a reversible earn check",
                     default=False,
                 )
             include_rotate = Confirm.ask(
@@ -1064,9 +1191,14 @@ def wallet_menu(
                 forecast_window_days=30,
                 include_search=include_search,
                 include_priority=include_priority,
+                include_memory=include_memory,
                 include_jupiter=include_jupiter,
-                include_kamino=include_kamino,
                 include_birdeye=include_birdeye,
+                include_swap=include_swap,
+                include_trigger=include_trigger,
+                include_earn=include_earn,
+                include_technical_analysis=include_technical_analysis,
+                include_token_math=include_token_math,
                 include_rotate=include_rotate,
                 include_export=include_export,
                 include_transfer=include_transfer,

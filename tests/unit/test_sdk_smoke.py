@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -46,6 +47,18 @@ def test_public_factory_smoke_builds_hosted_managed_runtime_and_mcp_surface() ->
     }
 
     with (
+        patch.dict(
+            os.environ,
+            {
+                "SOLANA_AGENT_DOTENV_PATH": "",
+                "OPENAI_API_DOTENV_PATH": "",
+                "SOLANA_PRIVATE_KEY": "",
+                "HELIUS_RPC_URL": "",
+                "SOLANA_RPC_URL": "",
+                "OPENAI_API_SOLANA_RPC_URL": "",
+            },
+            clear=False,
+        ),
         patch("solana_agent.factories.agent_factory.OpenAIAdapter") as adapter_class,
         patch("solana_agent.factories.agent_factory.PluginManager") as manager_class,
     ):

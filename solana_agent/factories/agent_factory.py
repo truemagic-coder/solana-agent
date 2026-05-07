@@ -1,7 +1,10 @@
 """Factory for creating the thin public Solana Agent SDK runtime."""
 
 import logging
+import os
 from typing import Any, Dict
+
+from dotenv import load_dotenv
 
 from solana_agent.adapters.openai_adapter import OpenAIAdapter
 from solana_agent.domains.agent import BusinessMission
@@ -38,6 +41,17 @@ UNSUPPORTED_PUBLIC_TOOL_NAMES = frozenset({"x402_request"})
 
 class SolanaAgentFactory:
     """Factory for building the public single-agent SDK runtime."""
+
+    @staticmethod
+    def _load_optional_dotenv_file() -> None:
+        dotenv_path = str(
+            os.getenv("SOLANA_AGENT_DOTENV_PATH")
+            or os.getenv("OPENAI_API_DOTENV_PATH")
+            or ""
+        ).strip()
+        if not dotenv_path:
+            return
+        load_dotenv(dotenv_path=dotenv_path, override=False)
 
     @staticmethod
     def _provider_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,6 +186,7 @@ class SolanaAgentFactory:
         if config.get("guardrails"):
             raise ValueError(GUARDRAILS_CONFIG_ERROR)
 
+        SolanaAgentFactory._load_optional_dotenv_file()
         agent_config = SolanaAgentFactory._single_agent_config(config)
         SolanaAgentFactory._validate_agent_tools_config(config, agent_config["name"])
 
@@ -185,6 +200,16 @@ class SolanaAgentFactory:
 
         llm_x402_preferred_asset = provider_config.get("x402_preferred_asset")
         llm_privy_user_id = str(provider_config.get("privy_user_id") or "").strip()
+        llm_private_key = str(
+            provider_config.get("private_key") or os.getenv("SOLANA_PRIVATE_KEY") or ""
+        ).strip()
+        llm_x402_rpc_url = str(
+            provider_config.get("x402_rpc_url")
+            or os.getenv("HELIUS_RPC_URL")
+            or os.getenv("SOLANA_RPC_URL")
+            or os.getenv("OPENAI_API_SOLANA_RPC_URL")
+            or ""
+        ).strip()
 
         llm_api_key = provider_config.get("api_key")
         requested_model = str(provider_config.get("model") or "").strip() or None
@@ -229,6 +254,10 @@ class SolanaAgentFactory:
             llm_adapter_kwargs["x402_preferred_asset"] = llm_x402_preferred_asset
         if llm_privy_user_id:
             llm_adapter_kwargs["privy_user_id"] = llm_privy_user_id
+        if llm_private_key:
+            llm_adapter_kwargs["private_key"] = llm_private_key
+        if llm_x402_rpc_url:
+            llm_adapter_kwargs["x402_rpc_url"] = llm_x402_rpc_url
 
         logfire_config = config.get("logfire")
         if isinstance(logfire_config, dict):

@@ -3,8 +3,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from x402.extensions.payment_identifier import declare_payment_identifier_extension
 
 from solana_agent.tools.utils.x402 import (
+    HostedManagedX402AsyncTransport,
     X402SigningKeyConfig,
     X402PrivyWalletExportConfig,
     create_x402_httpx_client,
@@ -304,8 +306,11 @@ async def test_create_x402_httpx_client_for_auth_raises_without_credentials():
 
 
 def test_create_x402_httpx_client_registers_signer():
+    x402_client = MagicMock()
+    x402_client.on_after_payment_creation.return_value = x402_client
+
     with (
-        patch("solana_agent.tools.utils.x402.x402Client", return_value="x402-client"),
+        patch("solana_agent.tools.utils.x402.x402Client", return_value=x402_client),
         patch(
             "solana_agent.tools.utils.x402.KeypairSigner.from_base58",
             return_value="signer",
@@ -329,11 +334,79 @@ def test_create_x402_httpx_client_registers_signer():
     assert client == "http-client"
     mock_signer.assert_called_once_with("base58-key")
     mock_register.assert_called_once_with(
-        "x402-client",
+        x402_client,
         signer="signer",
         rpc_url="https://rpc.example.com",
     )
-    mock_http_client.assert_called_once_with("x402-client", timeout=9.0)
+    mock_http_client.assert_called_once_with(x402_client, timeout=9.0)
+
+
+def test_create_x402_httpx_client_appends_required_payment_identifier():
+    client = MagicMock()
+    client.on_after_payment_creation.return_value = client
+
+    with (
+        patch("solana_agent.tools.utils.x402.x402Client", return_value=client),
+        patch(
+            "solana_agent.tools.utils.x402.KeypairSigner.from_base58",
+            return_value="signer",
+        ),
+        patch("solana_agent.tools.utils.x402.register_exact_svm_client"),
+        patch(
+            "solana_agent.tools.utils.x402.x402HttpxClient",
+            return_value="http-client",
+        ),
+    ):
+        create_x402_httpx_client(X402SigningKeyConfig(signing_key="base58-key"))
+
+    hook = client.on_after_payment_creation.call_args.args[0]
+    payment_payload = SimpleNamespace(
+        x402_version=2,
+        extensions={
+            "payment-identifier": declare_payment_identifier_extension(required=True)
+        },
+    )
+
+    hook(SimpleNamespace(payment_payload=payment_payload))
+
+    assert payment_payload.extensions["payment-identifier"]["info"]["id"]
+
+
+def test_create_hosted_managed_x402_httpx_client_appends_required_payment_identifier():
+    client = MagicMock()
+    client.on_after_payment_creation.return_value = client
+
+    with (
+        patch("solana_agent.tools.utils.x402.x402Client", return_value=client),
+        patch(
+            "solana_agent.tools.utils.x402.KeypairSigner.from_base58",
+            return_value="signer",
+        ),
+        patch("solana_agent.tools.utils.x402.register_exact_svm_client"),
+        patch(
+            "solana_agent.tools.utils.x402.HostedManagedX402HttpxClient",
+            return_value="http-client",
+        ),
+    ):
+        from solana_agent.tools.utils.x402 import (
+            create_hosted_managed_x402_httpx_client,
+        )
+
+        create_hosted_managed_x402_httpx_client(
+            X402SigningKeyConfig(signing_key="base58-key")
+        )
+
+    hook = client.on_after_payment_creation.call_args.args[0]
+    payment_payload = SimpleNamespace(
+        x402_version=2,
+        extensions={
+            "payment-identifier": declare_payment_identifier_extension(required=True)
+        },
+    )
+
+    hook(SimpleNamespace(payment_payload=payment_payload))
+
+    assert payment_payload.extensions["payment-identifier"]["info"]["id"]
 
 
 @pytest.mark.asyncio
@@ -423,3 +496,177 @@ async def test_request_with_x402_signing_key_uses_configured_client():
         params={"foo": "bar"},
         json={"hello": "world"},
     )
+
+
+@pytest.mark.asyncio
+async def test_hosted_managed_transport_rotates_idempotency_key_on_retry():
+    class StubTransport:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.requests = []
+
+        async def handle_async_request(self, request):
+            self.requests.append(request)
+            return self._responses[len(self.requests) - 1]
+
+        async def aclose(self):
+            return None
+
+    payment_helper = MagicMock()
+    payment_helper.get_payment_required_response.return_value = "requirements"
+    payment_helper.encode_payment_signature_header.return_value = {"x-payment": "paid"}
+    x402_client = MagicMock()
+    x402_client.create_payment_payload = AsyncMock(return_value="payload")
+    original_request = __import__("httpx").Request(
+        "POST",
+        "https://example.com/v1/chat/completions",
+        headers={"Idempotency-Key": "original-key"},
+        content=b"{}",
+    )
+    stub_transport = StubTransport(
+        [
+            __import__("httpx").Response(
+                402,
+                json={"error": "Payment required"},
+                request=original_request,
+            ),
+            __import__("httpx").Response(
+                200,
+                json={"ok": True},
+                request=original_request,
+            ),
+        ]
+    )
+
+    with patch(
+        "solana_agent.tools.utils.x402.x402HTTPClient",
+        return_value=payment_helper,
+    ):
+        transport = HostedManagedX402AsyncTransport(
+            x402_client,
+            transport=stub_transport,
+        )
+        response = await transport.handle_async_request(original_request)
+
+    assert response.status_code == 200
+    assert len(stub_transport.requests) == 2
+    retry_request = stub_transport.requests[1]
+    assert retry_request.headers["x-payment"] == "paid"
+    assert retry_request.headers["Idempotency-Key"] != "original-key"
+
+
+@pytest.mark.asyncio
+async def test_hosted_managed_transport_returns_non_402_response_without_retry():
+    response = __import__("httpx").Response(200, json={"ok": True})
+    transport = MagicMock()
+    transport.handle_async_request = AsyncMock(return_value=response)
+
+    with patch("solana_agent.tools.utils.x402.x402HTTPClient"):
+        managed_transport = HostedManagedX402AsyncTransport(
+            MagicMock(),
+            transport=transport,
+        )
+        request = __import__("httpx").Request("GET", "https://example.com/health")
+        result = await managed_transport.handle_async_request(request)
+
+    assert result is response
+    transport.handle_async_request.assert_awaited_once_with(request)
+
+
+@pytest.mark.asyncio
+async def test_hosted_managed_transport_skips_retry_for_marked_request():
+    response = __import__("httpx").Response(402, json={"error": "Payment required"})
+    transport = MagicMock()
+    transport.handle_async_request = AsyncMock(return_value=response)
+
+    with patch("solana_agent.tools.utils.x402.x402HTTPClient"):
+        managed_transport = HostedManagedX402AsyncTransport(
+            MagicMock(),
+            transport=transport,
+        )
+        request = __import__("httpx").Request(
+            "POST",
+            "https://example.com/v1/chat/completions",
+            extensions={HostedManagedX402AsyncTransport.RETRY_KEY: True},
+        )
+        result = await managed_transport.handle_async_request(request)
+
+    assert result is response
+    transport.handle_async_request.assert_awaited_once_with(request)
+
+
+@pytest.mark.asyncio
+async def test_hosted_managed_transport_handles_non_json_402_without_rotating_idempotency():
+    class StubTransport:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.requests = []
+
+        async def handle_async_request(self, request):
+            self.requests.append(request)
+            return self._responses[len(self.requests) - 1]
+
+        async def aclose(self):
+            return None
+
+    request = __import__("httpx").Request(
+        "POST",
+        "https://example.com/v1/chat/completions",
+        headers={"X-PAYMENT-RESPONSE": "challenge"},
+        content=b"{}",
+    )
+    payment_required = object()
+    challenge_response = __import__("httpx").Response(
+        402,
+        content=b"not-json",
+        headers={"X-PAYMENT-RESPONSE": "challenge"},
+        request=request,
+    )
+    success_response = __import__("httpx").Response(
+        200,
+        json={"ok": True},
+        request=request,
+    )
+    stub_transport = StubTransport([challenge_response, success_response])
+    payment_helper = MagicMock()
+    payment_helper.get_payment_required_response.side_effect = lambda get_header, body: (
+        payment_required
+        if get_header("X-PAYMENT-RESPONSE") == "challenge" and body is None
+        else None
+    )
+    payment_helper.encode_payment_signature_header.return_value = {"x-payment": "paid"}
+    x402_client = MagicMock()
+    x402_client.create_payment_payload = AsyncMock(return_value="payload")
+
+    with patch(
+        "solana_agent.tools.utils.x402.x402HTTPClient",
+        return_value=payment_helper,
+    ):
+        managed_transport = HostedManagedX402AsyncTransport(
+            x402_client,
+            transport=stub_transport,
+        )
+        response = await managed_transport.handle_async_request(request)
+
+    assert response.status_code == 200
+    assert len(stub_transport.requests) == 2
+    retry_request = stub_transport.requests[1]
+    assert retry_request.headers["x-payment"] == "paid"
+    assert "Idempotency-Key" not in retry_request.headers
+    x402_client.create_payment_payload.assert_awaited_once_with(payment_required)
+
+
+@pytest.mark.asyncio
+async def test_hosted_managed_transport_aclose_closes_wrapped_transport():
+    transport = MagicMock()
+    transport.aclose = AsyncMock(return_value=None)
+
+    with patch("solana_agent.tools.utils.x402.x402HTTPClient"):
+        managed_transport = HostedManagedX402AsyncTransport(
+            MagicMock(),
+            transport=transport,
+        )
+
+    await managed_transport.aclose()
+
+    transport.aclose.assert_awaited_once_with()

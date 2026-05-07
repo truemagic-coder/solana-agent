@@ -265,6 +265,110 @@ class TestAgentService:
         )
 
     @pytest.mark.asyncio
+    async def test_generate_response_returns_generic_error_on_stream_error(
+        self, mock_llm_provider
+    ):
+        """Provider error events should become a generic response by default."""
+
+        async def mock_chat_stream(*args, **kwargs):
+            del args, kwargs
+            yield {"type": "error", "error": "Error code: 402 - {}"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+
+        chunks = []
+        async for chunk in service.generate_response(
+            agent_name="test_agent",
+            privy_user_id="did:privy:user123",
+            query="hello",
+        ):
+            chunks.append(chunk)
+
+        assert chunks == [
+            "I apologize, but I encountered an error processing your request."
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_response_can_raise_stream_error_when_requested(
+        self, mock_llm_provider
+    ):
+        """Strict callers like smoke should receive the provider error directly."""
+
+        async def mock_chat_stream(*args, **kwargs):
+            del args, kwargs
+            yield {"type": "error", "error": "Error code: 402 - {}"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+
+        with pytest.raises(RuntimeError, match="Error code: 402"):
+            async for _ in service.generate_response(
+                agent_name="test_agent",
+                privy_user_id="did:privy:user123",
+                query="hello",
+                runtime_context={"_raise_stream_errors": True},
+            ):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_generate_response_stops_repeated_tool_iterations(
+        self, mock_llm_provider
+    ):
+        async def mock_chat_stream(*args, **kwargs):
+            del args, kwargs
+            yield {
+                "type": "tool_call_delta",
+                "id": "call-1",
+                "index": 0,
+                "name": "token_math",
+                "arguments_delta": "{}",
+            }
+            yield {"type": "message_end", "finish_reason": "tool_calls"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+        service.get_agent_tools = MagicMock(
+            return_value=[
+                {
+                    "name": "token_math",
+                    "description": "Token math",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ]
+        )
+        service.execute_tool = AsyncMock(return_value={"status": "success"})
+
+        with pytest.raises(RuntimeError, match="maximum tool iterations"):
+            async for _ in service.generate_response(
+                agent_name="test_agent",
+                privy_user_id="did:privy:user123",
+                query="loop",
+                runtime_context={
+                    "_raise_stream_errors": True,
+                    "max_tool_iterations": 2,
+                },
+            ):
+                pass
+
+        assert service.execute_tool.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_execute_tool_execution_error(
         self, mock_llm_provider, mock_tool_registry
     ):
