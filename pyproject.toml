@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "solana-agent"
-version = "34.0.7"
+version = "34.0.10"
 description = "Solana Agent Python SDK"
 authors = ["Bevan Hunt <bevan@bevanhunt.com>"]
 license = "MIT"
