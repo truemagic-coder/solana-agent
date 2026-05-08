@@ -8,7 +8,7 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/truemagic-coder/solana-agent/ci.yml?branch=main)](https://github.com/truemagic-coder/solana-agent/actions/workflows/ci.yml)
 [![Ruff Style](https://img.shields.io/badge/style-ruff-41B5BE)](https://github.com/astral-sh/ruff)
 
-Thin public SDK for the hosted [Solana Agent](https://solana-agent.com) platform.
+Public SDK for the hosted [Solana Agent](https://solana-agent.com) platform.
 
 The public package is intentionally small:
 
@@ -37,7 +37,7 @@ pip install solana-agent
 Use the Solana Agent CLI to get a new `privy_user_id` from the interactive menu:
 
 ```bash
-uvx solana-agent wallet menu
+uvx solana-agent@latest wallet menu
 ```
 
 The generated `privy_user_id` is saved automatically in the user-local Solana Agent app data directory on Windows, macOS, and Linux. Passing `privy_user_id=` or `config.ai.privy_user_id` still overrides the saved value.
@@ -68,7 +68,7 @@ print(response)
 For live web and X results in hosted chat, enable the hosted search add-on:
 
 ```bash
-uvx solana-agent chat --search-enabled
+uvx solana-agent@latest chat --search-enabled
 ```
 
 When you start hosted chat without a local `config.json`, the CLI now asks once at startup whether to enable hosted search for that session.
@@ -171,7 +171,7 @@ print(tooling_projection)
 Export the hosted wallet private key when you want self-custody:
 
 ```bash
-uvx solana-agent wallet export --yes
+uvx solana-agent@latest wallet export --yes
 ```
 
 Pass `--wallet-id` to export an older rotated wallet from `old_wallets`.
@@ -179,17 +179,17 @@ Pass `--wallet-id` to export an older rotated wallet from `old_wallets`.
 ## Rotating Wallets
 
 If a wallet needs to be retired, rotate it from the interactive menu:
-
-```bash
-uxv solana-agent wallet menu
-```
+2
+3```bash
+4uvx solana-agent@latest wallet menu
+5```
 
 ## Smoke Testing
 For a live hosted smoke run from the CLI, use the dev-gated wallet smoke command or the dev-only wallet menu item:
 
 ```bash
-uvx solana-agent wallet smoke --dev
-uvx solana-agent wallet menu --dev
+uvx solana-agent@latest wallet smoke --dev
+uvx solana-agent@latest wallet menu --dev
 ```
 
 The smoke preview prints a funding estimate in USDC before the live chat checks run. Search-enabled checks are included by default; wallet rotation and private-key export checks are opt-in.
