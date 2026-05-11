@@ -472,6 +472,43 @@ class TestSolanaAgent:
             }
 
     @pytest.mark.asyncio
+    async def test_process_logs_prepare_timing_when_trace_enabled(
+        self, config_dict, mock_query_service, monkeypatch
+    ):
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            monkeypatch.setenv("SOLANA_AGENT_TIMING_TRACE", "1")
+            agent = SolanaAgent(config=config_dict)
+
+            with patch(
+                "solana_agent.client.solana_agent.time.perf_counter",
+                side_effect=[10.0, 10.25],
+            ), patch(
+                "solana_agent.client.solana_agent.logger.warning"
+            ) as mock_warning:
+                chunks = []
+                async for chunk in agent.process(
+                    message="hello",
+                    conversation_id="conv-123",
+                ):
+                    chunks.append(chunk)
+
+            assert chunks == ["Test response"]
+            mock_warning.assert_called_once_with(
+                "SDK timing: prepare_runtime_context seconds=%.3f context_keys=%s",
+                0.25,
+                [
+                    "conversation_id",
+                    "hosted_privy_wallet_id",
+                    "privy_wallet_address",
+                    "privy_wallet_id",
+                    "privy_wallet_public_key",
+                ],
+            )
+
+    @pytest.mark.asyncio
     async def test_process_prepares_wallet_context_for_mcp_tools(
         self, mock_query_service
     ):
@@ -1028,6 +1065,53 @@ class TestSolanaAgent:
                 "conversation_id": "conv-123",
                 "hosted_privy_wallet_id": "wallet-123",
                 "privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
+            }
+            mock_query_service.agent_service.llm_provider.create_wallet.assert_not_awaited()
+            mock_query_service.agent_service.llm_provider.get_wallet_address.assert_awaited_once_with(
+                wallet_id="wallet-123"
+            )
+
+    @pytest.mark.asyncio
+    async def test_prepare_x402_runtime_context_reuses_saved_wallet_id_and_cached_address(
+        self, config_dict, mock_query_service
+    ):
+        """Client helper should reuse the saved hosted wallet id and cached address across turns."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory, patch(
+            "solana_agent.client.solana_agent.load_saved_wallet_id",
+            return_value="wallet-123",
+        ):
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            mock_query_service.agent_service.llm_provider.create_wallet = AsyncMock()
+            mock_query_service.agent_service.llm_provider.get_wallet_address = (
+                AsyncMock(
+                    return_value={
+                        "wallet_id": "wallet-123",
+                        "address": "WalletPubkey123",
+                        "public_address": "WalletPubkey123",
+                    }
+                )
+            )
+
+            first = await agent.prepare_x402_runtime_context(conversation_id="conv-123")
+            second = await agent.prepare_x402_runtime_context(conversation_id="conv-456")
+
+            assert first == {
+                "conversation_id": "conv-123",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
+            }
+            assert second == {
+                "conversation_id": "conv-456",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
                 "privy_wallet_address": "WalletPubkey123",
                 "privy_wallet_public_key": "WalletPubkey123",
             }

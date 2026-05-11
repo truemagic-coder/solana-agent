@@ -106,7 +106,10 @@ def _load_chat_agent(config: str, instructions: Optional[str]) -> SolanaAgent:
         )
 
     try:
-        return SolanaAgent(instructions=_prompt_chat_instructions(instructions))
+        return SolanaAgent(
+            instructions=_prompt_chat_instructions(instructions),
+            model="chat",
+        )
     except ValueError as e:
         console.print(f"[bold red]Error loading hosted defaults:[/bold red] {e}")
         raise typer.Exit(code=1)

@@ -56,7 +56,10 @@ def test_chat_command_falls_back_to_hosted_defaults_when_config_missing(
     result = runner.invoke(app, ["chat", "--config", "config.json"])
 
     assert result.exit_code == 0
-    mock_solana_agent.assert_called_once_with(instructions="You are concise.")
+    mock_solana_agent.assert_called_once_with(
+        instructions="You are concise.",
+        model="chat",
+    )
     assert "Configuration file not found" in result.stdout
     assert "Agent initialized. Start chatting!" in result.stdout
 

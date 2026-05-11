@@ -7,7 +7,9 @@ the agent system without dealing with internal implementation details.
 
 import json
 import importlib.util
+import logging
 import os
+import time
 from copy import deepcopy
 from typing import AsyncGenerator, Dict, Any, List, Literal, Optional, Type, Union
 
@@ -24,6 +26,18 @@ from solana_agent.local_state import (
     save_privy_user_id,
     save_wallet_id,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _timing_trace_enabled() -> bool:
+    return str(os.getenv("SOLANA_AGENT_TIMING_TRACE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 class SolanaAgent(SolanaAgentInterface):
@@ -85,6 +99,8 @@ class SolanaAgent(SolanaAgentInterface):
         )
         self._apply_saved_privy_user_id()
         self.query_service = SolanaAgentFactory.create_from_config(self.config)
+        self._cached_hosted_wallet_id: str | None = None
+        self._cached_hosted_wallet_address: str | None = None
 
     @staticmethod
     def _build_config(
@@ -220,6 +236,25 @@ class SolanaAgent(SolanaAgentInterface):
             return normalized_wallet_id
         return normalized_wallet_id
 
+    def _remember_wallet_address(self, payload: Any) -> str | None:
+        normalized_wallet_address = ""
+        if isinstance(payload, dict):
+            normalized_wallet_address = str(
+                payload.get("address")
+                or payload.get("wallet_address")
+                or payload.get("public_address")
+                or payload.get("public_key")
+                or ""
+            ).strip()
+        else:
+            normalized_wallet_address = str(payload or "").strip()
+
+        if not normalized_wallet_address:
+            return None
+
+        self._cached_hosted_wallet_address = normalized_wallet_address
+        return normalized_wallet_address
+
     @staticmethod
     def _runtime_privy_wallet_id(
         runtime_context: Optional[Dict[str, Any]] = None,
@@ -312,13 +347,21 @@ class SolanaAgent(SolanaAgentInterface):
         *,
         search_enabled: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
+        started_at = time.perf_counter()
         merged_runtime_context = self._merge_runtime_context(
             runtime_context,
             search_enabled=search_enabled,
         )
-        return await self.prepare_x402_runtime_context(
+        prepared_runtime_context = await self.prepare_x402_runtime_context(
             **(merged_runtime_context or {}),
         )
+        if _timing_trace_enabled():
+            logger.warning(
+                "SDK timing: prepare_runtime_context seconds=%.3f context_keys=%s",
+                time.perf_counter() - started_at,
+                sorted((prepared_runtime_context or {}).keys()),
+            )
+        return prepared_runtime_context
 
     async def process(
         self,
@@ -604,7 +647,10 @@ class SolanaAgent(SolanaAgentInterface):
             privy_user_id=resolved_privy_user_id,
             chain_type=chain_type,
         )
-        self._remember_wallet_id(payload)
+        remembered_wallet_id = self._remember_wallet_id(payload)
+        if remembered_wallet_id:
+            self._cached_hosted_wallet_id = remembered_wallet_id
+        self._remember_wallet_address(payload)
         return payload
 
     async def rotate_wallet(
@@ -621,7 +667,10 @@ class SolanaAgent(SolanaAgentInterface):
             privy_user_id=resolved_privy_user_id,
             chain_type=chain_type,
         )
-        self._remember_wallet_id(payload)
+        remembered_wallet_id = self._remember_wallet_id(payload)
+        if remembered_wallet_id:
+            self._cached_hosted_wallet_id = remembered_wallet_id
+        self._remember_wallet_address(payload)
         return payload
 
     async def export_wallet_private_key(
@@ -646,9 +695,11 @@ class SolanaAgent(SolanaAgentInterface):
             wallet_id=resolved_wallet_id or None,
             chain_type=chain_type,
         )
-        self._remember_wallet_id(
+        remembered_wallet_id = self._remember_wallet_id(
             payload if isinstance(payload, dict) else resolved_wallet_id
         )
+        if remembered_wallet_id:
+            self._cached_hosted_wallet_id = remembered_wallet_id
         private_key = str(payload.get("private_key") or "").strip()
         if not private_key:
             raise ValueError("Hosted wallet export response is missing a private_key")
@@ -681,14 +732,17 @@ class SolanaAgent(SolanaAgentInterface):
             "Hosted wallet management",
         )
         payload = await method(wallet_id=normalized_wallet_id)
-        self._remember_wallet_id(
+        remembered_wallet_id = self._remember_wallet_id(
             payload if isinstance(payload, dict) else normalized_wallet_id
         )
+        if remembered_wallet_id:
+            self._cached_hosted_wallet_id = remembered_wallet_id
         address = str(
             payload.get("address") or payload.get("public_address") or ""
         ).strip()
         if not address:
             raise ValueError("Hosted wallet response is missing an address")
+        self._cached_hosted_wallet_address = address
         return address
 
     async def prepare_x402_runtime_context(
@@ -701,6 +755,8 @@ class SolanaAgent(SolanaAgentInterface):
         context = self._merge_runtime_context(runtime_context or None) or {}
         privy_user_id = self._configured_privy_user_id()
         existing_wallet_id = self._runtime_privy_wallet_id(context)
+        if not existing_wallet_id:
+            existing_wallet_id = self._cached_hosted_wallet_id or self._saved_wallet_id() or ""
         if existing_wallet_id:
             context.setdefault("privy_wallet_id", existing_wallet_id)
             context.setdefault("hosted_privy_wallet_id", existing_wallet_id)
@@ -710,14 +766,19 @@ class SolanaAgent(SolanaAgentInterface):
                 or ""
             ).strip()
             if not existing_wallet_address:
+                existing_wallet_address = str(
+                    self._cached_hosted_wallet_address or ""
+                ).strip()
+            if not existing_wallet_address:
                 existing_wallet_address = await self.get_wallet_address(
                     existing_wallet_id
                 )
-                context.setdefault("privy_wallet_address", existing_wallet_address)
-                context.setdefault(
-                    "privy_wallet_public_key",
-                    existing_wallet_address,
-                )
+            self._cached_hosted_wallet_id = existing_wallet_id
+            context.setdefault("privy_wallet_address", existing_wallet_address)
+            context.setdefault(
+                "privy_wallet_public_key",
+                existing_wallet_address,
+            )
             return context
 
         wallet = await self.create_wallet(
@@ -727,6 +788,7 @@ class SolanaAgent(SolanaAgentInterface):
 
         wallet_id = str(wallet.get("wallet_id") or wallet.get("id") or "").strip()
         if wallet_id:
+            self._cached_hosted_wallet_id = wallet_id
             context["privy_wallet_id"] = wallet_id
             context["hosted_privy_wallet_id"] = wallet_id
 
@@ -737,6 +799,7 @@ class SolanaAgent(SolanaAgentInterface):
             or ""
         ).strip()
         if address:
+            self._cached_hosted_wallet_address = address
             context["privy_wallet_address"] = address
             context["privy_wallet_public_key"] = address
 
