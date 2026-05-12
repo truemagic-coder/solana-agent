@@ -237,6 +237,31 @@ class TestSolanaAgent:
             }
 
     @pytest.mark.asyncio
+    async def test_process_normalizes_runtime_model_alias(self, config_dict, mock_query_service):
+        """Process should resolve public model aliases before sending hosted runtime context."""
+        with patch(
+            "solana_agent.client.solana_agent.SolanaAgentFactory"
+        ) as mock_factory:
+            mock_factory.create_from_config.return_value = mock_query_service
+            agent = SolanaAgent(config=config_dict)
+
+            chunks = []
+            async for chunk in agent.process(
+                message="hello",
+                model="memory",
+            ):
+                chunks.append(chunk)
+
+            assert chunks == ["Test response"]
+            assert mock_query_service.process.call_args.kwargs["runtime_context"] == {
+                "model": "solana-agent-memory",
+                "privy_wallet_id": "wallet-123",
+                "hosted_privy_wallet_id": "wallet-123",
+                "privy_wallet_address": "WalletPubkey123",
+                "privy_wallet_public_key": "WalletPubkey123",
+            }
+
+    @pytest.mark.asyncio
     async def test_process_message_collects_non_streaming_text_response(
         self, config_dict, mock_query_service
     ):

@@ -337,6 +337,12 @@ class SolanaAgent(SolanaAgentInterface):
             raise ValueError(
                 "Pass runtime context values as flat keyword arguments, not runtime_context={...}"
             )
+        if "model" in context:
+            resolved_model = self._resolve_context_model(context.get("model"))
+            if resolved_model:
+                context["model"] = resolved_model
+            else:
+                context.pop("model", None)
         if search_enabled is not None:
             context["search_enabled"] = bool(search_enabled)
         return context or None

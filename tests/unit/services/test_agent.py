@@ -265,6 +265,99 @@ class TestAgentService:
         )
 
     @pytest.mark.asyncio
+    async def test_generate_response_keeps_privy_identifier_out_of_prompt(
+        self, mock_llm_provider
+    ):
+        async def mock_chat_stream(*args, **kwargs):
+            del args
+            messages = kwargs["messages"]
+            assert "did:privy:user123" not in messages[0]["content"]
+            assert "PRIVY USER IDENTIFIER" not in messages[1]["content"]
+            yield {"type": "content", "delta": "ok"}
+            yield {"type": "message_end", "finish_reason": "stop"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+
+        chunks = []
+        async for chunk in service.generate_response(
+            agent_name="test_agent",
+            privy_user_id="did:privy:user123",
+            query="hello",
+        ):
+            chunks.append(chunk)
+
+        assert chunks == ["ok"]
+
+    @pytest.mark.asyncio
+    async def test_generate_response_redacts_sensitive_ids_from_tool_messages(
+        self, mock_llm_provider
+    ):
+        chat_invocations = []
+
+        async def mock_chat_stream(*args, **kwargs):
+            del args
+            chat_invocations.append(kwargs["messages"])
+            if len(chat_invocations) == 1:
+                yield {
+                    "type": "tool_call_delta",
+                    "id": "call-1",
+                    "index": 0,
+                    "name": "wallet_lookup",
+                    "arguments_delta": "{}",
+                }
+                yield {"type": "message_end", "finish_reason": "tool_calls"}
+                return
+            tool_message = kwargs["messages"][-1]
+            assert tool_message["role"] == "tool"
+            assert "did:privy:user123" not in tool_message["content"]
+            assert "wallet-123" not in tool_message["content"]
+            assert "[redacted]" in tool_message["content"]
+            yield {"type": "content", "delta": "done"}
+            yield {"type": "message_end", "finish_reason": "stop"}
+
+        mock_llm_provider.chat_stream = MagicMock(side_effect=mock_chat_stream)
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent(
+            name="test_agent",
+            instructions="Test instructions",
+            specialization="Testing",
+        )
+        service.get_agent_tools = MagicMock(
+            return_value=[
+                {
+                    "name": "wallet_lookup",
+                    "description": "Lookup wallet info",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ]
+        )
+        service.execute_tool = AsyncMock(
+            return_value={
+                "status": "success",
+                "privy_user_id": "did:privy:user123",
+                "wallet_id": "wallet-123",
+                "message": "Resolved did:privy:user123 with wallet wallet-123",
+            }
+        )
+
+        chunks = []
+        async for chunk in service.generate_response(
+            agent_name="test_agent",
+            privy_user_id="did:privy:user123",
+            query="check my wallet",
+            runtime_context={"privy_wallet_id": "wallet-123"},
+        ):
+            chunks.append(chunk)
+
+        assert chunks == ["done"]
+
+    @pytest.mark.asyncio
     async def test_generate_response_returns_generic_error_on_stream_error(
         self, mock_llm_provider
     ):
