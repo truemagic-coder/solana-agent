@@ -7,6 +7,7 @@ from solana_agent.smoke import (
     DEFAULT_TRIGGER_AMOUNT_USDC,
     build_public_sdk_smoke_estimate,
     build_public_sdk_smoke_preview,
+    run_public_sdk_memory_benchmark,
     run_public_sdk_smoke,
     _trigger_smoke_message,
 )
@@ -342,6 +343,66 @@ async def test_run_public_sdk_smoke_executes_chat_search_rotate_and_export() -> 
         "export_wallet_private_key",
     ]
     assert result["steps"][-1]["private_key_redacted"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_public_sdk_memory_benchmark_reports_cold_and_warm_timings() -> None:
+    rebuilt_client = object()
+    llm_provider = MagicMock(
+        auth_mode="hosted_managed",
+        base_url="http://127.0.0.1:8000/v1",
+        private_key="merchant-private-key",
+        api_key="x402",
+        _is_openai_endpoint=False,
+    )
+    llm_provider._create_client.return_value = rebuilt_client
+
+    agent = MagicMock()
+    agent.query_service = MagicMock(agent_service=MagicMock(llm_provider=llm_provider))
+    agent.context = AsyncMock(return_value={"conversation_id": "conv-memory"})
+    agent.message = AsyncMock(
+        side_effect=[
+            "SDK_SMOKE_MEMORY_STORED sdk-memory-project-30d",
+            "SDK_SMOKE_MEMORY_PROJECT_OK sdk-memory-project-30d",
+            "SDK_SMOKE_MEMORY_PROJECT_OK sdk-memory-project-30d",
+            "SDK_SMOKE_MEMORY_PROJECT_OK sdk-memory-project-30d",
+        ]
+    )
+    agent.export_wallet_private_key = AsyncMock(return_value="base58-private-key")
+
+    result = await run_public_sdk_memory_benchmark(
+        agent,
+        memory_ttl_tier="project",
+        warm_recall_count=2,
+        preview=_smoke_preview_payload(),
+    )
+
+    assert result["ok"] is True
+    assert result["memory_ttl_tier"] == "project"
+    assert result["service_tier"] == "standard"
+    assert result["steps"][0]["name"] == "bootstrap_local_x402_signer"
+    latency = result["latency_ms"]
+    assert latency["context_build_ms"] >= 0
+    assert latency["store_ms"] >= 0
+    assert latency["cold_recall_ms"] >= 0
+    assert latency["warm_recall"]["count"] == 2
+    assert len(latency["warm_recall"]["samples_ms"]) == 2
+    assert result["step"]["remember_token"] == "sdk-memory-project-30d"
+    agent.export_wallet_private_key.assert_awaited_once_with(
+        wallet_id="wallet-123",
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_public_sdk_memory_benchmark_validates_memory_tier() -> None:
+    with pytest.raises(ValueError, match="memory_ttl_tier"):
+        await run_public_sdk_memory_benchmark(
+            MagicMock(),
+            memory_ttl_tier="archive",
+            preview=_smoke_preview_payload(),
+        )
 
 
 @pytest.mark.asyncio
@@ -687,6 +748,57 @@ async def test_run_public_sdk_smoke_retries_local_hosted_x402_bootstrap_without_
         "privy_user_id": "did:privy:user123",
         "chain_type": "solana",
     }
+
+
+@pytest.mark.asyncio
+async def test_run_public_sdk_smoke_retry_uses_provider_export_without_saved_wallet_id() -> (
+    None
+):
+    rebuilt_client = object()
+    llm_provider = MagicMock(
+        auth_mode="hosted_managed",
+        base_url="http://127.0.0.1:8000/v1",
+        private_key="merchant-private-key",
+        api_key="x402",
+        _is_openai_endpoint=False,
+    )
+    llm_provider._create_client.return_value = rebuilt_client
+
+    provider_export = AsyncMock(
+        return_value={
+            "wallet_id": "wallet-123",
+            "address": "WalletPubkey123",
+            "private_key": "base58-private-key",
+        }
+    )
+
+    agent = MagicMock()
+    agent.query_service = MagicMock(agent_service=MagicMock(llm_provider=llm_provider))
+    agent.context = AsyncMock(return_value={"conversation_id": "conv-1"})
+    agent.message = AsyncMock(return_value="SDK_SMOKE_OK")
+    agent.export_wallet_private_key = AsyncMock(
+        side_effect=RuntimeError("wallet_id does not belong to privy_user_id")
+    )
+    agent._get_provider_method.return_value = provider_export
+
+    result = await run_public_sdk_smoke(
+        agent,
+        include_search=False,
+        preview=_smoke_preview_payload(),
+    )
+
+    assert result["ok"] is True
+    agent.export_wallet_private_key.assert_awaited_once_with(
+        wallet_id="wallet-123",
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )
+    provider_export.assert_awaited_once_with(
+        privy_user_id="did:privy:user123",
+        chain_type="solana",
+    )
+    assert llm_provider.private_key == "base58-private-key"
+    assert llm_provider.client is rebuilt_client
 
 
 @pytest.mark.asyncio
