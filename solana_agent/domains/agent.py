@@ -71,9 +71,10 @@ class AIAgent(BaseModel):
     @field_validator("instructions")
     @classmethod
     def instructions_not_empty(cls, v: str) -> str:
-        """Validate that instructions are not empty."""
-        if not v.strip():
-            raise ValueError("Instructions cannot be empty")
-        if len(v) < 10:
+        """Normalize instructions while still rejecting tiny non-empty prompts."""
+        normalized = v.strip()
+        if not normalized:
+            return ""
+        if len(normalized) < 10:
             raise ValueError("Instructions must be at least 10 characters")
-        return v
+        return normalized

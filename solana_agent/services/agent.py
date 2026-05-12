@@ -178,18 +178,23 @@ class AgentService(AgentServiceInterface):
         """
         # Get agent by name
         agent = next((a for a in self.agents if a.name == agent_name), None)
+        if not agent:
+            return ""
 
-        # Build system prompt
-        system_prompt = f"You are {agent.name}, an AI assistant with the following instructions:\n\n"
-        system_prompt += agent.instructions
-
-        # add current time
-        system_prompt += f"\n\nThe current time is {datetime.now(tz=main_datetime.timezone.utc)}\n\n."
+        instructions = str(agent.instructions or "").strip()
+        sections: list[str] = []
+        if instructions:
+            sections.append(
+                f"You are {agent.name}, an AI assistant with the following instructions:\n\n"
+                f"{instructions}"
+            )
 
         # Add mission and values if available
         if self.business_mission:
-            system_prompt += f"\n\nBUSINESS MISSION:\n{self.business_mission.mission}"
-            system_prompt += f"\n\nVOICE OF THE BRAND:\n{self.business_mission.voice}"
+            business_sections = [
+                f"BUSINESS MISSION:\n{self.business_mission.mission}",
+                f"VOICE OF THE BRAND:\n{self.business_mission.voice}",
+            ]
 
             if self.business_mission.values:
                 values_text = "\n".join(
@@ -198,20 +203,22 @@ class AgentService(AgentServiceInterface):
                         for value in self.business_mission.values
                     ]
                 )
-                system_prompt += f"\n\nBUSINESS VALUES:\n{values_text}"
+                business_sections.append(f"BUSINESS VALUES:\n{values_text}")
 
             # Add goals if available
             if self.business_mission.goals:
                 goals_text = "\n".join(
                     [f"- {goal}" for goal in self.business_mission.goals]
                 )
-                system_prompt += f"\n\nBUSINESS GOALS:\n{goals_text}"
+                business_sections.append(f"BUSINESS GOALS:\n{goals_text}")
+
+            sections.append("\n\n".join(business_sections))
 
         # Add capture guidance if this agent has a capture schema
         if getattr(agent, "capture_schema", None) and getattr(
             agent, "capture_name", None
         ):  # pragma: no cover
-            system_prompt += (
+            sections.append(
                 "\n\nSTRUCTURED DATA CAPTURE:\n"
                 f"You must collect the following fields for the form '{agent.capture_name}'. "
                 "Ask concise follow-up questions to fill any missing required fields one at a time. "
@@ -225,7 +232,13 @@ class AgentService(AgentServiceInterface):
                 "- When all required fields are provided, acknowledge completion.\n"
             )
 
-        return system_prompt
+        if not sections:
+            return ""
+
+        sections.append(
+            f"The current time is {datetime.now(tz=main_datetime.timezone.utc)}"
+        )
+        return "\n\n".join(section for section in sections if section)
 
     def get_agent_capture(
         self, agent_name: str
@@ -666,13 +679,13 @@ class AgentService(AgentServiceInterface):
 
         for agent_config in agents_config:
             name = agent_config.get("name")
-            instructions = agent_config.get("instructions")
+            instructions = str(agent_config.get("instructions") or "").strip()
             specialization = agent_config.get("specialization")
             tools = agent_config.get("tools", [])
 
-            if not name or not instructions or not specialization:
+            if not name or not specialization:
                 logger.warning(
-                    f"Skipping agent due to missing name, instructions, or specialization: {agent_config}"
+                    f"Skipping agent due to missing name or specialization: {agent_config}"
                 )
                 continue
 

@@ -138,21 +138,25 @@ class TestAIAgent:
 
         assert "Field cannot be empty" in str(excinfo.value)
 
-    def test_invalid_empty_instructions(self):
-        """Test validation error when instructions are empty."""
-        with pytest.raises(ValidationError) as excinfo:
-            AIAgent(name="financial_expert", instructions="", specialization="Finance")
+    def test_empty_instructions_are_allowed_for_hosted_defaults(self):
+        """Test that empty instructions can defer to hosted defaults."""
+        agent = AIAgent(
+            name="financial_expert",
+            instructions="",
+            specialization="Finance",
+        )
 
-        assert "Instructions cannot be empty" in str(excinfo.value)
+        assert agent.instructions == ""
 
-    def test_invalid_whitespace_instructions(self):
-        """Test validation error when instructions are only whitespace."""
-        with pytest.raises(ValidationError) as excinfo:
-            AIAgent(
-                name="financial_expert", instructions="   ", specialization="Finance"
-            )
+    def test_whitespace_instructions_normalize_to_empty(self):
+        """Test that whitespace instructions normalize to an empty override."""
+        agent = AIAgent(
+            name="financial_expert",
+            instructions="   ",
+            specialization="Finance",
+        )
 
-        assert "Instructions cannot be empty" in str(excinfo.value)
+        assert agent.instructions == ""
 
     def test_invalid_short_instructions(self):
         """Test validation error when instructions are too short."""

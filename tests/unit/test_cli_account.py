@@ -9,7 +9,6 @@ from rich.console import Group
 from rich.markdown import Markdown
 from typer.testing import CliRunner
 
-from solana_agent.default_instructions import DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 from solana_agent.cli import _resolve_wallet_smoke_options, app, stream_agent_response
 
 
@@ -37,14 +36,14 @@ class _FakeLive:
 
 
 @patch("solana_agent.cli.typer.prompt", return_value="")
-def test_prompt_chat_instructions_uses_hosted_default_when_prompt_blank(
+def test_prompt_chat_instructions_returns_blank_when_prompt_blank(
     mock_typer_prompt,
 ):
     from solana_agent.cli import _prompt_chat_instructions
 
     del mock_typer_prompt
 
-    assert _prompt_chat_instructions(None) == DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
+    assert _prompt_chat_instructions(None) == ""
 
 
 @patch("solana_agent.cli.Path.exists", return_value=False)

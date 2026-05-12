@@ -7,7 +7,6 @@ from typing import Any, Dict
 from dotenv import load_dotenv
 
 from solana_agent.adapters.openai_adapter import OpenAIAdapter
-from solana_agent.default_instructions import DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 from solana_agent.domains.agent import BusinessMission
 from solana_agent.plugins.manager import PluginManager
 from solana_agent.services.agent import AgentService
@@ -94,8 +93,6 @@ class SolanaAgentFactory:
 
         agent_config = SolanaAgentFactory._provider_config(config)
         instructions = str(agent_config.get("instructions") or "").strip()
-        if not instructions:
-            instructions = DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 
         name = str(agent_config.get("name") or "default").strip() or "default"
         specialization = (

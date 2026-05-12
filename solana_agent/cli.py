@@ -18,7 +18,6 @@ from rich.table import Table
 from rich.text import Text
 
 from solana_agent.client.solana_agent import SolanaAgent
-from solana_agent.default_instructions import DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 from solana_agent.local_state import (
     load_saved_privy_user_id,
     load_saved_wallet_id,
@@ -40,8 +39,6 @@ wallet_app = typer.Typer()
 app.add_typer(account_app, name="account")
 app.add_typer(wallet_app, name="wallet")
 console = Console()
-
-DEFAULT_HOSTED_CHAT_INSTRUCTIONS = DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 _SELF_NAME_STATEMENT_PATTERN = re.compile(r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$")
 _SELF_NAME_QUERY_PATTERN = re.compile(
     r"(?i)^\s*(?:what is my name|what's my name)\s*[.!?]*\s*$"
@@ -156,13 +153,7 @@ def _prompt_chat_instructions(instructions: Optional[str]) -> str:
     if normalized_instructions:
         return normalized_instructions
 
-    return str(
-        typer.prompt(
-            "Agent instructions",
-            default=DEFAULT_HOSTED_CHAT_INSTRUCTIONS,
-        )
-        or DEFAULT_HOSTED_CHAT_INSTRUCTIONS
-    ).strip()
+    return str(typer.prompt("Agent instructions (optional)", default="") or "").strip()
 
 
 def _load_chat_agent(config: str, instructions: Optional[str]) -> SolanaAgent:

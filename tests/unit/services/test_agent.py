@@ -118,6 +118,23 @@ class TestAgentService:
         assert "Test instructions" in prompt
         assert "current time" in prompt
 
+    def test_get_agent_system_prompt_is_empty_without_overrides(
+        self, mock_llm_provider
+    ):
+        """Test omitting a client-side system prompt when no instructions are set."""
+        service = AgentService(llm_provider=mock_llm_provider)
+        service.register_ai_agent("test_agent", "", "Testing")
+
+        assert service.get_agent_system_prompt("test_agent") == ""
+
+    def test_get_agent_system_prompt_returns_empty_for_unknown_agent(
+        self, mock_llm_provider
+    ):
+        """Test requesting a system prompt for an unknown agent name."""
+        service = AgentService(llm_provider=mock_llm_provider)
+
+        assert service.get_agent_system_prompt("missing_agent") == ""
+
     def test_get_agent_system_prompt_with_mission(
         self, mock_llm_provider, business_mission
     ):
@@ -611,7 +628,7 @@ class TestAgentService:
     def test_register_agents_from_config_invalid_agent_data(
         self, mock_llm_provider, caplog
     ):
-        """Test skipping agents with missing required data."""
+        """Test skipping agents with missing name or specialization."""
         config_with_invalid = {
             "agents": [
                 {"name": "agent1", "instructions": "instr1"},  # Missing specialization
@@ -632,16 +649,17 @@ class TestAgentService:
 
         service.register_agents_from_config()
 
-        # Check that only the valid agent was registered
-        service.register_ai_agent.assert_called_once_with("agent4", "instr4", "spec4")
+        expected_calls = [
+            call("agent2", "", "spec2"),
+            call("agent4", "instr4", "spec4"),
+        ]
+        service.register_ai_agent.assert_has_calls(expected_calls, any_order=True)
+        assert service.register_ai_agent.call_count == 2
         service.assign_tool_for_agent.assert_not_called()  # No tools on valid agent
 
         # Check warning logs for skipped agents
-        assert (
-            "Skipping agent due to missing name, instructions, or specialization"
-            in caplog.text
-        )
-        assert caplog.text.count("Skipping agent") == 3  # Three invalid agents
+        assert "Skipping agent due to missing name or specialization" in caplog.text
+        assert caplog.text.count("Skipping agent") == 2
 
     def test_register_agents_from_config_tool_assignment_failure(
         self, mock_llm_provider, caplog
