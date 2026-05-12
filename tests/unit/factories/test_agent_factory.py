@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from solana_agent.default_instructions import DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 from solana_agent.factories.agent_factory import (
     DEFAULT_AGI_BASE_URL,
     DEFAULT_AGI_MEMORY_MODEL,
@@ -122,6 +123,12 @@ def test_create_from_config_creates_default_agent_when_omitted(
     )
 
     assert set(service.agent_service.get_all_ai_agents()) == {"default"}
+
+
+def test_single_agent_config_uses_public_default_instructions_when_omitted():
+    config = SolanaAgentFactory._single_agent_config({"ai": {}})
+
+    assert config["instructions"] == DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 
 
 @patch("solana_agent.factories.agent_factory.PluginManager")

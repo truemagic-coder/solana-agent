@@ -18,6 +18,7 @@ from rich.table import Table
 from rich.text import Text
 
 from solana_agent.client.solana_agent import SolanaAgent
+from solana_agent.default_instructions import DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
 from solana_agent.local_state import (
     load_saved_privy_user_id,
     load_saved_wallet_id,
@@ -40,13 +41,46 @@ app.add_typer(account_app, name="account")
 app.add_typer(wallet_app, name="wallet")
 console = Console()
 
-DEFAULT_HOSTED_CHAT_INSTRUCTIONS = (
-    "You are a helpful Solana AI assistant for hosted wallet and MCP workflows."
+DEFAULT_HOSTED_CHAT_INSTRUCTIONS = DEFAULT_PUBLIC_AGENT_INSTRUCTIONS
+_SELF_NAME_STATEMENT_PATTERN = re.compile(r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$")
+_SELF_NAME_QUERY_PATTERN = re.compile(
+    r"(?i)^\s*(?:what is my name|what's my name)\s*[.!?]*\s*$"
 )
 _SELF_NAME_STATEMENT_PATTERN = re.compile(r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$")
 _SELF_NAME_QUERY_PATTERN = re.compile(
     r"(?i)^\s*(?:what is my name|what's my name)\s*[.!?]*\s*$"
 )
+
+
+def _agent_response_renderable(response: str) -> Group:
+    return Group(
+        Text("Agent:", style="bright_blue"),
+        Markdown(response),
+    )
+
+
+def _remember_session_name(
+    message: str,
+    session_state: dict[str, str],
+) -> None:
+    match = _SELF_NAME_STATEMENT_PATTERN.match(str(message or ""))
+    if not match:
+        return
+    normalized_name = re.sub(r"\s+", " ", match.group(1)).strip(" .!?")
+    if normalized_name:
+        session_state["user_name"] = normalized_name
+
+
+def _maybe_fast_path_name_recall(
+    message: str,
+    session_state: dict[str, str],
+) -> str | None:
+    if not _SELF_NAME_QUERY_PATTERN.match(str(message or "")):
+        return None
+    remembered_name = str(session_state.get("user_name") or "").strip()
+    if not remembered_name:
+        return None
+    return f"Your name is {remembered_name}."
 
 
 def _agent_response_renderable(response: str) -> Group:
