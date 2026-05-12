@@ -665,9 +665,7 @@ async def _export_wallet_private_key_without_saved_wallet_id(
             if inspect.isawaitable(provider_result):
                 provider_payload = await provider_result
                 if isinstance(provider_payload, Mapping):
-                    private_key = str(
-                        provider_payload.get("private_key") or ""
-                    ).strip()
+                    private_key = str(provider_payload.get("private_key") or "").strip()
                 else:
                     private_key = str(provider_payload or "").strip()
                 if private_key:

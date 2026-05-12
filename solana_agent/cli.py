@@ -43,9 +43,7 @@ console = Console()
 DEFAULT_HOSTED_CHAT_INSTRUCTIONS = (
     "You are a helpful Solana AI assistant for hosted wallet and MCP workflows."
 )
-_SELF_NAME_STATEMENT_PATTERN = re.compile(
-    r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$"
-)
+_SELF_NAME_STATEMENT_PATTERN = re.compile(r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$")
 _SELF_NAME_QUERY_PATTERN = re.compile(
     r"(?i)^\s*(?:what is my name|what's my name)\s*[.!?]*\s*$"
 )

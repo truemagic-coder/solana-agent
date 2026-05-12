@@ -762,7 +762,9 @@ class SolanaAgent(SolanaAgentInterface):
         privy_user_id = self._configured_privy_user_id()
         existing_wallet_id = self._runtime_privy_wallet_id(context)
         if not existing_wallet_id:
-            existing_wallet_id = self._cached_hosted_wallet_id or self._saved_wallet_id() or ""
+            existing_wallet_id = (
+                self._cached_hosted_wallet_id or self._saved_wallet_id() or ""
+            )
         if existing_wallet_id:
             context.setdefault("privy_wallet_id", existing_wallet_id)
             context.setdefault("hosted_privy_wallet_id", existing_wallet_id)

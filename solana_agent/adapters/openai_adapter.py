@@ -194,7 +194,9 @@ class OpenAIAdapter(LLMProvider):
         self._privy_clients: Dict[str, AsyncOpenAI] = {}
         self._hosted_managed_clients: Dict[str, AsyncOpenAI] = {}
         self._hosted_managed_signing_key_cache: Dict[str, str] = {}
-        self._account_auth_headers_cache: Dict[str, tuple[datetime, Dict[str, str]]] = {}
+        self._account_auth_headers_cache: Dict[
+            str, tuple[datetime, Dict[str, str]]
+        ] = {}
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self.client: Optional[AsyncOpenAI] = None
         if self.auth_mode != "x402_privy" and (

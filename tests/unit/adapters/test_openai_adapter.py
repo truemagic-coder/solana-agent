@@ -642,12 +642,15 @@ class TestOpenAIAdapter:
             max_output_tokens=32,
         )
 
-        with patch(
-            "solana_agent.adapters.openai_adapter.time.perf_counter",
-            side_effect=[20.0, 20.75],
-        ), patch(
-            "solana_agent.adapters.openai_adapter.logger.warning"
-        ) as mock_warning:
+        with (
+            patch(
+                "solana_agent.adapters.openai_adapter.time.perf_counter",
+                side_effect=[20.0, 20.75],
+            ),
+            patch(
+                "solana_agent.adapters.openai_adapter.logger.warning"
+            ) as mock_warning,
+        ):
             await adapter._chat_completions_create(
                 model="solana-agent-chat",
                 messages=[{"role": "user", "content": "hello"}],

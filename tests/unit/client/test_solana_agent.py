@@ -237,7 +237,9 @@ class TestSolanaAgent:
             }
 
     @pytest.mark.asyncio
-    async def test_process_normalizes_runtime_model_alias(self, config_dict, mock_query_service):
+    async def test_process_normalizes_runtime_model_alias(
+        self, config_dict, mock_query_service
+    ):
         """Process should resolve public model aliases before sending hosted runtime context."""
         with patch(
             "solana_agent.client.solana_agent.SolanaAgentFactory"
@@ -507,12 +509,15 @@ class TestSolanaAgent:
             monkeypatch.setenv("SOLANA_AGENT_TIMING_TRACE", "1")
             agent = SolanaAgent(config=config_dict)
 
-            with patch(
-                "solana_agent.client.solana_agent.time.perf_counter",
-                side_effect=[10.0, 10.25],
-            ), patch(
-                "solana_agent.client.solana_agent.logger.warning"
-            ) as mock_warning:
+            with (
+                patch(
+                    "solana_agent.client.solana_agent.time.perf_counter",
+                    side_effect=[10.0, 10.25],
+                ),
+                patch(
+                    "solana_agent.client.solana_agent.logger.warning"
+                ) as mock_warning,
+            ):
                 chunks = []
                 async for chunk in agent.process(
                     message="hello",
@@ -1103,11 +1108,14 @@ class TestSolanaAgent:
         self, config_dict, mock_query_service
     ):
         """Client helper should reuse the saved hosted wallet id and cached address across turns."""
-        with patch(
-            "solana_agent.client.solana_agent.SolanaAgentFactory"
-        ) as mock_factory, patch(
-            "solana_agent.client.solana_agent.load_saved_wallet_id",
-            return_value="wallet-123",
+        with (
+            patch(
+                "solana_agent.client.solana_agent.SolanaAgentFactory"
+            ) as mock_factory,
+            patch(
+                "solana_agent.client.solana_agent.load_saved_wallet_id",
+                return_value="wallet-123",
+            ),
         ):
             mock_factory.create_from_config.return_value = mock_query_service
             agent = SolanaAgent(config=config_dict)
@@ -1124,7 +1132,9 @@ class TestSolanaAgent:
             )
 
             first = await agent.prepare_x402_runtime_context(conversation_id="conv-123")
-            second = await agent.prepare_x402_runtime_context(conversation_id="conv-456")
+            second = await agent.prepare_x402_runtime_context(
+                conversation_id="conv-456"
+            )
 
             assert first == {
                 "conversation_id": "conv-123",
