@@ -78,7 +78,9 @@
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">importlib.util</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">copy</span><span class="w"> </span><span class="kn">import</span> <span class="n">deepcopy</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncGenerator</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
 
@@ -95,6 +97,18 @@
     <span class="n">save_privy_user_id</span><span class="p">,</span>
     <span class="n">save_wallet_id</span><span class="p">,</span>
 <span class="p">)</span>
+
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_timing_trace_enabled</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SOLANA_AGENT_TIMING_TRACE&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">{</span>
+        <span class="s2">&quot;1&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;true&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;yes&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;on&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
 
 
 <div class="viewcode-block" id="SolanaAgent">
@@ -158,6 +172,8 @@
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_apply_saved_privy_user_id</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">query_service</span> <span class="o">=</span> <span class="n">SolanaAgentFactory</span><span class="o">.</span><span class="n">create_from_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_address</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_build_config</span><span class="p">(</span>
@@ -293,6 +309,25 @@
             <span class="k">return</span> <span class="n">normalized_wallet_id</span>
         <span class="k">return</span> <span class="n">normalized_wallet_id</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">_remember_wallet_address</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">normalized_wallet_address</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">normalized_wallet_address</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span>
+                <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wallet_address&quot;</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;public_address&quot;</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;public_key&quot;</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">normalized_wallet_address</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">payload</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">normalized_wallet_address</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_address</span> <span class="o">=</span> <span class="n">normalized_wallet_address</span>
+        <span class="k">return</span> <span class="n">normalized_wallet_address</span>
+
     <span class="nd">@staticmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_runtime_privy_wallet_id</span><span class="p">(</span>
         <span class="n">runtime_context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -375,6 +410,12 @@
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
                 <span class="s2">&quot;Pass runtime context values as flat keyword arguments, not runtime_context={...}&quot;</span>
             <span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;model&quot;</span> <span class="ow">in</span> <span class="n">context</span><span class="p">:</span>
+            <span class="n">resolved_model</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolve_context_model</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">resolved_model</span><span class="p">:</span>
+                <span class="n">context</span><span class="p">[</span><span class="s2">&quot;model&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolved_model</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">context</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">search_enabled</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;search_enabled&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">search_enabled</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">context</span> <span class="ow">or</span> <span class="kc">None</span>
@@ -385,13 +426,21 @@
         <span class="o">*</span><span class="p">,</span>
         <span class="n">search_enabled</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+        <span class="n">started_at</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span>
         <span class="n">merged_runtime_context</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_merge_runtime_context</span><span class="p">(</span>
             <span class="n">runtime_context</span><span class="p">,</span>
             <span class="n">search_enabled</span><span class="o">=</span><span class="n">search_enabled</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prepare_x402_runtime_context</span><span class="p">(</span>
+        <span class="n">prepared_runtime_context</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">prepare_x402_runtime_context</span><span class="p">(</span>
             <span class="o">**</span><span class="p">(</span><span class="n">merged_runtime_context</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="p">)</span>
+        <span class="k">if</span> <span class="n">_timing_trace_enabled</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                <span class="s2">&quot;SDK timing: prepare_runtime_context seconds=</span><span class="si">%.3f</span><span class="s2"> context_keys=</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="n">time</span><span class="o">.</span><span class="n">perf_counter</span><span class="p">()</span> <span class="o">-</span> <span class="n">started_at</span><span class="p">,</span>
+                <span class="nb">sorted</span><span class="p">((</span><span class="n">prepared_runtime_context</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">prepared_runtime_context</span>
 
 <div class="viewcode-block" id="SolanaAgent.process">
 <a class="viewcode-back" href="../../../api/index.html#solana_agent.client.solana_agent.SolanaAgent.process">[docs]</a>
@@ -697,7 +746,10 @@
             <span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span>
             <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="n">remembered_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">remembered_wallet_id</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">remembered_wallet_id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_address</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">payload</span></div>
 
 
@@ -717,7 +769,10 @@
             <span class="n">privy_user_id</span><span class="o">=</span><span class="n">resolved_privy_user_id</span><span class="p">,</span>
             <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="n">remembered_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">remembered_wallet_id</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">remembered_wallet_id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_address</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">payload</span></div>
 
 
@@ -745,9 +800,11 @@
             <span class="n">wallet_id</span><span class="o">=</span><span class="n">resolved_wallet_id</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">chain_type</span><span class="o">=</span><span class="n">chain_type</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
+        <span class="n">remembered_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
             <span class="n">payload</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="n">resolved_wallet_id</span>
         <span class="p">)</span>
+        <span class="k">if</span> <span class="n">remembered_wallet_id</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">remembered_wallet_id</span>
         <span class="n">private_key</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;private_key&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">private_key</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Hosted wallet export response is missing a private_key&quot;</span><span class="p">)</span>
@@ -783,14 +840,17 @@
             <span class="s2">&quot;Hosted wallet management&quot;</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="k">await</span> <span class="n">method</span><span class="p">(</span><span class="n">wallet_id</span><span class="o">=</span><span class="n">normalized_wallet_id</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
+        <span class="n">remembered_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_remember_wallet_id</span><span class="p">(</span>
             <span class="n">payload</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="n">normalized_wallet_id</span>
         <span class="p">)</span>
+        <span class="k">if</span> <span class="n">remembered_wallet_id</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">remembered_wallet_id</span>
         <span class="n">address</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span>
             <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;public_address&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
         <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">address</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Hosted wallet response is missing an address&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_address</span> <span class="o">=</span> <span class="n">address</span>
         <span class="k">return</span> <span class="n">address</span></div>
 
 
@@ -806,6 +866,10 @@
         <span class="n">context</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_merge_runtime_context</span><span class="p">(</span><span class="n">runtime_context</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="n">privy_user_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_configured_privy_user_id</span><span class="p">()</span>
         <span class="n">existing_wallet_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_runtime_privy_wallet_id</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">existing_wallet_id</span><span class="p">:</span>
+            <span class="n">existing_wallet_id</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_saved_wallet_id</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="n">existing_wallet_id</span><span class="p">:</span>
             <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;privy_wallet_id&quot;</span><span class="p">,</span> <span class="n">existing_wallet_id</span><span class="p">)</span>
             <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;hosted_privy_wallet_id&quot;</span><span class="p">,</span> <span class="n">existing_wallet_id</span><span class="p">)</span>
@@ -815,14 +879,19 @@
                 <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
             <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">existing_wallet_address</span><span class="p">:</span>
+                <span class="n">existing_wallet_address</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_address</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
+                <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">existing_wallet_address</span><span class="p">:</span>
                 <span class="n">existing_wallet_address</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_wallet_address</span><span class="p">(</span>
                     <span class="n">existing_wallet_id</span>
                 <span class="p">)</span>
-                <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;privy_wallet_address&quot;</span><span class="p">,</span> <span class="n">existing_wallet_address</span><span class="p">)</span>
-                <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span>
-                    <span class="s2">&quot;privy_wallet_public_key&quot;</span><span class="p">,</span>
-                    <span class="n">existing_wallet_address</span><span class="p">,</span>
-                <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">existing_wallet_id</span>
+            <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;privy_wallet_address&quot;</span><span class="p">,</span> <span class="n">existing_wallet_address</span><span class="p">)</span>
+            <span class="n">context</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span>
+                <span class="s2">&quot;privy_wallet_public_key&quot;</span><span class="p">,</span>
+                <span class="n">existing_wallet_address</span><span class="p">,</span>
+            <span class="p">)</span>
             <span class="k">return</span> <span class="n">context</span>
 
         <span class="n">wallet</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_wallet</span><span class="p">(</span>
@@ -832,6 +901,7 @@
 
         <span class="n">wallet_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">wallet</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;wallet_id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">wallet</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">wallet_id</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_id</span> <span class="o">=</span> <span class="n">wallet_id</span>
             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;privy_wallet_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">wallet_id</span>
             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;hosted_privy_wallet_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">wallet_id</span>
 
@@ -842,6 +912,7 @@
             <span class="ow">or</span> <span class="s2">&quot;&quot;</span>
         <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
         <span class="k">if</span> <span class="n">address</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cached_hosted_wallet_address</span> <span class="o">=</span> <span class="n">address</span>
             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;privy_wallet_address&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">address</span>
             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;privy_wallet_public_key&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">address</span>
 
