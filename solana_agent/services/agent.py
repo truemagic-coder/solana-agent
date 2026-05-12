@@ -63,6 +63,73 @@ class AgentService(AgentServiceInterface):
         runtime_model = str(context.get("model") or "").strip()
         return runtime_model or self.model
 
+    @staticmethod
+    def _protected_runtime_secrets(
+        privy_user_id: str,
+        runtime_context: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, ...]:
+        context = runtime_context or {}
+        protected_values: list[str] = []
+        for raw_value in (
+            privy_user_id,
+            context.get("privy_user_id"),
+            context.get("privy_wallet_id"),
+            context.get("hosted_privy_wallet_id"),
+            context.get("wallet_id"),
+        ):
+            normalized_value = str(raw_value or "").strip()
+            if normalized_value and normalized_value not in protected_values:
+                protected_values.append(normalized_value)
+        return tuple(protected_values)
+
+    @staticmethod
+    def _redact_sensitive_text(text: str, secrets: tuple[str, ...]) -> str:
+        sanitized_text = str(text or "")
+        for secret in sorted(secrets, key=len, reverse=True):
+            if secret:
+                sanitized_text = sanitized_text.replace(secret, "[redacted]")
+        return sanitized_text
+
+    def _sanitize_tool_result(
+        self,
+        payload: Any,
+        secrets: tuple[str, ...],
+    ) -> Any:
+        if isinstance(payload, dict):
+            sanitized: dict[str, Any] = {}
+            for key, value in payload.items():
+                normalized_key = str(key or "").strip().lower()
+                if normalized_key in {
+                    "privy_user_id",
+                    "privy_wallet_id",
+                    "hosted_privy_wallet_id",
+                    "wallet_id",
+                }:
+                    sanitized[key] = "[redacted]"
+                else:
+                    sanitized[key] = self._sanitize_tool_result(value, secrets)
+            return sanitized
+        if isinstance(payload, list):
+            return [self._sanitize_tool_result(item, secrets) for item in payload]
+        if isinstance(payload, tuple):
+            return tuple(self._sanitize_tool_result(item, secrets) for item in payload)
+        if isinstance(payload, str):
+            return self._redact_sensitive_text(payload, secrets)
+        return payload
+
+    def _secret_handling_system_prompt(
+        self,
+        secrets: tuple[str, ...],
+    ) -> str:
+        if not secrets:
+            return ""
+        return (
+            "\n\nSECRET IDENTIFIERS:\n"
+            "The authenticated user's Privy DID and hosted wallet identifiers are sensitive credentials. "
+            "Use them only through runtime context and tools. Never reveal, quote, restate, echo, summarize, "
+            "or include those identifiers in any user-visible response."
+        )
+
     def _max_tool_iterations(
         self, runtime_context: Optional[Dict[str, Any]] = None
     ) -> int:
@@ -289,6 +356,10 @@ class AgentService(AgentServiceInterface):
 
         try:
             request_model = self._runtime_model(runtime_context)
+            protected_secrets = self._protected_runtime_secrets(
+                privy_user_id,
+                runtime_context,
+            )
             # Validate agent
             agent = next((a for a in self.agents if a.name == agent_name), None)
             if not agent:
@@ -307,6 +378,7 @@ class AgentService(AgentServiceInterface):
 
             # Build system prompt and messages
             system_prompt = self.get_agent_system_prompt(agent_name)
+            system_prompt += self._secret_handling_system_prompt(protected_secrets)
             user_content = str(query)
             if images:
                 user_content += "\n\n[Images attached]"
@@ -316,7 +388,6 @@ class AgentService(AgentServiceInterface):
             if prompt:
                 full_prompt += f"ADDITIONAL PROMPT:\n{prompt}\n\n"
             full_prompt += user_content
-            full_prompt += f"PRIVY USER IDENTIFIER: {privy_user_id}"
 
             # Get OpenAI function schemas for this agent's tools
             tools = [
@@ -476,11 +547,15 @@ class AgentService(AgentServiceInterface):
                             args,
                             runtime_context=runtime_context,
                         )
+                        sanitized_tool_result = self._sanitize_tool_result(
+                            tool_result,
+                            protected_secrets,
+                        )
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": call_id_map.get(idx, f"call_{idx}"),
-                                "content": json.dumps(tool_result),
+                                "content": json.dumps(sanitized_tool_result),
                             }
                         )
 

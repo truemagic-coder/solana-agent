@@ -11,8 +11,10 @@ import io
 import json
 import logging
 import math
+import os
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import (
     AsyncGenerator,
@@ -74,6 +76,16 @@ TOKENS_PER_REPLY_PRIMER = 2
 SUPPORTED_X402_PREFERRED_ASSETS = frozenset({"USDC"})
 SUPPORTED_USAGE_GRANULARITIES = frozenset({"day", "month", "year"})
 ACCOUNT_AUTH_TIMEOUT_SECONDS = 30.0
+ACCOUNT_AUTH_CACHE_REFRESH_SKEW_SECONDS = 5.0
+
+
+def _timing_trace_enabled() -> bool:
+    return str(os.getenv("SOLANA_AGENT_TIMING_TRACE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _tokenizer_candidates(model_name: str | None) -> tuple[str, ...]:
@@ -181,6 +193,10 @@ class OpenAIAdapter(LLMProvider):
         self._client_lock = asyncio.Lock()
         self._privy_clients: Dict[str, AsyncOpenAI] = {}
         self._hosted_managed_clients: Dict[str, AsyncOpenAI] = {}
+        self._hosted_managed_signing_key_cache: Dict[str, str] = {}
+        self._account_auth_headers_cache: Dict[
+            str, tuple[datetime, Dict[str, str]]
+        ] = {}
         self._client_loop: asyncio.AbstractEventLoop | None = None
         self.client: Optional[AsyncOpenAI] = None
         if self.auth_mode != "x402_privy" and (
@@ -344,6 +360,9 @@ class OpenAIAdapter(LLMProvider):
     ) -> str:
         wallet_id = self._runtime_privy_wallet_id(runtime_context)
         if prefer_runtime_wallet and wallet_id:
+            cached_private_key = self._hosted_managed_signing_key_cache.get(wallet_id)
+            if cached_private_key:
+                return cached_private_key
             privy_user_id = str(self.privy_user_id or "").strip()
             if not privy_user_id:
                 raise ValueError(
@@ -359,6 +378,7 @@ class OpenAIAdapter(LLMProvider):
                 raise ValueError(
                     "Hosted wallet export response is missing a private_key"
                 )
+            self._hosted_managed_signing_key_cache[wallet_id] = resolved_private_key
             return resolved_private_key
 
         configured_private_key = str(self.private_key or "").strip()
@@ -376,6 +396,10 @@ class OpenAIAdapter(LLMProvider):
                 "hosted_managed x402 settlement requires runtime_context.privy_wallet_id or hosted_privy_wallet_id"
             )
 
+        cached_private_key = self._hosted_managed_signing_key_cache.get(wallet_id)
+        if cached_private_key:
+            return cached_private_key
+
         exported = await self.export_wallet_private_key(
             privy_user_id=privy_user_id,
             wallet_id=wallet_id,
@@ -383,7 +407,33 @@ class OpenAIAdapter(LLMProvider):
         resolved_private_key = str(exported.get("private_key") or "").strip()
         if not resolved_private_key:
             raise ValueError("Hosted wallet export response is missing a private_key")
+        self._hosted_managed_signing_key_cache[wallet_id] = resolved_private_key
         return resolved_private_key
+
+    def _get_cached_account_auth_headers(
+        self,
+        wallet: str,
+    ) -> Optional[Dict[str, str]]:
+        cache_entry = self._account_auth_headers_cache.get(wallet)
+        if cache_entry is None:
+            return None
+        expires_at, headers = cache_entry
+        refresh_deadline = datetime.now(timezone.utc) + timedelta(
+            seconds=ACCOUNT_AUTH_CACHE_REFRESH_SKEW_SECONDS
+        )
+        if expires_at <= refresh_deadline:
+            self._account_auth_headers_cache.pop(wallet, None)
+            return None
+        return dict(headers)
+
+    def _cache_account_auth_headers(
+        self,
+        wallet: str,
+        headers: Dict[str, str],
+        *,
+        expires_at: datetime,
+    ) -> None:
+        self._account_auth_headers_cache[wallet] = (expires_at, dict(headers))
 
     async def _get_client(
         self, runtime_context: Optional[Dict[str, Any]] = None
@@ -577,10 +627,20 @@ class OpenAIAdapter(LLMProvider):
     ) -> Any:
         last_error: APIConnectionError | None = None
         for attempt in range(2):
+            started_at = time.perf_counter()
             client = await self._get_client(runtime_context)
             self._instrument_client(client)
             try:
-                return await client.chat.completions.create(**cc_params)
+                response = await client.chat.completions.create(**cc_params)
+                if _timing_trace_enabled():
+                    logger.warning(
+                        "SDK timing: hosted_completion seconds=%.3f model=%s stream=%s attempt=%d",
+                        time.perf_counter() - started_at,
+                        cc_params.get("model"),
+                        bool(cc_params.get("stream")),
+                        attempt + 1,
+                    )
+                return response
             except APIConnectionError as exc:
                 last_error = exc
                 if attempt == 0:
@@ -746,6 +806,9 @@ class OpenAIAdapter(LLMProvider):
     ) -> Dict[str, str]:
         keypair = await self._resolve_account_auth_keypair(runtime_context)
         wallet = str(keypair.pubkey())
+        cached_headers = self._get_cached_account_auth_headers(wallet)
+        if cached_headers is not None:
+            return cached_headers
         challenge = await self._create_account_auth_challenge(wallet)
 
         challenge_id = str(challenge.get("challenge_id") or "").strip()
@@ -760,6 +823,7 @@ class OpenAIAdapter(LLMProvider):
             raise ValueError("Account auth challenge wallet mismatch")
 
         expires_at_raw = str(challenge.get("expires_at") or "").strip()
+        expires_at: datetime | None = None
         if expires_at_raw:
             normalized_expires_at = expires_at_raw.replace("Z", "+00:00")
             expires_at = datetime.fromisoformat(normalized_expires_at)
@@ -769,11 +833,14 @@ class OpenAIAdapter(LLMProvider):
                 raise ValueError("Account auth challenge already expired")
 
         signature = str(keypair.sign_message(message.encode("utf-8")))
-        return {
+        headers = {
             "X-Wallet-Address": wallet,
             "X-Account-Challenge-Id": challenge_id,
             "X-Account-Signature": signature,
         }
+        if expires_at is not None:
+            self._cache_account_auth_headers(wallet, headers, expires_at=expires_at)
+        return headers
 
     def _managed_account_identity_params(
         self,

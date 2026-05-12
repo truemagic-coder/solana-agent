@@ -1,5 +1,7 @@
 import json
+import re
 from typing import Optional
+from uuid import uuid4
 import typer
 import asyncio
 import logging
@@ -41,6 +43,41 @@ console = Console()
 DEFAULT_HOSTED_CHAT_INSTRUCTIONS = (
     "You are a helpful Solana AI assistant for hosted wallet and MCP workflows."
 )
+_SELF_NAME_STATEMENT_PATTERN = re.compile(r"(?i)^\s*my name is\s+(.+?)\s*[.!?]*\s*$")
+_SELF_NAME_QUERY_PATTERN = re.compile(
+    r"(?i)^\s*(?:what is my name|what's my name)\s*[.!?]*\s*$"
+)
+
+
+def _agent_response_renderable(response: str) -> Group:
+    return Group(
+        Text("Agent:", style="bright_blue"),
+        Markdown(response),
+    )
+
+
+def _remember_session_name(
+    message: str,
+    session_state: dict[str, str],
+) -> None:
+    match = _SELF_NAME_STATEMENT_PATTERN.match(str(message or ""))
+    if not match:
+        return
+    normalized_name = re.sub(r"\s+", " ", match.group(1)).strip(" .!?")
+    if normalized_name:
+        session_state["user_name"] = normalized_name
+
+
+def _maybe_fast_path_name_recall(
+    message: str,
+    session_state: dict[str, str],
+) -> str | None:
+    if not _SELF_NAME_QUERY_PATTERN.match(str(message or "")):
+        return None
+    remembered_name = str(session_state.get("user_name") or "").strip()
+    if not remembered_name:
+        return None
+    return f"Your name is {remembered_name}."
 
 
 def _load_agent(config: str) -> SolanaAgent:
@@ -106,7 +143,10 @@ def _load_chat_agent(config: str, instructions: Optional[str]) -> SolanaAgent:
         )
 
     try:
-        return SolanaAgent(instructions=_prompt_chat_instructions(instructions))
+        return SolanaAgent(
+            instructions=_prompt_chat_instructions(instructions),
+            model="chat",
+        )
     except ValueError as e:
         console.print(f"[bold red]Error loading hosted defaults:[/bold red] {e}")
         raise typer.Exit(code=1)
@@ -546,15 +586,10 @@ async def stream_agent_response(
     message: str,
     prompt: Optional[str] = None,
     search_enabled: bool = False,
+    **runtime_context: object,
 ):
     """Helper function to stream and display agent response."""
     full_response = ""
-
-    def _agent_response_renderable(response: str) -> Group:
-        return Group(
-            Text("Agent:", style="bright_blue"),
-            Markdown(response),
-        )
 
     with Live(console=console, refresh_per_second=10, transient=True) as live:
         live.update(Spinner("dots", "Thinking..."))
@@ -565,6 +600,7 @@ async def stream_agent_response(
                 output_format="text",
                 prompt=prompt,
                 search_enabled=search_enabled,
+                **runtime_context,
             ):
                 if first_chunk:
                     live.update("", refresh=True)  # Clear spinner
@@ -593,6 +629,13 @@ async def _chat_session(
     prompt: Optional[str] = None,
     search_enabled: bool = False,
 ) -> None:
+    chat_runtime_context = {
+        "conversation_id": f"cli-chat-{uuid4().hex[:12]}",
+        "model": "memory",
+        "memory_ttl_tier": "work",
+    }
+    session_state: dict[str, str] = {}
+
     while True:
         try:
             user_message = Prompt.ask("[bold green]You[/bold green]")
@@ -604,11 +647,22 @@ async def _chat_session(
             if not user_message.strip():
                 continue
 
+            _remember_session_name(user_message, session_state)
+
+            fast_path_response = _maybe_fast_path_name_recall(
+                user_message,
+                session_state,
+            )
+            if fast_path_response:
+                console.print(_agent_response_renderable(fast_path_response))
+                continue
+
             await stream_agent_response(
                 agent,
                 user_message,
                 prompt,
                 search_enabled=search_enabled,
+                **chat_runtime_context,
             )
 
         except KeyboardInterrupt:

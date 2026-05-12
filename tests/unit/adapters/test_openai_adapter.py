@@ -622,6 +622,51 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_chat_completions_create_logs_timing_when_trace_enabled(
+        self,
+        mock_async_openai,
+        monkeypatch,
+    ):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(choices=[])
+        )
+        mock_async_openai.return_value = mock_client
+        monkeypatch.setenv("SOLANA_AGENT_TIMING_TRACE", "1")
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-chat",
+            base_url="https://ai.solana-agent.com/v1",
+            context_window_tokens=64,
+            max_output_tokens=32,
+        )
+
+        with (
+            patch(
+                "solana_agent.adapters.openai_adapter.time.perf_counter",
+                side_effect=[20.0, 20.75],
+            ),
+            patch(
+                "solana_agent.adapters.openai_adapter.logger.warning"
+            ) as mock_warning,
+        ):
+            await adapter._chat_completions_create(
+                model="solana-agent-chat",
+                messages=[{"role": "user", "content": "hello"}],
+                max_tokens=32,
+            )
+
+        mock_warning.assert_called_once_with(
+            "SDK timing: hosted_completion seconds=%.3f model=%s stream=%s attempt=%d",
+            0.75,
+            "solana-agent-chat",
+            False,
+            1,
+        )
+
+    @pytest.mark.asyncio
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
     async def test_hosted_chat_stream_search_enabled_clamps_max_tokens(
         self,
         mock_async_openai,
@@ -1130,6 +1175,57 @@ class TestOpenAIAdapter:
         assert headers["X-Account-Signature"] == str(
             hosted_keypair.sign_message(b"sign me")
         )
+
+    @pytest.mark.asyncio
+    @patch(
+        "solana_agent.adapters.openai_adapter.OpenAIAdapter._create_account_auth_challenge",
+        new_callable=AsyncMock,
+    )
+    @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")
+    async def test_hosted_managed_account_auth_reuses_cached_headers(
+        self,
+        mock_async_openai,
+        mock_create_account_auth_challenge,
+    ):
+        """Hosted-managed wallet auth should reuse unexpired signed headers across turns."""
+        local_keypair = Keypair()
+        hosted_keypair = Keypair()
+        local_private_key = based58.b58encode(bytes(local_keypair)).decode("ascii")
+        hosted_private_key = based58.b58encode(bytes(hosted_keypair)).decode("ascii")
+        hosted_wallet = str(hosted_keypair.pubkey())
+        mock_async_openai.return_value = MagicMock()
+        mock_create_account_auth_challenge.return_value = {
+            "challenge_id": "challenge-123",
+            "wallet": hosted_wallet,
+            "message": "sign me once",
+            "expires_at": "2099-05-01T12:05:00+00:00",
+        }
+
+        adapter = OpenAIAdapter(
+            api_key="x402",
+            model="solana-agent-memory",
+            base_url="https://ai.solana-agent.com/v1",
+            auth_mode="hosted_managed",
+            privy_user_id="did:privy:user123",
+            private_key=local_private_key,
+        )
+        adapter.export_wallet_private_key = AsyncMock(
+            return_value={"private_key": hosted_private_key}
+        )
+
+        first_headers = await adapter._build_account_auth_headers(
+            {"hosted_privy_wallet_id": "wallet-123"}
+        )
+        second_headers = await adapter._build_account_auth_headers(
+            {"hosted_privy_wallet_id": "wallet-123"}
+        )
+
+        assert second_headers == first_headers
+        adapter.export_wallet_private_key.assert_awaited_once_with(
+            privy_user_id="did:privy:user123",
+            wallet_id="wallet-123",
+        )
+        mock_create_account_auth_challenge.assert_awaited_once_with(hosted_wallet)
 
     @pytest.mark.asyncio
     @patch("solana_agent.adapters.openai_adapter.AsyncOpenAI")

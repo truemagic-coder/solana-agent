@@ -1,5 +1,6 @@
 import httpx
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,7 +57,10 @@ def test_chat_command_falls_back_to_hosted_defaults_when_config_missing(
     result = runner.invoke(app, ["chat", "--config", "config.json"])
 
     assert result.exit_code == 0
-    mock_solana_agent.assert_called_once_with(instructions="You are concise.")
+    mock_solana_agent.assert_called_once_with(
+        instructions="You are concise.",
+        model="chat",
+    )
     assert "Configuration file not found" in result.stdout
     assert "Agent initialized. Start chatting!" in result.stdout
 
@@ -66,9 +70,11 @@ def test_chat_command_falls_back_to_hosted_defaults_when_config_missing(
 @patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
 @patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
 @patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.uuid4", return_value=SimpleNamespace(hex="session1234567890"))
 @patch("solana_agent.cli.SolanaAgent")
 def test_chat_command_runs_single_async_session_for_multiple_turns(
     mock_solana_agent,
+    mock_uuid4,
     mock_stream_agent_response,
     mock_typer_prompt,
     mock_prompt_ask,
@@ -79,6 +85,7 @@ def test_chat_command_runs_single_async_session_for_multiple_turns(
     del mock_exists
     del mock_confirm_ask
     del mock_typer_prompt
+    del mock_uuid4
     mock_agent = MagicMock()
     mock_solana_agent.return_value = mock_agent
     original_asyncio_run = asyncio.run
@@ -96,6 +103,9 @@ def test_chat_command_runs_single_async_session_for_multiple_turns(
         "hello",
         None,
         search_enabled=False,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
     )
 
 
@@ -104,9 +114,11 @@ def test_chat_command_runs_single_async_session_for_multiple_turns(
 @patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
 @patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
 @patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.uuid4", return_value=SimpleNamespace(hex="session1234567890"))
 @patch("solana_agent.cli.SolanaAgent")
 def test_chat_command_prompts_for_hosted_search_when_config_missing(
     mock_solana_agent,
+    mock_uuid4,
     mock_stream_agent_response,
     mock_typer_prompt,
     mock_prompt_ask,
@@ -116,6 +128,7 @@ def test_chat_command_prompts_for_hosted_search_when_config_missing(
     del mock_prompt_ask
     del mock_exists
     del mock_typer_prompt
+    del mock_uuid4
     mock_agent = MagicMock()
     mock_solana_agent.return_value = mock_agent
     original_asyncio_run = asyncio.run
@@ -133,6 +146,9 @@ def test_chat_command_prompts_for_hosted_search_when_config_missing(
         "hello",
         None,
         search_enabled=True,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
     )
 
 
@@ -141,9 +157,11 @@ def test_chat_command_prompts_for_hosted_search_when_config_missing(
 @patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "quit"])
 @patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
 @patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.uuid4", return_value=SimpleNamespace(hex="session1234567890"))
 @patch("solana_agent.cli.SolanaAgent")
 def test_chat_command_honors_explicit_search_flag_without_prompt(
     mock_solana_agent,
+    mock_uuid4,
     mock_stream_agent_response,
     mock_typer_prompt,
     mock_prompt_ask,
@@ -153,6 +171,7 @@ def test_chat_command_honors_explicit_search_flag_without_prompt(
     del mock_prompt_ask
     del mock_exists
     del mock_typer_prompt
+    del mock_uuid4
     mock_agent = MagicMock()
     mock_solana_agent.return_value = mock_agent
     original_asyncio_run = asyncio.run
@@ -173,7 +192,103 @@ def test_chat_command_honors_explicit_search_flag_without_prompt(
         "hello",
         None,
         search_enabled=True,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
     )
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask", return_value=False)
+@patch("solana_agent.cli.Prompt.ask", side_effect=["hello", "what is my name?", "quit"])
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.uuid4", return_value=SimpleNamespace(hex="session1234567890"))
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_reuses_same_memory_session_context_across_turns(
+    mock_solana_agent,
+    mock_uuid4,
+    mock_stream_agent_response,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_prompt_ask
+    del mock_exists
+    del mock_confirm_ask
+    del mock_typer_prompt
+    del mock_uuid4
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    original_asyncio_run = asyncio.run
+
+    with patch(
+        "solana_agent.cli.asyncio.run",
+        side_effect=original_asyncio_run,
+    ):
+        result = runner.invoke(app, ["chat", "--config", "config.json"])
+
+    assert result.exit_code == 0
+    assert mock_stream_agent_response.await_count == 2
+    first_call = mock_stream_agent_response.await_args_list[0]
+    second_call = mock_stream_agent_response.await_args_list[1]
+    assert first_call.args == (mock_agent, "hello", None)
+    assert second_call.args == (mock_agent, "what is my name?", None)
+    assert first_call.kwargs == {
+        "search_enabled": False,
+        "conversation_id": "cli-chat-session12345",
+        "model": "memory",
+        "memory_ttl_tier": "work",
+    }
+    assert second_call.kwargs == first_call.kwargs
+
+
+@patch("solana_agent.cli.Path.exists", return_value=False)
+@patch("solana_agent.cli.Confirm.ask", return_value=False)
+@patch(
+    "solana_agent.cli.Prompt.ask",
+    side_effect=["my name is Paul Hinton", "what is my name?", "quit"],
+)
+@patch("solana_agent.cli.typer.prompt", return_value="You are concise.")
+@patch("solana_agent.cli.stream_agent_response", new_callable=AsyncMock)
+@patch("solana_agent.cli.uuid4", return_value=SimpleNamespace(hex="session1234567890"))
+@patch("solana_agent.cli.SolanaAgent")
+def test_chat_command_fast_paths_same_session_name_recall(
+    mock_solana_agent,
+    mock_uuid4,
+    mock_stream_agent_response,
+    mock_typer_prompt,
+    mock_prompt_ask,
+    mock_confirm_ask,
+    mock_exists,
+):
+    del mock_prompt_ask
+    del mock_exists
+    del mock_confirm_ask
+    del mock_typer_prompt
+    del mock_uuid4
+    mock_agent = MagicMock()
+    mock_solana_agent.return_value = mock_agent
+    original_asyncio_run = asyncio.run
+
+    with patch(
+        "solana_agent.cli.asyncio.run",
+        side_effect=original_asyncio_run,
+    ):
+        result = runner.invoke(app, ["chat", "--config", "config.json"])
+
+    assert result.exit_code == 0
+    mock_stream_agent_response.assert_awaited_once_with(
+        mock_agent,
+        "my name is Paul Hinton",
+        None,
+        search_enabled=False,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
+    )
+    assert "Your name is Paul Hinton." in result.stdout
 
 
 @pytest.mark.asyncio
@@ -191,6 +306,19 @@ async def test_stream_agent_response_renders_markdown(mock_console_print):
         mock_agent,
         "What is the latest news?",
         search_enabled=True,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
+    )
+
+    mock_agent.process.assert_called_once_with(
+        message="What is the latest news?",
+        output_format="text",
+        prompt=None,
+        search_enabled=True,
+        conversation_id="cli-chat-session12345",
+        model="memory",
+        memory_ttl_tier="work",
     )
 
     renderable = mock_console_print.call_args.args[0]

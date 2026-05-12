@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import inspect
+from statistics import median
+import time
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -54,6 +57,32 @@ MEMORY_PRIORITY_PROJECT_SMOKE_TOKEN = "sdk-memory-project-30d-priority"
 SOLANA_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
 DEFAULT_JUPITER_QUOTE_AMOUNT = 1_000_000
+
+
+def _round_ms(value: float) -> float:
+    return round(float(value), 2)
+
+
+def _latency_summary(samples_ms: list[float]) -> dict[str, Any]:
+    normalized = [_round_ms(sample) for sample in samples_ms if sample >= 0]
+    if not normalized:
+        return {
+            "count": 0,
+            "min_ms": None,
+            "max_ms": None,
+            "avg_ms": None,
+            "median_ms": None,
+            "samples_ms": [],
+        }
+
+    return {
+        "count": len(normalized),
+        "min_ms": _round_ms(min(normalized)),
+        "max_ms": _round_ms(max(normalized)),
+        "avg_ms": _round_ms(sum(normalized) / len(normalized)),
+        "median_ms": _round_ms(median(normalized)),
+        "samples_ms": normalized,
+    }
 
 
 def _money_string(value: Decimal) -> str:
@@ -616,6 +645,41 @@ def _is_wallet_export_ownership_mismatch(exc: Exception) -> bool:
     return "wallet_id does not belong to privy_user_id" in error_text.lower()
 
 
+async def _export_wallet_private_key_without_saved_wallet_id(
+    agent: Any,
+    *,
+    privy_user_id: str,
+    chain_type: str,
+) -> str:
+    resolver = getattr(agent, "_get_provider_method", None)
+    if callable(resolver):
+        provider_export = resolver(
+            "export_wallet_private_key",
+            "Hosted wallet management",
+        )
+        if callable(provider_export):
+            provider_result = provider_export(
+                privy_user_id=privy_user_id,
+                chain_type=chain_type,
+            )
+            if inspect.isawaitable(provider_result):
+                provider_payload = await provider_result
+                if isinstance(provider_payload, Mapping):
+                    private_key = str(provider_payload.get("private_key") or "").strip()
+                else:
+                    private_key = str(provider_payload or "").strip()
+                if private_key:
+                    return private_key
+
+    return str(
+        await agent.export_wallet_private_key(
+            privy_user_id=privy_user_id,
+            chain_type=chain_type,
+        )
+        or ""
+    ).strip()
+
+
 async def _bootstrap_local_hosted_x402_signer(
     agent: Any,
     *,
@@ -644,13 +708,11 @@ async def _bootstrap_local_hosted_x402_signer(
     except Exception as exc:
         if not wallet_id or not _is_wallet_export_ownership_mismatch(exc):
             raise
-        exported_private_key = str(
-            await agent.export_wallet_private_key(
-                privy_user_id=privy_user_id,
-                chain_type=chain_type,
-            )
-            or ""
-        ).strip()
+        exported_private_key = await _export_wallet_private_key_without_saved_wallet_id(
+            agent,
+            privy_user_id=privy_user_id,
+            chain_type=chain_type,
+        )
     if not exported_private_key:
         raise ValueError(
             "Local hosted x402 signer bootstrap returned an empty private key"
@@ -790,9 +852,12 @@ async def _run_memory_smoke_step(
     max_attempts: int = 2,
     max_tool_iterations: int = 8,
     request_timeout_seconds: int = 120,
+    warm_recall_count: int = 0,
 ) -> dict[str, Any]:
     attempts = max(1, int(max_attempts))
+    warm_recall_iterations = max(0, int(warm_recall_count))
     for attempt in range(attempts):
+        context_started_at = time.perf_counter()
         context = await agent.context(
             conversation_id=f"{conversation_prefix}-{uuid4().hex[:12]}",
             model="memory",
@@ -801,10 +866,12 @@ async def _run_memory_smoke_step(
             search_enabled=False,
             chain_type=chain_type,
         )
+        context_build_ms = _round_ms((time.perf_counter() - context_started_at) * 1000)
         context["_raise_stream_errors"] = True
         context["max_tool_iterations"] = max_tool_iterations
         context["request_timeout_seconds"] = request_timeout_seconds
 
+        store_started_at = time.perf_counter()
         store_response = await _send_smoke_message(
             agent,
             step_name=step_name,
@@ -815,6 +882,7 @@ async def _run_memory_smoke_step(
             ),
             context=context,
         )
+        store_ms = _round_ms((time.perf_counter() - store_started_at) * 1000)
         if (
             MEMORY_STORE_SMOKE_SENTINEL not in store_response
             or remember_token not in store_response
@@ -825,16 +893,21 @@ async def _run_memory_smoke_step(
                 f"Smoke step '{step_name}' response did not include {MEMORY_STORE_SMOKE_SENTINEL} {remember_token}"
             )
 
+        recall_prompt = _memory_recall_smoke_message(
+            remember_token=remember_token,
+            expected_sentinel=expected_sentinel,
+            retention_days=retention_days,
+            memory_ttl_tier=memory_ttl_tier,
+        )
+        cold_recall_started_at = time.perf_counter()
         recall_response = await _send_smoke_message(
             agent,
             step_name=step_name,
-            prompt_text=_memory_recall_smoke_message(
-                remember_token=remember_token,
-                expected_sentinel=expected_sentinel,
-                retention_days=retention_days,
-                memory_ttl_tier=memory_ttl_tier,
-            ),
+            prompt_text=recall_prompt,
             context=context,
+        )
+        cold_recall_ms = _round_ms(
+            (time.perf_counter() - cold_recall_started_at) * 1000
         )
         if (
             expected_sentinel not in recall_response
@@ -843,6 +916,34 @@ async def _run_memory_smoke_step(
             if attempt + 1 < attempts:
                 continue
             raise ValueError(error_message)
+
+        warm_recall_samples_ms: list[float] = []
+        warm_recall_response = ""
+        warm_recall_failed = False
+        for warm_index in range(warm_recall_iterations):
+            warm_started_at = time.perf_counter()
+            warm_recall_response = await _send_smoke_message(
+                agent,
+                step_name=f"{step_name}_warm_{warm_index + 1}",
+                prompt_text=recall_prompt,
+                context=context,
+            )
+            warm_recall_samples_ms.append(
+                _round_ms((time.perf_counter() - warm_started_at) * 1000)
+            )
+            if (
+                expected_sentinel not in warm_recall_response
+                or remember_token not in warm_recall_response
+            ):
+                warm_recall_failed = True
+                break
+
+        if warm_recall_failed:
+            if attempt + 1 < attempts:
+                continue
+            raise ValueError(error_message)
+
+        warm_recall_summary = _latency_summary(warm_recall_samples_ms)
 
         return {
             "name": step_name,
@@ -853,9 +954,117 @@ async def _run_memory_smoke_step(
             "remember_token": remember_token,
             "service_tier": service_tier,
             "response_excerpt": _excerpt(recall_response),
+            "warm_response_excerpt": _excerpt(warm_recall_response or recall_response),
+            "latency_ms": {
+                "context_build_ms": context_build_ms,
+                "store_ms": store_ms,
+                "cold_recall_ms": cold_recall_ms,
+                "warm_recall": warm_recall_summary,
+            },
         }
 
     raise ValueError(error_message)
+
+
+def _resolve_memory_smoke_profile(
+    *,
+    memory_ttl_tier: str,
+    service_tier: str,
+) -> tuple[int, str, str]:
+    normalized_memory_tier = str(memory_ttl_tier or "").strip().lower()
+    normalized_service_tier = str(service_tier or "").strip().lower()
+    if normalized_memory_tier not in {"work", "project"}:
+        raise ValueError("memory_ttl_tier must be one of: work, project")
+    if normalized_service_tier not in {"standard", "priority"}:
+        raise ValueError("service_tier must be one of: standard, priority")
+
+    if normalized_memory_tier == "work":
+        if normalized_service_tier == "priority":
+            return (
+                WORK_MEMORY_TTL_DAYS,
+                MEMORY_PRIORITY_WORK_SMOKE_SENTINEL,
+                MEMORY_PRIORITY_WORK_SMOKE_TOKEN,
+            )
+        return WORK_MEMORY_TTL_DAYS, MEMORY_WORK_SMOKE_SENTINEL, MEMORY_WORK_SMOKE_TOKEN
+
+    if normalized_service_tier == "priority":
+        return (
+            PROJECT_MEMORY_TTL_DAYS,
+            MEMORY_PRIORITY_PROJECT_SMOKE_SENTINEL,
+            MEMORY_PRIORITY_PROJECT_SMOKE_TOKEN,
+        )
+    return (
+        PROJECT_MEMORY_TTL_DAYS,
+        MEMORY_PROJECT_SMOKE_SENTINEL,
+        MEMORY_PROJECT_SMOKE_TOKEN,
+    )
+
+
+async def run_public_sdk_memory_benchmark(
+    agent: Any,
+    *,
+    chain_type: str = "solana",
+    memory_ttl_tier: str = "project",
+    service_tier: str = "standard",
+    warm_recall_count: int = 3,
+    preview: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    retention_days, expected_sentinel, remember_token = _resolve_memory_smoke_profile(
+        memory_ttl_tier=memory_ttl_tier,
+        service_tier=service_tier,
+    )
+    smoke_preview = preview or await build_public_sdk_smoke_preview(
+        agent,
+        chain_type=chain_type,
+        include_search=False,
+        include_priority=service_tier == "priority",
+        include_memory=True,
+    )
+    privy_user_id = str(smoke_preview.get("privy_user_id") or "").strip()
+    wallet_payload = dict(smoke_preview.get("wallet") or {})
+    wallet_id = str(wallet_payload.get("wallet_id") or "").strip()
+    steps = list(smoke_preview.get("steps") or [])
+
+    bootstrap_step = await _bootstrap_local_hosted_x402_signer(
+        agent,
+        wallet_id=wallet_id,
+        privy_user_id=privy_user_id,
+        chain_type=chain_type,
+    )
+    if bootstrap_step is not None:
+        steps.append(bootstrap_step)
+
+    step = await _run_memory_smoke_step(
+        agent,
+        step_name=f"memory_benchmark_{memory_ttl_tier}_{service_tier}",
+        expected_sentinel=expected_sentinel,
+        error_message=(
+            f"Memory benchmark response did not include {expected_sentinel} {remember_token}"
+        ),
+        conversation_prefix=f"sdk-benchmark-memory-{memory_ttl_tier}-{service_tier}",
+        chain_type=chain_type,
+        memory_ttl_tier=memory_ttl_tier,
+        retention_days=retention_days,
+        remember_token=remember_token,
+        service_tier=service_tier,
+        warm_recall_count=warm_recall_count,
+    )
+    steps.append(step)
+    return {
+        "ok": True,
+        "preview_only": False,
+        "memory_ttl_tier": memory_ttl_tier,
+        "service_tier": service_tier,
+        "retention_days": retention_days,
+        "warm_recall_count": max(0, int(warm_recall_count)),
+        "privy_user_id": privy_user_id,
+        "wallet": wallet_payload,
+        "coverage": dict(smoke_preview.get("coverage") or {}),
+        "latency_ms": dict(step.get("latency_ms") or {}),
+        "step": step,
+        "steps": steps,
+        "account": dict(smoke_preview.get("account") or {}),
+    }
 
 
 async def build_public_sdk_smoke_preview(
