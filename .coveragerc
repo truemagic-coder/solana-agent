@@ -9,6 +9,7 @@ omit =
     solana_agent/interfaces/providers/realtime.py  # exclude interface-only module
 
 [report]
+fail_under = 100
 exclude_lines =
     pragma: no cover
     def __repr__

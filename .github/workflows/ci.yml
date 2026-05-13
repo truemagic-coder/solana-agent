@@ -68,7 +68,14 @@ jobs:
     - name: Run tests with pytest
       run: |
         mkdir -p junit
-        poetry run pytest --junitxml=junit/test-results-${{ matrix.python-version }}.xml --cov=solana_agent --cov-report=xml --cov-report=term tests/
+        poetry run pytest \
+          --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
+          --cov=solana_agent \
+          --cov-config=.coveragerc \
+          --cov-fail-under=100 \
+          --cov-report=xml \
+          --cov-report=term \
+          tests/
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
